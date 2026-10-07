@@ -25,4 +25,4 @@ expression: "snapshot(&draw(&typing_state(), 60, 24))"
 ││ See you there                                          ││
 │╰────────────────────────────────────────────────────────╯│
 ╰──────────────────────────────────────────────────────────╯
- ● connected · 1 unread                alt+↑↓ conversations
+ ● connected · 1 unread               alt+j/k conversations

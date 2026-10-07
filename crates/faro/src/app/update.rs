@@ -88,10 +88,14 @@ fn key_action(key: KeyEvent) -> Option<Action> {
     match (key.code, modifiers) {
         (KeyCode::Char('q'), KeyModifiers::CONTROL) => Some(Action::Quit),
         (KeyCode::Char('c'), KeyModifiers::CONTROL) => Some(Action::Interrupt),
-        (KeyCode::Up, KeyModifiers::ALT) => Some(Action::PreviousConversation),
-        (KeyCode::Down, KeyModifiers::ALT) => Some(Action::NextConversation),
-        (KeyCode::Char('s'), KeyModifiers::ALT) => Some(Action::ToggleLeftSidebar),
-        (KeyCode::Char('i'), KeyModifiers::ALT) => Some(Action::ToggleRightSidebar),
+        (KeyCode::Char('k' | 'K'), KeyModifiers::ALT) | (KeyCode::Up, KeyModifiers::ALT) => {
+            Some(Action::PreviousConversation)
+        }
+        (KeyCode::Char('j' | 'J'), KeyModifiers::ALT) | (KeyCode::Down, KeyModifiers::ALT) => {
+            Some(Action::NextConversation)
+        }
+        (KeyCode::Char('s' | 'S'), KeyModifiers::ALT) => Some(Action::ToggleLeftSidebar),
+        (KeyCode::Char('i' | 'I'), KeyModifiers::ALT) => Some(Action::ToggleRightSidebar),
         (KeyCode::Esc, KeyModifiers::NONE) => Some(Action::Dismiss),
         (KeyCode::Backspace, KeyModifiers::NONE) => Some(Action::DeleteBackward),
         (KeyCode::Char(c), KeyModifiers::NONE) => Some(Action::Insert(c)),

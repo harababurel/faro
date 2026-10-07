@@ -204,7 +204,7 @@ presage keeps its own store for keys, sessions and protocol state; faro never to
 
 ### 7.4 Message selection and actions
 
-- `↑` on an empty input (or `Alt+↑`) enters **message selection**.
+- `↑` on an empty input enters **message selection**.
 - Actions on the selected message: reply, react, copy, edit (own), delete, open link/attachment, info.
 - The same actions appear in a **context menu**, opened by right-click or `Enter` on a selected message. Every mouse action has a keyboard equivalent.
 
@@ -214,13 +214,13 @@ Click to focus panes and open conversations; scroll anywhere; drag sidebar borde
 
 ### 7.6 Default keybindings (confirmed, D13)
 
-Chosen to avoid tmux's default prefix (`Ctrl+B`) and common terminal shortcuts. All rebindable.
+Chosen to avoid tmux's default prefix (`Ctrl+B`) and common terminal shortcuts. All rebindable. On macOS, `Alt` bindings need the terminal's "Option as Alt/Meta" setting (kitty `macos_option_as_alt`, iTerm2 "Esc+", Terminal.app "Use Option as Meta key"); otherwise Option+letter types a symbol (D36).
 
 | Key | Action |
 |---|---|
 | `Ctrl+P` | Command palette |
 | `Ctrl+Q` | Quit (`Ctrl+C` asks for confirmation) |
-| `Alt+↑` / `Alt+↓` | Previous / next conversation |
+| `Alt+K` / `Alt+J` | Previous / next conversation (also `Alt+↑` / `Alt+↓`, D36) |
 | `Alt+1`…`Alt+9` | Jump to pinned conversation N |
 | `Tab` / `Shift+Tab` | Cycle focus between panes |
 | `Esc` | Close popup / leave selection / clear |

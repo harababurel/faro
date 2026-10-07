@@ -13,4 +13,4 @@ expression: "snapshot(&draw(&state, 80, 12))"
 │                            ││                                                │
 │                            ││                                                │
 ╰────────────────────────────╯╰────────────────────────────────────────────────╯
- ◌ connecting…  alt+↑↓ conversations · alt+s sidebar · alt+i info · ctrl+q quit
+ ◌ connecting…               alt+j/k conversations · alt+s sidebar · alt+i info

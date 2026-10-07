@@ -197,7 +197,7 @@ fn switching_conversations_keeps_drafts() {
     update(&mut state, key(KeyCode::Backspace, KeyModifiers::NONE));
     assert_eq!(state.open.as_ref().unwrap().input, "half a th");
 
-    let effects = update(&mut state, key(KeyCode::Down, KeyModifiers::ALT));
+    let effects = update(&mut state, key(KeyCode::Char('j'), KeyModifiers::ALT));
     assert_eq!(open_id(&state), Some(alice()));
     assert_eq!(
         effects,
@@ -208,14 +208,21 @@ fn switching_conversations_keeps_drafts() {
         ]
     );
     assert_eq!(state.open.as_ref().unwrap().input, "");
-    // Already at the end of the list.
+    // Already at the end of the list; Alt+↓ is the same action.
     assert_eq!(
         update(&mut state, key(KeyCode::Down, KeyModifiers::ALT)),
         vec![]
     );
 
+    update(&mut state, key(KeyCode::Char('k'), KeyModifiers::ALT));
+    assert_eq!(open_id(&state), Some(climbing()));
+    assert_eq!(state.open.as_ref().unwrap().input, "half a th");
+
+    update(&mut state, key(KeyCode::Down, KeyModifiers::ALT));
+    assert_eq!(open_id(&state), Some(alice()));
     update(&mut state, key(KeyCode::Up, KeyModifiers::ALT));
     assert_eq!(open_id(&state), Some(climbing()));
+    // Alt+letters are commands, never text.
     assert_eq!(state.open.as_ref().unwrap().input, "half a th");
 }
 

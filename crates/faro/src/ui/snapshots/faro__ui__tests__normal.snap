@@ -31,4 +31,4 @@ expression: "snapshot(&draw(&typing_state(), 100, 30))"
 │                            │││ See you there                                                    ││
 │                            ││╰──────────────────────────────────────────────────────────────────╯│
 ╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯
- ● connected · 1 unread             alt+↑↓ conversations · alt+s sidebar · alt+i info · ctrl+q quit
+ ● connected · 1 unread            alt+j/k conversations · alt+s sidebar · alt+i info · ctrl+q quit

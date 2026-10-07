@@ -15,7 +15,7 @@ use crate::app::state::{NoticeLevel, State};
 /// Key hints for what M3 supports, most important first; dropped from the end
 /// when space runs out.
 const HINTS: [(&str, &str); 4] = [
-    ("alt+↑↓", "conversations"),
+    ("alt+j/k", "conversations"),
     ("alt+s", "sidebar"),
     ("alt+i", "info"),
     ("ctrl+q", "quit"),

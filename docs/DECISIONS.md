@@ -84,6 +84,8 @@ All entries below were made on 2026-10-07 unless stated otherwise.
 
 ### D13. Default keybindings as proposed in DESIGN.md §7.6 — Accepted
 
+> Amended by D36: `Alt+J/K` switch conversations (arrows kept as a second binding); `Alt+↑` no longer enters message selection.
+
 - Avoid tmux's default prefix `Ctrl+B`. All bindings rebindable via config.
 
 ### D14. Release split v0.1 / v0.2 as in DESIGN.md §14 — Accepted
@@ -252,7 +254,15 @@ Refines the DESIGN.md §5.1 sketch:
 - **Layout:** left sidebar 30 columns (hidden below 70 columns), right info sidebar 28 columns (hidden below 110 columns), the message pane in between with the input as its own panel at the bottom (grows to 6 lines, then scrolls), and a footer with connection state, unread total, and width-aware key hints or the latest notice. Fixed widths until resizing lands (v0.2).
 - **IRC layout:** `time  name  text`, names right-aligned in a column that shrinks on narrow panes; a sender's repeated messages within 10 minutes hide the name. Quotes, reactions, `(edited)`, delivery glyphs (◌ ✓ ✓✓, read ✓✓ in the secondary colour, `! not sent`), deleted placeholders, attachment name and size, date rules (Today / Yesterday / weekday and date) and a "new messages" rule above the first unread message as it was when the conversation was opened.
 - **Conversation list:** hidden, archived and empty conversations are not shown (DESIGN §7.7 default), except the open one. "Pinned"/"Recent" headers appear only when something is pinned. On startup the last open conversation (stored in `app_state` as `ui.last_open_conversation`) is reopened; on a fresh database the first incoming message opens its conversation, so typing always has a target.
-- **Keys in M3** (a subset of D13): `Ctrl+Q` quits; `Ctrl+C` asks for a second press; `Alt+↑/↓` switch conversation; `Alt+S`/`Alt+I` toggle sidebars; `Esc` dismisses the notice; printable characters and `Backspace` (by grapheme) edit the input. `Enter` does nothing until sending exists (M4). Mouse events are captured but ignored until M4. Drafts are kept per conversation in memory only, until M4.
+- **Keys in M3** (a subset of D13): `Ctrl+Q` quits; `Ctrl+C` asks for a second press; `Alt+↑/↓` switch conversation (`Alt+J/K` added by D36); `Alt+S`/`Alt+I` toggle sidebars; `Esc` dismisses the notice; printable characters and `Backspace` (by grapheme) edit the input. `Enter` does nothing until sending exists (M4). Mouse events are captured but ignored until M4. Drafts are kept per conversation in memory only, until M4.
 - **Startup order:** the backend's account, contacts and groups are loaded (and stored) before the terminal enters raw mode, so the first frame already has names.
 - **Mock flags:** `--mock-activity <ms>` (env `FARO_MOCK_ACTIVITY`, default 4000) sets the mean time between scripted events; `--mock-no-faults` (env `FARO_MOCK_NO_FAULTS`) turns off scripted outages and errors. A flood test needs both (`--mock-activity 2 --mock-no-faults`): with faults on, an outage starts within a few hundred events and nothing arrives while offline.
 - **Known issue, not fixed in M3:** emoji with variation selectors (☺️ ❤️), flags and ZWJ sequences are drawn narrower by tmux than `unicode-width` reports, which shifts borders on those lines. Tracked by the emoji width fallback (DESIGN §7.3) and PLAN M8 task 2.
+
+### D36. `Alt+J/K` switch conversations — Accepted (2026-10-07)
+
+- **Problem (owner, hands-on):** in the owner's tmux, `Option+↑/↓` (Alt+arrows) already move between panes, so tmux takes them before faro sees them.
+- **Decision (owner):** `Alt+K` / `Alt+J` are the default previous / next conversation keys (vim-style; tmux has no default binding for them, and Alt+letter never types text). `Alt+↑/↓` stay as a second binding for setups where tmux doesn't take them. Letter bindings match either case, so Shift or Caps Lock don't break them. Amends D13.
+- `Alt+↑` no longer doubles as "enter message selection" (DESIGN §7.4 had both meanings); `↑` on an empty input is enough.
+- **macOS note:** Option+letter types a symbol (Option+J is `∆`) unless the terminal sends Option as Alt/Meta: kitty `macos_option_as_alt yes` (or `left`), iTerm2 Left Option → `Esc+`, Terminal.app "Use Option as Meta key". The same applies to `Alt+S`/`Alt+I`. Document in the README (M8); everything becomes rebindable in M5.
+- **Owner's first hands-on look at M3** also confirmed the emoji width artifacts (D35); still planned for M8 task 2 unless they get in the way sooner.
