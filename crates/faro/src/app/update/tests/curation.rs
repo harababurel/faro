@@ -35,7 +35,8 @@ fn saved(effects: &[Effect], id: ConversationId) -> Option<ConversationState> {
         | Effect::Backend(_)
         | Effect::Copy(_)
         | Effect::OpenUrl(_)
-        | Effect::CheckTerminal => None,
+        | Effect::CheckTerminal
+        | Effect::Bell => None,
     })
 }
 

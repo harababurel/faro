@@ -87,3 +87,11 @@ Use a scratch config to keep your real one clean: `faro --mock --config /tmp/far
 - [ ] **Migration:** with a data dir from before M5 where you had switched to IRC or turned on allowlist mode, the first M5 start writes `layout = "irc"` / `allowlist = true` into the config file (uncommenting the template line), and the mode is as you left it.
 - [ ] **Symlinked config:** if your config is a symlink into a dotfiles repo, a palette toggle edits the target and the link stays a link.
 
+## M6: notifications (D49)
+
+Run `faro --mock --mock-no-faults --config /tmp/faro-test.toml` in a tmux window (a mock message every few seconds), then switch to another window.
+
+- [ ] **Bell under tmux:** a message in a background conversation marks faro's window with tmux's bell flag in the status line (`monitor-bell` is on by default; `bell-action` decides whether tmux passes it on). In kitty without tmux, the bell is whatever kitty does (visual or audible, `enable_audio_bell`).
+- [ ] **No bell for what you're reading:** with faro focused, at the bottom of a conversation, messages arriving there don't ring; scroll up (or switch to another tmux window, with `focus-events on`) and they do.
+- [ ] **Not too often:** with `--mock-activity 50` (a flood), the bell rings at most every 2 seconds, not on every message.
+- [ ] **Muted / archived:** mute a busy conversation (`m`) or archive it (`a`): its messages no longer ring. `[notifications] bell = false` silences everything.

@@ -88,36 +88,13 @@ pub async fn run<B: Backend + 'static>(
         config::spawn_writer(config_path.clone(), results_tx.clone());
     // Hot reload (D48); without it, faro still works with what it read.
     let watch = config::try_watch(&config_path, results_tx.clone(), &mut problems);
-    let dispatch = |list: Vec<Effect>| {
-        for effect in list {
-            let delivered = match effect {
-                Effect::Backend(command) => commands.send(command).is_ok(),
-                Effect::Copy(text) => {
-                    system::copy(&text);
-                    true
-                }
-                Effect::OpenUrl(url) => {
-                    system::open_url(url, results_tx.clone());
-                    true
-                }
-                Effect::CheckTerminal => {
-                    system::check_terminal(results_tx.clone());
-                    true
-                }
-                Effect::SaveSetting(edit) => config_writer.send(edit).is_ok(),
-                store @ (Effect::LoadConversations
-                | Effect::LoadMessages(_)
-                | Effect::LoadOlder { .. }
-                | Effect::Persist(_)
-                | Effect::MarkRead(_)
-                | Effect::SaveConversationState(..)
-                | Effect::RememberOpen(_)) => effects.send(store).is_ok(),
-            };
-            if !delivered {
-                tracing::error!("a worker task stopped; dropping an effect");
-            }
-        }
+    let router = Router {
+        commands,
+        effects,
+        config: config_writer,
+        results: results_tx,
     };
+    let dispatch = |list: Vec<Effect>| router.dispatch(list);
 
     let mut state = State::new(directory.me, directory.contacts, directory.groups);
     state.env.over_ssh = system::over_ssh();
@@ -173,13 +150,63 @@ pub async fn run<B: Backend + 'static>(
     // A send still in flight is abandoned; the store marks it failed on the
     // next start (`Store::fail_unsent`).
     command_task.abort();
+    let Router {
+        effects, config, ..
+    } = router;
     // Let queued writes finish before the caller closes the store.
     drop(effects);
     finish(worker, "effects worker").await;
     // Same for a setting changed just before quitting.
-    drop(config_writer);
+    drop(config);
     finish(config_task, "config writer").await;
     Ok(())
+}
+
+/// Where effects go: store work to the effects worker, backend commands to
+/// the command task, settings to the config writer; terminal and system
+/// effects run here, on the app loop.
+struct Router {
+    commands: mpsc::UnboundedSender<commands::Command>,
+    effects: mpsc::UnboundedSender<Effect>,
+    config: mpsc::UnboundedSender<faro_core::config::SettingEdit>,
+    results: mpsc::UnboundedSender<AppEvent>,
+}
+
+impl Router {
+    fn dispatch(&self, list: Vec<Effect>) {
+        for effect in list {
+            let delivered = match effect {
+                Effect::Backend(command) => self.commands.send(command).is_ok(),
+                Effect::Copy(text) => {
+                    system::copy(&text);
+                    true
+                }
+                Effect::OpenUrl(url) => {
+                    system::open_url(url, self.results.clone());
+                    true
+                }
+                Effect::CheckTerminal => {
+                    system::check_terminal(self.results.clone());
+                    true
+                }
+                Effect::Bell => {
+                    system::bell();
+                    true
+                }
+                Effect::SaveSetting(edit) => self.config.send(edit).is_ok(),
+                store @ (Effect::LoadConversations
+                | Effect::LoadMessages(_)
+                | Effect::LoadOlder { .. }
+                | Effect::Persist(_)
+                | Effect::MarkRead(_)
+                | Effect::SaveConversationState(..)
+                | Effect::RememberOpen(_)) => self.effects.send(store).is_ok(),
+            };
+            if !delivered {
+                tracing::error!("a worker task stopped; dropping an effect");
+            }
+        }
+    }
 }
 
 /// Wait for a worker to finish its queue.

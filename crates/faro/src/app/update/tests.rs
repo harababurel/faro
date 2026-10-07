@@ -92,6 +92,7 @@ fn first_message_opens_a_conversation_on_a_fresh_start() {
         effects,
         vec![
             Effect::Persist(Box::new(BackendEvent::Message(first))),
+            Effect::Bell,
             Effect::LoadMessages(alice()),
             Effect::RememberOpen(alice()),
             Effect::MarkRead(alice()),
@@ -165,7 +166,10 @@ fn messages_update_the_list_and_the_open_conversation() {
     );
     assert_eq!(
         effects,
-        vec![Effect::Persist(Box::new(BackendEvent::Message(to_alice)))]
+        vec![
+            Effect::Persist(Box::new(BackendEvent::Message(to_alice))),
+            Effect::Bell,
+        ]
     );
     let alice_summary = state.summary(alice()).unwrap();
     assert_eq!(alice_summary.unread, 2);
@@ -1093,6 +1097,7 @@ fn clicking_a_message_selects_it_and_right_click_opens_the_menu() {
 }
 
 mod curation;
+mod notify;
 mod palette;
 mod presence;
 mod settings;

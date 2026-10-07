@@ -302,7 +302,7 @@ pub static SETTINGS: &[Setting] = &[
     },
     Setting {
         path: "notifications.bell",
-        help: "Ring the terminal bell for new messages (from M6).",
+        help: "Ring the terminal bell for new messages.",
         get: |c| ConfigValue::Bool(c.notifications.bell),
         set: |c, v| {
             c.notifications.bell = boolean(v)?;

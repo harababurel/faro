@@ -1,5 +1,5 @@
-//! Effects on the machine faro runs on: the clipboard (through the terminal)
-//! and opening links. Run by the app loop, never the reducer.
+//! Effects on the machine faro runs on: the clipboard and the bell (through
+//! the terminal) and opening links. Run by the app loop, never the reducer.
 
 use std::io::Write as _;
 use std::process::Stdio;
@@ -17,6 +17,15 @@ pub fn copy(text: &str) {
         .and_then(|()| out.flush());
     if let Err(error) = written {
         tracing::warn!(%error, "writing the clipboard sequence failed");
+    }
+}
+
+/// Ring the terminal bell (BEL). Under tmux this sets the window's bell flag
+/// and runs `alert-bell` hooks (`monitor-bell`, on by default).
+pub fn bell() {
+    let mut out = std::io::stdout();
+    if let Err(error) = out.write_all(b"\x07").and_then(|()| out.flush()) {
+        tracing::warn!(%error, "ringing the bell failed");
     }
 }
 

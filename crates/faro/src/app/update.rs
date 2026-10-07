@@ -23,6 +23,7 @@ use super::timeline;
 
 mod curation;
 mod navigation;
+mod notify;
 mod palette;
 mod presence;
 mod selection;
@@ -408,6 +409,9 @@ fn on_message(state: &mut State, message: &Message, effects: &mut Vec<Effect>) {
                 Box::new(summary.state.clone()),
             ));
         }
+    }
+    if incoming && !seen {
+        effects.extend(notify::on_unseen_message(state, id));
     }
     sort_conversations(&mut state.conversations);
     if state.open.is_none() && !state.loading {

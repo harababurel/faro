@@ -27,6 +27,8 @@ pub const TYPING_PAUSE: Duration = Duration::from_secs(3);
 /// While typing goes on, "started typing" is repeated this often, so the
 /// others' indicators don't time out (`TYPING_TIMEOUT`).
 pub const TYPING_REFRESH: Duration = Duration::from_secs(10);
+/// At most one terminal bell this often, so a flood doesn't ring on and on (D49).
+pub const BELL_INTERVAL: Duration = Duration::from_secs(2);
 /// Informational notices ("Copied") disappear after this long.
 pub const INFO_NOTICE_TIME: Duration = Duration::from_secs(3);
 /// Signal's default reactions, in its order.
@@ -82,6 +84,8 @@ pub struct State {
     /// What was wrong with the config file last time, so the same problems
     /// aren't reported again on every reload.
     pub config_problems: Vec<String>,
+    /// When the terminal bell last rang (`BELL_INTERVAL`, D49).
+    pub last_bell: Option<Instant>,
     /// Ctrl+C was pressed once; a second press quits.
     pub quit_armed: bool,
     pub quit: bool,
@@ -467,6 +471,7 @@ impl State {
             last_sent_at: Timestamp::from_millis(0),
             config: Config::default(),
             config_problems: Vec::new(),
+            last_bell: None,
             quit_armed: false,
             quit: false,
         }
@@ -517,12 +522,20 @@ impl State {
         self.conversations.iter().find(|c| c.id == id)
     }
 
-    /// Unread messages in the main list, muted conversations excepted.
+    /// Unread messages in conversations that notify (`notifies`): the
+    /// footer's count and the window title's (D49).
     pub fn unread_total(&self, now: Timestamp) -> u32 {
         self.listed_in(SidebarView::Chats)
-            .filter(|c| !c.state.muted_at(now))
+            .filter(|c| self.notifies(c, now))
             .map(|c| c.unread)
             .sum()
+    }
+
+    /// Whether new messages in `summary` ring the bell and count in the
+    /// window title (D49): it's in the main list (not archived, hidden or
+    /// left out by allowlist mode) and not muted.
+    pub fn notifies(&self, summary: &ConversationSummary, now: Timestamp) -> bool {
+        self.section(summary).view() == SidebarView::Chats && !summary.state.muted_at(now)
     }
 
     /// Name to show for a conversation: known title, then phone number, then a

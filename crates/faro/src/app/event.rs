@@ -90,4 +90,6 @@ pub enum Effect {
     OpenUrl(String),
     /// Look for mosh; answered with `AppEvent::TerminalChecked` (D47).
     CheckTerminal,
+    /// Ring the terminal bell (D49).
+    Bell,
 }
