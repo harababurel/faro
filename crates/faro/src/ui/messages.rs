@@ -12,7 +12,7 @@ use ratatui::text::{Line, Span};
 
 use super::View;
 use super::bubbles;
-use super::text::{pad_left, sanitize, truncate, width, wrap};
+use super::text::{one_line, pad_left, sanitize, truncate, width, wrap};
 use crate::app::state::{Anchor, MessageLayout, OpenConversation, State};
 
 /// Consecutive messages from one sender within this window share one name.
@@ -345,10 +345,10 @@ pub(super) fn content(
     let mut body: Vec<Vec<Span<'static>>> = Vec::new();
     if let Some(quote) = &message.quote {
         let who = state.person_name(quote.target.sender);
-        let preview = quote.preview.as_ref().map_or_else(
-            || "…".to_owned(),
-            |p| sanitize(p.expose()).replace('\n', " "),
-        );
+        let preview = quote
+            .preview
+            .as_ref()
+            .map_or_else(|| "…".to_owned(), |p| one_line(p.expose()));
         let text = format!("▎ {who}: {preview}");
         body.push(vec![Span::styled(
             truncate(&text, max).into_owned(),

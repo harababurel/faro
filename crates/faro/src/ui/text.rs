@@ -26,6 +26,17 @@ pub fn sanitize(text: &str) -> Cow<'_, str> {
     Cow::Owned(super::emoji::display(&clean).into_owned())
 }
 
+/// [`sanitize`]d text on one line: line breaks become spaces (previews of
+/// multi-line messages, e.g. quotes).
+pub fn one_line(text: &str) -> String {
+    let joined: String = text
+        .split(['\r', '\n'])
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    sanitize(&joined).into_owned()
+}
+
 /// Width in terminal cells.
 pub fn width(text: &str) -> usize {
     text.graphemes(true).map(str::width).sum()
@@ -127,6 +138,14 @@ mod tests {
     fn sanitize_neutralises_escape_sequences() {
         assert_eq!(sanitize("plain"), Cow::Borrowed("plain"));
         assert_eq!(sanitize("a\x1b[31mb\tc\u{9b}"), "a\u{FFFD}[31mb c\u{FFFD}");
+    }
+
+    #[test]
+    fn one_line_joins_lines_before_sanitising() {
+        assert_eq!(
+            one_line("line one\nline two\r\nthree\x1b"),
+            "line one line two three\u{FFFD}"
+        );
     }
 
     #[test]

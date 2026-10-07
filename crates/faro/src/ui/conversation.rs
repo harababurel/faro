@@ -9,7 +9,7 @@ use ratatui::widgets::{Block, BorderType, Padding, Paragraph};
 use unicode_segmentation::UnicodeSegmentation as _;
 use unicode_width::UnicodeWidthStr as _;
 
-use super::text::{sanitize, truncate};
+use super::text::{one_line, sanitize, truncate};
 use super::{View, focused, messages};
 use crate::app::input::Input;
 use crate::app::state::{Focus, Geometry, OpenConversation, State};
@@ -255,10 +255,10 @@ fn render_input(
 
     if let Some(quote) = &open.reply_to {
         let who = sanitize(&state.person_name(quote.target.sender)).into_owned();
-        let preview = quote.preview.as_ref().map_or_else(
-            || "…".to_owned(),
-            |p| sanitize(p.expose()).replace('\n', " "),
-        );
+        let preview = quote
+            .preview
+            .as_ref()
+            .map_or_else(|| "…".to_owned(), |p| one_line(p.expose()));
         let text = format!("↳ Replying to {who}: {preview}");
         let hint = "  esc cancel";
         let room = usize::from(inner.width).saturating_sub(hint.width());
