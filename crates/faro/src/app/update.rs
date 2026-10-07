@@ -2,36 +2,26 @@
 //! I/O, so the UI can never wait on the network or disk here. Store work is
 //! returned as `Effect`s.
 
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::Event;
 use faro_core::backend::BackendEvent;
 use faro_core::domain::{ConversationId, Direction, Message, MessageRef, ServiceId, TypingState};
 use faro_core::store::{ConversationState, ConversationSummary};
 use tokio::time::Instant;
-use unicode_segmentation::UnicodeSegmentation as _;
 
 use super::event::{AppEvent, Effect};
 use super::state::{
-    Notice, NoticeLevel, OpenConversation, State, TYPING_TIMEOUT, Typist, sort_conversations,
+    Focus, Geometry, Notice, NoticeLevel, OpenConversation, SidebarScroll, State, TYPING_TIMEOUT,
+    Typist, sort_conversations,
 };
 use super::timeline;
 
+mod keys;
+mod navigation;
+
+pub use navigation::mouse_affects_view;
+
 /// How many messages to load when a conversation opens.
 pub const PAGE: u32 = 200;
-
-/// What a key does. The keybinding system (M4) will map config to these.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Action {
-    Quit,
-    /// Ctrl+C: quits on the second press (D13).
-    Interrupt,
-    PreviousConversation,
-    NextConversation,
-    ToggleLeftSidebar,
-    ToggleRightSidebar,
-    Dismiss,
-    DeleteBackward,
-    Insert(char),
-}
 
 pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
     match event {
@@ -48,6 +38,14 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
             on_messages_loaded(state, conversation, messages);
             vec![]
         }
+        AppEvent::OlderLoaded {
+            conversation,
+            messages,
+        } => {
+            on_older_loaded(state, conversation, messages);
+            vec![]
+        }
+        AppEvent::Drawn(geometry) => on_drawn(state, geometry),
         AppEvent::StoreFailed(error) => {
             state.notice = Some(Notice {
                 text: format!("Storage problem: {error}"),
@@ -68,99 +66,50 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
 
 fn on_terminal(state: &mut State, event: &Event) -> Vec<Effect> {
     match event {
-        Event::Key(key) => key_action(*key).map_or_else(Vec::new, |a| on_action(state, a)),
-        Event::FocusGained
-        | Event::FocusLost
-        | Event::Mouse(_)
-        | Event::Paste(_)
-        | Event::Resize(_, _) => vec![],
+        Event::Key(key) => keys::key_action(*key, state.focus)
+            .map_or_else(Vec::new, |a| navigation::on_action(state, a)),
+        Event::Mouse(mouse) => navigation::on_mouse(state, *mouse),
+        Event::FocusGained | Event::FocusLost | Event::Paste(_) | Event::Resize(_, _) => vec![],
     }
 }
 
-/// Default bindings (DESIGN.md §7.6) for what M3 supports.
-fn key_action(key: KeyEvent) -> Option<Action> {
-    if key.kind == KeyEventKind::Release {
-        return None;
-    }
-    // Shift only changes which character arrives.
-    let modifiers = key.modifiers.difference(KeyModifiers::SHIFT);
-    // Most keys do nothing, hence the catch-all (on a tuple, not an enum of ours).
-    match (key.code, modifiers) {
-        (KeyCode::Char('q'), KeyModifiers::CONTROL) => Some(Action::Quit),
-        (KeyCode::Char('c'), KeyModifiers::CONTROL) => Some(Action::Interrupt),
-        (KeyCode::Char('k' | 'K') | KeyCode::Up, KeyModifiers::ALT) => {
-            Some(Action::PreviousConversation)
-        }
-        (KeyCode::Char('j' | 'J') | KeyCode::Down, KeyModifiers::ALT) => {
-            Some(Action::NextConversation)
-        }
-        (KeyCode::Char('s' | 'S'), KeyModifiers::ALT) => Some(Action::ToggleLeftSidebar),
-        (KeyCode::Char('i' | 'I'), KeyModifiers::ALT) => Some(Action::ToggleRightSidebar),
-        (KeyCode::Esc, KeyModifiers::NONE) => Some(Action::Dismiss),
-        (KeyCode::Backspace, KeyModifiers::NONE) => Some(Action::DeleteBackward),
-        (KeyCode::Char(c), KeyModifiers::NONE) => Some(Action::Insert(c)),
-        _ => None,
-    }
-}
-
-fn on_action(state: &mut State, action: Action) -> Vec<Effect> {
-    if action != Action::Interrupt && state.quit_armed {
-        state.quit_armed = false;
-        state.notice = None;
-    }
-    match action {
-        Action::Quit => state.quit = true,
-        Action::Interrupt => {
-            if state.quit_armed {
-                state.quit = true;
-            } else {
-                state.quit_armed = true;
-                state.notice = Some(Notice {
-                    text: "Press Ctrl+C again to quit (Ctrl+Q quits at once)".to_owned(),
-                    level: NoticeLevel::Warning,
-                });
-            }
-        }
-        Action::PreviousConversation => return step_conversation(state, -1),
-        Action::NextConversation => return step_conversation(state, 1),
-        Action::ToggleLeftSidebar => state.panels.left = !state.panels.left,
-        Action::ToggleRightSidebar => state.panels.right = !state.panels.right,
-        Action::Dismiss => state.notice = None,
-        Action::DeleteBackward => {
-            if let Some(open) = &mut state.open
-                && let Some((at, _)) = open.input.grapheme_indices(true).next_back()
-            {
-                open.input.truncate(at);
-            }
-        }
-        Action::Insert(c) => {
-            if let Some(open) = &mut state.open {
-                open.input.push(c);
-            }
-        }
-    }
-    vec![]
-}
-
-fn step_conversation(state: &mut State, step: isize) -> Vec<Effect> {
-    let ids: Vec<ConversationId> = state.visible_conversations().map(|c| c.id).collect();
-    let current = state
-        .open
-        .as_ref()
-        .and_then(|o| ids.iter().position(|id| *id == o.id));
-    let next = match current {
-        Some(i) => i
-            .saturating_add_signed(step)
-            .min(ids.len().saturating_sub(1)),
-        None => 0,
+/// Take in what the last frame looked like: the normalised scroll position and
+/// sidebar offset (which don't change the picture), and load older messages
+/// once the top of the loaded history is on screen.
+fn on_drawn(state: &mut State, geometry: Geometry) -> Vec<Effect> {
+    state.sidebar = SidebarScroll {
+        offset: geometry.sidebar_offset,
+        reveal: false,
     };
-    match ids.get(next) {
-        Some(&id) if Some(next) != current => open_conversation(state, id),
-        Some(_) | None => vec![],
+    if geometry.sidebar.is_none() && state.focus == Focus::Conversations {
+        // Drawn as input focus already (the sidebar is hidden).
+        state.focus = Focus::Input;
     }
+    let mut effects = Vec::new();
+    if let Some(open) = state.open.as_mut() {
+        open.scroll = geometry.scroll;
+        if open.scroll.is_none() {
+            open.unseen = 0;
+        }
+        let wants_older = geometry.at_top
+            && open.scroll.is_some()
+            && open.has_older
+            && !open.loading
+            && !open.loading_older;
+        if wants_older && let Some(first) = open.messages.first() {
+            open.loading_older = true;
+            effects.push(Effect::LoadOlder {
+                conversation: open.id,
+                before: first.reference(),
+            });
+        }
+    }
+    state.geometry = geometry;
+    effects
 }
 
 fn open_conversation(state: &mut State, id: ConversationId) -> Vec<Effect> {
+    state.sidebar.reveal = true;
     if let Some(previous) = state.open.take()
         && !previous.input.is_empty()
     {
@@ -182,6 +131,10 @@ fn open_conversation(state: &mut State, id: ConversationId) -> Vec<Effect> {
         unread_on_open: unread,
         unread_marker: None,
         input: state.drafts.remove(&id).unwrap_or_default(),
+        scroll: None,
+        has_older: false,
+        loading_older: false,
+        unseen: 0,
     });
     effects
 }
@@ -211,12 +164,31 @@ fn on_messages_loaded(state: &mut State, conversation: ConversationId, messages:
         // The user moved on before the page arrived.
         return;
     };
+    open.has_older = full_page(&messages);
     open.messages = messages;
     for event in std::mem::take(&mut open.pending) {
         timeline::apply(&mut open.messages, &event);
     }
     open.loading = false;
     open.unread_marker = first_unread(&open.messages, open.unread_on_open);
+}
+
+fn on_older_loaded(state: &mut State, conversation: ConversationId, messages: Vec<Message>) {
+    let Some(open) = state
+        .open
+        .as_mut()
+        .filter(|o| o.id == conversation && o.loading_older)
+    else {
+        return;
+    };
+    open.loading_older = false;
+    open.has_older = full_page(&messages);
+    timeline::prepend(&mut open.messages, messages);
+}
+
+/// A full page means there may be more before it.
+fn full_page(messages: &[Message]) -> bool {
+    u32::try_from(messages.len()).is_ok_and(|n| n >= PAGE)
 }
 
 /// The `unread`-th incoming message from the end.
@@ -313,6 +285,11 @@ fn on_message(state: &mut State, message: &Message, effects: &mut Vec<Effect>) {
     }
     if is_open {
         apply_to_open(state, Some(id), &BackendEvent::Message(message.clone()));
+        if let Some(open) = state.open.as_mut()
+            && open.scroll.is_some()
+        {
+            open.unseen += 1;
+        }
         if incoming {
             // Persisted first (effects run in order), so this clears the count
             // the store just raised.

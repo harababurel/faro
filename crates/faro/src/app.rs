@@ -91,10 +91,13 @@ pub async fn run(
                 tz: &tz,
                 now: jiff::Timestamp::now(),
             };
-            tui.draw(|frame| ui::render(frame, &state, &view))
+            let mut geometry = state::Geometry::default();
+            tui.draw(|frame| geometry = ui::render(frame, &state, &view))
                 .context("drawing")?;
             last_draw = Some(Instant::now());
             dirty = false;
+            // Same picture; only bookkeeping (and maybe loading older messages).
+            dispatch(update::update(&mut state, AppEvent::Drawn(geometry)));
         }
         if state.quit {
             break;
@@ -132,10 +135,18 @@ pub async fn run(
     Ok(())
 }
 
-/// Mouse input changes nothing yet (M4), so it shouldn't cost a frame.
+/// Whether an event can change what's on screen; the rest don't cost a frame.
 fn affects_view(event: &AppEvent) -> bool {
-    !matches!(
-        event,
-        AppEvent::Terminal(Event::Mouse(_) | Event::FocusGained | Event::FocusLost)
-    )
+    match event {
+        AppEvent::Terminal(Event::Mouse(mouse)) => update::mouse_affects_view(*mouse),
+        AppEvent::Terminal(Event::FocusGained | Event::FocusLost) | AppEvent::Drawn(_) => false,
+        AppEvent::Terminal(Event::Key(_) | Event::Paste(_) | Event::Resize(..))
+        | AppEvent::Backend(_)
+        | AppEvent::Loaded { .. }
+        | AppEvent::MessagesLoaded { .. }
+        | AppEvent::OlderLoaded { .. }
+        | AppEvent::StoreFailed(_)
+        | AppEvent::Tick
+        | AppEvent::Shutdown => true,
+    }
 }

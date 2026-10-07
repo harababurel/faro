@@ -72,6 +72,17 @@ fn insert(messages: &mut Vec<Message>, message: &Message) {
     messages.insert(at, message.clone());
 }
 
+/// Put an older page (oldest first) in front, keeping only messages older than
+/// the first one already there.
+pub fn prepend(messages: &mut Vec<Message>, mut older: Vec<Message>) {
+    let key = |m: &Message| (m.sent_at, m.sender);
+    if let Some(first) = messages.first().map(key) {
+        older.retain(|m| key(m) < first);
+    }
+    older.append(messages);
+    *messages = older;
+}
+
 /// Recent messages are the likeliest targets, so search from the end.
 fn find(messages: &mut [Message], target: MessageRef) -> Option<&mut Message> {
     messages
@@ -122,6 +133,17 @@ mod tests {
             );
         }
         assert_eq!(times(&messages), vec![10, 20, 30]);
+    }
+
+    #[test]
+    fn older_pages_go_in_front_without_overlap() {
+        let at = |t| message(2, t, Direction::Incoming);
+        let mut messages = vec![at(30), at(40)];
+        prepend(&mut messages, vec![at(10), at(20), at(30)]);
+        assert_eq!(times(&messages), vec![10, 20, 30, 40]);
+        let mut empty = vec![];
+        prepend(&mut empty, vec![at(5)]);
+        assert_eq!(times(&empty), vec![5]);
     }
 
     #[test]

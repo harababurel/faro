@@ -10,6 +10,7 @@ use faro_core::domain::{
     ServiceId,
 };
 use faro_core::store::ConversationSummary;
+use ratatui::layout::Rect;
 use tokio::time::Instant;
 
 /// Signal clients stop showing a typing indicator after this long without an update.
@@ -31,6 +32,11 @@ pub struct State {
     pub connection: ConnectionState,
     pub typing: HashMap<ConversationId, Vec<Typist>>,
     pub panels: Panels,
+    /// Which pane keys go to (Tab cycles).
+    pub focus: Focus,
+    pub sidebar: SidebarScroll,
+    /// Where things were on the last frame, for mouse hits and page sizes.
+    pub geometry: Geometry,
     pub notice: Option<Notice>,
     /// Ctrl+C was pressed once; a second press quits.
     pub quit_armed: bool,
@@ -50,6 +56,58 @@ pub struct OpenConversation {
     /// First message that was unread when the conversation was opened.
     pub unread_marker: Option<MessageRef>,
     pub input: String,
+    /// `None` follows the newest message; otherwise the view is pinned to a
+    /// message, so new arrivals don't move it.
+    pub scroll: Option<Anchor>,
+    /// The store may have older messages than the first one loaded.
+    pub has_older: bool,
+    pub loading_older: bool,
+    /// Messages that arrived while scrolled up.
+    pub unseen: u32,
+}
+
+/// A scroll position: the bottom row of the message view is `offset` rows above
+/// the last row of `message` (negative: below it). The renderer normalises it
+/// so `0 <= offset < height of that message`, or back to `None` at the bottom.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Anchor {
+    pub message: MessageRef,
+    pub offset: isize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SidebarScroll {
+    /// First row shown (rows include section headers).
+    pub offset: usize,
+    /// Scroll so the open conversation is visible on the next frame.
+    pub reveal: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Focus {
+    Conversations,
+    Messages,
+    Input,
+}
+
+/// What the last frame looked like, reported by the renderer (`ui::render`)
+/// and stored by the reducer (`AppEvent::Drawn`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Geometry {
+    /// Inside the sidebar's border; `None` when hidden.
+    pub sidebar: Option<Rect>,
+    /// The conversation on each sidebar row from the top (`None`: a header).
+    pub sidebar_rows: Vec<Option<ConversationId>>,
+    /// The sidebar offset actually used (clamped, selection revealed).
+    pub sidebar_offset: usize,
+    /// The message history area.
+    pub history: Option<Rect>,
+    /// The input panel, border included.
+    pub input: Option<Rect>,
+    /// The normalised scroll position used for the frame.
+    pub scroll: Option<Anchor>,
+    /// The first loaded message is on screen.
+    pub at_top: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,6 +150,12 @@ impl State {
                 left: true,
                 right: false,
             },
+            focus: Focus::Input,
+            sidebar: SidebarScroll {
+                offset: 0,
+                reveal: true,
+            },
+            geometry: Geometry::default(),
             notice: None,
             quit_armed: false,
             quit: false,

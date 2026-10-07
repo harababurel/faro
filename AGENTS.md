@@ -29,11 +29,12 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 - 2026-10-07: M1 task 4 done, **M1 complete**: `faro [--mock] [--mock-seed N]` runs the mock headless on a current-thread tokio runtime until Ctrl+C, logging event kinds and a summary (D32).
 - 2026-10-07: **M2 complete** (store, D34): `faro-core::store` (SQLite via sqlx 0.9, one task owns the connection, `Store` handle over a channel), schema in `crates/faro-core/migrations/`. The headless run persists everything to `<data dir>/faro.db`; restart keeps history (tested and checked by hand).
 - 2026-10-07: **M3 complete** (TUI skeleton, D35): ratatui + crossterm in `crates/faro`; select loop, synchronous reducer, sequential effects worker, IRC message view, sidebars, input panel, footer, `faro-dark` theme, insta snapshots. `headless.rs` is gone. Flood-tested in tmux (`--mock-activity 2 --mock-no-faults`). Hands-on checks for the owner are in `docs/MANUAL_TESTS.md`.
-- **Next: M4 (core interactions + command palette)**; see docs/PLAN.md M4 and DESIGN.md §7.2–7.7. Notes:
+- 2026-10-07: keys amended after the owner's first hands-on look: `Alt+J/K` switch conversations, arrows kept as a second binding (D36). Emoji width artifacts confirmed by the owner; still planned for M8.
+- 2026-10-07: M4 task 1 done (D37): focus (`Tab`), per-pane keys (`app/update/keys.rs`), anchored scrolling + `LoadOlder`, mouse click/wheel (`app/update/navigation.rs`), `ui::render` returns `Geometry`, fed back as `AppEvent::Drawn`.
+- **Next: M4 task 2 (multi-line input, word movement/deletion, persisted drafts)**, then tasks 3–9; see docs/PLAN.md M4 and DESIGN.md §7.2–7.7. Notes:
   - **Sending needs the backend inside the app.** Today `main` passes only the event receiver to `app::run` and keeps the `MockBackend` alive outside it. Backend futures may be `!Send` (presage, D30), so run commands on the current-thread runtime (e.g. a command task that owns the backend, fed by a channel from the effects side), never in the reducer. The app owns the `Sending` state (D31): insert the outgoing message locally, then apply `Sent`/`Failed` from the result.
-  - Keys live in `app/update.rs` `key_action` as a tuple match; M4 task 7 turns `Action` into the rebindable action enum. Shifted characters arrive with `SHIFT` stripped before matching.
+  - Keys live in `app/update/keys.rs` (`key_action(key, focus)`, tuple matches per pane); M4 task 7 makes `Action` rebindable. Shifted characters arrive with `SHIFT` stripped before matching. Input editing is still append-only (`Insert`/`DeleteBackward` in `navigation.rs`); task 2 needs a cursor in `OpenConversation`.
   - Drafts are in-memory (`State::drafts`); the store already has `ConversationState::draft` and `set_conversation_state` for persisting them. Hide/archive/pin/mute map to the same struct.
-  - Mouse events are captured but ignored (`affects_view` skips redraws for them); M4 adds click and wheel handling.
   - The unread marker is fixed when a conversation opens (`OpenConversation::unread_marker`); read receipts to the backend (`mark_read`) are M4 task 6.
   - Add every new key, mouse or rendering behaviour to `docs/MANUAL_TESTS.md` (rule 10).
 
@@ -54,6 +55,7 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 - **Smoke-testing the TUI from an agent:** use a private tmux server and `respawn-pane` (chaining the command into `new-session` fails silently): `tmux -L faro-smoke -f /dev/null new-session -d -x 110 -y 30 -s s; tmux -L faro-smoke set -g remain-on-exit on; tmux -L faro-smoke respawn-pane -k -t s "./target/debug/faro --data-dir <scratch dir>"`. Drive it with `send-keys` (`M-Down`, `-l 'text'`, `C-q`), read it with `capture-pane -p`, then `kill-server`. Always use a scratch `--data-dir`.
 - **Flood tests** need `--mock-no-faults` as well as a small `--mock-activity`, or the mock spends most of its time in scripted outages. Judge CPU on a release build; debug is several times slower and takes seconds to flush queued writes on quit.
 - Key handling: match on `(code, modifiers)` tuples (no wildcard-lint trouble). Event handlers take `&Event` (`needless_pass_by_value`). `single_match_else` wants `if let ... else`.
+- **Run the quality gate with `set -o pipefail`** if you pipe its output (`cargo clippy ... | tail`): otherwise the pipe reports `tail`'s exit code and a failing gate looks green (this once let a lint failure get pushed).
 
 ### Code map
 
@@ -65,7 +67,7 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 | `crates/faro/src/main.rs` | Entry point: parse CLI, resolve paths, start logging, read the time zone (synchronous), then a current-thread tokio runtime: open the store, start the mock, load the directory, run the TUI, close the store |
 | `crates/faro/src/cli.rs` | `clap` CLI definition (`--data-dir` / `FARO_DATA_DIR`, `--mock`, `--mock-seed`, `--mock-activity`, `--mock-no-faults`) |
 | `crates/faro/src/app.rs` | `Directory`/`load_directory` (account, contacts, groups) and `run`: the `tokio::select!` loop over terminal, backend, store results, redraw timer, typing deadline and signals (D35) |
-| `crates/faro/src/app/` | `event.rs` (`AppEvent`, `Effect`), `state.rs` (`State`, `OpenConversation`, panels, notices, title/name helpers), `update.rs` + `update/tests.rs` (the reducer and key map), `timeline.rs` (in-memory event application matching the store), `effects.rs` (sequential effects worker) |
+| `crates/faro/src/app/` | `event.rs` (`AppEvent`, `Effect`), `state.rs` (`State`, `OpenConversation`, panels, notices, title/name helpers), `update.rs` + `update/` (the reducer; `keys.rs` key map, `navigation.rs` focus/scroll/mouse, `tests.rs`), `timeline.rs` (in-memory event application matching the store), `effects.rs` (sequential effects worker) |
 | `crates/faro/src/tui.rs` | `Tui`: raw mode, alternate screen, mouse capture, panic hook, synchronized-output draws; restores the terminal on drop |
 | `crates/faro/src/theme.rs` | `Theme` with semantic roles and sender palette; built-in `faro-dark` |
 | `crates/faro/src/ui.rs`, `ui/` | Pure rendering from `State`: layout in `ui.rs`; `sidebar.rs`, `conversation.rs` (pane, typing line, input panel), `messages.rs` (IRC layout), `info.rs`, `footer.rs`, `text.rs` (sanitize, width, wrap), `tests.rs` + `snapshots/` |

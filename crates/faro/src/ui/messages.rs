@@ -11,7 +11,7 @@ use ratatui::text::{Line, Span};
 
 use super::View;
 use super::text::{pad_left, sanitize, truncate, width, wrap};
-use crate::app::state::{OpenConversation, State};
+use crate::app::state::{Anchor, OpenConversation, State};
 
 /// Consecutive messages from one sender within this window share one name.
 const GROUPING_MS: u64 = 10 * 60 * 1000;
@@ -41,51 +41,167 @@ impl Columns {
     }
 }
 
-/// The last `height` lines of the conversation, oldest first. Only builds as
-/// many messages as fit.
-pub fn lines(
+/// What the message area shows.
+pub struct Window {
+    /// At most `height` lines, oldest first.
+    pub lines: Vec<Line<'static>>,
+    /// The normalised scroll position (`None`: following the newest message).
+    pub scroll: Option<Anchor>,
+    /// The first loaded message is on screen.
+    pub at_top: bool,
+}
+
+/// Everything needed to lay out one message.
+struct Context<'a> {
+    state: &'a State,
+    open: &'a OpenConversation,
+    view: &'a View<'a>,
+    columns: Columns,
+    width: usize,
+    today: Date,
+}
+
+/// The lines to show for `height` rows, following `open.scroll`.
+pub fn window(
     state: &State,
     open: &OpenConversation,
     view: &View<'_>,
     width: usize,
     height: usize,
-) -> Vec<Line<'static>> {
-    let columns = Columns::for_width(width);
-    let today = date_of(view.now, view);
+) -> Window {
+    let context = Context {
+        state,
+        open,
+        view,
+        columns: Columns::for_width(width),
+        width,
+        today: date_of(view.now, view),
+    };
+    let anchored = open.scroll.and_then(|anchor| {
+        let at = open
+            .messages
+            .iter()
+            .rposition(|m| m.reference() == anchor.message)?;
+        Some((at, anchor.offset))
+    });
+    match anchored {
+        Some((at, offset)) => scrolled(&context, at, offset, height),
+        None => newest(&context, height),
+    }
+}
+
+/// The last `height` lines. Only builds as many messages as fit.
+fn newest(context: &Context<'_>, height: usize) -> Window {
     let mut blocks: Vec<Vec<Line<'static>>> = Vec::new();
     let mut total = 0;
-    for (i, message) in open.messages.iter().enumerate().rev() {
-        let previous = i.checked_sub(1).and_then(|p| open.messages.get(p));
-        let date = date_of_message(message, view);
-        let new_day = previous.is_none_or(|p| date_of_message(p, view) != date);
-        let mut block = Vec::new();
-        if new_day {
-            block.push(rule(&day_label(date, today), width, view.theme.muted()));
-        }
-        if open.unread_marker == Some(message.reference()) {
-            let style = Style::new().fg(view.theme.unread);
-            block.push(rule("new messages", width, style));
-        }
-        let continued = !new_day
-            && previous.is_some_and(|p| {
-                p.sender == message.sender
-                    && message
-                        .sent_at
-                        .as_millis()
-                        .saturating_sub(p.sent_at.as_millis())
-                        < GROUPING_MS
-            });
-        render_message(state, message, !continued, &columns, view, &mut block);
+    let mut built_all = true;
+    for i in (0..context.open.messages.len()).rev() {
+        let block = block(context, i);
         total += block.len();
         blocks.push(block);
-        if total >= height {
+        if total >= height && i > 0 {
+            built_all = false;
             break;
         }
     }
     let mut lines: Vec<Line<'static>> = blocks.into_iter().rev().flatten().collect();
     let excess = lines.len().saturating_sub(height);
     lines.drain(..excess);
-    lines
+    Window {
+        lines,
+        scroll: None,
+        at_top: built_all && excess == 0,
+    }
+}
+
+/// The view pinned to message `at`, `offset` rows up from its last row. Lays
+/// out every loaded message (only while scrolled), then clamps to the loaded
+/// history and normalises the anchor to the message on the bottom row.
+fn scrolled(context: &Context<'_>, at: usize, offset: isize, height: usize) -> Window {
+    let messages = &context.open.messages;
+    let blocks: Vec<Vec<Line<'static>>> = (0..messages.len()).map(|i| block(context, i)).collect();
+    let ends: Vec<usize> = blocks
+        .iter()
+        .scan(0, |end, b| {
+            *end += b.len();
+            Some(*end)
+        })
+        .collect();
+    let total = ends.last().copied().unwrap_or(0);
+    let Some(last_row) = total.checked_sub(1) else {
+        return Window {
+            lines: Vec::new(),
+            scroll: None,
+            at_top: true,
+        };
+    };
+    let lowest_top_fill = height.min(total).saturating_sub(1);
+    let wanted = ends
+        .get(at)
+        .map_or(last_row, |end| end.saturating_sub(1))
+        .cast_signed()
+        .saturating_sub(offset);
+    let bottom = wanted.clamp(lowest_top_fill.cast_signed(), last_row.cast_signed());
+    let bottom = bottom.cast_unsigned();
+    let scroll = (bottom < last_row)
+        .then(|| {
+            let j = ends.partition_point(|end| *end <= bottom);
+            let end = ends.get(j)?;
+            Some(Anchor {
+                message: messages.get(j)?.reference(),
+                offset: (end - 1 - bottom).cast_signed(),
+            })
+        })
+        .flatten();
+    let top = (bottom + 1).saturating_sub(height);
+    let lines = blocks
+        .into_iter()
+        .flatten()
+        .skip(top)
+        .take(bottom + 1 - top)
+        .collect();
+    Window {
+        lines,
+        scroll,
+        at_top: top == 0,
+    }
+}
+
+/// Message `i` with the date rule and unread rule that go above it.
+fn block(context: &Context<'_>, i: usize) -> Vec<Line<'static>> {
+    let Context {
+        state,
+        open,
+        view,
+        columns,
+        width,
+        today,
+    } = context;
+    let mut block = Vec::new();
+    let Some(message) = open.messages.get(i) else {
+        return block;
+    };
+    let previous = i.checked_sub(1).and_then(|p| open.messages.get(p));
+    let date = date_of_message(message, view);
+    let new_day = previous.is_none_or(|p| date_of_message(p, view) != date);
+    if new_day {
+        block.push(rule(&day_label(date, *today), *width, view.theme.muted()));
+    }
+    if open.unread_marker == Some(message.reference()) {
+        let style = Style::new().fg(view.theme.unread);
+        block.push(rule("new messages", *width, style));
+    }
+    let continued = !new_day
+        && previous.is_some_and(|p| {
+            p.sender == message.sender
+                && message
+                    .sent_at
+                    .as_millis()
+                    .saturating_sub(p.sent_at.as_millis())
+                    < GROUPING_MS
+        });
+    render_message(state, message, !continued, columns, view, &mut block);
+    block
 }
 
 fn render_message(

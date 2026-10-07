@@ -27,7 +27,11 @@ fn draw(state: &State, width: u16, height: u16) -> Buffer {
         now,
     };
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-    terminal.draw(|frame| render(frame, state, &view)).unwrap();
+    terminal
+        .draw(|frame| {
+            render(frame, state, &view);
+        })
+        .unwrap();
     terminal.backend().buffer().clone()
 }
 
@@ -142,4 +146,74 @@ fn tiny_terminals_never_panic() {
             draw(&empty, width, height);
         }
     }
+}
+
+// --- Scrolling (M4 task 1) ---
+
+use crate::app::state::{Anchor, Focus};
+
+fn window_text(state: &State, height: usize) -> (Vec<String>, super::messages::Window) {
+    let theme = Theme::default();
+    let tz = TimeZone::UTC;
+    let now = jiff::Timestamp::from_millisecond(i64::try_from(NOW_MS).unwrap()).unwrap();
+    let view = View {
+        theme: &theme,
+        tz: &tz,
+        now,
+    };
+    let open = state.open.as_ref().unwrap();
+    let window = super::messages::window(state, open, &view, 60, height);
+    let text = window.lines.iter().map(ToString::to_string).collect();
+    (text, window)
+}
+
+fn scrolled_state(offset: isize) -> State {
+    let mut state = loaded_state();
+    let open = state.open.as_mut().unwrap();
+    open.scroll = Some(Anchor {
+        message: fixtures::climbing_history().last().unwrap().reference(),
+        offset,
+    });
+    state
+}
+
+#[test]
+fn a_scrolled_view_stays_put_when_messages_arrive() {
+    let mut state = scrolled_state(4);
+    let (before, window) = window_text(&state, 6);
+    assert!(window.scroll.is_some());
+    let news = fixtures::text(climbing(), ALICE, NOW_MS, "Parking is full");
+    update(&mut state, AppEvent::Backend(BackendEvent::Message(news)));
+    let (after, _) = window_text(&state, 6);
+    assert_eq!(before, after);
+}
+
+#[test]
+fn scrolling_is_clamped_to_the_loaded_history() {
+    // Far past the top: the first row is the first loaded line.
+    let (lines, window) = window_text(&scrolled_state(isize::MAX), 6);
+    assert!(window.at_top);
+    assert_eq!(lines.len(), 6);
+    assert!(lines.first().unwrap().contains("Yesterday"));
+    // Past the bottom: back to following the newest message.
+    let (_, window) = window_text(&scrolled_state(-50), 6);
+    assert_eq!(window.scroll, None);
+    // The anchor is normalised to the message on the bottom row.
+    let (_, window) = window_text(&scrolled_state(1), 6);
+    let anchor = window.scroll.unwrap();
+    assert_ne!(
+        Some(anchor.message),
+        fixtures::climbing_history()
+            .last()
+            .map(faro_core::domain::Message::reference)
+    );
+    assert!(anchor.offset >= 0);
+}
+
+#[test]
+fn scrolled_up_with_messages_focus() {
+    let mut state = scrolled_state(6);
+    state.focus = Focus::Messages;
+    state.open.as_mut().unwrap().unseen = 2;
+    insta::assert_snapshot!(snapshot(&draw(&state, 100, 18)));
 }

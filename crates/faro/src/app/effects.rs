@@ -69,6 +69,16 @@ async fn execute(store: &Store, effect: Effect) -> Result<Option<AppEvent>, Stor
                 messages,
             })
         }
+        Effect::LoadOlder {
+            conversation,
+            before,
+        } => {
+            let messages = store.messages(conversation, Some(before), PAGE).await?;
+            Some(AppEvent::OlderLoaded {
+                conversation,
+                messages,
+            })
+        }
         Effect::Persist(event) => {
             store.apply(*event).await?;
             None

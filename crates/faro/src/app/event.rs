@@ -1,8 +1,10 @@
 //! What flows into the reducer (`AppEvent`) and out of it (`Effect`), D22.
 
 use faro_core::backend::BackendEvent;
-use faro_core::domain::{ConversationId, Message};
+use faro_core::domain::{ConversationId, Message, MessageRef};
 use faro_core::store::ConversationSummary;
+
+use super::state::Geometry;
 
 #[derive(Debug)]
 pub enum AppEvent {
@@ -17,6 +19,13 @@ pub enum AppEvent {
         conversation: ConversationId,
         messages: Vec<Message>,
     },
+    /// A page of messages older than the first one loaded.
+    OlderLoaded {
+        conversation: ConversationId,
+        messages: Vec<Message>,
+    },
+    /// A frame was drawn; this is where things ended up.
+    Drawn(Geometry),
     /// A store operation failed; the text is safe to show (no message content).
     StoreFailed(String),
     /// A deadline from `State::next_deadline` passed.
@@ -33,6 +42,11 @@ pub enum Effect {
     LoadConversations,
     /// Answered with `AppEvent::MessagesLoaded`.
     LoadMessages(ConversationId),
+    /// Answered with `AppEvent::OlderLoaded`.
+    LoadOlder {
+        conversation: ConversationId,
+        before: MessageRef,
+    },
     Persist(Box<BackendEvent>),
     MarkRead(ConversationId),
     /// Reopen this conversation on the next start.

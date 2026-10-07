@@ -5,7 +5,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::widgets::Block;
 
-use crate::app::state::State;
+use crate::app::state::{Focus, Geometry, State};
 use crate::theme::Theme;
 
 mod conversation;
@@ -32,19 +32,34 @@ const RIGHT_WIDTH: u16 = 28;
 const LEFT_MIN_TERMINAL: u16 = 70;
 const RIGHT_MIN_TERMINAL: u16 = 110;
 
-pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>) {
+/// Draw everything and report where things ended up (for mouse hits, page
+/// sizes and the normalised scroll position; see `Geometry`).
+pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>) -> Geometry {
+    let mut geometry = Geometry::default();
     let area = frame.area();
     frame.render_widget(Block::new().style(view.theme.base()), area);
     let [main, footer] = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
     let panes = Panes::split(main, state);
     if let Some(left) = panes.left {
-        sidebar::render(frame, left, state, view);
+        sidebar::render(frame, left, state, view, &mut geometry);
     }
-    conversation::render(frame, panes.center, state, view);
+    conversation::render(frame, panes.center, state, view, &mut geometry);
     if let Some(right) = panes.right {
         info::render(frame, right, state, view);
     }
-    footer::render(frame, footer, state, view);
+    footer::render(frame, footer, state, view, &geometry);
+    geometry
+}
+
+/// Whether `pane` has focus. Sidebar focus falls back to the input while the
+/// sidebar is hidden (the reducer catches up after the frame). Call after the
+/// sidebar has been drawn.
+fn focused(state: &State, geometry: &Geometry, pane: Focus) -> bool {
+    let focus = match state.focus {
+        Focus::Conversations if geometry.sidebar.is_none() => Focus::Input,
+        Focus::Conversations | Focus::Messages | Focus::Input => state.focus,
+    };
+    focus == pane
 }
 
 struct Panes {

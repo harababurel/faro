@@ -212,6 +212,8 @@ presage keeps its own store for keys, sessions and protocol state; faro never to
 
 Click to focus panes and open conversations; scroll anywhere; drag sidebar borders (border highlights on hover); right-click for context menus; click toggles on panel headers. Mouse capture can be turned off (setting + palette command) so native terminal text selection works; `Shift`+drag bypasses capture in most terminals. Copy uses **OSC 52**, which works over SSH and tmux.
 
+**As built in M4 task 1 (D37):** click a conversation to open it, click the message area or input to focus it, wheel scrolls whatever is under the pointer. While scrolled up, a "↓ N new messages" badge shows on the bottom row.
+
 ### 7.6 Default keybindings (confirmed, D13)
 
 Chosen to avoid tmux's default prefix (`Ctrl+B`) and common terminal shortcuts. All rebindable. On macOS, `Alt` bindings need the terminal's "Option as Alt/Meta" setting (kitty `macos_option_as_alt`, iTerm2 "Esc+", Terminal.app "Use Option as Meta key"); otherwise Option+letter types a symbol (D36).
@@ -222,14 +224,16 @@ Chosen to avoid tmux's default prefix (`Ctrl+B`) and common terminal shortcuts. 
 | `Ctrl+Q` | Quit (`Ctrl+C` asks for confirmation) |
 | `Alt+K` / `Alt+J` | Previous / next conversation (also `Alt+↑` / `Alt+↓`, D36) |
 | `Alt+1`…`Alt+9` | Jump to pinned conversation N |
-| `Tab` / `Shift+Tab` | Cycle focus between panes |
-| `Esc` | Close popup / leave selection / clear |
+| `Tab` / `Shift+Tab` | Cycle focus between panes (conversations, messages, input; D37) |
+| `Esc` | Close popup / leave selection / clear; back to the input (D37) |
 | `↑` (empty input) | Select last message |
 | `r` `e` `d` `y` `+` `o` | (In selection) reply, edit, delete, copy, react, open |
 | `Enter` | Send; in selection: open context menu |
 | `Alt+Enter` | Newline (also `Shift+Enter` when the kitty keyboard protocol is available) |
 | `Alt+S` / `Alt+I` | Toggle left / right sidebar |
 | `F1` or `?` (in non-input focus) | Help: opens the palette listing all keybindings |
+| `PgUp` / `PgDn` | Scroll messages by a page, from any pane (D37) |
+| `↑↓` / `j k`, `g G` / `Home End` | In the sidebar: switch conversation, first/last. In the message pane: scroll a row, top/bottom (D37) |
 
 ### 7.7 Conversation list curation
 

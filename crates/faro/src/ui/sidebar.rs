@@ -6,19 +6,34 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Paragraph};
 
-use super::View;
-use super::text::{self, sanitize, truncate};
-use crate::app::state::State;
+use faro_core::domain::ConversationId;
 use faro_core::store::ConversationSummary;
 
-pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, view: &View<'_>) {
+use super::View;
+use super::text::{self, sanitize, truncate};
+use crate::app::state::{Focus, Geometry, State};
+
+pub fn render(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    state: &State,
+    view: &View<'_>,
+    geometry: &mut Geometry,
+) {
     let theme = view.theme;
+    let focused = state.focus == Focus::Conversations;
+    let title_style = if focused {
+        Style::new().fg(theme.primary).add_modifier(Modifier::BOLD)
+    } else {
+        theme.muted()
+    };
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
-        .border_style(theme.border(false))
-        .title(Span::styled(" Conversations ", theme.muted()));
+        .border_style(theme.border(focused))
+        .title(Span::styled(" Conversations ", title_style));
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    geometry.sidebar = Some(inner);
 
     if state.loading {
         frame.render_widget(
@@ -33,21 +48,48 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, view: &View<'_>)
         frame.render_widget(empty, inner);
         return;
     }
-    // Keep the open conversation in view.
     let height = usize::from(inner.height);
-    let selected = rows.iter().position(|r| r.selected).unwrap_or(0);
-    let offset = (selected + 1).saturating_sub(height);
-    let lines: Vec<Line<'static>> = rows
-        .into_iter()
-        .skip(offset)
-        .take(height)
-        .map(|r| r.line)
-        .collect();
+    let selected = rows.iter().position(|r| r.selected);
+    let offset = visible_offset(
+        state.sidebar.offset,
+        rows.len(),
+        height,
+        selected,
+        state.sidebar.reveal,
+    );
+    geometry.sidebar_offset = offset;
+    let mut lines = Vec::with_capacity(height);
+    for row in rows.into_iter().skip(offset).take(height) {
+        geometry.sidebar_rows.push(row.id);
+        lines.push(row.line);
+    }
     frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// The first row to show: the requested offset, clamped so the list doesn't
+/// scroll past its end, and moved just enough to show the selection when asked.
+fn visible_offset(
+    requested: usize,
+    rows: usize,
+    height: usize,
+    selected: Option<usize>,
+    reveal: bool,
+) -> usize {
+    let mut offset = requested.min(rows.saturating_sub(height));
+    if reveal && let Some(selected) = selected {
+        if selected < offset {
+            offset = selected;
+        } else if selected >= offset + height {
+            offset = (selected + 1).saturating_sub(height);
+        }
+    }
+    offset
 }
 
 struct Row {
     line: Line<'static>,
+    /// `None` for section headers.
+    id: Option<ConversationId>,
     selected: bool,
 }
 
@@ -67,6 +109,7 @@ fn rows(state: &State, view: &View<'_>, width: usize) -> Vec<Row> {
             };
             rows.push(Row {
                 line: Line::from(Span::styled(label, theme.muted())),
+                id: None,
                 selected: false,
             });
         }
@@ -121,9 +164,31 @@ fn row(state: &State, view: &View<'_>, summary: &ConversationSummary, width: usi
     if selected {
         line = line.style(Style::new().bg(theme.background_element));
     }
-    Row { line, selected }
+    Row {
+        line,
+        id: Some(summary.id),
+        selected,
+    }
 }
 
 fn now_millis(view: &View<'_>) -> u64 {
     u64::try_from(view.now.as_millisecond()).unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::visible_offset;
+
+    #[test]
+    fn offset_is_clamped_and_reveals_the_selection() {
+        // 20 rows, 5 visible.
+        assert_eq!(visible_offset(0, 20, 5, Some(2), true), 0);
+        assert_eq!(visible_offset(0, 20, 5, Some(9), true), 5);
+        assert_eq!(visible_offset(8, 20, 5, Some(2), true), 2);
+        // Scrolled away with the wheel: the selection may be off screen.
+        assert_eq!(visible_offset(8, 20, 5, Some(2), false), 8);
+        // Never past the end.
+        assert_eq!(visible_offset(99, 20, 5, None, false), 15);
+        assert_eq!(visible_offset(3, 4, 5, None, false), 0);
+    }
 }

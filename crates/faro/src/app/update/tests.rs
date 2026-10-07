@@ -318,3 +318,205 @@ fn shutdown_and_store_failures() {
     update(&mut state, AppEvent::Shutdown);
     assert!(state.quit);
 }
+
+// --- M4 task 1: focus, sidebar navigation, scrolling, mouse ---
+
+use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+use ratatui::layout::Rect;
+
+use crate::app::state::{Anchor, Focus, Geometry};
+
+/// A frame's geometry: sidebar rows at y=1.., history at x=31.., input below.
+fn geometry(state: &State) -> Geometry {
+    Geometry {
+        sidebar: Some(Rect::new(1, 1, 28, 20)),
+        sidebar_rows: state.visible_conversations().map(|c| Some(c.id)).collect(),
+        sidebar_offset: 0,
+        history: Some(Rect::new(31, 1, 60, 12)),
+        input: Some(Rect::new(31, 14, 60, 3)),
+        scroll: state.open.as_ref().and_then(|o| o.scroll),
+        at_top: false,
+    }
+}
+
+fn mouse(kind: MouseEventKind, column: u16, row: u16) -> AppEvent {
+    AppEvent::Terminal(Event::Mouse(MouseEvent {
+        kind,
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    }))
+}
+
+fn scroll_of(state: &State) -> Option<Anchor> {
+    state.open.as_ref().and_then(|o| o.scroll)
+}
+
+#[test]
+fn tab_cycles_focus_and_skips_a_hidden_sidebar() {
+    let mut state = loaded_state();
+    state.geometry = geometry(&state);
+    assert_eq!(state.focus, Focus::Input);
+    let tab = || key(KeyCode::Tab, KeyModifiers::NONE);
+    update(&mut state, tab());
+    assert_eq!(state.focus, Focus::Conversations);
+    update(&mut state, tab());
+    assert_eq!(state.focus, Focus::Messages);
+    update(&mut state, tab());
+    assert_eq!(state.focus, Focus::Input);
+    update(&mut state, key(KeyCode::BackTab, KeyModifiers::SHIFT));
+    assert_eq!(state.focus, Focus::Messages);
+    update(&mut state, key(KeyCode::Esc, KeyModifiers::NONE));
+    assert_eq!(state.focus, Focus::Input);
+
+    state.geometry.sidebar = None;
+    update(&mut state, tab());
+    assert_eq!(state.focus, Focus::Messages);
+    update(&mut state, tab());
+    assert_eq!(state.focus, Focus::Input);
+}
+
+#[test]
+fn hiding_the_focused_sidebar_moves_focus_to_the_input() {
+    let mut state = loaded_state();
+    state.focus = Focus::Conversations;
+    update(&mut state, key(KeyCode::Char('s'), KeyModifiers::ALT));
+    assert!(!state.panels.left);
+    assert_eq!(state.focus, Focus::Input);
+    // A frame without the sidebar (narrow terminal) does the same.
+    state.focus = Focus::Conversations;
+    update(&mut state, AppEvent::Drawn(Geometry::default()));
+    assert_eq!(state.focus, Focus::Input);
+}
+
+#[test]
+fn sidebar_keys_switch_conversations() {
+    let mut state = loaded_state();
+    state.focus = Focus::Conversations;
+    // Order: Bob (pinned), Climbing (open), Alice.
+    update(&mut state, key(KeyCode::Char('j'), KeyModifiers::NONE));
+    assert_eq!(open_id(&state), Some(alice()));
+    update(&mut state, key(KeyCode::Char('g'), KeyModifiers::NONE));
+    assert_eq!(open_id(&state), Some(bob()));
+    update(&mut state, key(KeyCode::Char('G'), KeyModifiers::SHIFT));
+    assert_eq!(open_id(&state), Some(alice()));
+    update(&mut state, key(KeyCode::Up, KeyModifiers::NONE));
+    assert_eq!(open_id(&state), Some(climbing()));
+    // Letters navigate here instead of typing.
+    assert_eq!(state.open.as_ref().unwrap().input, "");
+    update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(state.focus, Focus::Input);
+}
+
+#[test]
+fn scrolling_pins_the_view_and_counts_new_messages() {
+    let mut state = loaded_state();
+    state.geometry = geometry(&state);
+    let last = climbing_history().last().unwrap().reference();
+    update(&mut state, key(KeyCode::PageUp, KeyModifiers::NONE));
+    // A page is the history height minus two rows of context.
+    assert_eq!(
+        scroll_of(&state),
+        Some(Anchor {
+            message: last,
+            offset: 10
+        })
+    );
+
+    let news = text(climbing(), BOB, fixtures::NOW_MS, "Parking is full");
+    update(&mut state, AppEvent::Backend(BackendEvent::Message(news)));
+    let open = state.open.as_ref().unwrap();
+    assert_eq!(open.unseen, 1);
+    assert_eq!(open.scroll.map(|a| a.message), Some(last), "view stays put");
+
+    state.focus = Focus::Messages;
+    update(&mut state, key(KeyCode::Char('j'), KeyModifiers::NONE));
+    assert_eq!(scroll_of(&state).map(|a| a.offset), Some(9));
+    update(&mut state, key(KeyCode::Char('G'), KeyModifiers::SHIFT));
+    let open = state.open.as_ref().unwrap();
+    assert_eq!((open.scroll, open.unseen), (None, 0));
+    // Scrolling down while at the bottom does nothing.
+    update(&mut state, key(KeyCode::PageDown, KeyModifiers::NONE));
+    assert_eq!(scroll_of(&state), None);
+}
+
+#[test]
+fn reaching_the_top_loads_older_messages_once() {
+    let mut state = loaded_state();
+    let first = climbing_history().first().unwrap().reference();
+    state.open.as_mut().unwrap().has_older = true;
+    update(&mut state, key(KeyCode::PageUp, KeyModifiers::NONE));
+    let mut drawn = geometry(&state);
+    drawn.at_top = true;
+    assert_eq!(
+        update(&mut state, AppEvent::Drawn(drawn.clone())),
+        vec![Effect::LoadOlder {
+            conversation: climbing(),
+            before: first,
+        }]
+    );
+    assert_eq!(update(&mut state, AppEvent::Drawn(drawn)), vec![]);
+
+    let older = text(climbing(), CAROL, 1_000, "Welcome to the group");
+    update(
+        &mut state,
+        AppEvent::OlderLoaded {
+            conversation: climbing(),
+            messages: vec![older.clone()],
+        },
+    );
+    let open = state.open.as_ref().unwrap();
+    assert_eq!(open.messages.first(), Some(&older));
+    assert_eq!(open.messages.len(), climbing_history().len() + 1);
+    assert!(!open.loading_older);
+    assert!(!open.has_older, "a short page is the last one");
+}
+
+#[test]
+fn a_frame_at_the_bottom_clears_the_new_message_count() {
+    let mut state = loaded_state();
+    update(&mut state, key(KeyCode::PageUp, KeyModifiers::NONE));
+    state.open.as_mut().unwrap().unseen = 3;
+    let mut drawn = geometry(&state);
+    drawn.scroll = None;
+    update(&mut state, AppEvent::Drawn(drawn));
+    let open = state.open.as_ref().unwrap();
+    assert_eq!((open.scroll, open.unseen), (None, 0));
+}
+
+#[test]
+fn mouse_clicks_and_wheel() {
+    let mut state = loaded_state();
+    state.geometry = geometry(&state);
+    let left = MouseEventKind::Down(MouseButton::Left);
+
+    // Third row: Alice.
+    let effects = update(&mut state, mouse(left, 5, 3));
+    assert_eq!(open_id(&state), Some(alice()));
+    assert_eq!(effects.first(), Some(&Effect::LoadMessages(alice())));
+    assert_eq!(state.focus, Focus::Input);
+
+    update(&mut state, mouse(left, 40, 5));
+    assert_eq!(state.focus, Focus::Messages);
+    update(&mut state, mouse(left, 40, 15));
+    assert_eq!(state.focus, Focus::Input);
+
+    let mut state = loaded_state();
+    state.geometry = geometry(&state);
+    update(&mut state, mouse(MouseEventKind::ScrollUp, 40, 5));
+    assert_eq!(scroll_of(&state).map(|a| a.offset), Some(3));
+    update(&mut state, mouse(MouseEventKind::ScrollDown, 40, 5));
+    assert_eq!(scroll_of(&state).map(|a| a.offset), Some(0));
+
+    update(&mut state, mouse(MouseEventKind::ScrollDown, 5, 5));
+    assert_eq!(state.sidebar.offset, 3);
+    assert!(!state.sidebar.reveal);
+    // Moving the mouse changes nothing and isn't worth a frame.
+    let moved = MouseEvent {
+        kind: MouseEventKind::Moved,
+        column: 5,
+        row: 5,
+        modifiers: KeyModifiers::NONE,
+    };
+    assert!(!mouse_affects_view(moved));
+}
