@@ -68,9 +68,35 @@ fn main() -> anyhow::Result<()> {
         }
         let (backend, events) = MockBackend::new(&config);
         let directory = app::load_directory(&backend, &store).await?;
-        let result = app::run(backend, events, store.clone(), directory, tz).await;
+        let emoji = emoji_setting(cli.emoji).await;
+        let result = app::run(backend, events, store.clone(), directory, tz, emoji).await;
         store.close().await.context("closing the database")?;
         tracing::info!("faro exiting");
         result
     })
+}
+
+/// The emoji mode to start with: as chosen, or (`auto`) compatible if mosh is
+/// in the way (D47). `auto` keeps checking when the terminal changes.
+async fn emoji_setting(choice: cli::EmojiChoice) -> app::state::EmojiSetting {
+    use app::state::{EmojiMode, EmojiSetting};
+    let (mode, auto) = match choice {
+        cli::EmojiChoice::Full => (EmojiMode::Full, false),
+        cli::EmojiChoice::Compatible => (EmojiMode::Compatible, false),
+        cli::EmojiChoice::Auto => {
+            let mosh = app::system::mosh_attached().await;
+            let mode = if mosh {
+                EmojiMode::Compatible
+            } else {
+                EmojiMode::Full
+            };
+            (mode, true)
+        }
+    };
+    tracing::info!(?mode, auto, "emoji mode");
+    EmojiSetting {
+        mode,
+        auto,
+        checked_at: auto.then(tokio::time::Instant::now),
+    }
 }

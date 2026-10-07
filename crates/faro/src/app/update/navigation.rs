@@ -61,6 +61,7 @@ pub fn on_action(state: &mut State, action: Action) -> Vec<Effect> {
         Action::OpenPalette => palette::open(state, ""),
         Action::Help => palette::open(state, "?"),
         Action::Palette(key) => return palette::on_key(state, key),
+        Action::Redraw => state.env.repaint = true,
     }
     vec![]
 }

@@ -10,6 +10,7 @@ use crate::theme::Theme;
 
 mod bubbles;
 mod conversation;
+mod emoji;
 mod footer;
 mod info;
 mod messages;
@@ -47,6 +48,7 @@ const RIGHT_MIN_TERMINAL: u16 = 110;
 /// Draw everything and report where things ended up (for mouse hits, page
 /// sizes and the normalised scroll position; see `Geometry`).
 pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>) -> Geometry {
+    emoji::set_mode(state.env.emoji.mode);
     let mut geometry = Geometry::default();
     let area = frame.area();
     frame.render_widget(Block::new().style(view.theme.base()), area);
@@ -62,6 +64,7 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>) -> Geometry
     footer::render(frame, footer, state, view, &geometry);
     popup::render(frame, state, view, &geometry);
     palette::render(frame, state, view, &mut geometry);
+    emoji::finish(frame.buffer_mut());
     geometry
 }
 

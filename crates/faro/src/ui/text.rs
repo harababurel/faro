@@ -9,20 +9,21 @@ use unicode_width::UnicodeWidthStr as _;
 /// Make untrusted text (message bodies, names) safe to draw: control characters
 /// could otherwise reach the terminal as escape sequences. Tabs become spaces;
 /// other controls become `�`. Newlines are removed too: callers that keep line
-/// breaks split on `'\n'` first.
+/// breaks split on `'\n'` first. Emoji are drawn as the emoji mode says
+/// (`emoji::display`, D47), so measure text after sanitising it.
 pub fn sanitize(text: &str) -> Cow<'_, str> {
     if !text.chars().any(char::is_control) {
-        return Cow::Borrowed(text);
+        return super::emoji::display(text);
     }
-    Cow::Owned(
-        text.chars()
-            .map(|c| match c {
-                '\t' => ' ',
-                c if c.is_control() => '\u{FFFD}',
-                c => c,
-            })
-            .collect(),
-    )
+    let clean: String = text
+        .chars()
+        .map(|c| match c {
+            '\t' => ' ',
+            c if c.is_control() => '\u{FFFD}',
+            c => c,
+        })
+        .collect();
+    Cow::Owned(super::emoji::display(&clean).into_owned())
 }
 
 /// Width in terminal cells.

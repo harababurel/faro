@@ -10,6 +10,7 @@ pub const NAMES: &[(&str, &str, Action)] = &[
     ("palette.open", "Command palette", Action::OpenPalette),
     ("palette.keys", "Keybindings", Action::Help),
     ("app.quit", "Quit", Action::Quit),
+    ("app.redraw", "Redraw the screen", Action::Redraw),
     ("app.interrupt", "Quit (press twice)", Action::Interrupt),
     ("app.back", "Back, dismiss", Action::Escape),
     (
@@ -221,6 +222,7 @@ pub const BINDINGS: &[(Context, &str, Action)] = &[
     (Global, "ctrl+p", Action::OpenPalette),
     (Global, "f1", Action::Help),
     (Global, "ctrl+q", Action::Quit),
+    (Global, "ctrl+l", Action::Redraw),
     (Global, "ctrl+c", Action::Interrupt),
     (Global, "alt+k", Action::PreviousConversation),
     (Global, "alt+up", Action::PreviousConversation),

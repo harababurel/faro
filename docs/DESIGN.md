@@ -204,6 +204,7 @@ presage keeps its own store for keys, sessions and protocol state; faro never to
 - Links are detected and openable; attachments show name/size and open in the system viewer.
 - **As built in M4 task 9 (D45):** bubbles are the default (palette: "Use the IRC layout" / "Use the bubbles layout", remembered in `app_state` until M5). Bubbles size to their text, at most 75% of the pane, with 1 cell of padding on `bubbleOwn`/`bubbleOther`; others left, own right; time, `edited` and delivery glyph at the bottom right inside the bubble; reactions under it; names above others' first bubble of a run in groups only; one blank line between bubbles. No `compact` toggle yet.
 - **Emoji:** rendered as-is. Widths are computed with grapheme clustering; a setting replaces problematic sequences (ZWJ families, flags, skin tones) with a fallback where terminals disagree. Emoji picker with `:shortcode:` fuzzy search.
+- **As built in M4.5 (D47):** `--emoji auto|full|compatible` (config setting in M5). Compatible mode drops VS16, ZWJ, keycaps, skin tones and tags from graphemes that terminals adding up code points (mosh) measure differently (❤️ → ❤, 👨‍👩‍👧‍👦 → 👨👩👧👦); auto picks it when a mosh client is attached. A lone regional indicator is drawn as its letter in every mode. Copy keeps the original text. `Ctrl+L` repaints the screen.
 
 ### 7.4 Message selection and actions
 
@@ -314,6 +315,8 @@ Sketch:
 - **Input:** crossterm. Use the **kitty keyboard protocol** when available (more distinguishable keys), but **all defaults must work without it** (tmux only partially supports it).
 - **tmux** recommended settings (documented, detected where possible): `set -g mouse on`, `set -g set-clipboard on`, `set -g allow-passthrough on`, `set -as terminal-features ",*:RGB"`, `set -g extended-keys on`, `set -g focus-events on` (read receipts wait for focus, D42).
 - **Width:** grapheme-aware width calculation (`unicode-segmentation` + `unicode-width`); test emoji-heavy content specifically under tmux.
+- **mosh** measures emoji per code point, unlike kitty and tmux ≥ 3.5: faro switches to compatible emoji when any client of its tmux session (or faro itself) runs under `mosh-server` (D47). Other panes in the same tmux (e.g. a shell) still look wrong through mosh; that's outside faro's control.
+- **Frame output:** every wide cell is sent with `ForcedWidth`, so ratatui never writes a wide character's hidden cell (D47).
 - **Images:** not in the first release (see §14).
 
 ## 12. Security and privacy

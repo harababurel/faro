@@ -23,7 +23,7 @@ pub mod input;
 pub mod keymap;
 pub mod palette;
 pub mod state;
-mod system;
+pub mod system;
 mod timeline;
 pub mod update;
 
@@ -70,6 +70,7 @@ pub async fn run<B: Backend + 'static>(
     store: Store,
     directory: Directory,
     tz: jiff::tz::TimeZone,
+    emoji: state::EmojiSetting,
 ) -> anyhow::Result<()> {
     let mut terminate = signal(SignalKind::terminate()).context("listening for SIGTERM")?;
     let mut hangup = signal(SignalKind::hangup()).context("listening for SIGHUP")?;
@@ -86,6 +87,10 @@ pub async fn run<B: Backend + 'static>(
                 }
                 Effect::OpenUrl(url) => {
                     system::open_url(url, results_tx.clone());
+                    true
+                }
+                Effect::CheckTerminal => {
+                    system::check_terminal(results_tx.clone());
                     true
                 }
                 store @ (Effect::LoadConversations
@@ -106,6 +111,7 @@ pub async fn run<B: Backend + 'static>(
 
     let mut state = State::new(directory.me, directory.contacts, directory.groups);
     state.env.over_ssh = system::over_ssh();
+    state.env.emoji = emoji;
     let theme = Theme::default();
     let mut tui = Tui::enter().context("setting up the terminal")?;
     let mut input = EventStream::new();
@@ -121,6 +127,9 @@ pub async fn run<B: Backend + 'static>(
                 now: jiff::Timestamp::now(),
             };
             let mut geometry = state::Geometry::default();
+            if std::mem::take(&mut state.env.repaint) {
+                tui.clear().context("clearing the screen")?;
+            }
             tui.draw(|frame| geometry = ui::render(frame, &state, &view))
                 .context("drawing")?;
             last_draw = Some(Instant::now());
@@ -187,6 +196,7 @@ fn affects_view(event: &AppEvent) -> bool {
         | AppEvent::SendResult { .. }
         | AppEvent::ReactResult { .. }
         | AppEvent::OpenFailed(_)
+        | AppEvent::TerminalChecked { .. }
         | AppEvent::StoreFailed(_)
         | AppEvent::Tick
         | AppEvent::Shutdown => true,

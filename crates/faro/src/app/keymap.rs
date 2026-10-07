@@ -60,6 +60,8 @@ pub enum Action {
     OpenPalette,
     /// `F1`, `?`: the palette listing the keybindings.
     Help,
+    /// `Ctrl+L`: clear the screen and draw everything again.
+    Redraw,
     Palette(PaletteKey),
 }
 

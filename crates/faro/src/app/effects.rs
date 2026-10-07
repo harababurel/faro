@@ -122,7 +122,7 @@ async fn execute(store: &Store, effect: Effect) -> Result<Option<AppEvent>, Stor
             store.set_app_state(MESSAGE_LAYOUT, layout.name()).await?;
             None
         }
-        Effect::Backend(_) | Effect::Copy(_) | Effect::OpenUrl(_) => {
+        Effect::Backend(_) | Effect::Copy(_) | Effect::OpenUrl(_) | Effect::CheckTerminal => {
             // `app::run` routes these to the command task.
             tracing::error!("a non-store effect reached the store worker; dropped");
             None

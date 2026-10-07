@@ -42,6 +42,20 @@ pub struct Cli {
     /// once and the mock spends most of its time offline.
     #[arg(long, env = "FARO_MOCK_NO_FAULTS")]
     pub mock_no_faults: bool,
+
+    /// How to draw emoji. `compatible` draws emoji whose width depends on the
+    /// terminal (❤️, 👍🏽, 🧗‍♀️…) in a simpler form every terminal agrees on, for
+    /// mosh and other terminals that misalign them; `auto` does so when faro
+    /// finds mosh.
+    #[arg(long, env = "FARO_EMOJI", value_enum, default_value_t = EmojiChoice::Auto)]
+    pub emoji: EmojiChoice,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum EmojiChoice {
+    Auto,
+    Full,
+    Compatible,
 }
 
 #[cfg(test)]
@@ -78,5 +92,9 @@ mod tests {
         assert!(!cli.mock_no_faults);
         let cli = Cli::try_parse_from(["faro", "--mock-no-faults"]).unwrap();
         assert!(cli.mock_no_faults);
+        assert_eq!(cli.emoji, EmojiChoice::Auto);
+        let cli = Cli::try_parse_from(["faro", "--emoji", "compatible"]).unwrap();
+        assert_eq!(cli.emoji, EmojiChoice::Compatible);
+        assert!(Cli::try_parse_from(["faro", "--emoji", "fancy"]).is_err());
     }
 }

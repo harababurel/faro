@@ -435,3 +435,66 @@ fn bubbles_have_their_own_backgrounds_and_sides() {
     assert_eq!(buffer[(x, y)].bg, theme.bubble_other);
     assert!(own_x > x + 20, "own bubble on the right ({own_x} vs {x})");
 }
+
+// --- Emoji every terminal measures alike (M4.5, D47) ---
+
+fn compatible(mut state: State) -> State {
+    state.env.emoji.mode = crate::app::state::EmojiMode::Compatible;
+    state
+}
+
+/// Every drawn cell is one every terminal agrees on, and all text went through
+/// `text::sanitize` (no stand-ins were needed).
+fn assert_drawable(state: &State, width: u16, height: u16) {
+    let buffer = draw(state, width, height);
+    assert_eq!(super::emoji::last_stand_ins(), 0, "text skipped sanitize");
+    for (i, cell) in buffer.content.iter().enumerate() {
+        assert!(
+            super::emoji::drawable(cell.symbol()),
+            "cell {i} draws {:?}",
+            cell.symbol()
+        );
+    }
+}
+
+#[test]
+fn compatible_mode_draws_only_what_every_terminal_measures_alike() {
+    // The fixtures have ❤️ reactions and joined climbers (🧗‍♀️🧗‍♂️).
+    for (width, height) in [(100, 34), (60, 24)] {
+        assert_drawable(&compatible(typing_state()), width, height);
+        assert_drawable(&compatible(bubbles_state()), width, height);
+    }
+    let mut menu = loaded_state();
+    keys(&mut menu, &[Up, Char('k'), Enter]);
+    assert_drawable(&compatible(menu), 100, 20);
+    let mut picker = loaded_state();
+    keys(&mut picker, &[Up, Char('+'), Char('l')]);
+    assert_drawable(&compatible(picker), 100, 20);
+    assert_drawable(&compatible(with_palette("")), 100, 26);
+    assert_drawable(&compatible(with_palette("climb")), 100, 26);
+}
+
+#[test]
+fn compatible_mode_covers_the_input_too() {
+    // The input isn't sanitised (its cursor follows the raw text), so the
+    // frame gets stand-ins of the same width instead.
+    let mut state = compatible(loaded_state());
+    for c in "hi 👨‍👩‍👧‍👦 1️⃣ 👍🏽".chars() {
+        keys(&mut state, &[Char(c)]);
+    }
+    let buffer = draw(&state, 100, 20);
+    assert!(super::emoji::last_stand_ins() >= 3);
+    assert!(
+        buffer
+            .content
+            .iter()
+            .all(|c| super::emoji::drawable(c.symbol()))
+    );
+    assert!(snapshot(&buffer).contains("hi 👨 1  👍"));
+}
+
+#[test]
+fn full_mode_keeps_emoji_as_they_are() {
+    let buffer = draw(&typing_state(), 100, 34);
+    assert!(snapshot(&buffer).contains("🧗‍♀️"));
+}

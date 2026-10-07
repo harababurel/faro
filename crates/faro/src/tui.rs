@@ -14,7 +14,7 @@ use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode,
 };
 use crossterm::{cursor, execute};
-use ratatui::backend::CrosstermBackend;
+use ratatui::backend::{Backend as _, ClearType, CrosstermBackend};
 use ratatui::{Frame, Terminal};
 
 pub struct Tui {
@@ -38,9 +38,11 @@ impl Tui {
                 EnableBracketedPaste,
                 EnableFocusChange
             )?;
-            let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
-            terminal.clear()?;
-            Ok(Self { terminal })
+            let mut tui = Self {
+                terminal: Terminal::new(CrosstermBackend::new(stdout()))?,
+            };
+            tui.clear()?;
+            Ok(tui)
         };
         setup().inspect_err(|_| restore())
     }
@@ -52,6 +54,23 @@ impl Tui {
         let drawn = self.terminal.draw(render).map(drop);
         execute!(stdout(), EndSynchronizedUpdate)?;
         drawn
+    }
+}
+
+impl Tui {
+    /// Clear the screen; the next draw paints every cell again (fixes a
+    /// terminal whose picture went out of step, e.g. after an emoji mode
+    /// change under mosh).
+    ///
+    /// Not `Terminal::clear`: that asks the terminal for the cursor position
+    /// and waits for the answer, which the event reader swallows, so it would
+    /// block the UI for two seconds and then fail.
+    pub fn clear(&mut self) -> io::Result<()> {
+        self.terminal.backend_mut().clear_region(ClearType::All)?;
+        // Forget the last frame (the other buffer is already blank after a
+        // draw), so the next draw sends every cell.
+        self.terminal.swap_buffers();
+        Ok(())
     }
 }
 

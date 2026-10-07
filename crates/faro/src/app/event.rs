@@ -44,6 +44,10 @@ pub enum AppEvent {
     },
     /// Opening a link failed; the text is safe to show.
     OpenFailed(String),
+    /// Whether mosh is between faro and the user (D47).
+    TerminalChecked {
+        mosh: bool,
+    },
     /// A frame was drawn; this is where things ended up.
     Drawn(Geometry),
     /// A store operation failed; the text is safe to show (no message content).
@@ -84,4 +88,6 @@ pub enum Effect {
     Copy(String),
     /// Open an http(s) link with the system's opener.
     OpenUrl(String),
+    /// Look for mosh; answered with `AppEvent::TerminalChecked` (D47).
+    CheckTerminal,
 }

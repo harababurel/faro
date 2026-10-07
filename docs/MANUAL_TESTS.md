@@ -22,7 +22,7 @@ Terminal matrix (DESIGN §15): kitty, WezTerm, Ghostty, iTerm2, Alacritty, foot;
 - [ ] **Colours:** truecolour renders the amber theme correctly, with a painted dark background (no terminal-background "holes"). Under tmux, check `set -as terminal-features ",*:RGB"` is needed and works.
 - [ ] **Flicker:** no tearing or flicker during the flood (synchronized output, DEC 2026). Note terminals that flicker.
 - [ ] **Mouse:** mouse capture is on (clicks do nothing yet, which is expected in M3); `Shift`+drag still selects text natively.
-- [ ] **Emoji widths (known issue, seen by the owner on first try):** in "Climbing 🧗" and other emoji-heavy chats, note which emoji shift the right border. Expected offenders under tmux: emoji with a variation selector (☺️ ✌️ ❤️), flags (🇵🇹), ZWJ sequences (🧗‍♀️, family emoji), skin tones. Record terminal + tmux version; this feeds the emoji width fallback (DESIGN §7.3, PLAN M4.5). Run `python3 tools/emoji_widths.py` inside the tmux where faro runs and directly in the terminal (outside tmux), and keep the output.
+- [x] **Emoji widths (known issue, seen by the owner on first try; measured, fixed in M4.5, D47):** in "Climbing 🧗" and other emoji-heavy chats, note which emoji shift the right border. Expected offenders under tmux: emoji with a variation selector (☺️ ✌️ ❤️), flags (🇵🇹), ZWJ sequences (🧗‍♀️, family emoji), skin tones. Record terminal + tmux version; this feeds the emoji width fallback (DESIGN §7.3, PLAN M4.5). Run `python3 tools/emoji_widths.py` inside the tmux where faro runs and directly in the terminal (outside tmux), and keep the output.
 - [ ] **Text safety:** no message can change terminal state (title, colours, cursor); control characters show as `�`.
 
 ## M4: interactions
@@ -59,3 +59,14 @@ Terminal matrix (DESIGN §15): kitty, WezTerm, Ghostty, iTerm2, Alacritty, foot;
 - [ ] **Layout switch:** palette → "Use the IRC layout": the classic `time  name  text` view; "Use the bubbles layout" switches back. Quit and restart: the last choice is kept.
 - [ ] **Failed sends:** run without `--mock-no-faults` and send while the footer says offline: the message shows `! not sent` in red with an error notice. Quit right after sending and restart: a message that hadn't been confirmed shows `! not sent`, not `◌`.
 
+
+## M4.5: emoji widths (D47)
+
+- [ ] **Plain ssh, tmux:** run `faro --mock` in the usual tmux with some traffic (default activity). Borders, unread counts and bubbles stay straight in emoji-heavy chats (Family, Bogdan, Mum ❤️, Climbing). This includes the ratatui fix, which affected every terminal.
+- [ ] **Through mosh:** attach the same tmux session through mosh. Within a couple of seconds of focusing the faro pane, a notice says mosh was detected, emoji switch to the compatible form (❤️ → ❤, families split into people) and borders are straight in the faro pane. Other panes (e.g. the coding harness) can still look wrong through mosh; faro can't fix those.
+- [ ] **Detach mosh, keep ssh:** after the mosh client detaches, focusing faro switches back to full emoji with a notice.
+- [ ] **Override:** `faro --mock --emoji compatible` and `--emoji full` keep that mode whatever is attached (no notices).
+- [ ] **Ctrl+L** repaints the whole screen without quitting or freezing.
+- [ ] **Palette over emoji:** open `Ctrl+P` and resize the pane so the palette's left border lands on sidebar emoji. The border stays unbroken (the emoji under it is blanked).
+- [ ] **Copy keeps the original:** in compatible mode, select a message with ❤️ or a family emoji, `y`, paste elsewhere. The original emoji are pasted.
+- [ ] **Half flags:** a lone regional indicator shows as a letter (needs a real message containing one; the mock has none, so this waits for M7).

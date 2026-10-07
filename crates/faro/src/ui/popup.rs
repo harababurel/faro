@@ -9,7 +9,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
 
 use super::View;
-use super::text::{pad_left, truncate, width};
+use super::text::{pad_left, sanitize, truncate, width};
 use faro_core::domain::{ConversationId, MessageRef};
 
 use crate::app::state::{
@@ -240,7 +240,7 @@ fn react(
             format!("{} ", i + 1),
             style.fg(theme.text_muted),
         ));
-        spans.push(Span::styled(format!("{emoji} "), style));
+        spans.push(Span::styled(format!("{} ", sanitize(emoji)), style));
         spans.push(Span::raw(" "));
     }
     let line = Line::from(spans);

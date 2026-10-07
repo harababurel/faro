@@ -8,14 +8,16 @@ use faro_core::domain::{
     ConversationId, Direction, Message, MessageBody, MessageRef, ServiceId, TypingState,
 };
 use faro_core::store::{ConversationState, ConversationSummary};
+use std::time::Duration;
+
 use tokio::time::Instant;
 
 use super::event::{AppEvent, Effect};
 use super::input::Input;
 use super::keymap;
 use super::state::{
-    DRAFT_SAVE_DELAY, Focus, Geometry, Notice, OpenConversation, Popup, SidebarScroll, State,
-    TYPING_TIMEOUT, Typist, sort_conversations,
+    DRAFT_SAVE_DELAY, EmojiMode, Focus, Geometry, Notice, OpenConversation, Popup, SidebarScroll,
+    State, TYPING_TIMEOUT, Typist, sort_conversations,
 };
 use super::timeline;
 
@@ -66,6 +68,10 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
             previous,
             result,
         } => selection::on_react_result(state, conversation, target, previous, result),
+        AppEvent::TerminalChecked { mosh } => {
+            terminal_checked(state, mosh);
+            vec![]
+        }
         AppEvent::OpenFailed(error) => {
             state.notice = Some(Notice::error(format!("Couldn't open the link: {error}")));
             vec![]
@@ -126,7 +132,9 @@ fn on_terminal(state: &mut State, event: &Event) -> Vec<Effect> {
             navigation::paste(state, text);
             presence::on_edited(state)
         }
-        Event::FocusGained | Event::FocusLost | Event::Resize(_, _) => vec![],
+        // A tmux client may have attached from somewhere else (D47).
+        Event::FocusGained | Event::Resize(_, _) => check_terminal(state),
+        Event::FocusLost => vec![],
     };
     effects.extend(presence::catch_up(state));
     effects
@@ -486,3 +494,38 @@ fn expire_typing(state: &mut State, now: Instant) {
 
 #[cfg(test)]
 mod tests;
+
+/// Don't look for mosh more often than this (resizes come in bursts).
+const TERMINAL_RECHECK: Duration = Duration::from_secs(2);
+
+/// Look for mosh again, if the emoji mode follows it (D47).
+fn check_terminal(state: &mut State) -> Vec<Effect> {
+    let emoji = &mut state.env.emoji;
+    let now = Instant::now();
+    if !emoji.auto || emoji.checked_at.is_some_and(|t| now - t < TERMINAL_RECHECK) {
+        return vec![];
+    }
+    emoji.checked_at = Some(now);
+    vec![Effect::CheckTerminal]
+}
+
+/// Switch the emoji mode to match, redrawing everything if it changed.
+fn terminal_checked(state: &mut State, mosh: bool) {
+    let emoji = &mut state.env.emoji;
+    let mode = if mosh {
+        EmojiMode::Compatible
+    } else {
+        EmojiMode::Full
+    };
+    if !emoji.auto || emoji.mode == mode {
+        return;
+    }
+    emoji.mode = mode;
+    state.env.repaint = true;
+    tracing::info!(?mode, "emoji mode changed");
+    state.notice = Some(Notice::info(if mosh {
+        "mosh detected: drawing emoji in compatible form"
+    } else {
+        "No mosh: drawing emoji in full"
+    }));
+}

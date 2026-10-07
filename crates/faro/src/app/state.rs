@@ -137,6 +137,31 @@ pub struct Environment {
     /// The terminal has focus (focus reporting; assumed until it says
     /// otherwise, and whenever a key or click arrives). D42.
     pub focused: bool,
+    /// Clear the screen and draw everything again on the next frame (the
+    /// app loop takes it).
+    pub repaint: bool,
+    pub emoji: EmojiSetting,
+}
+
+/// How emoji are drawn (D47).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EmojiMode {
+    /// As they are: for terminals that measure emoji like faro (kitty,
+    /// recent tmux).
+    #[default]
+    Full,
+    /// Emoji whose width depends on the terminal are drawn in a simpler form
+    /// with the same width everywhere (for mosh and other old-style terminals).
+    Compatible,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct EmojiSetting {
+    pub mode: EmojiMode,
+    /// Follow mosh detection (`--emoji auto`); otherwise `mode` is fixed.
+    pub auto: bool,
+    /// When the terminal was last checked for mosh.
+    pub checked_at: Option<Instant>,
 }
 
 /// A small modal over the message area.
@@ -455,6 +480,8 @@ impl State {
             env: Environment {
                 over_ssh: false,
                 focused: true,
+                repaint: false,
+                emoji: EmojiSetting::default(),
             },
             keymap: Keymap::default(),
             palette: None,

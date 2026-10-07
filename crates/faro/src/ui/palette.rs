@@ -246,7 +246,7 @@ fn highlighted(
     let mut run = String::new();
     let mut run_hit = false;
     let mut used = 0;
-    let total = width(title);
+    let total = width(&sanitize(title));
     let budget = if total > room {
         room.saturating_sub(1)
     } else {
