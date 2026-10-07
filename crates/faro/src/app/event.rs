@@ -30,6 +30,16 @@ pub enum AppEvent {
         sent_at: Timestamp,
         result: Result<(), BackendError>,
     },
+    /// The backend finished (or gave up) sending our reaction; on failure,
+    /// `previous` is restored.
+    ReactResult {
+        conversation: ConversationId,
+        target: MessageRef,
+        previous: Option<String>,
+        result: Result<(), BackendError>,
+    },
+    /// Opening a link failed; the text is safe to show.
+    OpenFailed(String),
     /// A frame was drawn; this is where things ended up.
     Drawn(Geometry),
     /// A store operation failed; the text is safe to show (no message content).
@@ -62,4 +72,8 @@ pub enum Effect {
     RememberOpen(ConversationId),
     /// Ask the backend to do something; routed to the command task.
     Backend(Command),
+    /// Put text on the clipboard (OSC 52; works over SSH and tmux).
+    Copy(String),
+    /// Open an http(s) link with the system's opener.
+    OpenUrl(String),
 }

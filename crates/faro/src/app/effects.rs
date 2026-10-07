@@ -97,9 +97,9 @@ async fn execute(store: &Store, effect: Effect) -> Result<Option<AppEvent>, Stor
                 .await?;
             None
         }
-        Effect::Backend(_) => {
+        Effect::Backend(_) | Effect::Copy(_) | Effect::OpenUrl(_) => {
             // `app::run` routes these to the command task.
-            tracing::error!("a backend command reached the store worker; dropped");
+            tracing::error!("a non-store effect reached the store worker; dropped");
             None
         }
     })

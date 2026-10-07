@@ -4,10 +4,11 @@ use std::time::Duration;
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use faro_core::backend::{BackendError, BackendEvent, OutgoingMessage};
-use faro_core::domain::{DeliveryStatus, MessageBody, Timestamp, TypingState};
+use faro_core::domain::{DeliveryStatus, MessageBody, Quote, Timestamp, TypingState};
 
 use super::*;
 use crate::app::commands::Command;
+use crate::app::state::{MessageAction, NoticeLevel, Popup};
 use crate::fixtures::{
     self, ALICE, BOB, CAROL, ME, alice, bob, climbing, climbing_history, loaded_state, text,
 };
@@ -343,6 +344,7 @@ fn geometry(state: &State) -> Geometry {
         input: Some(Rect::new(31, 14, 60, 3)),
         scroll: state.open.as_ref().and_then(|o| o.scroll),
         at_top: false,
+        history_rows: vec![],
     }
 }
 
@@ -436,10 +438,15 @@ fn scrolling_pins_the_view_and_counts_new_messages() {
     assert_eq!(open.unseen, 1);
     assert_eq!(open.scroll.map(|a| a.message), Some(last), "view stays put");
 
-    state.focus = Focus::Messages;
-    update(&mut state, key(KeyCode::Char('j'), KeyModifiers::NONE));
-    assert_eq!(scroll_of(&state).map(|a| a.offset), Some(9));
-    update(&mut state, key(KeyCode::Char('G'), KeyModifiers::SHIFT));
+    update(&mut state, mouse(MouseEventKind::ScrollDown, 40, 5));
+    assert_eq!(
+        scroll_of(&state).map(|a| a.offset),
+        Some(10 - keys::WHEEL_ROWS)
+    );
+    // Back at the bottom (the renderer reports no anchor), the count clears.
+    let mut drawn = geometry(&state);
+    drawn.scroll = None;
+    update(&mut state, AppEvent::Drawn(drawn));
     let open = state.open.as_ref().unwrap();
     assert_eq!((open.scroll, open.unseen), (None, 0));
     // Scrolling down while at the bottom does nothing.
@@ -745,4 +752,333 @@ fn send_results_become_delivery_updates() {
         state.notice.as_ref().map(|n| n.level),
         Some(NoticeLevel::Error)
     );
+}
+
+// --- M4 task 4: message selection ---
+
+fn selected_ref(state: &State) -> Option<MessageRef> {
+    state
+        .open
+        .as_ref()
+        .and_then(|o| o.selected)
+        .map(|s| s.message)
+}
+
+fn press(state: &mut State, c: char) -> Vec<Effect> {
+    update(state, key(KeyCode::Char(c), KeyModifiers::NONE))
+}
+
+fn select_last_but(state: &mut State, older: usize) {
+    update(state, key(KeyCode::Up, KeyModifiers::NONE));
+    for _ in 0..older {
+        press(state, 'k');
+    }
+}
+
+#[test]
+fn up_on_an_empty_input_selects_and_down_past_the_newest_returns() {
+    let mut state = loaded_state();
+    let history = climbing_history();
+    let newest = history.last().unwrap().reference();
+    update(&mut state, key(KeyCode::Up, KeyModifiers::NONE));
+    assert_eq!(state.focus, Focus::Messages);
+    assert_eq!(selected_ref(&state), Some(newest));
+    assert!(state.open.as_ref().unwrap().selected.unwrap().reveal);
+    press(&mut state, 'k');
+    assert_eq!(
+        selected_ref(&state),
+        history.get(history.len() - 2).map(Message::reference)
+    );
+    press(&mut state, 'g');
+    assert_eq!(
+        selected_ref(&state),
+        history.first().map(Message::reference)
+    );
+    press(&mut state, 'k');
+    assert_eq!(
+        selected_ref(&state),
+        history.first().map(Message::reference),
+        "stays at the top"
+    );
+    update(&mut state, key(KeyCode::Char('G'), KeyModifiers::SHIFT));
+    press(&mut state, 'j');
+    assert_eq!(state.focus, Focus::Input);
+
+    // A frame shows the selection: no more revealing.
+    update(&mut state, AppEvent::Drawn(Geometry::default()));
+    assert!(!state.open.as_ref().unwrap().selected.unwrap().reveal);
+
+    // With text in the input, ↑ stays in the input.
+    typed(&mut state, "hi");
+    update(&mut state, key(KeyCode::Up, KeyModifiers::NONE));
+    assert_eq!(state.focus, Focus::Input);
+}
+
+#[test]
+fn replies_quote_the_selected_message() {
+    let mut state = loaded_state();
+    let late = climbing_history().last().cloned().unwrap();
+    update(&mut state, key(KeyCode::Up, KeyModifiers::NONE));
+    press(&mut state, 'r');
+    assert_eq!(state.focus, Focus::Input);
+    let quote = Quote {
+        target: late.reference(),
+        preview: late.body.clone(),
+    };
+    assert_eq!(state.open.as_ref().unwrap().reply_to, Some(quote.clone()));
+    // Esc cancels the reply first, then works as usual.
+    update(&mut state, key(KeyCode::Esc, KeyModifiers::NONE));
+    assert_eq!(state.open.as_ref().unwrap().reply_to, None);
+
+    update(&mut state, key(KeyCode::Up, KeyModifiers::NONE));
+    press(&mut state, 'r');
+    typed(&mut state, "no worries");
+    let effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(last_message(&state).quote, Some(quote.clone()));
+    assert!(effects.iter().any(|e| matches!(
+        e,
+        Effect::Backend(Command::Send { message, .. }) if message.quote == Some(quote.clone())
+    )));
+    assert_eq!(state.open.as_ref().unwrap().reply_to, None);
+}
+
+#[test]
+fn reactions_toggle_and_are_undone_on_failure() {
+    let mut state = loaded_state();
+    let target = climbing_history().last().unwrap().reference();
+    let reaction = |emoji: Option<&str>| BackendEvent::Reaction {
+        conversation: climbing(),
+        target,
+        sender: ME,
+        emoji: emoji.map(str::to_owned),
+    };
+    update(&mut state, key(KeyCode::Up, KeyModifiers::NONE));
+    press(&mut state, '+');
+    assert_eq!(
+        state.popup,
+        Some(Popup::React {
+            target,
+            selected: 0
+        })
+    );
+    let effects = press(&mut state, '2');
+    assert_eq!(state.popup, None);
+    assert_eq!(
+        effects,
+        vec![
+            Effect::Persist(Box::new(reaction(Some("👍")))),
+            Effect::Backend(Command::React {
+                conversation: climbing(),
+                target,
+                emoji: Some("👍".into()),
+                previous: None,
+            }),
+        ]
+    );
+    let mine = |state: &State| {
+        let message = last_message(state);
+        message
+            .reactions
+            .iter()
+            .find(|r| r.sender == ME)
+            .map(|r| r.emoji.clone())
+    };
+    assert_eq!(mine(&state).as_deref(), Some("👍"));
+
+    // Picking it again takes it back; the picker starts on it.
+    press(&mut state, '+');
+    assert_eq!(
+        state.popup,
+        Some(Popup::React {
+            target,
+            selected: 1
+        })
+    );
+    update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(mine(&state), None);
+
+    // The backend refused: restore what was there before.
+    update(
+        &mut state,
+        AppEvent::ReactResult {
+            conversation: climbing(),
+            target,
+            previous: Some("👍".into()),
+            result: Err(BackendError::Network("offline".into())),
+        },
+    );
+    assert_eq!(mine(&state).as_deref(), Some("👍"));
+    assert_eq!(
+        state.notice.as_ref().map(|n| n.level),
+        Some(NoticeLevel::Error)
+    );
+}
+
+#[test]
+fn copy_puts_the_text_on_the_clipboard_and_the_notice_expires() {
+    let mut state = loaded_state();
+    update(&mut state, key(KeyCode::Up, KeyModifiers::NONE));
+    let effects = press(&mut state, 'y');
+    assert_eq!(effects, vec![Effect::Copy("Running 10 min late 🙈".into())]);
+    let notice = state.notice.clone().unwrap();
+    assert_eq!(notice.level, NoticeLevel::Info);
+    assert_eq!(state.next_deadline(), notice.until);
+    state.notice.as_mut().unwrap().until = Some(Instant::now());
+    update(&mut state, AppEvent::Tick);
+    assert_eq!(state.notice, None);
+}
+
+#[test]
+fn links_open_locally_and_are_copied_over_ssh() {
+    let mut state = loaded_state();
+    let one = text(
+        climbing(),
+        BOB,
+        fixtures::NOW_MS,
+        "map: https://example.com/map.",
+    );
+    update(&mut state, AppEvent::Backend(BackendEvent::Message(one)));
+    update(&mut state, key(KeyCode::Up, KeyModifiers::NONE));
+    assert_eq!(
+        press(&mut state, 'o'),
+        vec![Effect::OpenUrl("https://example.com/map".into())]
+    );
+    state.env.over_ssh = true;
+    assert_eq!(
+        press(&mut state, 'o'),
+        vec![Effect::Copy("https://example.com/map".into())]
+    );
+
+    // Several links: choose from a menu.
+    let two = text(
+        climbing(),
+        BOB,
+        fixtures::NOW_MS + 1,
+        "https://a.org and https://b.org",
+    );
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::Message(two.clone())),
+    );
+    update(&mut state, key(KeyCode::Char('G'), KeyModifiers::SHIFT));
+    press(&mut state, 'o');
+    let Some(Popup::Actions { items, .. }) = &state.popup else {
+        panic!("expected a link menu");
+    };
+    assert_eq!(
+        items,
+        &vec![
+            MessageAction::OpenLink("https://a.org".into()),
+            MessageAction::OpenLink("https://b.org".into())
+        ]
+    );
+    press(&mut state, 'j');
+    assert_eq!(
+        update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE)),
+        vec![Effect::Copy("https://b.org".into())]
+    );
+    assert_eq!(state.popup, None);
+}
+
+#[test]
+fn the_menu_lists_what_a_message_offers() {
+    let mut state = loaded_state();
+    // "On my way" (own, sent), then the deleted message further up.
+    select_last_but(&mut state, 1);
+    update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    let Some(Popup::Actions {
+        items, selected, ..
+    }) = &state.popup
+    else {
+        panic!("expected the action menu");
+    };
+    assert_eq!(*selected, 0);
+    assert_eq!(
+        items,
+        &vec![
+            MessageAction::Reply,
+            MessageAction::React,
+            MessageAction::Copy
+        ]
+    );
+    // Shortcut letters work inside the menu; Esc closes it.
+    press(&mut state, '+');
+    assert!(matches!(state.popup, Some(Popup::React { .. })));
+    update(&mut state, key(KeyCode::Esc, KeyModifiers::NONE));
+    assert_eq!(state.popup, None);
+    assert_eq!(state.focus, Focus::Messages);
+
+    // Deleted messages offer nothing, so no menu.
+    for _ in 0..3 {
+        press(&mut state, 'k');
+    }
+    let deleted = climbing_history().get(4).map(Message::reference);
+    assert_eq!(selected_ref(&state), deleted);
+    update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(state.popup, None);
+}
+
+#[test]
+fn failed_messages_can_be_retried_from_the_menu() {
+    let mut state = loaded_state();
+    typed(&mut state, "lost");
+    update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    let sent = last_message(&state);
+    update(
+        &mut state,
+        AppEvent::SendResult {
+            sent_at: sent.sent_at,
+            result: Err(BackendError::Network("offline".into())),
+        },
+    );
+    update(&mut state, key(KeyCode::Up, KeyModifiers::NONE));
+    update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    let effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(
+        effects,
+        vec![
+            Effect::Persist(Box::new(BackendEvent::DeliveryUpdate {
+                message: sent.reference(),
+                status: DeliveryStatus::Sending,
+            })),
+            Effect::Backend(Command::Send {
+                conversation: climbing(),
+                message: OutgoingMessage {
+                    sent_at: sent.sent_at,
+                    body: MessageBody::new("lost"),
+                    quote: None,
+                },
+            }),
+        ]
+    );
+    assert_eq!(
+        last_message(&state).direction,
+        Direction::Outgoing(DeliveryStatus::Sending)
+    );
+}
+
+#[test]
+fn clicking_a_message_selects_it_and_right_click_opens_the_menu() {
+    let mut state = loaded_state();
+    let target = climbing_history().last().unwrap().reference();
+    let mut drawn = geometry(&state);
+    drawn.history_rows = vec![None, Some(target)];
+    update(&mut state, AppEvent::Drawn(drawn));
+    update(
+        &mut state,
+        mouse(MouseEventKind::Down(MouseButton::Left), 40, 2),
+    );
+    assert_eq!(state.focus, Focus::Messages);
+    assert_eq!(selected_ref(&state), Some(target));
+    update(
+        &mut state,
+        mouse(MouseEventKind::Down(MouseButton::Right), 40, 2),
+    );
+    assert!(matches!(state.popup, Some(Popup::Actions { .. })));
+    // Any click closes it.
+    update(
+        &mut state,
+        mouse(MouseEventKind::Down(MouseButton::Left), 40, 9),
+    );
+    assert_eq!(state.popup, None);
 }

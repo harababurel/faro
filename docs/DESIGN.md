@@ -208,6 +208,8 @@ presage keeps its own store for keys, sessions and protocol state; faro never to
 - Actions on the selected message: reply, react, copy, edit (own), delete, open link/attachment, info.
 - The same actions appear in a **context menu**, opened by right-click or `Enter` on a selected message. Every mouse action has a keyboard equivalent.
 
+**As built in M4 task 4 (D40):** selection lives in the message pane. Entering it (`↑` on an empty input, `Tab`, or a click) selects the message on the bottom row; the selected message has a tinted background and a `▌` bar in the margin, and the view scrolls to keep it visible. `r` reply (a "↳ Replying to …" bar above the input; `Esc` cancels), `+` react (picker with Signal's six default reactions; picking your current one removes it), `y` copy (OSC 52), `o` open link (copied instead over SSH; several links → a menu). `Enter` or right-click opens the action menu, which also lists each link and "Retry sending" for failed messages. Popups sit just above (or below) the message they act on. Edit, delete and info come later.
+
 ### 7.5 Mouse
 
 Click to focus panes and open conversations; scroll anywhere; drag sidebar borders (border highlights on hover); right-click for context menus; click toggles on panel headers. Mouse capture can be turned off (setting + palette command) so native terminal text selection works; `Shift`+drag bypasses capture in most terminals. Copy uses **OSC 52**, which works over SSH and tmux.
@@ -226,15 +228,16 @@ Chosen to avoid tmux's default prefix (`Ctrl+B`) and common terminal shortcuts. 
 | `Alt+1`…`Alt+9` | Jump to pinned conversation N |
 | `Tab` / `Shift+Tab` | Cycle focus between panes (conversations, messages, input; D37) |
 | `Esc` | Close popup / leave selection / clear; back to the input (D37) |
-| `↑` (empty input) | Select last message |
-| `r` `e` `d` `y` `+` `o` | (In selection) reply, edit, delete, copy, react, open |
-| `Enter` | Send; in selection: open context menu |
+| `↑` (empty input) | Select the newest message (focuses the message pane, D40) |
+| `r` `e` `d` `y` `+` `o` | (In selection) reply, edit, delete, copy, react, open link (`e`/`d` not built yet) |
+| `Enter` | Send; in selection: open the message's action menu (D40) |
 | `Alt+Enter` | Newline (also `Ctrl+J`; `Shift+Enter` when the kitty keyboard protocol is available) (D38) |
 | `Ctrl+A/E`, `Alt+B/F`, `Ctrl+W`, `Alt+D`, `Ctrl+U/K` | Input editing: line start/end, word left/right, delete word back/forward, delete to line start/end; arrows, `Home/End` and `Alt`/`Ctrl`+arrows too (D38) |
 | `Alt+S` / `Alt+I` | Toggle left / right sidebar |
 | `F1` or `?` (in non-input focus) | Help: opens the palette listing all keybindings |
 | `PgUp` / `PgDn` | Scroll messages by a page, from any pane (D37) |
-| `↑↓` / `j k`, `g G` / `Home End` | In the sidebar: switch conversation, first/last. In the message pane: scroll a row, top/bottom (D37) |
+| `↑↓` / `j k`, `g G` / `Home End` | In the sidebar: switch conversation, first/last (D37). In the message pane: select an older/newer message, oldest/newest loaded; `↓` past the newest goes back to the input (D40) |
+| In a popup | `↑↓`/`←→`/`j k h l` move, `Enter` chooses, `Esc` closes; the menu takes the selection keys as shortcuts, the reaction picker `1`–`6` (D40) |
 
 ### 7.7 Conversation list curation
 

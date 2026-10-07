@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use faro_core::domain::{DeliveryStatus, Direction, Message, Timestamp};
+use faro_core::domain::{DeliveryStatus, Direction, Message, MessageRef, Timestamp};
 use jiff::civil::Date;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -49,6 +49,22 @@ pub struct Window {
     pub scroll: Option<Anchor>,
     /// The first loaded message is on screen.
     pub at_top: bool,
+    /// The message each line belongs to (`None` for date and unread rules).
+    pub rows: Vec<Option<MessageRef>>,
+}
+
+/// One message's lines, with the rules above it.
+struct Block {
+    lines: Vec<Line<'static>>,
+    /// How many of the first lines are rules (date, unread).
+    rules: usize,
+    message: Option<MessageRef>,
+}
+
+impl Block {
+    fn rows(&self) -> impl Iterator<Item = Option<MessageRef>> + '_ {
+        (0..self.lines.len()).map(|i| self.message.filter(|_| i >= self.rules))
+    }
 }
 
 /// Everything needed to lay out one message.
@@ -61,7 +77,8 @@ struct Context<'a> {
     today: Date,
 }
 
-/// The lines to show for `height` rows, following `open.scroll`.
+/// The lines to show for `height` rows, following `open.scroll`, and moved
+/// if needed so a selected message waiting to be revealed is on screen.
 pub fn window(
     state: &State,
     open: &OpenConversation,
@@ -77,53 +94,66 @@ pub fn window(
         width,
         today: date_of(view.now, view),
     };
-    let anchored = open.scroll.and_then(|anchor| {
-        let at = open
-            .messages
-            .iter()
-            .rposition(|m| m.reference() == anchor.message)?;
-        Some((at, anchor.offset))
-    });
-    match anchored {
-        Some((at, offset)) => scrolled(&context, at, offset, height),
-        None => newest(&context, height),
+    let position = |target: MessageRef| open.messages.iter().rposition(|m| m.reference() == target);
+    let anchored = open
+        .scroll
+        .and_then(|anchor| Some((position(anchor.message)?, anchor.offset)));
+    let reveal = open
+        .selected
+        .filter(|s| s.reveal)
+        .and_then(|s| position(s.message));
+    if anchored.is_none() && reveal.is_none() {
+        newest(&context, height)
+    } else {
+        scrolled(&context, anchored, reveal, height)
     }
 }
 
 /// The last `height` lines. Only builds as many messages as fit.
 fn newest(context: &Context<'_>, height: usize) -> Window {
-    let mut blocks: Vec<Vec<Line<'static>>> = Vec::new();
+    let mut blocks: Vec<Block> = Vec::new();
     let mut total = 0;
     let mut built_all = true;
     for i in (0..context.open.messages.len()).rev() {
         let block = block(context, i);
-        total += block.len();
+        total += block.lines.len();
         blocks.push(block);
         if total >= height && i > 0 {
             built_all = false;
             break;
         }
     }
-    let mut lines: Vec<Line<'static>> = blocks.into_iter().rev().flatten().collect();
+    blocks.reverse();
+    let mut rows: Vec<Option<MessageRef>> = blocks.iter().flat_map(Block::rows).collect();
+    let mut lines: Vec<Line<'static>> = blocks.into_iter().flat_map(|b| b.lines).collect();
     let excess = lines.len().saturating_sub(height);
     lines.drain(..excess);
+    rows.drain(..excess);
     Window {
         lines,
         scroll: None,
         at_top: built_all && excess == 0,
+        rows,
     }
 }
 
-/// The view pinned to message `at`, `offset` rows up from its last row. Lays
-/// out every loaded message (only while scrolled), then clamps to the loaded
-/// history and normalises the anchor to the message on the bottom row.
-fn scrolled(context: &Context<'_>, at: usize, offset: isize, height: usize) -> Window {
+/// The view pinned to message `at`, `offset` rows up from its last row (or
+/// following the newest message if `anchored` is `None`), then moved just
+/// enough to show message `reveal`. Lays out every loaded message (only while
+/// scrolled or revealing), clamps to the loaded history and normalises the
+/// anchor to the message on the bottom row.
+fn scrolled(
+    context: &Context<'_>,
+    anchored: Option<(usize, isize)>,
+    reveal: Option<usize>,
+    height: usize,
+) -> Window {
     let messages = &context.open.messages;
-    let blocks: Vec<Vec<Line<'static>>> = (0..messages.len()).map(|i| block(context, i)).collect();
+    let blocks: Vec<Block> = (0..messages.len()).map(|i| block(context, i)).collect();
     let ends: Vec<usize> = blocks
         .iter()
         .scan(0, |end, b| {
-            *end += b.len();
+            *end += b.lines.len();
             Some(*end)
         })
         .collect();
@@ -133,16 +163,37 @@ fn scrolled(context: &Context<'_>, at: usize, offset: isize, height: usize) -> W
             lines: Vec::new(),
             scroll: None,
             at_top: true,
+            rows: Vec::new(),
         };
     };
     let lowest_top_fill = height.min(total).saturating_sub(1);
-    let wanted = ends
-        .get(at)
-        .map_or(last_row, |end| end.saturating_sub(1))
-        .cast_signed()
-        .saturating_sub(offset);
-    let bottom = wanted.clamp(lowest_top_fill.cast_signed(), last_row.cast_signed());
-    let bottom = bottom.cast_unsigned();
+    let clamp = |row: isize| {
+        row.clamp(lowest_top_fill.cast_signed(), last_row.cast_signed())
+            .cast_unsigned()
+    };
+    let wanted = anchored.map_or(last_row.cast_signed(), |(at, offset)| {
+        ends.get(at)
+            .map_or(last_row, |end| end.saturating_sub(1))
+            .cast_signed()
+            .saturating_sub(offset)
+    });
+    let mut bottom = clamp(wanted);
+    if let Some(r) = reveal
+        && let Some(end) = ends.get(r)
+    {
+        // Rows of the message, from its first rule to its last line.
+        let start = r
+            .checked_sub(1)
+            .and_then(|p| ends.get(p))
+            .copied()
+            .unwrap_or(0);
+        let top = (bottom + 1).saturating_sub(height);
+        if start < top {
+            bottom = clamp((start + height).saturating_sub(1).cast_signed());
+        } else if end - 1 > bottom {
+            bottom = clamp((end - 1).cast_signed());
+        }
+    }
     let scroll = (bottom < last_row)
         .then(|| {
             let j = ends.partition_point(|end| *end <= bottom);
@@ -154,21 +205,29 @@ fn scrolled(context: &Context<'_>, at: usize, offset: isize, height: usize) -> W
         })
         .flatten();
     let top = (bottom + 1).saturating_sub(height);
+    let shown = bottom + 1 - top;
+    let rows = blocks
+        .iter()
+        .flat_map(Block::rows)
+        .skip(top)
+        .take(shown)
+        .collect();
     let lines = blocks
         .into_iter()
-        .flatten()
+        .flat_map(|b| b.lines)
         .skip(top)
-        .take(bottom + 1 - top)
+        .take(shown)
         .collect();
     Window {
         lines,
         scroll,
         at_top: top == 0,
+        rows,
     }
 }
 
 /// Message `i` with the date rule and unread rule that go above it.
-fn block(context: &Context<'_>, i: usize) -> Vec<Line<'static>> {
+fn block(context: &Context<'_>, i: usize) -> Block {
     let Context {
         state,
         open,
@@ -179,7 +238,11 @@ fn block(context: &Context<'_>, i: usize) -> Vec<Line<'static>> {
     } = context;
     let mut block = Vec::new();
     let Some(message) = open.messages.get(i) else {
-        return block;
+        return Block {
+            lines: block,
+            rules: 0,
+            message: None,
+        };
     };
     let previous = i.checked_sub(1).and_then(|p| open.messages.get(p));
     let date = date_of_message(message, view);
@@ -200,8 +263,13 @@ fn block(context: &Context<'_>, i: usize) -> Vec<Line<'static>> {
                     .saturating_sub(p.sent_at.as_millis())
                     < GROUPING_MS
         });
+    let rules = block.len();
     render_message(state, message, !continued, columns, view, &mut block);
-    block
+    Block {
+        lines: block,
+        rules,
+        message: Some(message.reference()),
+    }
 }
 
 fn render_message(

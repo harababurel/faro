@@ -21,6 +21,7 @@ mod effects;
 pub mod event;
 pub mod input;
 pub mod state;
+mod system;
 mod timeline;
 pub mod update;
 
@@ -72,11 +73,19 @@ pub async fn run<B: Backend + 'static>(
     let mut hangup = signal(SignalKind::hangup()).context("listening for SIGHUP")?;
     let (results_tx, mut results) = mpsc::unbounded_channel();
     let (effects, worker) = effects::spawn(store, results_tx.clone());
-    let (commands, command_task) = commands::spawn(backend, results_tx);
+    let (commands, command_task) = commands::spawn(backend, results_tx.clone());
     let dispatch = |list: Vec<Effect>| {
         for effect in list {
             let delivered = match effect {
                 Effect::Backend(command) => commands.send(command).is_ok(),
+                Effect::Copy(text) => {
+                    system::copy(&text);
+                    true
+                }
+                Effect::OpenUrl(url) => {
+                    system::open_url(url, results_tx.clone());
+                    true
+                }
                 store @ (Effect::LoadConversations
                 | Effect::LoadMessages(_)
                 | Effect::LoadOlder { .. }
@@ -92,6 +101,7 @@ pub async fn run<B: Backend + 'static>(
     };
 
     let mut state = State::new(directory.me, directory.contacts, directory.groups);
+    state.env.over_ssh = system::over_ssh();
     let theme = Theme::default();
     let mut tui = Tui::enter().context("setting up the terminal")?;
     let mut input = EventStream::new();
@@ -164,6 +174,8 @@ fn affects_view(event: &AppEvent) -> bool {
         | AppEvent::MessagesLoaded { .. }
         | AppEvent::OlderLoaded { .. }
         | AppEvent::SendResult { .. }
+        | AppEvent::ReactResult { .. }
+        | AppEvent::OpenFailed(_)
         | AppEvent::StoreFailed(_)
         | AppEvent::Tick
         | AppEvent::Shutdown => true,

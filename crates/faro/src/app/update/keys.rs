@@ -22,15 +22,34 @@ pub enum Action {
     FocusInput,
     /// Esc: dismiss the notice; outside the input, also go back to it.
     Escape,
-    /// Scroll the messages this many rows up (negative: down).
-    Scroll(isize),
     PageUp,
     PageDown,
-    ScrollTop,
-    ScrollBottom,
     /// Send the input (Enter).
     Send,
     Edit(Edit),
+    /// Message selection (D40): move to an older / newer message.
+    SelectOlder,
+    SelectNewer,
+    SelectOldest,
+    SelectNewest,
+    /// What the selected message offers (`Enter`).
+    MessageMenu,
+    Reply,
+    ReactPicker,
+    Copy,
+    OpenLink,
+    Popup(PopupKey),
+}
+
+/// Keys while a menu or picker is open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PopupKey {
+    Previous,
+    Next,
+    Choose,
+    Close,
+    /// A shortcut letter or digit.
+    Char(char),
 }
 
 /// Changes to the input (M4 task 2).
@@ -141,15 +160,44 @@ fn conversations(code: KeyCode, modifiers: KeyModifiers) -> Option<Action> {
     }
 }
 
+/// The message pane moves a selection (D40); keys act on the selected message.
 fn messages(code: KeyCode, modifiers: KeyModifiers) -> Option<Action> {
-    match (code, modifiers) {
-        (KeyCode::Up | KeyCode::Char('k'), KeyModifiers::NONE) => Some(Action::Scroll(1)),
-        (KeyCode::Down | KeyCode::Char('j'), KeyModifiers::NONE) => Some(Action::Scroll(-1)),
-        (KeyCode::Home | KeyCode::Char('g'), KeyModifiers::NONE) => Some(Action::ScrollTop),
-        (KeyCode::End | KeyCode::Char('G'), KeyModifiers::NONE) => Some(Action::ScrollBottom),
-        (KeyCode::Enter, KeyModifiers::NONE) => Some(Action::FocusInput),
-        _ => None,
+    const NONE: KeyModifiers = KeyModifiers::NONE;
+    let action = match (code, modifiers) {
+        (KeyCode::Up | KeyCode::Char('k'), NONE) => Action::SelectOlder,
+        (KeyCode::Down | KeyCode::Char('j'), NONE) => Action::SelectNewer,
+        (KeyCode::Home | KeyCode::Char('g'), NONE) => Action::SelectOldest,
+        (KeyCode::End | KeyCode::Char('G'), NONE) => Action::SelectNewest,
+        (KeyCode::Enter, NONE) => Action::MessageMenu,
+        (KeyCode::Char('r'), NONE) => Action::Reply,
+        (KeyCode::Char('+'), NONE) => Action::ReactPicker,
+        (KeyCode::Char('y'), NONE) => Action::Copy,
+        (KeyCode::Char('o'), NONE) => Action::OpenLink,
+        _ => return None,
+    };
+    Some(action)
+}
+
+/// While a popup is open it takes every key except quitting.
+pub fn popup_action(key: KeyEvent) -> Option<Action> {
+    if key.kind == KeyEventKind::Release {
+        return None;
     }
+    let modifiers = key.modifiers.difference(KeyModifiers::SHIFT);
+    let popup = match (key.code, modifiers) {
+        (KeyCode::Char('q' | 'c'), KeyModifiers::CONTROL) => return global(key.code, modifiers),
+        (KeyCode::Up | KeyCode::Left | KeyCode::BackTab, _)
+        | (KeyCode::Char('k' | 'h'), KeyModifiers::NONE)
+        | (KeyCode::Char('p'), KeyModifiers::CONTROL) => PopupKey::Previous,
+        (KeyCode::Down | KeyCode::Right | KeyCode::Tab, _)
+        | (KeyCode::Char('j' | 'l'), KeyModifiers::NONE)
+        | (KeyCode::Char('n'), KeyModifiers::CONTROL) => PopupKey::Next,
+        (KeyCode::Enter, _) => PopupKey::Choose,
+        (KeyCode::Esc, _) | (KeyCode::Char('q'), KeyModifiers::NONE) => PopupKey::Close,
+        (KeyCode::Char(c), KeyModifiers::NONE) => PopupKey::Char(c),
+        _ => return None,
+    };
+    Some(Action::Popup(popup))
 }
 
 #[cfg(test)]
@@ -165,7 +213,7 @@ mod tests {
         let j = |focus| press(KeyCode::Char('j'), KeyModifiers::NONE, focus);
         assert_eq!(j(Focus::Input), Some(Action::Edit(Edit::Insert('j'))));
         assert_eq!(j(Focus::Conversations), Some(Action::NextConversation));
-        assert_eq!(j(Focus::Messages), Some(Action::Scroll(-1)));
+        assert_eq!(j(Focus::Messages), Some(Action::SelectNewer));
         // Unbound letters do nothing outside the input.
         assert_eq!(
             press(KeyCode::Char('x'), KeyModifiers::NONE, Focus::Messages),
@@ -181,7 +229,7 @@ mod tests {
         );
         assert_eq!(
             press(KeyCode::Char('G'), KeyModifiers::SHIFT, Focus::Messages),
-            Some(Action::ScrollBottom)
+            Some(Action::SelectNewest)
         );
         assert_eq!(
             press(KeyCode::Char('H'), KeyModifiers::SHIFT, Focus::Input),
@@ -243,6 +291,32 @@ mod tests {
             input(KeyCode::Char('k'), KeyModifiers::CONTROL),
             edit(Edit::DeleteToLineEnd)
         );
+    }
+
+    #[test]
+    fn popups_take_keys_but_not_quitting() {
+        let popup = |code, modifiers| popup_action(KeyEvent::new(code, modifiers));
+        assert_eq!(
+            popup(KeyCode::Char('j'), KeyModifiers::NONE),
+            Some(Action::Popup(PopupKey::Next))
+        );
+        assert_eq!(
+            popup(KeyCode::Char('3'), KeyModifiers::NONE),
+            Some(Action::Popup(PopupKey::Char('3')))
+        );
+        assert_eq!(
+            popup(KeyCode::Char('+'), KeyModifiers::SHIFT),
+            Some(Action::Popup(PopupKey::Char('+')))
+        );
+        assert_eq!(
+            popup(KeyCode::Esc, KeyModifiers::NONE),
+            Some(Action::Popup(PopupKey::Close))
+        );
+        assert_eq!(
+            popup(KeyCode::Char('q'), KeyModifiers::CONTROL),
+            Some(Action::Quit)
+        );
+        assert_eq!(popup(KeyCode::Char('j'), KeyModifiers::ALT), None);
     }
 
     #[test]

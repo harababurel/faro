@@ -12,6 +12,7 @@ mod conversation;
 mod footer;
 mod info;
 mod messages;
+mod popup;
 mod sidebar;
 #[cfg(test)]
 mod tests;
@@ -48,6 +49,7 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>) -> Geometry
         info::render(frame, right, state, view);
     }
     footer::render(frame, footer, state, view, &geometry);
+    popup::render(frame, state, view, &geometry);
     geometry
 }
 

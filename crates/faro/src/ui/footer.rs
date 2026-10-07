@@ -10,7 +10,7 @@ use ratatui::widgets::Paragraph;
 
 use super::text::{sanitize, truncate, width};
 use super::{View, focused};
-use crate::app::state::{Focus, Geometry, NoticeLevel, State};
+use crate::app::state::{Focus, Geometry, NoticeLevel, Popup, State};
 
 /// Key hints for each focus, most important first; dropped from the end when
 /// space runs out (DESIGN.md §7.1: context-sensitive).
@@ -31,11 +31,20 @@ const CONVERSATION_HINTS: &[(&str, &str)] = &[
     ("ctrl+q", "quit"),
 ];
 const MESSAGE_HINTS: &[(&str, &str)] = &[
-    ("↑↓", "scroll"),
-    ("g/G", "top/bottom"),
-    ("pgup/pgdn", "page"),
+    ("↑↓", "select"),
+    ("enter", "actions"),
+    ("r", "reply"),
+    ("+", "react"),
+    ("y", "copy"),
+    ("o", "open link"),
     ("esc", "back"),
-    ("ctrl+q", "quit"),
+];
+const MENU_HINTS: &[(&str, &str)] = &[("↑↓", "choose"), ("enter", "do it"), ("esc", "close")];
+const REACT_HINTS: &[(&str, &str)] = &[
+    ("←→", "choose"),
+    ("1-6", "pick"),
+    ("enter", "react"),
+    ("esc", "close"),
 ];
 
 pub fn render(
@@ -71,6 +80,7 @@ pub fn render(
     let room = usize::from(area.width).saturating_sub(left_width + 2);
     let right = if let Some(notice) = &state.notice {
         let colour = match notice.level {
+            NoticeLevel::Info => theme.success,
             NoticeLevel::Warning => theme.warning,
             NoticeLevel::Error => theme.error,
         };
@@ -82,7 +92,12 @@ pub fn render(
             Style::new().fg(colour),
         ))
     } else {
-        let hints = if focused(state, geometry, Focus::Messages) {
+        let hints = if let Some(popup) = &state.popup {
+            match popup {
+                Popup::Actions { .. } => MENU_HINTS,
+                Popup::React { .. } => REACT_HINTS,
+            }
+        } else if focused(state, geometry, Focus::Messages) {
             MESSAGE_HINTS
         } else if focused(state, geometry, Focus::Conversations) {
             CONVERSATION_HINTS

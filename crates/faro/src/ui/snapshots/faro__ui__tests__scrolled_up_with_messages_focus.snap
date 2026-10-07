@@ -19,4 +19,4 @@ expression: "snapshot(&draw(&state, 100, 18))"
 │                            │││ Message Climbing 🧗…                                             ││
 │                            ││╰──────────────────────────────────────────────────────────────────╯│
 ╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯
- ● connected · 1 unread        ↑↓ scroll · g/G top/bottom · pgup/pgdn page · esc back · ctrl+q quit
+ ● connected · 1 unread        ↑↓ select · enter actions · r reply · + react · y copy · o open link

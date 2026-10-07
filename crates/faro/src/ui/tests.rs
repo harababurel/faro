@@ -217,3 +217,74 @@ fn scrolled_up_with_messages_focus() {
     state.open.as_mut().unwrap().unseen = 2;
     insta::assert_snapshot!(snapshot(&draw(&state, 100, 18)));
 }
+
+fn keys(state: &mut State, keys: &[crossterm::event::KeyCode]) {
+    for key in keys {
+        update(
+            state,
+            AppEvent::Terminal(crossterm::event::Event::Key(
+                crossterm::event::KeyEvent::from(*key),
+            )),
+        );
+    }
+}
+
+use crossterm::event::KeyCode::{Char, Enter, Up};
+
+#[test]
+fn message_menu_over_a_selected_message() {
+    let mut state = loaded_state();
+    keys(&mut state, &[Up, Char('k'), Enter]);
+    insta::assert_snapshot!(snapshot(&draw(&state, 100, 20)));
+}
+
+#[test]
+fn reaction_picker() {
+    let mut state = loaded_state();
+    keys(&mut state, &[Up, Char('+'), Char('l')]);
+    insta::assert_snapshot!(snapshot(&draw(&state, 100, 20)));
+}
+
+#[test]
+fn reply_bar_above_the_input() {
+    let mut state = loaded_state();
+    keys(&mut state, &[Up, Char('r'), Char('o'), Char('k')]);
+    insta::assert_snapshot!(snapshot(&draw(&state, 100, 20)));
+}
+
+#[test]
+fn the_selected_message_is_tinted_only_while_the_pane_has_focus() {
+    let mut state = loaded_state();
+    keys(&mut state, &[Up]);
+    let theme = Theme::default();
+    let buffer = draw(&state, 100, 20);
+    let tinted = |buffer: &Buffer| {
+        buffer
+            .content
+            .iter()
+            .filter(|c| c.bg == theme.background_element)
+            .count()
+    };
+    let bars = |buffer: &Buffer| buffer.content.iter().filter(|c| c.symbol() == "▌").count();
+    // The newest message is one line: one tinted row, one bar.
+    assert!(tinted(&buffer) >= 60);
+    assert_eq!(bars(&buffer), 1);
+    keys(&mut state, &[crossterm::event::KeyCode::Esc]);
+    let buffer = draw(&state, 100, 20);
+    assert_eq!(bars(&buffer), 0);
+}
+
+#[test]
+fn selecting_an_old_message_scrolls_to_it() {
+    let mut state = loaded_state();
+    keys(&mut state, &[Up, Char('g')]);
+    let (lines, window) = window_text(&state, 6);
+    assert!(window.at_top);
+    assert!(lines.iter().any(|l| l.contains("Anyone up for the wall")));
+    let first = fixtures::climbing_history().first().unwrap().reference();
+    assert!(window.rows.contains(&Some(first)));
+    // Back to the newest: following again.
+    keys(&mut state, &[Char('G')]);
+    let (_, window) = window_text(&state, 6);
+    assert_eq!(window.scroll, None);
+}

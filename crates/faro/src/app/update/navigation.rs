@@ -6,9 +6,9 @@ use faro_core::domain::ConversationId;
 use ratatui::layout::Position;
 
 use super::keys::{Action, Edit, WHEEL_ROWS};
-use super::{open_conversation, quit};
+use super::{open_conversation, quit, selection};
 use crate::app::event::Effect;
-use crate::app::state::{Anchor, Focus, Notice, NoticeLevel, State};
+use crate::app::state::{Anchor, Focus, MessageAction, Notice, State};
 
 pub fn on_action(state: &mut State, action: Action) -> Vec<Effect> {
     if action != Action::Interrupt && state.quit_armed {
@@ -33,19 +33,41 @@ pub fn on_action(state: &mut State, action: Action) -> Vec<Effect> {
         Action::FocusNext => cycle_focus(state, 1),
         Action::FocusPrevious => cycle_focus(state, -1),
         Action::FocusInput => state.focus = Focus::Input,
-        Action::Escape => {
-            state.notice = None;
-            state.focus = Focus::Input;
-        }
-        Action::Scroll(rows) => scroll(state, rows),
+        Action::Escape => escape(state),
         Action::PageUp => scroll(state, page(state)),
         Action::PageDown => scroll(state, -page(state)),
-        Action::ScrollTop => scroll(state, isize::MAX),
-        Action::ScrollBottom => scroll_to_bottom(state),
         Action::Send => return super::sending::send(state),
+        Action::Edit(Edit::Up) if state.open.as_ref().is_some_and(|o| o.input.is_empty()) => {
+            selection::enter(state);
+        }
         Action::Edit(edit) => apply_edit(state, edit),
+        Action::SelectOlder => selection::step(state, true),
+        Action::SelectNewer => selection::step(state, false),
+        Action::SelectOldest => selection::jump(state, true),
+        Action::SelectNewest => selection::jump(state, false),
+        Action::MessageMenu => selection::menu(state),
+        Action::Reply => return selection::on_selected(state, MessageAction::Reply),
+        Action::ReactPicker => return selection::on_selected(state, MessageAction::React),
+        Action::Copy => return selection::on_selected(state, MessageAction::Copy),
+        Action::OpenLink => return selection::open_link(state),
+        Action::Popup(key) => return selection::on_popup(state, key),
     }
     vec![]
+}
+
+/// Esc: cancel a reply being written; otherwise dismiss the notice and go
+/// back to the input.
+fn escape(state: &mut State) {
+    let replying =
+        state.focus == Focus::Input && state.open.as_ref().is_some_and(|o| o.reply_to.is_some());
+    if replying {
+        if let Some(open) = state.open.as_mut() {
+            open.reply_to = None;
+        }
+    } else {
+        state.notice = None;
+        state.focus = Focus::Input;
+    }
 }
 
 fn apply_edit(state: &mut State, edit: Edit) {
@@ -141,10 +163,9 @@ fn interrupt(state: &mut State) -> Vec<Effect> {
     }
     {
         state.quit_armed = true;
-        state.notice = Some(Notice {
-            text: "Press Ctrl+C again to quit (Ctrl+Q quits at once)".to_owned(),
-            level: NoticeLevel::Warning,
-        });
+        state.notice = Some(Notice::warning(
+            "Press Ctrl+C again to quit (Ctrl+Q quits at once)",
+        ));
     }
     vec![]
 }
@@ -183,6 +204,9 @@ fn cycle_focus(state: &mut State, step: isize) {
     if let Some(focus) = order.get(next) {
         state.focus = *focus;
     }
+    if state.focus == Focus::Messages {
+        selection::select_initial(state);
+    }
 }
 
 /// A page is the message area's height, keeping two rows of context.
@@ -211,19 +235,21 @@ fn scroll(state: &mut State, rows: isize) {
     };
 }
 
-fn scroll_to_bottom(state: &mut State) {
-    if let Some(open) = state.open.as_mut() {
-        open.scroll = None;
-        open.unseen = 0;
-    }
-}
-
 pub fn on_mouse(state: &mut State, mouse: MouseEvent) -> Vec<Effect> {
     let at = Position::new(mouse.column, mouse.row);
     let geometry = &state.geometry;
     let in_sidebar = geometry.sidebar.filter(|r| r.contains(at));
-    let in_history = geometry.history.is_some_and(|r| r.contains(at));
+    let in_history = geometry.history.filter(|r| r.contains(at));
     let in_input = geometry.input.is_some_and(|r| r.contains(at));
+    let message_at = in_history.and_then(|history| {
+        let row = usize::from(at.y.saturating_sub(history.y));
+        geometry.history_rows.get(row).copied().flatten()
+    });
+    if state.popup.is_some() && mouse_affects_view(mouse) {
+        // A click or scroll outside the popup closes it.
+        state.popup = None;
+        return vec![];
+    }
     match mouse.kind {
         MouseEventKind::Down(MouseButton::Left) => {
             if let Some(sidebar) = in_sidebar {
@@ -238,8 +264,13 @@ pub fn on_mouse(state: &mut State, mouse: MouseEvent) -> Vec<Effect> {
                 } else {
                     state.focus = Focus::Conversations;
                 }
-            } else if in_history {
-                state.focus = Focus::Messages;
+            } else if in_history.is_some() {
+                if let Some(message) = message_at {
+                    selection::select(state, message);
+                } else {
+                    state.focus = Focus::Messages;
+                    selection::select_initial(state);
+                }
             } else if in_input {
                 state.focus = Focus::Input;
             }
@@ -254,11 +285,17 @@ pub fn on_mouse(state: &mut State, mouse: MouseEvent) -> Vec<Effect> {
                     offset.saturating_add(WHEEL_ROWS.cast_unsigned())
                 };
                 state.sidebar.reveal = false;
-            } else if in_history || in_input {
+            } else if in_history.is_some() || in_input {
                 scroll(state, if up { WHEEL_ROWS } else { -WHEEL_ROWS });
             }
         }
-        MouseEventKind::Down(MouseButton::Right | MouseButton::Middle)
+        MouseEventKind::Down(MouseButton::Right) => {
+            if let Some(message) = message_at {
+                selection::select(state, message);
+                selection::menu(state);
+            }
+        }
+        MouseEventKind::Down(MouseButton::Middle)
         | MouseEventKind::Up(_)
         | MouseEventKind::Drag(_)
         | MouseEventKind::Moved
@@ -273,7 +310,7 @@ pub fn on_mouse(state: &mut State, mouse: MouseEvent) -> Vec<Effect> {
 pub fn mouse_affects_view(mouse: MouseEvent) -> bool {
     matches!(
         mouse.kind,
-        MouseEventKind::Down(MouseButton::Left)
+        MouseEventKind::Down(MouseButton::Left | MouseButton::Right)
             | MouseEventKind::ScrollUp
             | MouseEventKind::ScrollDown
     )

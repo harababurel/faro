@@ -6,7 +6,7 @@
 //! current-thread runtime (`spawn_local`, inside the `LocalSet` set up in `main`).
 
 use faro_core::backend::{Backend, OutgoingMessage};
-use faro_core::domain::ConversationId;
+use faro_core::domain::{ConversationId, MessageRef};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
@@ -20,6 +20,14 @@ pub enum Command {
     Send {
         conversation: ConversationId,
         message: OutgoingMessage,
+    },
+    /// Answered with `AppEvent::ReactResult`. Already applied locally;
+    /// `previous` is what to restore if it fails.
+    React {
+        conversation: ConversationId,
+        target: MessageRef,
+        emoji: Option<String>,
+        previous: Option<String>,
     },
 }
 
@@ -60,6 +68,23 @@ async fn execute<B: Backend>(backend: &B, command: Command) -> AppEvent {
                 tracing::warn!(%error, %conversation, "sending failed");
             }
             AppEvent::SendResult { sent_at, result }
+        }
+        Command::React {
+            conversation,
+            target,
+            emoji,
+            previous,
+        } => {
+            let result = backend.react(conversation, target, emoji).await;
+            if let Err(error) = &result {
+                tracing::warn!(%error, %conversation, "reacting failed");
+            }
+            AppEvent::ReactResult {
+                conversation,
+                target,
+                previous,
+                result,
+            }
         }
     }
 }

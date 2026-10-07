@@ -13,13 +13,14 @@ use tokio::time::Instant;
 use super::event::{AppEvent, Effect};
 use super::input::Input;
 use super::state::{
-    DRAFT_SAVE_DELAY, Focus, Geometry, Notice, NoticeLevel, OpenConversation, SidebarScroll, State,
+    DRAFT_SAVE_DELAY, Focus, Geometry, Notice, OpenConversation, SidebarScroll, State,
     TYPING_TIMEOUT, Typist, sort_conversations,
 };
 use super::timeline;
 
 mod keys;
 mod navigation;
+mod selection;
 mod sending;
 
 pub use navigation::mouse_affects_view;
@@ -50,17 +51,32 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
             vec![]
         }
         AppEvent::SendResult { sent_at, result } => sending::on_send_result(state, sent_at, result),
+        AppEvent::ReactResult {
+            conversation,
+            target,
+            previous,
+            result,
+        } => selection::on_react_result(state, conversation, target, previous, result),
+        AppEvent::OpenFailed(error) => {
+            state.notice = Some(Notice::error(format!("Couldn't open the link: {error}")));
+            vec![]
+        }
         AppEvent::Drawn(geometry) => on_drawn(state, geometry),
         AppEvent::StoreFailed(error) => {
-            state.notice = Some(Notice {
-                text: format!("Storage problem: {error}"),
-                level: NoticeLevel::Error,
-            });
+            state.notice = Some(Notice::error(format!("Storage problem: {error}")));
             vec![]
         }
         AppEvent::Tick => {
             let now = Instant::now();
             expire_typing(state, now);
+            if state
+                .notice
+                .as_ref()
+                .and_then(|n| n.until)
+                .is_some_and(|t| now >= t)
+            {
+                state.notice = None;
+            }
             let draft_due = state
                 .open
                 .as_ref()
@@ -74,10 +90,17 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
 
 fn on_terminal(state: &mut State, event: &Event) -> Vec<Effect> {
     match event {
-        Event::Key(key) => keys::key_action(*key, state.focus)
-            .map_or_else(Vec::new, |a| navigation::on_action(state, a)),
+        Event::Key(key) => {
+            let action = if state.popup.is_some() {
+                keys::popup_action(*key)
+            } else {
+                keys::key_action(*key, state.focus)
+            };
+            action.map_or_else(Vec::new, |a| navigation::on_action(state, a))
+        }
         Event::Mouse(mouse) => navigation::on_mouse(state, *mouse),
         Event::Paste(text) => {
+            state.popup = None;
             navigation::paste(state, text);
             vec![]
         }
@@ -100,6 +123,9 @@ fn on_drawn(state: &mut State, geometry: Geometry) -> Vec<Effect> {
     let mut effects = Vec::new();
     if let Some(open) = state.open.as_mut() {
         open.scroll = geometry.scroll;
+        if let Some(selection) = open.selected.as_mut() {
+            selection.reveal = false;
+        }
         if open.scroll.is_none() {
             open.unseen = 0;
         }
@@ -151,6 +177,10 @@ fn save_draft(state: &mut State) -> Vec<Effect> {
 
 fn open_conversation(state: &mut State, id: ConversationId) -> Vec<Effect> {
     state.sidebar.reveal = true;
+    state.popup = None;
+    if state.focus == Focus::Messages {
+        state.focus = Focus::Input;
+    }
     let mut effects = save_draft(state);
     effects.extend([Effect::LoadMessages(id), Effect::RememberOpen(id)]);
     let mut unread = 0;
@@ -175,6 +205,8 @@ fn open_conversation(state: &mut State, id: ConversationId) -> Vec<Effect> {
         has_older: false,
         loading_older: false,
         unseen: 0,
+        selected: None,
+        reply_to: None,
     });
     effects
 }
@@ -277,10 +309,7 @@ fn on_backend(state: &mut State, event: BackendEvent) -> Vec<Effect> {
             }
         }
         BackendEvent::Error(error) => {
-            state.notice = Some(Notice {
-                text: format!("Signal: {error}"),
-                level: NoticeLevel::Warning,
-            });
+            state.notice = Some(Notice::warning(format!("Signal: {error}")));
         }
     }
     if persistent(&event) {

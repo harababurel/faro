@@ -13,6 +13,7 @@ use super::text::{sanitize, truncate};
 use super::{View, focused, messages};
 use crate::app::input::Input;
 use crate::app::state::{Focus, Geometry, OpenConversation, State};
+use faro_core::domain::MessageRef;
 
 /// The input box grows with its text up to this many lines.
 const INPUT_MAX_LINES: usize = 6;
@@ -64,8 +65,11 @@ pub fn render(
 
     let input_width = usize::from(inner.width.saturating_sub(4));
     let input_layout = layout_input(&open.input, input_width);
-    let input_height =
-        u16::try_from(input_layout.lines.len().clamp(1, INPUT_MAX_LINES)).unwrap_or(1) + 2;
+    let reply_rows = u16::from(open.reply_to.is_some());
+    let input_height = u16::try_from(input_layout.lines.len().clamp(1, INPUT_MAX_LINES))
+        .unwrap_or(1)
+        + 2
+        + reply_rows;
     let [history, typing, input] = Layout::vertical([
         Constraint::Fill(1),
         Constraint::Length(1),
@@ -75,7 +79,15 @@ pub fn render(
 
     geometry.history = Some(history);
     geometry.input = Some(input);
-    render_history(frame, history, state, open, view, geometry);
+    render_history(
+        frame,
+        history,
+        state,
+        open,
+        view,
+        geometry,
+        messages_focused,
+    );
     render_typing(frame, typing, state, open, view);
     render_input(
         frame,
@@ -95,7 +107,9 @@ fn render_history(
     open: &OpenConversation,
     view: &View<'_>,
     geometry: &mut Geometry,
+    focused: bool,
 ) {
+    let outer = area;
     let area = Rect {
         x: area.x + 1,
         width: area.width.saturating_sub(2),
@@ -117,12 +131,49 @@ fn render_history(
     geometry.scroll = window.scroll;
     geometry.at_top = window.at_top;
     let mut lines = window.lines;
+    let mut rows = window.rows;
     // Chat convention: the newest message sits just above the input.
     let blank = height.saturating_sub(lines.len());
     lines.splice(0..0, std::iter::repeat_n(Line::default(), blank));
+    rows.splice(0..0, std::iter::repeat_n(None, blank));
     frame.render_widget(Paragraph::new(lines), area);
+    let selected = open.selected.map(|s| s.message).filter(|_| focused);
+    if let Some(selected) = selected {
+        highlight(frame, outer, &rows, selected, view);
+    }
+    geometry.history_rows = rows;
     if window.scroll.is_some() {
         render_more_below(frame, area, open, view);
+    }
+}
+
+/// The selected message's rows: a tinted background and a bar in the left
+/// margin.
+fn highlight(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    rows: &[Option<MessageRef>],
+    selected: MessageRef,
+    view: &View<'_>,
+) {
+    let tint = Style::new().bg(view.theme.background_element);
+    let bar = Style::new().fg(view.theme.primary);
+    for (i, row) in rows.iter().enumerate() {
+        if *row != Some(selected) {
+            continue;
+        }
+        let Ok(dy) = u16::try_from(i) else {
+            break;
+        };
+        let line = Rect {
+            y: area.y + dy,
+            height: 1,
+            ..area
+        };
+        frame.buffer_mut().set_style(line, tint);
+        if let Some(cell) = frame.buffer_mut().cell_mut((line.x, line.y)) {
+            cell.set_symbol("▌").set_style(bar);
+        }
     }
 }
 
@@ -199,8 +250,29 @@ fn render_input(
         .border_style(theme.border(focused))
         .style(theme.panel())
         .padding(Padding::horizontal(1));
-    let inner = block.inner(area);
+    let mut inner = block.inner(area);
     frame.render_widget(block, area);
+
+    if let Some(quote) = &open.reply_to {
+        let who = sanitize(&state.person_name(quote.target.sender)).into_owned();
+        let preview = quote.preview.as_ref().map_or_else(
+            || "…".to_owned(),
+            |p| sanitize(p.expose()).replace('\n', " "),
+        );
+        let text = format!("↳ Replying to {who}: {preview}");
+        let hint = "  esc cancel";
+        let room = usize::from(inner.width).saturating_sub(hint.width());
+        let line = Line::from(vec![
+            Span::styled(
+                truncate(&text, room).into_owned(),
+                theme.muted().add_modifier(Modifier::ITALIC),
+            ),
+            Span::styled(hint, theme.muted()),
+        ]);
+        frame.render_widget(Paragraph::new(line), Rect { height: 1, ..inner });
+        inner.y += 1;
+        inner.height = inner.height.saturating_sub(1);
+    }
 
     if open.input.is_empty() {
         let name = sanitize(&state.conversation_title(open.id)).into_owned();

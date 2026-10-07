@@ -7,7 +7,7 @@ use std::time::Duration;
 use faro_core::backend::BackendEvent;
 use faro_core::domain::{
     ConnectionState, Contact, ConversationId, Direction, Group, GroupId, Message, MessageRef,
-    ServiceId, Timestamp,
+    Quote, ServiceId, Timestamp,
 };
 use faro_core::store::ConversationSummary;
 use ratatui::layout::Rect;
@@ -19,6 +19,10 @@ use super::input::Input;
 pub const TYPING_TIMEOUT: Duration = Duration::from_secs(15);
 /// A draft is saved this long after the last edit (and on switching or quitting).
 pub const DRAFT_SAVE_DELAY: Duration = Duration::from_secs(1);
+/// Informational notices ("Copied") disappear after this long.
+pub const INFO_NOTICE_TIME: Duration = Duration::from_secs(3);
+/// Signal's default reactions, in its order.
+pub const REACTIONS: [&str; 6] = ["❤️", "👍", "👎", "😂", "😮", "😢"];
 
 #[derive(Debug)]
 pub struct State {
@@ -40,6 +44,9 @@ pub struct State {
     /// Where things were on the last frame, for mouse hits and page sizes.
     pub geometry: Geometry,
     pub notice: Option<Notice>,
+    /// A menu or picker over the message area; takes the keys while open.
+    pub popup: Option<Popup>,
+    pub env: Environment,
     /// `sent_at` of the last message sent from here; the next one is later, so
     /// two quick sends can't share an identity.
     pub last_sent_at: Timestamp,
@@ -71,6 +78,61 @@ pub struct OpenConversation {
     pub loading_older: bool,
     /// Messages that arrived while scrolled up.
     pub unseen: u32,
+    /// The selected message (message selection, M4 task 4); highlighted while
+    /// the message pane has focus.
+    pub selected: Option<Selection>,
+    /// The next message sent replies to this.
+    pub reply_to: Option<Quote>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Selection {
+    pub message: MessageRef,
+    /// Scroll so the message is on screen on the next frame.
+    pub reveal: bool,
+}
+
+/// Facts about where faro runs, read once at startup.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Environment {
+    /// Running over SSH: links are copied instead of opened (a browser would
+    /// open on the remote machine, if at all).
+    pub over_ssh: bool,
+}
+
+/// A small modal over the message area.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Popup {
+    /// What can be done with a message (`Enter` or right-click on it).
+    Actions {
+        target: MessageRef,
+        items: Vec<MessageAction>,
+        selected: usize,
+    },
+    /// Pick one of `REACTIONS`.
+    React { target: MessageRef, selected: usize },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MessageAction {
+    Reply,
+    React,
+    Copy,
+    OpenLink(String),
+    Retry,
+}
+
+impl MessageAction {
+    /// Menu label and the key that does the same from the message pane.
+    pub fn label(&self) -> (String, &'static str) {
+        match self {
+            Self::Reply => ("Reply".to_owned(), "r"),
+            Self::React => ("React…".to_owned(), "+"),
+            Self::Copy => ("Copy text".to_owned(), "y"),
+            Self::OpenLink(url) => (format!("Open {url}"), "o"),
+            Self::Retry => ("Retry sending".to_owned(), ""),
+        }
+    }
 }
 
 /// A scroll position: the bottom row of the message view is `offset` rows above
@@ -115,6 +177,9 @@ pub struct Geometry {
     pub scroll: Option<Anchor>,
     /// The first loaded message is on screen.
     pub at_top: bool,
+    /// The message on each row of the history area from the top (`None`:
+    /// blank, or a date or unread rule).
+    pub history_rows: Vec<Option<MessageRef>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -133,10 +198,39 @@ pub struct Panels {
 pub struct Notice {
     pub text: String,
     pub level: NoticeLevel,
+    /// Disappears by itself at this time (info notices).
+    pub until: Option<Instant>,
+}
+
+impl Notice {
+    pub fn info(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            level: NoticeLevel::Info,
+            until: Some(Instant::now() + INFO_NOTICE_TIME),
+        }
+    }
+
+    pub fn warning(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            level: NoticeLevel::Warning,
+            until: None,
+        }
+    }
+
+    pub fn error(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            level: NoticeLevel::Error,
+            until: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NoticeLevel {
+    Info,
     Warning,
     Error,
 }
@@ -163,6 +257,8 @@ impl State {
             },
             geometry: Geometry::default(),
             notice: None,
+            popup: None,
+            env: Environment::default(),
             last_sent_at: Timestamp::from_millis(0),
             quit_armed: false,
             quit: false,
@@ -236,7 +332,7 @@ impl State {
     }
 
     /// When the reducer next needs a `Tick` (a typing indicator expiring, a
-    /// draft to save).
+    /// draft to save, a notice to clear).
     pub fn next_deadline(&self) -> Option<Instant> {
         let typing = self
             .typing
@@ -248,7 +344,8 @@ impl State {
             .as_ref()
             .and_then(|o| o.draft_edited)
             .map(|t| t + DRAFT_SAVE_DELAY);
-        typing.chain(draft).min()
+        let notice = self.notice.as_ref().and_then(|n| n.until);
+        typing.chain(draft).chain(notice).min()
     }
 }
 

@@ -11,7 +11,7 @@ use super::{on_backend, summary_entry};
 use crate::app::commands::Command;
 use crate::app::event::Effect;
 use crate::app::input::Input;
-use crate::app::state::{Notice, NoticeLevel, State};
+use crate::app::state::{Notice, State};
 
 /// Send what's in the input to the open conversation. Blank input does nothing.
 pub fn send(state: &mut State) -> Vec<Effect> {
@@ -23,6 +23,7 @@ pub fn send(state: &mut State) -> Vec<Effect> {
         return vec![];
     }
     let conversation = open.id;
+    let quote = open.reply_to.take();
     open.input = Input::default();
     open.draft_edited = None;
     // Jump to the newest message, where this one appears.
@@ -38,7 +39,7 @@ pub fn send(state: &mut State) -> Vec<Effect> {
         sent_at,
         direction: Direction::Outgoing(DeliveryStatus::Sending),
         body: Some(body.clone()),
-        quote: None,
+        quote: quote.clone(),
         attachments: vec![],
         reactions: vec![],
         edited_at: None,
@@ -52,7 +53,7 @@ pub fn send(state: &mut State) -> Vec<Effect> {
         message: OutgoingMessage {
             sent_at,
             body,
-            quote: None,
+            quote,
         },
     }));
     effects
@@ -67,10 +68,7 @@ pub fn on_send_result(
     let status = match result {
         Ok(()) => DeliveryStatus::Sent,
         Err(error) => {
-            state.notice = Some(Notice {
-                text: format!("Message not sent: {error}"),
-                level: NoticeLevel::Error,
-            });
+            state.notice = Some(Notice::error(format!("Message not sent: {error}")));
             DeliveryStatus::Failed
         }
     };
