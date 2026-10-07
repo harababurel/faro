@@ -241,6 +241,8 @@ Chosen to avoid tmux's default prefix (`Ctrl+B`) and common terminal shortcuts. 
 | In a popup | `↑↓`/`←→`/`j k` move (`h l` too in the reaction picker), `Enter` chooses, `Esc` closes; menus take their keys as shortcuts, the pickers digits (D40, D41) |
 | `p` `K`/`J` `m` `h` `a` `l` `L` `A` `Space` | In the sidebar: pin, move pin up/down, mute, hide, archive, allowlist add/remove, allowlist mode, chats ⇄ archive, conversation menu (D41) |
 
+**As built in M4 task 7 (D43):** the bindings above are a table (`app/keymap/defaults.rs`) per context (`global`, `input`, `conversations`, `messages`); the focused pane's bindings win over global ones. Every bindable action has a stable name (`conversation.next`, `message.react`, …) used by the config file (§9), and footer hints read their keys from the key map. Popup keys are fixed.
+
 ### 7.7 Conversation list curation
 
 Hide (disappears until a new message arrives, configurable), archive, pin, mute (with durations), and an optional **allowlist mode** that only shows chosen conversations. Default: conversations with no messages are not shown. Bulk "hide all older than N days" from the palette.
@@ -290,8 +292,9 @@ Sketch:
 [mouse]
 # enabled = true
 
-[keybindings.global]
+[keybindings.global]          # also: input, conversations, messages (D43)
 # "ctrl+p" = "palette.open"
+# "alt+j" = "none"            # unbind
 ```
 
 ## 10. Themes

@@ -14,6 +14,7 @@ use ratatui::layout::Rect;
 use tokio::time::Instant;
 
 use super::input::Input;
+use super::keymap::Keymap;
 
 /// Signal clients stop showing a typing indicator after this long without an update.
 pub const TYPING_TIMEOUT: Duration = Duration::from_secs(15);
@@ -62,6 +63,8 @@ pub struct State {
     /// A menu or picker over the message area; takes the keys while open.
     pub popup: Option<Popup>,
     pub env: Environment,
+    /// What each key does (D43).
+    pub keymap: Keymap,
     /// `sent_at` of the last message sent from here; the next one is later, so
     /// two quick sends can't share an identity.
     pub last_sent_at: Timestamp,
@@ -398,6 +401,7 @@ impl State {
                 over_ssh: false,
                 focused: true,
             },
+            keymap: Keymap::default(),
             last_sent_at: Timestamp::from_millis(0),
             quit_armed: false,
             quit: false,

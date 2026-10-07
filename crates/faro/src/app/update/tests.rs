@@ -453,7 +453,7 @@ fn scrolling_pins_the_view_and_counts_new_messages() {
     update(&mut state, mouse(MouseEventKind::ScrollDown, 40, 5));
     assert_eq!(
         scroll_of(&state).map(|a| a.offset),
-        Some(10 - keys::WHEEL_ROWS)
+        Some(10 - crate::app::keymap::WHEEL_ROWS)
     );
     // Back at the bottom (the renderer reports no anchor), the count clears.
     let mut drawn = geometry(&state);

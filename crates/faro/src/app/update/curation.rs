@@ -4,11 +4,11 @@
 use faro_core::domain::{ConversationId, Timestamp};
 use faro_core::store::ConversationState;
 
-use super::keys::{Curate, PopupKey};
 use super::selection::cycle;
 use super::sending::wall_clock;
 use super::{open_conversation, save_draft};
 use crate::app::event::Effect;
+use crate::app::keymap::{Curate, PopupKey};
 use crate::app::state::{
     ConversationAction, Focus, MUTE_CHOICES, Notice, Popup, Section, SidebarScroll, SidebarView,
     State, sort_conversations,

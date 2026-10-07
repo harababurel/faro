@@ -10,48 +10,62 @@ use ratatui::widgets::Paragraph;
 
 use super::text::{sanitize, truncate, width};
 use super::{View, focused};
+use crate::app::keymap::{Action, Curate};
 use crate::app::state::{Focus, Geometry, NoticeLevel, Popup, SidebarView, State};
 
 /// Key hints for each focus, most important first; dropped from the end when
-/// space runs out (DESIGN.md §7.1: context-sensitive).
-const INPUT_HINTS: &[(&str, &str)] = &[
-    ("enter", "send"),
-    ("alt+j/k", "conversations"),
-    ("tab", "focus"),
-    ("pgup", "scroll"),
-    ("alt+s", "sidebar"),
-    ("alt+i", "info"),
-    ("ctrl+q", "quit"),
+/// space runs out (DESIGN.md §7.1: context-sensitive). The keys come from the
+/// key map, so rebinding shows here (D43).
+type Hints = &'static [(&'static [Action], &'static str)];
+
+const INPUT_HINTS: Hints = &[
+    (&[Action::Send], "send"),
+    (
+        &[Action::NextConversation, Action::PreviousConversation],
+        "conversations",
+    ),
+    (&[Action::FocusNext], "focus"),
+    (&[Action::PageUp], "scroll"),
+    (&[Action::ToggleLeftSidebar], "sidebar"),
+    (&[Action::ToggleRightSidebar], "info"),
+    (&[Action::Quit], "quit"),
 ];
-const CONVERSATION_HINTS: &[(&str, &str)] = &[
-    ("↑↓", "choose"),
-    ("enter", "write"),
-    ("space", "actions"),
-    ("p", "pin"),
-    ("m", "mute"),
-    ("h", "hide"),
-    ("a", "archive"),
-    ("A", "archive list"),
-    ("tab", "focus"),
+const CONVERSATION_HINTS: Hints = &[
+    (
+        &[Action::PreviousConversation, Action::NextConversation],
+        "choose",
+    ),
+    (&[Action::FocusInput], "write"),
+    (&[Action::Curate(Curate::Menu)], "actions"),
+    (&[Action::Curate(Curate::Pin)], "pin"),
+    (&[Action::Curate(Curate::Mute)], "mute"),
+    (&[Action::Curate(Curate::Hide)], "hide"),
+    (&[Action::Curate(Curate::Archive)], "archive"),
+    (&[Action::Curate(Curate::SwitchView)], "archive list"),
+    (&[Action::FocusNext], "focus"),
 ];
-const ARCHIVE_HINTS: &[(&str, &str)] = &[
-    ("↑↓", "choose"),
-    ("enter", "write"),
-    ("space", "actions"),
-    ("a", "unarchive"),
-    ("h", "unhide"),
-    ("A", "back to chats"),
-    ("tab", "focus"),
+const ARCHIVE_HINTS: Hints = &[
+    (
+        &[Action::PreviousConversation, Action::NextConversation],
+        "choose",
+    ),
+    (&[Action::FocusInput], "write"),
+    (&[Action::Curate(Curate::Menu)], "actions"),
+    (&[Action::Curate(Curate::Archive)], "unarchive"),
+    (&[Action::Curate(Curate::Hide)], "unhide"),
+    (&[Action::Curate(Curate::SwitchView)], "back to chats"),
+    (&[Action::FocusNext], "focus"),
 ];
-const MESSAGE_HINTS: &[(&str, &str)] = &[
-    ("↑↓", "select"),
-    ("enter", "actions"),
-    ("r", "reply"),
-    ("+", "react"),
-    ("y", "copy"),
-    ("o", "open link"),
-    ("esc", "back"),
+const MESSAGE_HINTS: Hints = &[
+    (&[Action::SelectOlder, Action::SelectNewer], "select"),
+    (&[Action::MessageMenu], "actions"),
+    (&[Action::Reply], "reply"),
+    (&[Action::ReactPicker], "react"),
+    (&[Action::Copy], "copy"),
+    (&[Action::OpenLink], "open link"),
+    (&[Action::Escape], "back"),
 ];
+/// Popups have fixed keys (D43).
 const MENU_HINTS: &[(&str, &str)] = &[("↑↓", "choose"), ("enter", "do it"), ("esc", "close")];
 const MUTE_HINTS: &[(&str, &str)] = &[
     ("↑↓", "choose"),
@@ -111,36 +125,49 @@ pub fn render(
             Style::new().fg(colour),
         ))
     } else {
-        let hints = if let Some(popup) = &state.popup {
-            match popup {
-                Popup::Actions { .. } | Popup::Conversation { .. } => MENU_HINTS,
-                Popup::React { .. } => REACT_HINTS,
-                Popup::Mute { .. } => MUTE_HINTS,
-            }
-        } else if focused(state, geometry, Focus::Messages) {
-            MESSAGE_HINTS
-        } else if focused(state, geometry, Focus::Conversations) {
-            match state.list.view {
-                SidebarView::Chats => CONVERSATION_HINTS,
-                SidebarView::Archive => ARCHIVE_HINTS,
-            }
-        } else {
-            INPUT_HINTS
-        };
-        render_hints(hints, room, view)
+        render_hints(&hints(state, geometry), room, view)
     };
     frame.render_widget(Paragraph::new(right).alignment(Alignment::Right), area);
 }
 
-fn render_hints(
-    hints: &[(&'static str, &'static str)],
-    room: usize,
-    view: &View<'_>,
-) -> Line<'static> {
+/// The hints for what has the keys now, with the keys spelled out.
+fn hints(state: &State, geometry: &Geometry) -> Vec<(String, &'static str)> {
+    let fixed = |hints: &[(&str, &'static str)]| {
+        hints
+            .iter()
+            .map(|&(key, action)| (key.to_owned(), action))
+            .collect()
+    };
+    if let Some(popup) = &state.popup {
+        return match popup {
+            Popup::Actions { .. } | Popup::Conversation { .. } => fixed(MENU_HINTS),
+            Popup::React { .. } => fixed(REACT_HINTS),
+            Popup::Mute { .. } => fixed(MUTE_HINTS),
+        };
+    }
+    let (focus, hints) = if focused(state, geometry, Focus::Messages) {
+        (Focus::Messages, MESSAGE_HINTS)
+    } else if focused(state, geometry, Focus::Conversations) {
+        let hints = match state.list.view {
+            SidebarView::Chats => CONVERSATION_HINTS,
+            SidebarView::Archive => ARCHIVE_HINTS,
+        };
+        (Focus::Conversations, hints)
+    } else {
+        (Focus::Input, INPUT_HINTS)
+    };
+    // An action with no key (unbound in the config) has no hint.
+    hints
+        .iter()
+        .filter_map(|&(actions, label)| Some((state.keymap.hint(actions, focus)?, label)))
+        .collect()
+}
+
+fn render_hints(hints: &[(String, &'static str)], room: usize, view: &View<'_>) -> Line<'static> {
     let theme = view.theme;
     let mut spans = Vec::new();
     let mut used = 1;
-    for &(key, action) in hints {
+    for (key, action) in hints {
         let sep = if spans.is_empty() { "" } else { " · " };
         let w = width(sep) + width(key) + 1 + width(action);
         if used + w > room {
@@ -148,7 +175,7 @@ fn render_hints(
         }
         used += w;
         spans.push(Span::styled(sep, theme.muted()));
-        spans.push(Span::styled(key, Style::new().fg(theme.text)));
+        spans.push(Span::styled(key.clone(), Style::new().fg(theme.text)));
         spans.push(Span::styled(format!(" {action}"), theme.muted()));
     }
     spans.push(Span::raw(" "));

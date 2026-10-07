@@ -20,6 +20,7 @@ pub mod commands;
 mod effects;
 pub mod event;
 pub mod input;
+pub mod keymap;
 pub mod state;
 mod system;
 mod timeline;

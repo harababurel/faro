@@ -5,9 +5,9 @@ use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use faro_core::domain::ConversationId;
 use ratatui::layout::Position;
 
-use super::keys::{Action, Edit, WHEEL_ROWS};
 use super::{curation, open_conversation, quit, selection};
 use crate::app::event::Effect;
+use crate::app::keymap::{Action, Edit, WHEEL_ROWS};
 use crate::app::state::{Anchor, Focus, MessageAction, Notice, SidebarRow, State};
 
 pub fn on_action(state: &mut State, action: Action) -> Vec<Effect> {

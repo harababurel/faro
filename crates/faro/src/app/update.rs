@@ -12,6 +12,7 @@ use tokio::time::Instant;
 
 use super::event::{AppEvent, Effect};
 use super::input::Input;
+use super::keymap;
 use super::state::{
     DRAFT_SAVE_DELAY, Focus, Geometry, Notice, OpenConversation, Popup, SidebarScroll, State,
     TYPING_TIMEOUT, Typist, sort_conversations,
@@ -19,7 +20,6 @@ use super::state::{
 use super::timeline;
 
 mod curation;
-mod keys;
 mod navigation;
 mod presence;
 mod selection;
@@ -101,9 +101,9 @@ fn on_terminal(state: &mut State, event: &Event) -> Vec<Effect> {
     let mut effects = match event {
         Event::Key(key) => {
             let action = if let Some(popup) = &state.popup {
-                keys::popup_action(*key, matches!(popup, Popup::React { .. }))
+                keymap::popup_action(*key, matches!(popup, Popup::React { .. }))
             } else {
-                keys::key_action(*key, state.focus)
+                state.keymap.lookup(*key, state.focus)
             };
             action.map_or_else(Vec::new, |a| navigation::on_action(state, a))
         }

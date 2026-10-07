@@ -4,10 +4,10 @@
 use faro_core::backend::{BackendError, BackendEvent, OutgoingMessage};
 use faro_core::domain::{ConversationId, DeliveryStatus, Direction, Message, MessageRef, Quote};
 
-use super::keys::PopupKey;
 use super::{curation, on_backend};
 use crate::app::commands::Command;
 use crate::app::event::Effect;
+use crate::app::keymap::PopupKey;
 use crate::app::state::{Focus, MessageAction, Notice, Popup, REACTIONS, Selection, State};
 
 /// At most this many links get their own menu entry.
