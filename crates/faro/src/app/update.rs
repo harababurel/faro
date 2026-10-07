@@ -27,9 +27,11 @@ mod palette;
 mod presence;
 mod selection;
 mod sending;
+mod settings;
 
 pub use navigation::mouse_affects_view;
 pub use sending::wall_clock;
+pub use settings::configure;
 
 /// How many messages to load when a conversation opens.
 pub const PAGE: u32 = 200;
@@ -41,15 +43,7 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
         AppEvent::Loaded {
             conversations,
             last_open,
-            allowlist,
-            layout,
-        } => {
-            state.list.allowlist = allowlist;
-            if let Some(layout) = layout {
-                state.layout = layout;
-            }
-            on_loaded(state, conversations, last_open)
-        }
+        } => on_loaded(state, conversations, last_open),
         AppEvent::MessagesLoaded {
             conversation,
             messages,
@@ -74,6 +68,11 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
         }
         AppEvent::OpenFailed(error) => {
             state.notice = Some(Notice::error(format!("Couldn't open the link: {error}")));
+            vec![]
+        }
+        AppEvent::ConfigRead(read) => settings::on_config_read(state, read),
+        AppEvent::SettingNotSaved(error) => {
+            state.notice = Some(Notice::error(format!("Couldn't save the setting: {error}")));
             vec![]
         }
         AppEvent::Drawn(geometry) => on_drawn(state, geometry),

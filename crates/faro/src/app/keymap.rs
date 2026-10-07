@@ -140,10 +140,6 @@ pub enum Context {
     Messages,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the config file (M5) rebinds keys through this")
-)]
 impl Context {
     pub const ALL: [Self; 4] = [
         Self::Global,
@@ -176,10 +172,6 @@ impl From<Focus> for Context {
     }
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the config file (M5) rebinds keys through this")
-)]
 impl Action {
     /// The config name, for actions that can be bound (not typing a
     /// character, nor popup keys).
@@ -214,10 +206,6 @@ impl Action {
 }
 
 /// A key binding the config file got wrong.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the config file (M5) rebinds keys through this")
-)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KeymapError {
     Context(String),
@@ -301,10 +289,6 @@ impl Keymap {
 
     /// Bind `chord` to `action` in `context`, replacing what it did there; it
     /// becomes the key hints show for `action`.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the config file (M5) rebinds keys through this")
-    )]
     pub fn bind(&mut self, context: Context, chord: KeyChord, action: Action) {
         self.unbind(context, chord);
         self.bindings.insert(
@@ -318,10 +302,6 @@ impl Keymap {
     }
 
     /// Make `chord` do nothing in `context` (a global binding still applies).
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the config file (M5) rebinds keys through this")
-    )]
     pub fn unbind(&mut self, context: Context, chord: KeyChord) {
         self.bindings
             .retain(|b| b.context != context || b.chord != chord);
@@ -329,10 +309,6 @@ impl Keymap {
 
     /// One config entry: `[keybindings.<context>] "<key>" = "<action>"`;
     /// the action `"none"` unbinds the key.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the config file (M5) rebinds keys through this")
-    )]
     pub fn apply(&mut self, context: &str, key: &str, action: &str) -> Result<(), KeymapError> {
         let context =
             Context::parse(context).ok_or_else(|| KeymapError::Context(context.into()))?;
@@ -409,6 +385,31 @@ impl Keymap {
                 .join("/"),
         )
     }
+}
+
+/// The `[keybindings.*]` part of the config template (D48): every default
+/// binding per context, commented out, with what it does.
+pub fn config_template() -> String {
+    use faro_core::config::quoted;
+    let mut out = String::from(
+        "# Key bindings, per context: global (everywhere), input, conversations (the\n\
+         # sidebar) and messages. A pane's own bindings win over global ones.\n\
+         # \"key\" = \"action\" binds a key (replacing what it did there); \"key\" = \"none\"\n\
+         # unbinds it. Keys look like \"ctrl+p\", \"alt+j\", \"shift+enter\", \"pgup\", \"f1\",\n\
+         # \"space\" or one character (\"G\", \"?\"). The defaults are listed below; the\n\
+         # keybinding list (F1) shows what's bound now.\n",
+    );
+    for context in Context::ALL {
+        out = format!("{out}\n[keybindings.{}]\n", context.name());
+        for (_, key, action) in defaults::BINDINGS.iter().filter(|(c, _, _)| *c == context) {
+            let (Some(name), Some(title)) = (action.name(), action.title()) else {
+                continue;
+            };
+            let binding = format!("{} = {}", quoted(key), quoted(name));
+            out = format!("{out}# {binding:<46} # {title}\n");
+        }
+    }
+    out
 }
 
 /// While the palette is open it takes every key except quitting: arrows,

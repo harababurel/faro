@@ -39,6 +39,17 @@ impl Default for Theme {
 }
 
 impl Theme {
+    /// The built-in themes' names (the config's `theme`).
+    pub const NAMES: [&str; 1] = ["faro-dark"];
+
+    /// The built-in theme called `name`.
+    pub fn named(name: &str) -> Option<Self> {
+        match name {
+            "faro-dark" => Some(Self::faro_dark()),
+            _ => None,
+        }
+    }
+
     /// faro's own dark theme: warm lighthouse amber on near-black.
     pub const fn faro_dark() -> Self {
         Self {

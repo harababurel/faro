@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use faro_core::backend::BackendEvent;
+use faro_core::config::Config;
 use faro_core::domain::{
     ConnectionState, Contact, ConversationId, Direction, Group, GroupId, Message, MessageRef,
     Quote, ServiceId, Timestamp,
@@ -74,6 +75,13 @@ pub struct State {
     /// `sent_at` of the last message sent from here; the next one is later, so
     /// two quick sends can't share an identity.
     pub last_sent_at: Timestamp,
+    /// The config file as last read (or as changed from the palette), D48.
+    /// Live values that can also change otherwise (`layout`, `list.allowlist`,
+    /// `env.emoji`) are kept in step with it.
+    pub config: Config,
+    /// What was wrong with the config file last time, so the same problems
+    /// aren't reported again on every reload.
+    pub config_problems: Vec<String>,
     /// Ctrl+C was pressed once; a second press quits.
     pub quit_armed: bool,
     pub quit: bool,
@@ -158,8 +166,10 @@ pub enum EmojiMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct EmojiSetting {
     pub mode: EmojiMode,
-    /// Follow mosh detection (`--emoji auto`); otherwise `mode` is fixed.
+    /// Follow mosh detection (`auto`); otherwise `mode` is fixed.
     pub auto: bool,
+    /// Chosen with `--emoji` or `FARO_EMOJI`, which beat the config file.
+    pub from_cli: bool,
     /// When the terminal was last checked for mosh.
     pub checked_at: Option<Instant>,
 }
@@ -373,40 +383,8 @@ pub struct Panels {
     pub right: bool,
 }
 
-/// How messages are laid out (DESIGN.md §7.3, D45).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum MessageLayout {
-    /// Own messages on the right, others on the left, in coloured boxes.
-    #[default]
-    Bubbles,
-    /// Everything on the left: `time  name  text`.
-    Irc,
-}
-
-impl MessageLayout {
-    /// The name stored in `app_state` (and, from M5, the config file).
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::Bubbles => "bubbles",
-            Self::Irc => "irc",
-        }
-    }
-
-    pub fn parse(name: &str) -> Option<Self> {
-        match name {
-            "bubbles" => Some(Self::Bubbles),
-            "irc" => Some(Self::Irc),
-            _ => None,
-        }
-    }
-
-    pub const fn other(self) -> Self {
-        match self {
-            Self::Bubbles => Self::Irc,
-            Self::Irc => Self::Bubbles,
-        }
-    }
-}
+/// How messages are laid out (DESIGN.md §7.3, D45); a setting since M5.
+pub use faro_core::config::MessageLayout;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Notice {
@@ -487,6 +465,8 @@ impl State {
             palette: None,
             recent_commands: Vec::new(),
             last_sent_at: Timestamp::from_millis(0),
+            config: Config::default(),
+            config_problems: Vec::new(),
             quit_armed: false,
             quit: false,
         }

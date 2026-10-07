@@ -300,6 +300,8 @@ Sketch:
 # "alt+j" = "none"            # unbind
 ```
 
+- **As built in M5 (D48):** settings are one table in `faro-core/src/config.rs` (template, parsing, write-back); I/O in `crates/faro/src/config.rs`; applied by `app/update/settings.rs`. Built: `theme` (built-ins only), `reduce_motion` (parsed), `[ui] emoji` (`--emoji` wins), `[conversations] allowlist`, `[messages] layout`, `[notifications] bell`/`desktop`/`privacy` (parsed, for M6), `[mouse] enabled` (live), `[keybindings.<context>]`. Not yet: `density`, `timestamps` (warn "isn't supported yet"), theme files. Each setting is read on its own: a bad value keeps its previous value and the footer names the key; invalid TOML keeps the last good config; unknown keys warn. Reloads (`notify` on the directory, 300 ms debounce) apply only what changed, so faro reading back its own writes is a no-op. Palette `:` lists each setting's values and writes the choice back. Allowlist mode and the layout moved here from SQLite `app_state` (migrated once at startup; the file wins).
+
 ## 10. Themes
 
 - Theme files in **OpenCode's JSON format** (named `defs` + semantic roles), loaded from built-ins and `~/.config/faro/themes/`.

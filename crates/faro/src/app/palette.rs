@@ -4,6 +4,7 @@
 //! matching is synchronous (`nucleo-matcher`): a few hundred short strings
 //! take well under a millisecond.
 
+use faro_core::config::{Choice as _, EmojiChoice};
 use faro_core::domain::ConversationId;
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher, Utf32Str};
@@ -41,14 +42,23 @@ pub enum PaletteCommand {
     HideInactive(usize),
     /// Show the keybinding list.
     ShowKeys,
-    /// Switch between the bubbles and IRC layouts (D45).
-    SwitchLayout,
+}
+
+/// A value for a setting (`:` in the palette, D48); choosing it applies it
+/// and saves it to the config file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingChoice {
+    Layout(MessageLayout),
+    Allowlist(bool),
+    Emoji(EmojiChoice),
+    Mouse(bool),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ItemKind {
     Command(PaletteCommand),
     Conversation(ConversationId),
+    Setting(SettingChoice),
     /// A line of the keybinding list (for reference; choosing it closes).
     Key,
 }
@@ -93,9 +103,12 @@ impl Mode {
     fn includes(self, kind: ItemKind) -> bool {
         matches!(
             (self, kind),
-            (Self::All, ItemKind::Command(_) | ItemKind::Conversation(_))
-                | (Self::Commands, ItemKind::Command(_))
+            (
+                Self::All,
+                ItemKind::Command(_) | ItemKind::Conversation(_) | ItemKind::Setting(_)
+            ) | (Self::Commands, ItemKind::Command(_))
                 | (Self::Conversations, ItemKind::Conversation(_))
+                | (Self::Settings, ItemKind::Setting(_))
                 | (Self::Keys, ItemKind::Key)
         )
     }
@@ -218,8 +231,8 @@ impl Palette {
 }
 
 /// Everything the palette can offer right now, in the order shown when
-/// nothing is typed: recently used commands, conversations, commands, then
-/// the keybinding list (`?` only).
+/// nothing is typed: recently used commands, conversations, commands,
+/// settings, then the keybinding list (`?` only).
 pub fn items(state: &State, recent: &[PaletteCommand]) -> Vec<Item> {
     let mut commands = commands(state);
     for item in &mut commands {
@@ -233,6 +246,7 @@ pub fn items(state: &State, recent: &[PaletteCommand]) -> Vec<Item> {
     first.sort_by_key(|item| item.recent);
     first.extend(conversations(state));
     first.extend(rest);
+    first.extend(settings(state));
     first.extend(keybindings(&state.keymap));
     first
 }
@@ -306,20 +320,73 @@ fn commands(state: &State) -> Vec<Item> {
         },
     ));
     items.push(command(
-        PaletteCommand::SwitchLayout,
-        match state.layout {
-            MessageLayout::Bubbles => "Use the IRC layout",
-            MessageLayout::Irc => "Use the bubbles layout",
-        },
-        None,
-    ));
-    items.push(command(
         PaletteCommand::ShowKeys,
         "Show keybindings",
         key(Action::Help, Focus::Input),
     ));
     items.push(global(Action::Quit, "Quit"));
     items
+}
+
+/// Every value of each setting that can be changed here; the one in use
+/// says so.
+fn settings(state: &State) -> Vec<Item> {
+    let on_off = |on: bool| if on { "on" } else { "off" };
+    let mut choices: Vec<(SettingChoice, String, bool)> = Vec::new();
+    for layout in MessageLayout::ALL.iter().copied() {
+        let name = match layout {
+            MessageLayout::Bubbles => "bubbles",
+            MessageLayout::Irc => "IRC",
+        };
+        choices.push((
+            SettingChoice::Layout(layout),
+            format!("Message layout: {name}"),
+            state.layout == layout,
+        ));
+    }
+    for on in [true, false] {
+        choices.push((
+            SettingChoice::Allowlist(on),
+            format!("Allowlist mode: {}", on_off(on)),
+            state.list.allowlist == on,
+        ));
+    }
+    for emoji in EmojiChoice::ALL.iter().copied() {
+        choices.push((
+            SettingChoice::Emoji(emoji),
+            format!("Emoji: {}", emoji.name()),
+            state.config.ui.emoji == emoji,
+        ));
+    }
+    for on in [true, false] {
+        choices.push((
+            SettingChoice::Mouse(on),
+            format!("Mouse: {}", on_off(on)),
+            state.config.mouse.enabled == on,
+        ));
+    }
+    let overridden = state.env.emoji.from_cli;
+    choices
+        .into_iter()
+        .map(|(choice, title, current)| {
+            let note = match (
+                current,
+                overridden && matches!(choice, SettingChoice::Emoji(_)),
+            ) {
+                (true, true) => "current · --emoji decides for now",
+                (false, true) => "--emoji decides for now",
+                (true, false) => "current",
+                (false, false) => "",
+            };
+            Item {
+                kind: ItemKind::Setting(choice),
+                title,
+                path: Some("Settings".to_owned()),
+                detail: note.to_owned(),
+                recent: None,
+            }
+        })
+        .collect()
 }
 
 /// Curating the open conversation (the sidebar's highlight), with its name

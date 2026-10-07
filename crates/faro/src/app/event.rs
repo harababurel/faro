@@ -1,11 +1,12 @@
 //! What flows into the reducer (`AppEvent`) and out of it (`Effect`), D22.
 
 use faro_core::backend::{BackendError, BackendEvent};
+use faro_core::config::SettingEdit;
 use faro_core::domain::{ConversationId, Message, MessageRef, Timestamp};
 use faro_core::store::{ConversationState, ConversationSummary};
 
 use super::commands::Command;
-use super::state::{Geometry, MessageLayout};
+use super::state::Geometry;
 
 #[derive(Debug)]
 pub enum AppEvent {
@@ -15,10 +16,6 @@ pub enum AppEvent {
     Loaded {
         conversations: Vec<ConversationSummary>,
         last_open: Option<ConversationId>,
-        /// Allowlist mode was on (D41).
-        allowlist: bool,
-        /// The stored message layout, if any (D45).
-        layout: Option<MessageLayout>,
     },
     MessagesLoaded {
         conversation: ConversationId,
@@ -48,6 +45,11 @@ pub enum AppEvent {
     TerminalChecked {
         mosh: bool,
     },
+    /// The config file changed and was read again (D48); the error is safe
+    /// to show.
+    ConfigRead(Result<String, String>),
+    /// Writing a setting to the config file failed; the text is safe to show.
+    SettingNotSaved(String),
     /// A frame was drawn; this is where things ended up.
     Drawn(Geometry),
     /// A store operation failed; the text is safe to show (no message content).
@@ -78,10 +80,8 @@ pub enum Effect {
     SaveConversationState(ConversationId, Box<ConversationState>),
     /// Reopen this conversation on the next start.
     RememberOpen(ConversationId),
-    /// Remember whether allowlist mode is on (D41).
-    SetAllowlistMode(bool),
-    /// Remember the message layout (D45).
-    SetMessageLayout(MessageLayout),
+    /// Write a setting to the config file (D48); routed to the config writer.
+    SaveSetting(SettingEdit),
     /// Ask the backend to do something; routed to the command task.
     Backend(Command),
     /// Put text on the clipboard (OSC 52; works over SSH and tmux).

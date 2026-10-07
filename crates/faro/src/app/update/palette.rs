@@ -4,7 +4,7 @@ use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use faro_core::domain::ConversationId;
 use ratatui::layout::Position;
 
-use super::{curation, navigation, open_conversation};
+use super::{curation, navigation, open_conversation, settings};
 use crate::app::event::Effect;
 use crate::app::keymap::PaletteKey;
 use crate::app::palette::{self, ItemKind, Palette, PaletteCommand, RECENT_MAX};
@@ -104,6 +104,7 @@ fn choose(state: &mut State) -> Vec<Effect> {
     };
     match kind {
         ItemKind::Conversation(id) => show_conversation(state, id),
+        ItemKind::Setting(choice) => settings::choose(state, choice),
         ItemKind::Command(command) => {
             remember(state, command);
             run(state, command)
@@ -129,10 +130,6 @@ fn run(state: &mut State, command: PaletteCommand) -> Vec<Effect> {
         (PaletteCommand::ShowKeys, _) => {
             open(state, "?");
             vec![]
-        }
-        (PaletteCommand::SwitchLayout, _) => {
-            state.layout = state.layout.other();
-            vec![Effect::SetMessageLayout(state.layout)]
         }
     }
 }

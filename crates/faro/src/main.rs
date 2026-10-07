@@ -1,5 +1,6 @@
 mod app;
 mod cli;
+mod config;
 #[cfg(test)]
 mod fixtures;
 mod logging;
@@ -20,20 +21,22 @@ use faro_core::store::Store;
 fn main() -> anyhow::Result<()> {
     let cli = cli::Cli::parse();
 
-    let paths = Paths::resolve(None, cli.data_dir).context("resolving faro's directories")?;
+    let paths = Paths::resolve(cli.config, cli.data_dir).context("resolving faro's directories")?;
     paths
         .ensure_data_dirs()
         .with_context(|| format!("creating data directory {}", paths.data_dir().display()))?;
     let (_log_guard, _log_file) = logging::init(&paths.log_dir())?;
     // Reads TZ or /etc/localtime once, before the UI; falls back to UTC.
     let tz = jiff::tz::TimeZone::system();
+    let config_file = paths.config_file().to_owned();
+    let (mut settings, mut problems) = config::load(&config_file);
 
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "faro starting");
     if !cli.mock {
         // Until the presage backend exists (M7), the mock is the only backend.
         tracing::info!("no Signal backend yet; using the mock backend");
     }
-    let config = MockConfig {
+    let mock = MockConfig {
         seed: cli.mock_seed,
         activity: Some(std::time::Duration::from_millis(cli.mock_activity.max(1))),
         disconnects: !cli.mock_no_faults,
@@ -41,7 +44,7 @@ fn main() -> anyhow::Result<()> {
         ..MockConfig::default()
     };
     tracing::info!(
-        seed = config.seed,
+        seed = mock.seed,
         activity_ms = cli.mock_activity,
         faults = !cli.mock_no_faults,
         "starting mock backend"
@@ -66,24 +69,45 @@ fn main() -> anyhow::Result<()> {
                 "messages left sending by the last run marked failed"
             );
         }
-        let (backend, events) = MockBackend::new(&config);
+        problems.extend(config::migrate(&store, &config_file, &mut settings).await);
+        let (backend, events) = MockBackend::new(&mock);
         let directory = app::load_directory(&backend, &store).await?;
-        let emoji = emoji_setting(cli.emoji).await;
-        let result = app::run(backend, events, store.clone(), directory, tz, emoji).await;
+        let emoji = emoji_setting(cli.emoji.map(Into::into), settings.ui.emoji).await;
+        let startup = config::Startup {
+            path: config_file,
+            config: settings,
+            problems,
+        };
+        let result = app::run(
+            backend,
+            events,
+            store.clone(),
+            directory,
+            tz,
+            emoji,
+            startup,
+        )
+        .await;
         store.close().await.context("closing the database")?;
         tracing::info!("faro exiting");
         result
     })
 }
 
-/// The emoji mode to start with: as chosen, or (`auto`) compatible if mosh is
-/// in the way (D47). `auto` keeps checking when the terminal changes.
-async fn emoji_setting(choice: cli::EmojiChoice) -> app::state::EmojiSetting {
+/// The emoji mode to start with: as chosen (`--emoji`/`FARO_EMOJI`, else the
+/// config file), or (`auto`) compatible if mosh is in the way (D47). `auto`
+/// keeps checking when the terminal changes.
+async fn emoji_setting(
+    cli: Option<faro_core::config::EmojiChoice>,
+    config: faro_core::config::EmojiChoice,
+) -> app::state::EmojiSetting {
     use app::state::{EmojiMode, EmojiSetting};
-    let (mode, auto) = match choice {
-        cli::EmojiChoice::Full => (EmojiMode::Full, false),
-        cli::EmojiChoice::Compatible => (EmojiMode::Compatible, false),
-        cli::EmojiChoice::Auto => {
+    use faro_core::config::EmojiChoice;
+    let from_cli = cli.is_some();
+    let (mode, auto) = match cli.unwrap_or(config) {
+        EmojiChoice::Full => (EmojiMode::Full, false),
+        EmojiChoice::Compatible => (EmojiMode::Compatible, false),
+        EmojiChoice::Auto => {
             let mosh = app::system::mosh_attached().await;
             let mode = if mosh {
                 EmojiMode::Compatible
@@ -93,10 +117,11 @@ async fn emoji_setting(choice: cli::EmojiChoice) -> app::state::EmojiSetting {
             (mode, true)
         }
     };
-    tracing::info!(?mode, auto, "emoji mode");
+    tracing::info!(?mode, auto, from_cli, "emoji mode");
     EmojiSetting {
         mode,
         auto,
+        from_cli,
         checked_at: auto.then(tokio::time::Instant::now),
     }
 }

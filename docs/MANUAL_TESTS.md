@@ -49,14 +49,14 @@ Terminal matrix (DESIGN §15): kitty, WezTerm, Ghostty, iTerm2, Alacritty, foot;
 - [ ] **Conversation menu:** `Space` in the sidebar, or right-clicking a conversation (without opening it), shows its menu beside the list; the letter shortcuts work (including `h`, which in menus is Hide, not a move).
 - [ ] **Persistence:** pins, mutes, hidden, archived and allowlist all survive a restart.
 - [ ] **Keys after the key map rewrite (D43):** everything above still works the same, and the footer hints look as before in each pane (input, sidebar, archive, messages).
-- [ ] **Palette:** `Ctrl+P` opens a box near the top over the conversation; type `ali`: matched letters are highlighted, `Enter` opens Alice. Try `>mute 8` (mutes the open conversation for 8 hours), `@` (conversations only, hidden/archived ones marked), `?` (keybinding list), `:` ("Settings arrive…"). Run a command, reopen: it's on top. Arrows, `Tab`, `Ctrl+N/P`, wheel and clicking a result work; clicking outside or `Esc` closes. The cursor sits in the query box. Check under tmux that `Ctrl+P` reaches faro (not bound in your tmux config). Known: where the box overlaps emoji in the sidebar, its left edge can look broken under tmux (the emoji width issue, M8 task 2).
+- [ ] **Palette:** `Ctrl+P` opens a box near the top over the conversation; type `ali`: matched letters are highlighted, `Enter` opens Alice. Try `>mute 8` (mutes the open conversation for 8 hours), `@` (conversations only, hidden/archived ones marked), `?` (keybinding list), `:` (settings, M5). Run a command, reopen: it's on top. Arrows, `Tab`, `Ctrl+N/P`, wheel and clicking a result work; clicking outside or `Esc` closes. The cursor sits in the query box. Check under tmux that `Ctrl+P` reaches faro (not bound in your tmux config). Known: where the box overlaps emoji in the sidebar, its left edge can look broken under tmux (the emoji width issue, M8 task 2).
 - [ ] **Help:** `F1` anywhere, or `?` in the sidebar or message pane, opens the keybinding list; `?` in the input types a `?`.
 - [ ] **Bulk hide:** palette → "Hide conversations inactive for 1 week": old mock conversations disappear into the archive's "Hidden until a message"; one comes back when a message arrives.
 - [ ] **Read only when seen:** with `set -g focus-events on` in tmux, switch to another tmux window (or another app) while a mock message arrives in the open conversation: the sidebar count goes up and a "new messages" rule appears. Come back: the count clears. Same when scrolled up with `PgUp`: the count clears once you scroll back to the bottom. Without `focus-events`, the count clears on your next key press instead.
 - [ ] **Typing indicators** can't be seen with the mock (it ignores them); check them in M7 on the test account's phone: "typing…" appears while you type, disappears ~3 s after you stop, and when you switch conversation.
 - [ ] **Bubbles (D45):** the default layout. Others' messages sit on the left in a cool-coloured box, yours on the right in a warm one; times and ticks at the bottom right inside each box; reactions just under it; in groups the name is above the first bubble of a run. Check the two colours are distinct from each other, from the background and from the selection tint, in kitty and under tmux. Emoji in bubbles may push the right edge out by a cell under tmux (the emoji width issue, M8 task 2).
 - [ ] **Selection over bubbles:** `↑` on an empty input: the selected bubble's rows get the tint and `▌` bar across the pane; check it's obvious which message is selected, including your own (right-hand) ones.
-- [ ] **Layout switch:** palette → "Use the IRC layout": the classic `time  name  text` view; "Use the bubbles layout" switches back. Quit and restart: the last choice is kept.
+- [ ] **Layout switch:** palette → "Message layout: IRC" (M5; was "Use the IRC layout"): the classic `time  name  text` view; "Message layout: bubbles" switches back. Quit and restart: the last choice is kept (it's in the config file now).
 - [ ] **Failed sends:** run without `--mock-no-faults` and send while the footer says offline: the message shows `! not sent` in red with an error notice. Quit right after sending and restart: a message that hadn't been confirmed shows `! not sent`, not `◌`.
 
 
@@ -70,3 +70,20 @@ Terminal matrix (DESIGN §15): kitty, WezTerm, Ghostty, iTerm2, Alacritty, foot;
 - [ ] **Palette over emoji:** open `Ctrl+P` and resize the pane so the palette's left border lands on sidebar emoji. The border stays unbroken (the emoji under it is blanked).
 - [ ] **Copy keeps the original:** in compatible mode, select a message with ❤️ or a family emoji, `y`, paste elsewhere. The original emoji are pasted.
 - [ ] **Half flags:** a lone regional indicator shows as a letter (needs a real message containing one; the mock has none, so this waits for M7).
+
+
+## M5: configuration (D48)
+
+Use a scratch config to keep your real one clean: `faro --mock --config /tmp/faro-test.toml` (or try the real `~/.config/faro/config.toml`, which faro creates on first run).
+
+- [ ] **First run:** the file is created with every setting commented out, each with a one-line explanation, then every default key binding per context. It reads well in your editor; nothing in it looks wrong or misleading.
+- [ ] **Live edit:** with faro running, uncomment `layout = "bubbles"` and change it to `"irc"`, save: within about half a second the layout changes and the footer says "Settings reloaded". Works with your editor's normal save (vim/neovim write via a temporary file and rename; check that's picked up).
+- [ ] **Bad value:** set `layout = "bubble"` and save: the footer shows a red "Config: messages.layout: expected … keeping …" and the layout doesn't change. Fix it: "Settings reloaded".
+- [ ] **Broken file:** delete a closing quote and save: a red "Config: line N: …" and nothing changes. Fix it again.
+- [ ] **Mouse off:** palette (`Ctrl+P`) → `:mouse off`, or `[mouse] enabled = false`: clicks and wheel no longer reach faro, and you can select text with the mouse in kitty and in tmux (tmux's own mouse mode decides there). `:mouse on` brings it back. Check the terminal is left in a sane state after quitting either way.
+- [ ] **Palette toggles keep your comments:** add a comment of your own to the file, then palette → `:layout irc` and `:allowlist on`: only those lines change in the file (open it), your comment is still there, and no "Settings reloaded" appears for faro's own write.
+- [ ] **Key binding:** add `"f2" = "palette.open"` under `[keybindings.global]`, save: `F2` opens the palette (check tmux passes F2 through). A typo in an action name shows a red notice and the rest still works.
+- [ ] **Emoji setting:** under mosh, `:emoji full` / `:emoji compatible` / `:emoji auto` switch immediately (auto re-detects mosh). With `--emoji full` on the command line, the palette marks emoji as decided by `--emoji` and choosing one only saves it.
+- [ ] **Migration:** with a data dir from before M5 where you had switched to IRC or turned on allowlist mode, the first M5 start writes `layout = "irc"` / `allowlist = true` into the config file (uncommenting the template line), and the mode is as you left it.
+- [ ] **Symlinked config:** if your config is a symlink into a dotfiles repo, a palette toggle edits the target and the link stays a link.
+

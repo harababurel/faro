@@ -1,10 +1,12 @@
 //! Curation (M4 task 5, D41): pin, mute, hide, archive, allowlist, views.
 
 use crossterm::event::{MouseButton, MouseEventKind};
+use faro_core::config::{Config, ConfigValue, SettingEdit, key};
 use faro_core::store::ConversationState;
 
 use super::*;
 use crate::app::state::{ConversationAction, Section, SidebarRow, SidebarView};
+use crate::app::update::configure;
 
 fn sidebar_key(state: &mut State, c: char) -> Vec<Effect> {
     state.focus = Focus::Conversations;
@@ -29,8 +31,7 @@ fn saved(effects: &[Effect], id: ConversationId) -> Option<ConversationState> {
         | Effect::Persist(_)
         | Effect::MarkRead(_)
         | Effect::RememberOpen(_)
-        | Effect::SetAllowlistMode(_)
-        | Effect::SetMessageLayout(_)
+        | Effect::SaveSetting(_)
         | Effect::Backend(_)
         | Effect::Copy(_)
         | Effect::OpenUrl(_)
@@ -162,8 +163,6 @@ fn hiding_the_last_conversation_closes_it() {
         AppEvent::Loaded {
             conversations: vec![fixtures::summary(alice(), "Alice", 1, 0)],
             last_open: None,
-            allowlist: false,
-            layout: None,
         },
     );
     typed(&mut state, "draft");
@@ -183,13 +182,21 @@ fn hiding_the_last_conversation_closes_it() {
     );
 }
 
+fn allowlist_saved(on: bool) -> Effect {
+    Effect::SaveSetting(SettingEdit {
+        path: key::ALLOWLIST,
+        value: ConfigValue::Bool(on),
+    })
+}
+
 #[test]
 fn allowlist_mode_lists_only_allowed_and_pinned_conversations() {
     let mut state = loaded_state();
     let effects = sidebar_key(&mut state, 'l');
     assert_eq!(saved(&effects, climbing()).map(|s| s.allowed), Some(true));
     let effects = sidebar_key(&mut state, 'L');
-    assert_eq!(effects, vec![Effect::SetAllowlistMode(true)]);
+    assert_eq!(effects, vec![allowlist_saved(true)]);
+    assert!(state.config.conversations.allowlist);
     assert!(state.list.allowlist);
     assert_eq!(listed(&state), vec![bob(), climbing()]);
     assert_eq!(
@@ -208,13 +215,16 @@ fn allowlist_mode_lists_only_allowed_and_pinned_conversations() {
     sidebar_key(&mut state, 'l');
     assert_eq!(open_id(&state), Some(bob()));
     let effects = sidebar_key(&mut state, 'L');
-    assert_eq!(effects, vec![Effect::SetAllowlistMode(false)]);
+    assert_eq!(effects, vec![allowlist_saved(false)]);
     assert_eq!(listed(&state), vec![bob(), climbing(), alice()]);
 }
 
 #[test]
 fn startup_restores_allowlist_mode_and_the_archive_view() {
     let mut state = State::new(ME, fixtures::contacts(), fixtures::groups());
+    let mut config = Config::default();
+    config.conversations.allowlist = true;
+    assert_eq!(configure(&mut state, config, vec![]), vec![]);
     let mut summaries = fixtures::summaries();
     for summary in &mut summaries {
         if summary.id == climbing() {
@@ -226,8 +236,6 @@ fn startup_restores_allowlist_mode_and_the_archive_view() {
         AppEvent::Loaded {
             conversations: summaries,
             last_open: Some(climbing()),
-            allowlist: true,
-            layout: None,
         },
     );
     assert!(state.list.allowlist);

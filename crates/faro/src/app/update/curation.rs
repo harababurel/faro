@@ -1,12 +1,13 @@
 //! Curating the conversation list (M4 task 5, D41): pin, mute, hide, archive,
 //! the allowlist, and switching between the chats and the archive.
 
+use faro_core::config::key;
 use faro_core::domain::{ConversationId, Timestamp};
 use faro_core::store::ConversationState;
 
 use super::selection::cycle;
 use super::sending::wall_clock;
-use super::{open_conversation, save_draft};
+use super::{open_conversation, save_draft, settings};
 use crate::app::event::Effect;
 use crate::app::keymap::{Curate, PopupKey};
 use crate::app::palette::INACTIVE_CHOICES;
@@ -407,20 +408,29 @@ fn move_pin(state: &mut State, target: ConversationId, up: bool) -> Vec<Effect> 
     effects
 }
 
-fn set_allowlist_mode(state: &mut State, on: bool) -> Vec<Effect> {
-    let before = visible_ids(state);
-    state.list.allowlist = on;
-    state.sidebar.reveal = true;
+/// Turn allowlist mode on or off and save it to the config file (D48).
+pub fn set_allowlist_mode(state: &mut State, on: bool) -> Vec<Effect> {
     state.notice = Some(Notice::info(if on {
         "Allowlist mode on: only allowed and pinned conversations are listed"
     } else {
         "Allowlist mode off"
     }));
-    let mut effects = vec![Effect::SetAllowlistMode(on)];
-    if let Some(open) = state.open.as_ref().map(|o| o.id) {
-        effects.extend(follow(state, open, &before));
-    }
+    state.config.conversations.allowlist = on;
+    let mut effects = apply_allowlist_mode(state, on);
+    effects.extend(settings::save(state, key::ALLOWLIST));
     effects
+}
+
+/// Turn allowlist mode on or off (also when the config file changes),
+/// moving on if the open conversation leaves the list.
+pub fn apply_allowlist_mode(state: &mut State, on: bool) -> Vec<Effect> {
+    let before = visible_ids(state);
+    state.list.allowlist = on;
+    state.sidebar.reveal = true;
+    match state.open.as_ref().map(|o| o.id) {
+        Some(open) => follow(state, open, &before),
+        None => vec![],
+    }
 }
 
 /// `A`, or a click on the switch row: chats ⇄ archive.

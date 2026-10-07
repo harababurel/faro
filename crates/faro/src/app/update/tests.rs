@@ -36,8 +36,6 @@ fn startup_opens_the_remembered_conversation() {
         AppEvent::Loaded {
             conversations: fixtures::summaries(),
             last_open: Some(climbing()),
-            allowlist: false,
-            layout: None,
         },
     );
     assert_eq!(
@@ -64,8 +62,6 @@ fn startup_falls_back_to_the_first_conversation() {
         AppEvent::Loaded {
             conversations: fixtures::summaries(),
             last_open: None,
-            allowlist: false,
-            layout: None,
         },
     );
     assert_eq!(open_id(&state), Some(bob()));
@@ -82,8 +78,6 @@ fn first_message_opens_a_conversation_on_a_fresh_start() {
         AppEvent::Loaded {
             conversations: vec![empty],
             last_open: None,
-            allowlist: false,
-            layout: None,
         },
     );
     assert_eq!(open_id(&state), None);
@@ -113,8 +107,6 @@ fn events_during_loading_are_replayed_on_the_loaded_page() {
         AppEvent::Loaded {
             conversations: fixtures::summaries(),
             last_open: Some(climbing()),
-            allowlist: false,
-            layout: None,
         },
     );
     let history = climbing_history();
@@ -631,8 +623,6 @@ fn drafts_are_saved_after_a_pause_and_on_quit_and_restored() {
         AppEvent::Loaded {
             conversations: summaries,
             last_open: Some(alice()),
-            allowlist: false,
-            layout: None,
         },
     );
     let input = &state.open.as_ref().unwrap().input;
@@ -1105,4 +1095,5 @@ fn clicking_a_message_selects_it_and_right_click_opens_the_menu() {
 mod curation;
 mod palette;
 mod presence;
+mod settings;
 mod terminal;

@@ -13,8 +13,8 @@ expression: "snapshot(&draw(&with_palette(\"mute\"), 100, 20))"
 │           │ › Climbing 🧗 › Mute for 1 day                                           │ast week   │
 │           │ › Climbing 🧗 › Mute for 1 week                                          │bring your │
 │           │ › Climbing 🧗 › Mute until unmuted                                       │for your   │
+│           │ : Settings › Message layout: bubbles                                     │           │
 │           ╰──────────────────────────────────────────────────────────────────────────╯           │
-│                            ││ 17:54        You On my way ✓                                       │
 │                            ││ 17:55   Alice 🌸 Running 10 min late 🙈                            │
 │                            ││                                                                    │
 │                            ││╭──────────────────────────────────────────────────────────────────╮│

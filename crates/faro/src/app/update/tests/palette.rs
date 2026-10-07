@@ -1,13 +1,16 @@
 //! The command palette (M4 task 8, D44).
 
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+use faro_core::config::{ConfigValue, EmojiChoice, SettingEdit, key};
 use faro_core::store::ConversationState;
 use ratatui::layout::Rect;
 
 use super::*;
 use crate::app::keymap::Action;
-use crate::app::palette::{ItemKind, Mode, PaletteCommand};
-use crate::app::state::{ConversationAction, Focus, MessageLayout, PaletteGeometry, SidebarView};
+use crate::app::palette::{ItemKind, Mode, PaletteCommand, SettingChoice};
+use crate::app::state::{
+    ConversationAction, EmojiMode, Focus, MessageLayout, PaletteGeometry, SidebarView,
+};
 
 fn ctrl(c: char) -> AppEvent {
     key(KeyCode::Char(c), KeyModifiers::CONTROL)
@@ -107,7 +110,11 @@ fn prefixes_pick_what_is_searched() {
     assert!(kinds(&state).iter().all(|k| *k == ItemKind::Key));
     update(&mut state, ctrl('u'));
     typed(&mut state, ":");
-    assert_eq!(kinds(&state), vec![], "no settings before M5");
+    let settings = kinds(&state);
+    assert_eq!(settings.len(), 9);
+    assert!(settings.iter().all(|k| matches!(k, ItemKind::Setting(_))));
+    typed(&mut state, "zzz");
+    assert_eq!(kinds(&state), vec![]);
     // Enter with nothing to run keeps the palette open.
     enter(&mut state);
     assert!(state.palette.is_some());
@@ -314,38 +321,93 @@ fn mouse_picks_a_result_or_closes() {
     assert!(state.palette.is_none(), "a click outside closes");
 }
 
+fn saved(path: &'static str, value: ConfigValue) -> Effect {
+    Effect::SaveSetting(SettingEdit { path, value })
+}
+
 #[test]
-fn the_layout_switches_from_the_palette_and_is_remembered() {
+fn the_layout_switches_from_the_palette_and_is_saved() {
     let mut state = loaded_state();
     state.layout = MessageLayout::Bubbles;
+    state.config.messages.layout = MessageLayout::Bubbles;
     palette_open(&mut state, "irc layout");
-    assert_eq!(selected_title(&state), "Use the IRC layout");
+    assert_eq!(selected_title(&state), "Message layout: IRC");
     let effects = enter(&mut state);
     assert_eq!(state.layout, MessageLayout::Irc);
-    assert_eq!(effects, vec![Effect::SetMessageLayout(MessageLayout::Irc)]);
+    assert_eq!(state.config.messages.layout, MessageLayout::Irc);
+    assert_eq!(
+        effects,
+        vec![saved(key::LAYOUT, ConfigValue::Text("irc".into()))]
+    );
 
-    palette_open(&mut state, "layout");
-    assert_eq!(selected_title(&state), "Use the bubbles layout");
+    palette_open(&mut state, ":layout");
+    let current: Vec<(String, String)> = state
+        .palette
+        .as_ref()
+        .unwrap()
+        .matches
+        .iter()
+        .map(|m| {
+            let item = &state.palette.as_ref().unwrap().items[m.item];
+            (item.title.clone(), item.detail.clone())
+        })
+        .collect();
+    assert_eq!(
+        current,
+        vec![
+            ("Message layout: bubbles".to_owned(), String::new()),
+            ("Message layout: IRC".to_owned(), "current".to_owned()),
+        ]
+    );
     let effects = enter(&mut state);
     assert_eq!(state.layout, MessageLayout::Bubbles);
     assert_eq!(
         effects,
-        vec![Effect::SetMessageLayout(MessageLayout::Bubbles)]
+        vec![saved(key::LAYOUT, ConfigValue::Text("bubbles".into()))]
     );
 }
 
 #[test]
-fn a_stored_layout_is_applied_on_load() {
-    let mut state = State::new(ME, fixtures::contacts(), fixtures::groups());
-    assert_eq!(state.layout, MessageLayout::Bubbles, "the default");
-    update(
-        &mut state,
-        AppEvent::Loaded {
-            conversations: fixtures::summaries(),
-            last_open: None,
-            allowlist: false,
-            layout: Some(MessageLayout::Irc),
-        },
+fn settings_from_the_palette_apply_and_are_saved() {
+    let mut state = loaded_state();
+    palette_open(&mut state, ":mouse off");
+    assert_eq!(
+        selected(&state),
+        Some(ItemKind::Setting(SettingChoice::Mouse(false)))
     );
-    assert_eq!(state.layout, MessageLayout::Irc);
+    assert_eq!(
+        enter(&mut state),
+        vec![saved(key::MOUSE, ConfigValue::Bool(false))]
+    );
+    assert!(!state.config.mouse.enabled);
+
+    palette_open(&mut state, ":allowlist on");
+    let effects = enter(&mut state);
+    // Climbing isn't allowed, so the next conversation opens first.
+    assert_eq!(
+        effects.last(),
+        Some(&saved(key::ALLOWLIST, ConfigValue::Bool(true)))
+    );
+    assert!(state.list.allowlist);
+
+    palette_open(&mut state, ":emoji compatible");
+    let effects = enter(&mut state);
+    assert_eq!(
+        effects,
+        vec![saved(key::EMOJI, ConfigValue::Text("compatible".into()))]
+    );
+    assert_eq!(state.env.emoji.mode, EmojiMode::Compatible);
+    assert!(!state.env.emoji.auto);
+    assert!(state.env.repaint);
+
+    // `--emoji` decides for this run; the choice is only saved.
+    state.env.emoji.from_cli = true;
+    palette_open(&mut state, ":emoji full");
+    let effects = enter(&mut state);
+    assert_eq!(
+        effects,
+        vec![saved(key::EMOJI, ConfigValue::Text("full".into()))]
+    );
+    assert_eq!(state.env.emoji.mode, EmojiMode::Compatible);
+    assert_eq!(state.config.ui.emoji, EmojiChoice::Full);
 }

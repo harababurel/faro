@@ -10,6 +10,7 @@ fn auto(mode: EmojiMode) -> EmojiSetting {
         mode,
         auto: true,
         checked_at: None,
+        from_cli: false,
     }
 }
 
@@ -44,6 +45,7 @@ fn a_chosen_mode_is_kept() {
         mode: EmojiMode::Full,
         auto: false,
         checked_at: None,
+        from_cli: true,
     };
     update(&mut state, AppEvent::TerminalChecked { mosh: true });
     assert_eq!(state.env.emoji.mode, EmojiMode::Full);

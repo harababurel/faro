@@ -168,13 +168,14 @@ pub fn climbing_history() -> Vec<Message> {
 /// history (2 unread when opened).
 pub fn loaded_state() -> State {
     let mut state = State::new(ME, contacts(), groups());
+    // The older snapshots and tests were written for IRC (D45).
+    state.layout = crate::app::state::MessageLayout::Irc;
+    state.config.messages.layout = crate::app::state::MessageLayout::Irc;
     update(
         &mut state,
         AppEvent::Loaded {
             conversations: summaries(),
             last_open: Some(climbing()),
-            allowlist: false,
-            layout: Some(crate::app::state::MessageLayout::Irc),
         },
     );
     update(

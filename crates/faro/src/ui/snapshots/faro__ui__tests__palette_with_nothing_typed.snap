@@ -7,7 +7,7 @@ expression: "snapshot(&draw(&with_palette(\"\"), 100, 26))"
 │   Bob                      ││ ─────────────────────────── Yesterday ──────────────────────────── │
 │ ▾ Recent                   ││ 16:30   Alice 🌸 Anyone up for the wall on Thursday?               │
 │   Climbing╭ Search ──────────────────────────────────────────────────────────────────╮           │
-│ ● Alice 🌸│ ›                                            > commands  @ chats  ? keys │           │
+│ ● Alice 🌸│ ›                                > commands  @ chats  : settings  ? keys │           │
 │           │──────────────────────────────────────────────────────────────────────────│────────── │
 │           │▌@ Bob                                                             pinned │hursday?   │
 │           │ # Climbing 🧗                                                       open │ss         │

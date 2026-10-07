@@ -12,13 +12,13 @@ use unicode_segmentation::UnicodeSegmentation as _;
 
 use super::View;
 use super::text::{sanitize, truncate, width};
-use crate::app::palette::{Item, ItemKind, Match, Mode, Palette};
+use crate::app::palette::{Item, ItemKind, Match, Palette};
 use crate::app::state::{Geometry, PaletteGeometry, State};
 
 /// Widest the box gets.
 const MAX_WIDTH: u16 = 76;
 /// Shown on the query row while nothing is typed.
-const PREFIX_HINT: &str = "> commands  @ chats  ? keys";
+const PREFIX_HINT: &str = "> commands  @ chats  : settings  ? keys";
 
 pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &mut Geometry) {
     let Some(palette) = &state.palette else {
@@ -145,11 +145,10 @@ fn draw_results(
 ) {
     let theme = view.theme;
     if palette.matches.is_empty() {
-        let note = match palette.mode() {
-            Mode::Settings => "  Settings arrive with the config file",
-            Mode::All | Mode::Commands | Mode::Conversations | Mode::Keys => "  No matches",
-        };
-        frame.render_widget(Paragraph::new(Span::styled(note, theme.muted())), area);
+        frame.render_widget(
+            Paragraph::new(Span::styled("  No matches", theme.muted())),
+            area,
+        );
         return;
     }
     let lines: Vec<Line<'static>> = palette
@@ -190,6 +189,7 @@ fn result_line(
     let marker = if selected { "▌" } else { " " };
     let glyph = match item.kind {
         ItemKind::Command(_) => "› ",
+        ItemKind::Setting(_) => ": ",
         ItemKind::Conversation(ConversationId::Group(_)) => "# ",
         ItemKind::Conversation(ConversationId::Direct(_)) => "@ ",
         ItemKind::Key => "  ",

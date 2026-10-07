@@ -10,6 +10,15 @@ use clap::Parser;
 pub struct Cli {
     #[arg(
         long,
+        env = "FARO_CONFIG",
+        value_name = "FILE",
+        help = "Config file, written with every setting commented out if missing \
+                [default: $XDG_CONFIG_HOME/faro/config.toml, usually ~/.config/faro/config.toml]"
+    )]
+    pub config: Option<PathBuf>,
+
+    #[arg(
+        long,
         env = "FARO_DATA_DIR",
         value_name = "DIR",
         help = "Directory for faro's database, logs and Signal keys \
@@ -46,9 +55,9 @@ pub struct Cli {
     /// How to draw emoji. `compatible` draws emoji whose width depends on the
     /// terminal (❤️, 👍🏽, 🧗‍♀️…) in a simpler form every terminal agrees on, for
     /// mosh and other terminals that misalign them; `auto` does so when faro
-    /// finds mosh.
-    #[arg(long, env = "FARO_EMOJI", value_enum, default_value_t = EmojiChoice::Auto)]
-    pub emoji: EmojiChoice,
+    /// finds mosh. Overrides `[ui] emoji` in the config file (default: auto).
+    #[arg(long, env = "FARO_EMOJI", value_enum)]
+    pub emoji: Option<EmojiChoice>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -56,6 +65,16 @@ pub enum EmojiChoice {
     Auto,
     Full,
     Compatible,
+}
+
+impl From<EmojiChoice> for faro_core::config::EmojiChoice {
+    fn from(choice: EmojiChoice) -> Self {
+        match choice {
+            EmojiChoice::Auto => Self::Auto,
+            EmojiChoice::Full => Self::Full,
+            EmojiChoice::Compatible => Self::Compatible,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -73,6 +92,9 @@ mod tests {
     fn parses_data_dir() {
         let cli = Cli::try_parse_from(["faro", "--data-dir", "/tmp/x"]).unwrap();
         assert_eq!(cli.data_dir, Some(PathBuf::from("/tmp/x")));
+        assert_eq!(cli.config, None);
+        let cli = Cli::try_parse_from(["faro", "--config", "/tmp/c.toml"]).unwrap();
+        assert_eq!(cli.config, Some(PathBuf::from("/tmp/c.toml")));
     }
 
     #[test]
@@ -92,9 +114,9 @@ mod tests {
         assert!(!cli.mock_no_faults);
         let cli = Cli::try_parse_from(["faro", "--mock-no-faults"]).unwrap();
         assert!(cli.mock_no_faults);
-        assert_eq!(cli.emoji, EmojiChoice::Auto);
+        assert_eq!(cli.emoji, None, "the config decides");
         let cli = Cli::try_parse_from(["faro", "--emoji", "compatible"]).unwrap();
-        assert_eq!(cli.emoji, EmojiChoice::Compatible);
+        assert_eq!(cli.emoji, Some(EmojiChoice::Compatible));
         assert!(Cli::try_parse_from(["faro", "--emoji", "fancy"]).is_err());
     }
 }

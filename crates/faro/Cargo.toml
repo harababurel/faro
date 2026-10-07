@@ -19,13 +19,14 @@ faro-core.workspace = true
 futures-util = "0.3.34"
 jiff = "0.2.38"
 ratatui = { version = "0.30.2", default-features = false, features = ["crossterm", "layout-cache", "underline-color"] }
-tokio = { version = "1.53.2", features = ["rt", "macros", "process", "signal", "sync", "time"] }
+tokio = { version = "1.53.2", features = ["rt", "macros", "process", "signal", "sync", "time", "fs"] }
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 unicode-segmentation = "1.13.3"
 unicode-width = "0.2.2"
 nucleo-matcher = "0.3.1"
+notify = "8.2.0"
 
 [dev-dependencies]
 insta = "1.49.0"

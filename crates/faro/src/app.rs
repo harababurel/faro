@@ -12,6 +12,7 @@ use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::mpsc;
 use tokio::time::{Instant, sleep_until};
 
+use crate::config::{self, Startup};
 use crate::theme::Theme;
 use crate::tui::Tui;
 use crate::ui::{self, View};
@@ -71,12 +72,22 @@ pub async fn run<B: Backend + 'static>(
     directory: Directory,
     tz: jiff::tz::TimeZone,
     emoji: state::EmojiSetting,
+    startup: Startup,
 ) -> anyhow::Result<()> {
+    let Startup {
+        path: config_path,
+        config: settings,
+        mut problems,
+    } = startup;
     let mut terminate = signal(SignalKind::terminate()).context("listening for SIGTERM")?;
     let mut hangup = signal(SignalKind::hangup()).context("listening for SIGHUP")?;
     let (results_tx, mut results) = mpsc::unbounded_channel();
     let (effects, worker) = effects::spawn(store, results_tx.clone());
     let (commands, command_task) = commands::spawn(backend, results_tx.clone());
+    let (config_writer, config_task) =
+        config::spawn_writer(config_path.clone(), results_tx.clone());
+    // Hot reload (D48); without it, faro still works with what it read.
+    let watch = config::try_watch(&config_path, results_tx.clone(), &mut problems);
     let dispatch = |list: Vec<Effect>| {
         for effect in list {
             let delivered = match effect {
@@ -93,18 +104,17 @@ pub async fn run<B: Backend + 'static>(
                     system::check_terminal(results_tx.clone());
                     true
                 }
+                Effect::SaveSetting(edit) => config_writer.send(edit).is_ok(),
                 store @ (Effect::LoadConversations
                 | Effect::LoadMessages(_)
                 | Effect::LoadOlder { .. }
                 | Effect::Persist(_)
                 | Effect::MarkRead(_)
                 | Effect::SaveConversationState(..)
-                | Effect::RememberOpen(_)
-                | Effect::SetAllowlistMode(_)
-                | Effect::SetMessageLayout(_)) => effects.send(store).is_ok(),
+                | Effect::RememberOpen(_)) => effects.send(store).is_ok(),
             };
             if !delivered {
-                tracing::error!("effects worker or command task stopped; dropping an effect");
+                tracing::error!("a worker task stopped; dropping an effect");
             }
         }
     };
@@ -112,26 +122,20 @@ pub async fn run<B: Backend + 'static>(
     let mut state = State::new(directory.me, directory.contacts, directory.groups);
     state.env.over_ssh = system::over_ssh();
     state.env.emoji = emoji;
-    let theme = Theme::default();
-    let mut tui = Tui::enter().context("setting up the terminal")?;
+    dispatch(update::configure(&mut state, settings, problems));
+    let mut tui = Tui::enter(state.config.mouse.enabled).context("setting up the terminal")?;
     let mut input = EventStream::new();
     dispatch(vec![Effect::LoadConversations]);
 
     let mut dirty = true;
     let mut last_draw: Option<Instant> = None;
     loop {
+        if tui.mouse() != state.config.mouse.enabled {
+            tui.set_mouse(state.config.mouse.enabled)
+                .context("switching the mouse")?;
+        }
         if dirty && last_draw.is_none_or(|t| t.elapsed() >= FRAME) {
-            let view = View {
-                theme: &theme,
-                tz: &tz,
-                now: jiff::Timestamp::now(),
-            };
-            let mut geometry = state::Geometry::default();
-            if std::mem::take(&mut state.env.repaint) {
-                tui.clear().context("clearing the screen")?;
-            }
-            tui.draw(|frame| geometry = ui::render(frame, &state, &view))
-                .context("drawing")?;
+            let geometry = draw(&mut tui, &mut state, &tz)?;
             last_draw = Some(Instant::now());
             dirty = false;
             // Same picture; only bookkeeping (and maybe loading older messages).
@@ -165,15 +169,47 @@ pub async fn run<B: Backend + 'static>(
     }
 
     drop(tui);
+    drop(watch);
     // A send still in flight is abandoned; the store marks it failed on the
     // next start (`Store::fail_unsent`).
     command_task.abort();
     // Let queued writes finish before the caller closes the store.
     drop(effects);
-    if let Err(error) = worker.await {
-        tracing::error!(%error, "effects worker failed");
-    }
+    finish(worker, "effects worker").await;
+    // Same for a setting changed just before quitting.
+    drop(config_writer);
+    finish(config_task, "config writer").await;
     Ok(())
+}
+
+/// Wait for a worker to finish its queue.
+async fn finish(task: tokio::task::JoinHandle<()>, name: &str) {
+    if let Err(error) = task.await {
+        tracing::error!(%error, "{name} failed");
+    }
+}
+
+/// Draw a frame (clearing the screen first if asked to) and report where
+/// things ended up.
+fn draw(
+    tui: &mut Tui,
+    state: &mut State,
+    tz: &jiff::tz::TimeZone,
+) -> anyhow::Result<state::Geometry> {
+    // Unknown names were reported when the config was read.
+    let theme = Theme::named(&state.config.theme).unwrap_or_default();
+    let view = View {
+        theme: &theme,
+        tz,
+        now: jiff::Timestamp::now(),
+    };
+    let mut geometry = state::Geometry::default();
+    if std::mem::take(&mut state.env.repaint) {
+        tui.clear().context("clearing the screen")?;
+    }
+    tui.draw(|frame| geometry = ui::render(frame, state, &view))
+        .context("drawing")?;
+    Ok(geometry)
 }
 
 /// Whether an event can change what's on screen; the rest don't cost a frame.
@@ -197,6 +233,8 @@ fn affects_view(event: &AppEvent) -> bool {
         | AppEvent::ReactResult { .. }
         | AppEvent::OpenFailed(_)
         | AppEvent::TerminalChecked { .. }
+        | AppEvent::ConfigRead(_)
+        | AppEvent::SettingNotSaved(_)
         | AppEvent::StoreFailed(_)
         | AppEvent::Tick
         | AppEvent::Shutdown => true,

@@ -19,11 +19,13 @@ use ratatui::{Frame, Terminal};
 
 pub struct Tui {
     terminal: Terminal<CrosstermBackend<Stdout>>,
+    /// Mouse capture is on (`[mouse] enabled`).
+    mouse: bool,
 }
 
 impl Tui {
-    /// Raw mode, alternate screen, mouse capture (DESIGN.md §7.5).
-    pub fn enter() -> io::Result<Self> {
+    /// Raw mode, alternate screen, mouse capture if `mouse` (DESIGN.md §7.5).
+    pub fn enter(mouse: bool) -> io::Result<Self> {
         install_panic_hook();
         let setup = || -> io::Result<Self> {
             enable_raw_mode()?;
@@ -34,13 +36,14 @@ impl Tui {
             execute!(
                 stdout(),
                 EnterAlternateScreen,
-                EnableMouseCapture,
                 EnableBracketedPaste,
                 EnableFocusChange
             )?;
             let mut tui = Self {
                 terminal: Terminal::new(CrosstermBackend::new(stdout()))?,
+                mouse: false,
             };
+            tui.set_mouse(mouse)?;
             tui.clear()?;
             Ok(tui)
         };
@@ -58,6 +61,22 @@ impl Tui {
 }
 
 impl Tui {
+    pub fn mouse(&self) -> bool {
+        self.mouse
+    }
+
+    /// Turn mouse capture on or off. Off, the terminal handles the mouse
+    /// itself (selecting text, its own scrollback).
+    pub fn set_mouse(&mut self, on: bool) -> io::Result<()> {
+        if on {
+            execute!(stdout(), EnableMouseCapture)?;
+        } else {
+            execute!(stdout(), DisableMouseCapture)?;
+        }
+        self.mouse = on;
+        Ok(())
+    }
+
     /// Clear the screen; the next draw paints every cell again (fixes a
     /// terminal whose picture went out of step, e.g. after an emoji mode
     /// change under mosh).
