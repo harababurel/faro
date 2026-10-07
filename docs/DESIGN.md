@@ -1,10 +1,10 @@
 # faro: design
 
-Status: draft v0.1, written before any code. This is the single source of truth for decisions made so far; update it when decisions change. Items marked **Open** are not decided yet.
+Status: agreed design, written before any code (2026-10-07). Companion docs: [DECISIONS.md](DECISIONS.md) (why), [PLAN.md](PLAN.md) (implementation order and progress), [BACKGROUND.md](BACKGROUND.md) (context and research). Keep this file current when the design changes; items marked **Open** are not decided yet.
 
 ## 1. Why faro exists
 
-The author uses Signal by SSH-ing into a personal Mac mini and running a terminal Signal client inside tmux. The existing client (gurk) works, but has problems that faro is meant to fix:
+The owner uses Signal by SSH-ing into a personal Mac mini and running a terminal Signal client inside tmux. The existing client (gurk) works, but has problems that faro is meant to fix:
 
 - Keybindings are hard to discover; the help screen is an unformatted wall of text.
 - The conversation list fills up with every contact ever seen, with no way to hide or prune them.
@@ -31,23 +31,18 @@ faro is a terminal (TUI) Signal client focused on a polished, discoverable, neve
 - Voice/video calls.
 - Stories.
 - Windows support (not ruled out later; not designed against).
-- Reimplementing any part of the Signal protocol or service layer (see §4).
+- Reimplementing any part of the Signal protocol or service layer (D4).
 
-## 3. Decisions log
+## 3. Decisions
 
-| # | Decision | Why |
-|---|---|---|
-| D1 | Terminal UI, not a web app | Terminal over SSH is the use case; a web client doesn't fit it. |
-| D2 | Language: **Rust** | Strong TUI ecosystem (ratatui), access to presage/libsignal, good fit for coding agents. Haskell (brick) was considered; rejected because it would force the signal-cli backend and has weaker visual widgets and agent support. |
-| D3 | Signal layer: **presage** (Rust) as the first backend | Single binary, no Java, uniform packaging across distros. Trade-off: slower fixes when Signal changes server behaviour than signal-cli. |
-| D4 | Backend behind a **trait**; signal-cli JSON-RPC backend possible later | Keeps UI independent of the backend; fallback if presage lags behind Signal. |
-| D5 | Never reimplement the Signal service layer or crypto | No public spec; silent, costly bugs; endless maintenance; no user-visible benefit. |
-| D6 | **faro owns message history** in its own SQLite DB | Backend-agnostic; survives a backend switch; needed anyway for signal-cli. |
-| D7 | Licence: **AGPL-3.0** | Required by presage/libsignal. |
-| D8 | Config: **TOML**, edited with `toml_edit` to preserve comments | Rust-ecosystem standard; UI edits must not destroy hand edits. |
-| D9 | Themes: **OpenCode-compatible JSON** theme format | Large existing theme library; familiar to OpenCode users. |
-| D10 | Name: **faro** (Italian/Spanish/Portuguese for "lighthouse"). Command `faro`; repo and packages may use `faro-chat` if needed | Free on Homebrew/Arch/AUR/Debian/Nix. Notable neighbours: Grafana Faro (observability), FARO Technologies (3D measurement), a tiny `faro` CLI on crates.io. |
-| D11 | Logo direction: **lighthouse with a rotating beam** | Chosen during naming; prototype in `tools/logos.py` (group `lighthouse`). |
+All decisions, their reasoning and rejected alternatives are in [DECISIONS.md](DECISIONS.md). The most important ones, in short:
+
+- TUI over SSH/tmux, not web (D1). Rust + ratatui (D3).
+- Never reimplement the Signal protocol or service layer (D4). presage as the first backend (D5), behind a `Backend` trait (D6).
+- faro owns history and UI state in its own SQLite DB via sqlx (D7, D16).
+- AGPL-3.0 (D8). TOML config with `toml_edit` + hot reload (D9). OpenCode-compatible themes (D10).
+- Name **faro**, lighthouse logo (D11, D12).
+- Develop against a mock backend; a separate test Signal account is needed from milestone M7 (D15).
 
 ## 4. Architecture
 
@@ -78,7 +73,7 @@ faro is a terminal (TUI) Signal client focused on a polished, discoverable, neve
 
 `faro daemon` runs the backend + store headless (e.g. under launchd/systemd) so messages arrive while no UI is open; `faro` (the TUI) then attaches over a local Unix socket. The channel boundaries in 4.1 are designed so this becomes a transport change, not a redesign. Not in the first release.
 
-### 4.3 Workspace layout (proposed)
+### 4.3 Workspace layout (D20)
 
 ```
 crates/
@@ -88,10 +83,14 @@ crates/
 tools/
   logos.py         # naming-phase logo prototypes
 docs/
-  DESIGN.md
+  DESIGN.md        # what to build
+  DECISIONS.md     # why (decision log)
+  PLAN.md          # milestones and progress
+  BACKGROUND.md    # context and research
+AGENTS.md          # onboarding for coding agents
 ```
 
-A **mock backend** lives in `faro-core` (behind a feature or `#[cfg(test)]`) so the UI and core can be developed and tested without a Signal account.
+A **mock backend** lives in `faro-core` and is always compiled in; `faro --mock` selects it at runtime. It is used for development, tests and demos without a Signal account.
 
 ## 5. Backend interface
 
@@ -150,8 +149,8 @@ presage keeps its own store for keys, sessions and protocol state; faro never to
 | `app_state` | key/value: sidebar widths, last open conversation, etc. |
 
 - Messages are identified Signal-style by `(sender, sent_at)`; faro adds its own row ID.
-- Migrations with `sqlx` (or `rusqlite` + `refinery`). **Open:** which.
-- **Open:** whether to reuse presage's own message store instead of duplicating history. Default plan is D6 (own DB).
+- SQLite via `sqlx` with embedded migrations (D16). Align the sqlx version with presage's store.
+- faro keeps its own history even though presage's store can also hold messages (D7).
 
 ## 7. UI
 
@@ -206,7 +205,7 @@ presage keeps its own store for keys, sessions and protocol state; faro never to
 
 Click to focus panes and open conversations; scroll anywhere; drag sidebar borders (border highlights on hover); right-click for context menus; click toggles on panel headers. Mouse capture can be turned off (setting + palette command) so native terminal text selection works; `Shift`+drag bypasses capture in most terminals. Copy uses **OSC 52**, which works over SSH and tmux.
 
-### 7.6 Default keybindings (initial proposal)
+### 7.6 Default keybindings (confirmed, D13)
 
 Chosen to avoid tmux's default prefix (`Ctrl+B`) and common terminal shortcuts. All rebindable.
 
@@ -251,7 +250,7 @@ Per-conversation overrides (mute, mentions only). **Privacy levels:** show nothi
 - **First run** writes a config file with every option present, **commented out, showing its default**, with a one-line explanation.
 - **UI edits** go through `toml_edit`: only the changed key is written; comments and layout are preserved.
 - **Hot reload:** config and theme files are watched; changes apply live. Invalid config shows an error toast and keeps the last good config.
-- **What lives where:** preferences (theme, layout, keybindings, notifications) in TOML; per-conversation state (hidden, pinned, muted, drafts) in SQLite. **Open:** optional export of the hidden/allowlist set to config for syncing across machines.
+- **What lives where:** preferences (theme, layout, keybindings, notifications) in TOML; per-conversation state (hidden, pinned, muted, drafts) in SQLite. Syncing the hidden/allowlist set via config is a backlog item.
 
 Sketch:
 
@@ -295,7 +294,7 @@ Sketch:
 ## 12. Security and privacy
 
 - faro stores Signal keys (via presage) and message history on disk. Files are user-only (`0600`).
-- **Open:** encryption at rest (presage store passphrase support; SQLCipher for faro's DB; OS keychain integration on macOS / Secret Service on Linux).
+- Encryption at rest is deferred until after v0.1 (D18); store-opening code should accept a key later. Options: presage store passphrase, SQLCipher, OS keychain / Secret Service.
 - Logs (`tracing`, to a file) **never include message bodies or phone numbers** unless an explicit debug flag is set.
 - Notification privacy defaults to sender only.
 - Device name shown in the phone's linked-devices list defaults to `faro (<hostname>)`.
@@ -310,7 +309,9 @@ Sketch:
 - **Nix:** flake in the repo.
 - Package name `faro` where free; `faro-chat` as the fallback name.
 
-## 14. Release plan
+## 14. Release plan (confirmed, D14)
+
+Task-level breakdown and progress tracking: [PLAN.md](PLAN.md).
 
 ### v0.1: usable daily driver (MVP)
 
@@ -339,7 +340,7 @@ Sketch:
 
 - **Inline images** (kitty graphics protocol / sixel / half-block fallback via `ratatui-image`), with tmux passthrough handling
 - `faro daemon` + attachable TUI (§4.2)
-- signal-cli JSON-RPC backend (D4)
+- signal-cli JSON-RPC backend (D6)
 - Encryption at rest (§12)
 - Animated lighthouse splash and logo in the about screen
 - Search across messages
@@ -374,10 +375,12 @@ Sketch:
 
 ## 17. Open questions
 
-1. `sqlx` vs `rusqlite` for faro's DB.
-2. Own history DB vs reusing presage's message store (default: own DB).
-3. Encryption at rest: scope and mechanism.
-4. Does presage support receiving message history transferred from the phone to a newly linked device? If not, faro starts with empty history (as gurk does).
-5. Optional sync of hidden/allowlist state via the config file.
-6. Final logo artwork and colours; licence of bundled themes.
-7. Repo/package name `faro` vs `faro-chat` before going public.
+Resolved on 2026-10-07 (see DECISIONS.md): storage library (D16), own history DB (D7), encryption at rest (D18, deferred), history transfer (D19, assume none), workspace layout (D20).
+
+Still open:
+
+1. Does presage support importing message history from the phone when linking? Investigate in M7.
+2. Final logo artwork and colours.
+3. Licences of bundled themes (check before v0.2 ships OpenCode-derived themes).
+4. Repo/package name `faro` vs `faro-chat` before going public.
+5. Optional sync of hidden/allowlist state via the config file (backlog).
