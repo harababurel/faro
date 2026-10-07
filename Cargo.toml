@@ -41,6 +41,9 @@ exit = "warn"
 # Nothing writes to the terminal behind the TUI's back.
 print_stdout = "warn"
 print_stderr = "warn"
+# No `_ =>` on enums: adding a variant (event, action, status) must force a decision
+# at every match instead of being silently ignored.
+wildcard_enum_match_arm = "warn"
 # Never block the UI: see `disallowed-methods` in clippy.toml.
 disallowed_methods = "warn"
 

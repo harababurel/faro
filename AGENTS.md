@@ -21,7 +21,8 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 - 2026-10-07: M0 done locally (commits `8c3fd5b`, `f71ddfb`): workspace (`crates/faro`, `crates/faro-core`), CLI, XDG paths with `0700`/`0600`, file logging, CI workflow. Pushed; CI green on ubuntu + macos.
 - 2026-10-07: owner asked for correctness/efficiency rules to be enforced by tools wherever possible (D27, rule 9 below). Candidate rules are listed in D27; adopted ones are ticked in PLAN.md "Ongoing: mechanical constraints".
 - 2026-10-07: M1 started. D27 rules adopted (D28): no panics, no blocking std calls, no `print!`, and lint exceptions only via `#[expect(lint, reason = "...")]`.
-- **Next: M1 task 1 (domain types in `faro-core`)** in docs/PLAN.md.
+- 2026-10-07: M1 task 1 done: domain types (D29), including redacting `MessageBody`/`PhoneNumber` and the `wildcard_enum_match_arm` lint.
+- **Next: M1 task 2 (`Backend` trait, `BackendEvent`, `Capabilities`, `BackendError`)** in docs/PLAN.md.
 
 ### Code map
 
@@ -33,6 +34,7 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 | `crates/faro/src/main.rs` | Entry point: parse CLI, resolve paths, start logging. Placeholder output until the TUI (M3) |
 | `crates/faro/src/cli.rs` | `clap` CLI definition (`--data-dir` / `FARO_DATA_DIR`) |
 | `crates/faro/src/logging.rs` | `tracing` to `<data dir>/logs/faro.log`, non-blocking, `FARO_LOG` filter, rotation over 10 MB (D26) |
+| `crates/faro-core/src/domain/` | Domain types (D29): `ids.rs` (ServiceId, GroupId, ConversationId, Timestamp, MessageRef), `sensitive.rs` (redacting MessageBody, PhoneNumber), `people.rs`, `message.rs`, `presence.rs` |
 | `crates/faro-core/src/paths.rs` | XDG paths (D17), `0700` dirs / `0600` files helpers, with tests |
 | `.github/workflows/ci.yml` | fmt, clippy `-D warnings`, test on ubuntu + macos (`--locked`) |
 

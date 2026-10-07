@@ -299,7 +299,7 @@ Sketch:
 
 - faro stores Signal keys (via presage) and message history on disk. Files are user-only (`0600`).
 - Encryption at rest is deferred until after v0.1 (D18); store-opening code should accept a key later. Options: presage store passphrase, SQLCipher, OS keychain / Secret Service.
-- Logs (`tracing`, to `<data dir>/logs/faro.log`, filter via `FARO_LOG`; D26) **never include message bodies or phone numbers** unless an explicit debug flag is set.
+- Logs (`tracing`, to `<data dir>/logs/faro.log`, filter via `FARO_LOG`; D26) **never include message bodies or phone numbers** unless an explicit debug flag is set. Enforced by type: `MessageBody` and `PhoneNumber` redact in `Debug` and have no `Display`; the value is read with `.expose()` (D29).
 - Notification privacy defaults to sender only.
 - Device name shown in the phone's linked-devices list defaults to `faro (<hostname>)`.
 

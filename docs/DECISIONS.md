@@ -169,3 +169,12 @@ All entries below were made on 2026-10-07 unless stated otherwise.
 - **No stray terminal output:** `print_stdout`, `print_stderr`. Pre-TUI CLI output opts out per function.
 - **Exceptions must be justified:** `allow_attributes` + `allow_attributes_without_reason` force `#[expect(lint, reason = "...")]`. `expect` also fails the build when it no longer applies, so exceptions can't go stale.
 - Note: `#[expect]` on a macro call such as `println!` is ignored; put it on the enclosing function.
+
+### D29. Domain type choices (M1) — Judgement
+
+- **Privacy by type:** `MessageBody` and `PhoneNumber` have a redacting `Debug` (`MessageBody(<redacted>)`) and no `Display`, so they can't reach logs through `?field`, `{:?}` or derived `Debug` on containing types. Reading the value requires `.expose()`, which is easy to grep for in review. Quote previews and edits use `MessageBody` too. This adopts the D27 privacy candidate.
+- **No separate `Recipient` type:** PLAN listed both `Recipient` and `Contact`; they would describe the same thing (a person with a service ID, names and an optional phone). `Contact` covers both; the store table is still `recipients`.
+- **Outgoing status lives in `Direction`:** `Direction::Outgoing(DeliveryStatus)`, so an incoming message can't have a delivery status.
+- **`DeliveryStatus::update` never regresses:** receipts can arrive late, twice or out of order, so a confirmed status (sent < delivered < read) only moves forward. `Failed` replaces only `Sending`; a retry or a confirmation replaces `Failed`.
+- **`ServiceId`** is `Aci(Uuid)` / `Pni(Uuid)` with Signal's string form (bare UUID / `PNI:<uuid>`). Adds the `uuid` crate (presage uses it anyway). **`GroupId`** is the 32-byte v2 ID, shown as hex. **`Timestamp`** is milliseconds since the epoch (`u64`), as Signal uses; no date library until the UI needs formatting.
+- **`wildcard_enum_match_arm`** is now on (D27 exhaustiveness candidate). It doesn't see `_` inside tuple patterns, so matches on tuples of faro enums should spell out the variants (see `DeliveryStatus::update`).
