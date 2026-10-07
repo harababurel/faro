@@ -85,6 +85,9 @@ impl Paths {
 
 /// Like `fs::create_dir_all`, but every directory it creates is `0700`.
 /// Existing directories are left untouched (they may be user-chosen, e.g. via `--data-dir`).
+///
+/// Blocking: call at startup or from a blocking task, never from the UI loop.
+#[expect(clippy::disallowed_methods, reason = "startup-only filesystem setup")]
 pub fn create_private_dir_all(path: &Path) -> io::Result<()> {
     DirBuilder::new()
         .recursive(true)
@@ -93,6 +96,9 @@ pub fn create_private_dir_all(path: &Path) -> io::Result<()> {
 }
 
 /// Open `path` for appending, creating it as `0600`. An existing file is tightened to `0600`.
+///
+/// Blocking: call at startup or from a blocking task, never from the UI loop.
+#[expect(clippy::disallowed_methods, reason = "startup-only filesystem setup")]
 pub fn open_private_append(path: &Path) -> io::Result<File> {
     let file = OpenOptions::new()
         .create(true)
@@ -107,6 +113,10 @@ pub fn open_private_append(path: &Path) -> io::Result<File> {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "tests set up files synchronously"
+)]
 mod tests {
     use super::*;
 

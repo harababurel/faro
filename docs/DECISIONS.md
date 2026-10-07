@@ -161,3 +161,11 @@ All entries below were made on 2026-10-07 unless stated otherwise.
   - Dependencies: `cargo-deny` (licences compatible with AGPL, RustSec advisories, banned/duplicate crates, git sources allowlist for presage), `cargo-machete` for unused deps.
   - Architecture: a test that fails if `faro-core` depends on `ratatui`/`crossterm`, or if the reducer module imports tokio I/O.
   - Exhaustiveness: no `_ =>` wildcard arms on faro's own enums (`wildcard_enum_match_arm`) so new events/actions can't be silently ignored.
+
+### D28. First D27 rules: no panics, no blocking calls, no stray terminal output — Judgement
+
+- **No panics** outside tests: `unwrap_used`, `expect_used`, `panic`, `todo`, `unimplemented`, `unreachable`, `dbg_macro`, `indexing_slicing`, `exit` (skips destructors such as the log flush guard). `clippy.toml` relaxes these in `#[cfg(test)]` code. `indexing_slicing` applies workspace-wide, not only to core logic: `.get()` is cheap and one rule is simpler than a per-module one.
+- **Never block the UI:** `clippy.toml` `disallowed-methods` bans blocking std calls everywhere (`thread::sleep`, `std::fs`, `Path::exists`/`metadata`…, blocking `std::net`, waiting on child processes, `stdin`). Banning them in every crate (rather than only the reducer, which doesn't exist yet) makes every blocking call an explicit exception. Legitimate ones (startup setup, tests, later the store's own thread) carry `#[expect(clippy::disallowed_methods, reason = "...")]`. Add `block_on` entries when tokio/futures are added. `await_holding_lock` (default) and `large_futures` (pedantic) were already on.
+- **No stray terminal output:** `print_stdout`, `print_stderr`. Pre-TUI CLI output opts out per function.
+- **Exceptions must be justified:** `allow_attributes` + `allow_attributes_without_reason` force `#[expect(lint, reason = "...")]`. `expect` also fails the build when it no longer applies, so exceptions can't go stale.
+- Note: `#[expect]` on a macro call such as `println!` is ignored; put it on the enclosing function.

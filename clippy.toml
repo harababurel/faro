@@ -1,0 +1,58 @@
+# Clippy configuration (DECISIONS D27). Lint levels live in Cargo.toml `[workspace.lints]`.
+
+# Tests may panic: that's how they fail.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-dbg-in-tests = true
+allow-indexing-slicing-in-tests = true
+allow-print-in-tests = true
+
+# Never block the UI (D22). These calls block the calling thread. Do the work in a
+# tokio task (`tokio::fs`, `spawn_blocking`) instead. Code that legitimately blocks
+# (startup before the TUI, the store's own thread) opts out per function with
+# `#[expect(clippy::disallowed_methods, reason = "...")]`.
+# Add async-runtime entries (e.g. `block_on`) when those crates are added.
+disallowed-methods = [
+    { path = "std::thread::sleep", reason = "blocks the thread; use tokio::time::sleep" },
+
+    { path = "std::fs::read", reason = "blocking disk I/O" },
+    { path = "std::fs::read_to_string", reason = "blocking disk I/O" },
+    { path = "std::fs::read_dir", reason = "blocking disk I/O" },
+    { path = "std::fs::write", reason = "blocking disk I/O" },
+    { path = "std::fs::copy", reason = "blocking disk I/O" },
+    { path = "std::fs::rename", reason = "blocking disk I/O" },
+    { path = "std::fs::remove_file", reason = "blocking disk I/O" },
+    { path = "std::fs::remove_dir", reason = "blocking disk I/O" },
+    { path = "std::fs::remove_dir_all", reason = "blocking disk I/O" },
+    { path = "std::fs::create_dir", reason = "blocking disk I/O" },
+    { path = "std::fs::create_dir_all", reason = "blocking disk I/O" },
+    { path = "std::fs::metadata", reason = "blocking disk I/O" },
+    { path = "std::fs::symlink_metadata", reason = "blocking disk I/O" },
+    { path = "std::fs::set_permissions", reason = "blocking disk I/O" },
+    { path = "std::fs::canonicalize", reason = "blocking disk I/O" },
+    { path = "std::fs::File::open", reason = "blocking disk I/O" },
+    { path = "std::fs::File::create", reason = "blocking disk I/O" },
+    { path = "std::fs::File::metadata", reason = "blocking disk I/O" },
+    { path = "std::fs::File::sync_all", reason = "blocking disk I/O" },
+    { path = "std::fs::OpenOptions::open", reason = "blocking disk I/O" },
+    { path = "std::fs::DirBuilder::create", reason = "blocking disk I/O" },
+    { path = "std::path::Path::exists", reason = "blocking disk I/O" },
+    { path = "std::path::Path::try_exists", reason = "blocking disk I/O" },
+    { path = "std::path::Path::is_file", reason = "blocking disk I/O" },
+    { path = "std::path::Path::is_dir", reason = "blocking disk I/O" },
+    { path = "std::path::Path::metadata", reason = "blocking disk I/O" },
+    { path = "std::path::Path::read_dir", reason = "blocking disk I/O" },
+    { path = "std::path::Path::canonicalize", reason = "blocking disk I/O" },
+
+    { path = "std::net::TcpStream::connect", reason = "blocking network I/O" },
+    { path = "std::net::TcpListener::bind", reason = "blocking network I/O" },
+    { path = "std::net::ToSocketAddrs::to_socket_addrs", reason = "blocking DNS lookup" },
+
+    { path = "std::process::Command::output", reason = "waits for the child; spawn it from a task" },
+    { path = "std::process::Command::status", reason = "waits for the child; spawn it from a task" },
+    { path = "std::process::Child::wait", reason = "waits for the child; spawn it from a task" },
+    { path = "std::process::Child::wait_with_output", reason = "waits for the child; spawn it from a task" },
+
+    { path = "std::io::stdin", reason = "the TUI reads input through crossterm's event stream" },
+]

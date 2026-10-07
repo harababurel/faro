@@ -18,16 +18,18 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 ## Current state (update this section as work progresses)
 
 - 2026-10-07: planning finished.
-- 2026-10-07: M0 done locally (commits `8c3fd5b`, `f71ddfb`): workspace (`crates/faro`, `crates/faro-core`), CLI, XDG paths with `0700`/`0600`, file logging, CI workflow. **Not pushed yet, so CI has never run**: when the owner pushes, check the GitHub Actions result and fix anything that fails before going further.
+- 2026-10-07: M0 done locally (commits `8c3fd5b`, `f71ddfb`): workspace (`crates/faro`, `crates/faro-core`), CLI, XDG paths with `0700`/`0600`, file logging, CI workflow. Pushed; CI green on ubuntu + macos.
 - 2026-10-07: owner asked for correctness/efficiency rules to be enforced by tools wherever possible (D27, rule 9 below). Candidate rules are listed in D27; adopted ones are ticked in PLAN.md "Ongoing: mechanical constraints".
-- **Next: M1 (core domain + mock backend) in docs/PLAN.md.** Start M1 by adopting the D27 "no panics" and "never block the UI" rules (lints + `clippy.toml`), so the new code is written under them.
+- 2026-10-07: M1 started. D27 rules adopted (D28): no panics, no blocking std calls, no `print!`, and lint exceptions only via `#[expect(lint, reason = "...")]`.
+- **Next: M1 task 1 (domain types in `faro-core`)** in docs/PLAN.md.
 
 ### Code map
 
 | Path | What |
 |---|---|
-| `Cargo.toml` | Workspace: shared package metadata, `[workspace.lints]` (unsafe forbidden, clippy pedantic), release profile |
+| `Cargo.toml` | Workspace: shared package metadata, `[workspace.lints]` (unsafe forbidden, clippy pedantic, D28 no-panic/no-print rules), release profile |
 | `rust-toolchain.toml` | Pinned Rust version (D25) |
+| `clippy.toml` | Test relaxations for panic lints; `disallowed-methods` list of blocking calls (D28) |
 | `crates/faro/src/main.rs` | Entry point: parse CLI, resolve paths, start logging. Placeholder output until the TUI (M3) |
 | `crates/faro/src/cli.rs` | `clap` CLI definition (`--data-dir` / `FARO_DATA_DIR`) |
 | `crates/faro/src/logging.rs` | `tracing` to `<data dir>/logs/faro.log`, non-blocking, `FARO_LOG` filter, rotation over 10 MB (D26) |

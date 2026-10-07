@@ -23,6 +23,26 @@ module_name_repetitions = "allow"
 must_use_candidate = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
+# D27: rules enforced by tools. Exceptions use `#[expect(lint, reason = "...")]`,
+# never a bare `#[allow]`, so each one is justified and goes stale loudly.
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+# No panics outside tests (clippy.toml relaxes these in tests).
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+todo = "warn"
+unimplemented = "warn"
+unreachable = "warn"
+dbg_macro = "warn"
+indexing_slicing = "warn"
+# `process::exit` skips destructors (e.g. the log flush guard).
+exit = "warn"
+# Nothing writes to the terminal behind the TUI's back.
+print_stdout = "warn"
+print_stderr = "warn"
+# Never block the UI: see `disallowed-methods` in clippy.toml.
+disallowed_methods = "warn"
 
 [profile.release]
 lto = "thin"

@@ -21,6 +21,11 @@ The owner wants correctness and efficiency rules enforced by tools wherever poss
 
 - [x] `unsafe_code = "forbid"`, workspace-wide (M0)
 - [x] clippy `pedantic` as errors in CI (M0)
+- [x] No panics outside tests: `unwrap_used`, `expect_used`, `panic`, `todo`, `unimplemented`, `unreachable`, `dbg_macro`, `indexing_slicing`, `exit` (M1, D28)
+- [x] Never block the UI: `clippy.toml` `disallowed-methods` for blocking std fs/net/process/sleep/stdin; per-function `#[expect]` for legitimate cases (M1, D28)
+- [x] No stray terminal output: `print_stdout`, `print_stderr` (M1, D28)
+- [x] Lint exceptions need `#[expect(..., reason = "...")]`: `allow_attributes`, `allow_attributes_without_reason` (M1, D28)
+- [ ] Add `block_on` bans when tokio/futures arrive (M1)
 
 ## M0: Scaffolding
 
@@ -163,8 +168,8 @@ Drag-resizable sidebars with hover highlight; right-click context menus; setting
 | Milestone | Status | Notes |
 |---|---|---|
 | Docs, naming, repo setup | ✅ Done (2026-10-07) | README, LICENSE, DESIGN, DECISIONS, BACKGROUND, PLAN, AGENTS, logo prototypes |
-| M0 Scaffolding | ✅ Done locally (2026-10-07); CI unverified until first push | Commits `8c3fd5b`, `f71ddfb`. `--data-dir`/`FARO_DATA_DIR` added now (needed for the log path); `--config` deferred to M5. `faro` prints a placeholder until M3. 8 tests (paths, CLI, log rotation). Decisions D24–D27. |
-| M1 Core + mock backend | ⏳ Not started | |
+| M0 Scaffolding | ✅ Done (2026-10-07); CI green on ubuntu + macos | Commits `8c3fd5b`, `f71ddfb`. `--data-dir`/`FARO_DATA_DIR` added now (needed for the log path); `--config` deferred to M5. `faro` prints a placeholder until M3. 8 tests (paths, CLI, log rotation). Decisions D24–D27. |
+| M1 Core + mock backend | 🚧 In progress | D27 lints adopted first (D28). Next: domain types. |
 | M2 Store | ⏳ Not started | |
 | M3 TUI skeleton | ⏳ Not started | |
 | M4 Interactions + palette (first prototype) | ⏳ Not started | |

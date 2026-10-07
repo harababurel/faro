@@ -5,6 +5,10 @@ use anyhow::Context as _;
 use clap::Parser as _;
 use faro_core::paths::Paths;
 
+#[expect(
+    clippy::print_stdout,
+    reason = "placeholder output before the TUI exists (M3)"
+)]
 fn main() -> anyhow::Result<()> {
     let cli = cli::Cli::parse();
 

@@ -81,7 +81,8 @@ crates/
   faro-core/       # domain types, Backend trait, events, store (SQLite), config, themes
   faro-presage/    # Backend impl on presage (heavy deps isolated here; added in M7)
 .github/workflows/ci.yml   # fmt, clippy, test on Linux + macOS
-Cargo.toml         # workspace metadata and shared lints (D25, D27)
+Cargo.toml         # workspace metadata and shared lints (D25, D27, D28)
+clippy.toml        # banned blocking calls, test relaxations (D28)
 rust-toolchain.toml        # pinned Rust version
 tools/
   logos.py         # naming-phase logo prototypes

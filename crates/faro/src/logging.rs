@@ -41,6 +41,10 @@ pub fn init(log_dir: &Path) -> anyhow::Result<(WorkerGuard, PathBuf)> {
     Ok((guard, path))
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "runs once at startup, before the TUI"
+)]
 fn rotate_if_large(path: &Path, max_bytes: u64) -> std::io::Result<()> {
     match fs::metadata(path) {
         Ok(meta) if meta.len() > max_bytes => fs::rename(path, path.with_extension("log.old")),
@@ -51,6 +55,10 @@ fn rotate_if_large(path: &Path, max_bytes: u64) -> std::io::Result<()> {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "tests set up files synchronously"
+)]
 mod tests {
     use super::*;
 
