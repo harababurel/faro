@@ -24,7 +24,34 @@ faro is an unofficial, independent project. It is not affiliated with, endorsed 
 
 ## Development
 
-Not much to build yet; see the [plan](docs/PLAN.md). You'll need Rust (stable, via rustup). Later milestones (the Signal backend) also need `protoc`; see [AGENTS.md](AGENTS.md#development-environment) for per-OS packages.
+Early days: `faro` builds and runs, but has no UI yet. See the [plan](docs/PLAN.md) for progress.
+
+**Prerequisites**
+
+- Rust via [rustup](https://rustup.rs). The exact version is pinned in `rust-toolchain.toml`; rustup installs it automatically on first build.
+- Later milestones (the Signal backend) also need `protoc`; see [AGENTS.md](AGENTS.md#development-environment) for per-OS packages.
+
+**Commands**
+
+```sh
+cargo run -- --help            # run faro
+cargo run -- --data-dir /tmp/faro-dev   # use a throwaway data dir
+cargo test                     # tests
+cargo fmt --check              # formatting
+cargo clippy --all-targets -- -D warnings   # lints
+```
+
+The last three must pass before every commit; CI runs them on Linux and macOS.
+
+**Files**
+
+| What | Where | Override |
+|---|---|---|
+| Config | `~/.config/faro/config.toml` (or `$XDG_CONFIG_HOME/faro/`) | coming in M5 |
+| Data (DB, Signal keys) | `~/.local/share/faro/` (or `$XDG_DATA_HOME/faro/`) | `--data-dir`, `FARO_DATA_DIR` |
+| Log | `<data dir>/logs/faro.log` | level via `FARO_LOG`, e.g. `FARO_LOG=debug` |
+
+The same XDG paths are used on macOS. faro never logs message bodies or phone numbers.
 
 ## License
 

@@ -130,3 +130,20 @@ All entries below were made on 2026-10-07 unless stated otherwise.
 ### D23. Defer to the owner on git operations — Judgement
 
 - Commit/push when the owner asks. Keep commits small with short imperative messages (existing style: "Add design doc and naming-phase logo prototypes").
+
+### D24. Licence identifier: `AGPL-3.0-only` — Judgement
+
+- Cargo metadata uses SPDX `AGPL-3.0-only`, matching libsignal. Switching to `AGPL-3.0-or-later` is the owner's call and only touches `Cargo.toml` (and the README note) while there are no outside contributors.
+
+### D25. Build settings from M0 — Judgement
+
+- Toolchain pinned to an exact minor (`1.99` in `rust-toolchain.toml`); bump deliberately in its own commit. `rust-version` in `Cargo.toml` matches.
+- `unsafe_code = "forbid"` applies to the whole workspace, not only faro-core (nothing needs `unsafe`; a crate can opt out of workspace lints if that changes).
+- Clippy `pedantic` is on as warnings (errors in CI), minus `module_name_repetitions`, `must_use_candidate`, `missing_errors_doc`, `missing_panics_doc`.
+- Pre-release version string is `0.1.0-dev` until v0.1.0 is tagged.
+- faro is Unix-only for now (paths code uses Unix permissions), consistent with Windows being a non-goal.
+
+### D26. Logging: one file in the data dir, size-capped — Judgement
+
+- `<data dir>/logs/faro.log`, `0600`, written through a non-blocking writer so logging never stalls the UI. Filter via `FARO_LOG` (`RUST_LOG` syntax), default `info`.
+- At startup, a log over 10 MB is moved to `faro.log.old`. Simpler than date-based rotation; revisit if the daemon mode makes long-running logs common.

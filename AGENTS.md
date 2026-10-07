@@ -17,7 +17,8 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 
 ## Current state (update this section as work progresses)
 
-- 2026-10-07: planning finished; no Rust code yet. **Next: M0 (scaffolding) in docs/PLAN.md.**
+- 2026-10-07: planning finished.
+- 2026-10-07: M0 done locally: workspace (`crates/faro`, `crates/faro-core`), CLI, XDG paths with `0700`/`0600`, file logging, CI workflow. CI not yet run on GitHub. **Next: M1 (core domain + mock backend) in docs/PLAN.md.**
 
 ## Rules
 
@@ -40,7 +41,7 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 
 ## Development environment
 
-- Rust stable via rustup (version pinned in `rust-toolchain.toml` once M0 lands).
+- Rust stable via rustup (version pinned in `rust-toolchain.toml`; rustup installs it automatically).
 - Until M7 nothing beyond Rust is required.
 - From M7 (presage): `protoc` (protobuf compiler) is required. libsignal's dependencies may also need `cmake`, `clang` and `pkg-config`; confirm when adding presage and document exact packages in the README.
   - Arch: `sudo pacman -S protobuf cmake clang pkgconf`
