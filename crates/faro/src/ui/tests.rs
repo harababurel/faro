@@ -329,3 +329,61 @@ fn allowlist_mode_shows_in_the_title() {
     assert!(text.contains("Conversations · allowlist"), "{text}");
     assert!(text.contains("▸ Archive (1)"), "{text}");
 }
+
+fn with_palette(query: &str) -> State {
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    let mut state = loaded_state();
+    let press = |state: &mut State, code, modifiers| {
+        update(
+            state,
+            AppEvent::Terminal(Event::Key(KeyEvent::new(code, modifiers))),
+        );
+    };
+    press(&mut state, KeyCode::Char('p'), KeyModifiers::CONTROL);
+    for c in query.chars() {
+        press(&mut state, KeyCode::Char(c), KeyModifiers::NONE);
+    }
+    state
+}
+
+#[test]
+fn palette_with_nothing_typed() {
+    insta::assert_snapshot!(snapshot(&draw(&with_palette(""), 100, 26)));
+}
+
+#[test]
+fn palette_searching() {
+    insta::assert_snapshot!(snapshot(&draw(&with_palette("mute"), 100, 20)));
+}
+
+#[test]
+fn palette_keybindings() {
+    insta::assert_snapshot!(snapshot(&draw(&with_palette("?"), 100, 26)));
+}
+
+#[test]
+fn palette_reports_its_rows_for_the_mouse() {
+    let state = with_palette("");
+    let theme = Theme::default();
+    let tz = TimeZone::UTC;
+    let now = jiff::Timestamp::from_millisecond(i64::try_from(NOW_MS).unwrap()).unwrap();
+    let view = View {
+        theme: &theme,
+        tz: &tz,
+        now,
+    };
+    let mut terminal = Terminal::new(TestBackend::new(100, 26)).unwrap();
+    let mut geometry = None;
+    terminal
+        .draw(|frame| {
+            geometry = render(frame, &state, &view).palette;
+        })
+        .unwrap();
+    let geometry = geometry.unwrap();
+    assert!(geometry.area.contains(ratatui::layout::Position::new(
+        geometry.list.x,
+        geometry.list.y
+    )));
+    assert_eq!(geometry.offset, 0);
+    assert!(geometry.list.height >= 3);
+}

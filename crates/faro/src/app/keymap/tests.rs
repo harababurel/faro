@@ -23,8 +23,9 @@ fn every_default_parses_and_every_name_is_unique() {
     }
     let mut names = HashSet::new();
     let mut actions = Vec::new();
-    for (name, action) in defaults::NAMES {
+    for (name, title, action) in defaults::NAMES {
         assert!(names.insert(*name), "{name} twice");
+        assert_ne!(*title, "");
         assert!(!actions.contains(action), "{action:?} named twice");
         actions.push(*action);
         assert_eq!(Action::parse(name), Some(*action));
@@ -34,7 +35,7 @@ fn every_default_parses_and_every_name_is_unique() {
 #[test]
 fn every_named_action_has_a_default_key() {
     let keymap = Keymap::default();
-    for (name, action) in defaults::NAMES {
+    for (name, _, action) in defaults::NAMES {
         let bound = [Focus::Input, Focus::Conversations, Focus::Messages]
             .into_iter()
             .any(|focus| !keymap.keys_for(*action, focus).is_empty());

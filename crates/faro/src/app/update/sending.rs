@@ -105,7 +105,7 @@ fn next_sent_at(last: Timestamp, now: Timestamp) -> Timestamp {
 }
 
 /// Reading the clock is not I/O; this keeps the reducer synchronous.
-pub(super) fn wall_clock() -> Timestamp {
+pub fn wall_clock() -> Timestamp {
     let ms = jiff::Timestamp::now().as_millisecond();
     Timestamp::from_millis(u64::try_from(ms).unwrap_or(0))
 }

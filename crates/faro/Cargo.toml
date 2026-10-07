@@ -25,6 +25,7 @@ tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 unicode-segmentation = "1.13.3"
 unicode-width = "0.2.2"
+nucleo-matcher = "0.3.1"
 
 [dev-dependencies]
 insta = "1.49.0"

@@ -192,6 +192,7 @@ presage keeps its own store for keys, sessions and protocol state; faro never to
 - Prefixes: `>` commands only, `@` conversations only, `:` settings only.
 - Recently used commands rank higher.
 - Sub-menus exist for browsing, but **typing never requires opening a sub-menu first**.
+- **As built in M4 task 8 (D44):** `nucleo-matcher` over commands (global, the open conversation's curation with each mute duration as its own command, the selected message's actions, bulk hide), every conversation (hidden, archived and empty ones too, with notes) and, with `?`, the keybinding list. Nothing typed: recent commands, then conversations, then commands. `F1`, or `?` outside the input, opens the keybinding list. No settings until M5.
 
 ### 7.3 Messages
 
@@ -247,7 +248,7 @@ Chosen to avoid tmux's default prefix (`Ctrl+B`) and common terminal shortcuts. 
 
 Hide (disappears until a new message arrives, configurable), archive, pin, mute (with durations), and an optional **allowlist mode** that only shows chosen conversations. Default: conversations with no messages are not shown. Bulk "hide all older than N days" from the palette.
 
-**As built in M4 task 5 (D41):** the sidebar has two lists: the **chats** (Pinned, Recent; ending in a "▸ Archive (N)" row) and the **archive** (Archived, "Hidden until a message", "Not on the allowlist"; starting with "◂ Chats"). `A` or a click on those rows switches. Sidebar keys act on the highlighted conversation: `p` pin (`K`/`J` reorder pins), `m` mute (1 hour … until unmuted), `h` hide, `a` archive, `l` allowlist, `L` allowlist mode, `Space` or right-click for a menu. Hidden conversations return on any new message; archived ones don't. With allowlist mode on, the chats show only allowed and pinned conversations. When the open conversation leaves the list, the next one opens. Muted conversations are dim and left out of the unread total. Allowlist mode is stored in `app_state` until the config file exists (M5). Not built yet: configurable hide behaviour (M5), bulk hide (palette, task 8).
+**As built in M4 task 5 (D41):** the sidebar has two lists: the **chats** (Pinned, Recent; ending in a "▸ Archive (N)" row) and the **archive** (Archived, "Hidden until a message", "Not on the allowlist"; starting with "◂ Chats"). `A` or a click on those rows switches. Sidebar keys act on the highlighted conversation: `p` pin (`K`/`J` reorder pins), `m` mute (1 hour … until unmuted), `h` hide, `a` archive, `l` allowlist, `L` allowlist mode, `Space` or right-click for a menu. Hidden conversations return on any new message; archived ones don't. With allowlist mode on, the chats show only allowed and pinned conversations. When the open conversation leaves the list, the next one opens. Muted conversations are dim and left out of the unread total. Allowlist mode is stored in `app_state` until the config file exists (M5). Bulk hide is in the palette ("Hide conversations inactive for 1 month", D44). Not built yet: configurable hide behaviour (M5).
 
 ### 7.8 Graphics and motion
 

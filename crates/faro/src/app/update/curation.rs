@@ -9,6 +9,7 @@ use super::sending::wall_clock;
 use super::{open_conversation, save_draft};
 use crate::app::event::Effect;
 use crate::app::keymap::{Curate, PopupKey};
+use crate::app::palette::INACTIVE_CHOICES;
 use crate::app::state::{
     ConversationAction, Focus, MUTE_CHOICES, Notice, Popup, Section, SidebarScroll, SidebarView,
     State, sort_conversations,
@@ -158,21 +159,63 @@ pub fn on_mute_key(
             .and_then(|d| d.checked_sub(1)),
         PopupKey::Close => None,
     };
-    match chosen.and_then(|i| MUTE_CHOICES.get(i)) {
-        Some(&(label, length)) => {
-            let until = length.map_or(ConversationState::MUTED_FOREVER, |length| {
-                let length = u64::try_from(length.as_millis()).unwrap_or(u64::MAX);
-                Timestamp::from_millis(wall_clock().as_millis().saturating_add(length))
-            });
-            let notice = if length.is_some() {
-                format!("Muted for {label}")
-            } else {
-                "Muted until you unmute it".to_owned()
-            };
-            change(state, target, notice, |s| s.muted_until = Some(until))
+    chosen.map_or_else(Vec::new, |choice| mute_for(state, target, choice))
+}
+
+/// Mute `target` for `MUTE_CHOICES[choice]`.
+pub fn mute_for(state: &mut State, target: ConversationId, choice: usize) -> Vec<Effect> {
+    let Some(&(label, length)) = MUTE_CHOICES.get(choice) else {
+        return vec![];
+    };
+    let until = length.map_or(ConversationState::MUTED_FOREVER, |length| {
+        let length = u64::try_from(length.as_millis()).unwrap_or(u64::MAX);
+        Timestamp::from_millis(wall_clock().as_millis().saturating_add(length))
+    });
+    let notice = if length.is_some() {
+        format!("Muted for {label}")
+    } else {
+        "Muted until you unmute it".to_owned()
+    };
+    change(state, target, notice, |s| s.muted_until = Some(until))
+}
+
+/// Hide every conversation with no message for `INACTIVE_CHOICES[choice]`
+/// (DESIGN §7.7), except pinned ones; like `h`, each comes back with a new
+/// message.
+pub fn hide_inactive(state: &mut State, choice: usize) -> Vec<Effect> {
+    const DAY_MS: u64 = 24 * 60 * 60 * 1000;
+    let Some(&(days, label)) = INACTIVE_CHOICES.get(choice) else {
+        return vec![];
+    };
+    let cutoff = wall_clock()
+        .as_millis()
+        .saturating_sub(u64::from(days) * DAY_MS);
+    let before = visible_ids(state);
+    let mut effects = Vec::new();
+    for summary in &mut state.conversations {
+        let current = &summary.state;
+        let inactive = summary
+            .last_activity
+            .is_some_and(|t| t.as_millis() < cutoff);
+        if inactive && current.pinned.is_none() && !current.hidden && !current.archived {
+            summary.state.hidden = true;
+            effects.push(Effect::SaveConversationState(
+                summary.id,
+                Box::new(summary.state.clone()),
+            ));
         }
-        None => vec![],
     }
+    let notice = match effects.len() {
+        0 => format!("No conversations inactive for {label}"),
+        1 => format!("Hid 1 conversation inactive for {label}"),
+        n => format!("Hid {n} conversations inactive for {label}"),
+    };
+    state.notice = Some(Notice::info(notice));
+    state.sidebar.reveal = true;
+    if let Some(open) = state.open.as_ref().map(|o| o.id) {
+        effects.extend(follow(state, open, &before));
+    }
+    effects
 }
 
 pub fn perform(

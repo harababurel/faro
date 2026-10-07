@@ -4,87 +4,222 @@
 use super::Context::{Conversations, Global, Input, Messages};
 use super::{Action, Context, Curate, Edit};
 
-/// Every bindable action under its config name.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the config file (M5) rebinds keys through this")
-)]
-pub const NAMES: &[(&str, Action)] = &[
-    ("app.quit", Action::Quit),
-    ("app.interrupt", Action::Interrupt),
-    ("app.back", Action::Escape),
-    ("conversation.previous", Action::PreviousConversation),
-    ("conversation.next", Action::NextConversation),
-    ("conversation.first", Action::FirstConversation),
-    ("conversation.last", Action::LastConversation),
-    ("conversation.pinned.1", Action::JumpToPinned(1)),
-    ("conversation.pinned.2", Action::JumpToPinned(2)),
-    ("conversation.pinned.3", Action::JumpToPinned(3)),
-    ("conversation.pinned.4", Action::JumpToPinned(4)),
-    ("conversation.pinned.5", Action::JumpToPinned(5)),
-    ("conversation.pinned.6", Action::JumpToPinned(6)),
-    ("conversation.pinned.7", Action::JumpToPinned(7)),
-    ("conversation.pinned.8", Action::JumpToPinned(8)),
-    ("conversation.pinned.9", Action::JumpToPinned(9)),
-    ("conversation.menu", Action::Curate(Curate::Menu)),
-    ("conversation.pin", Action::Curate(Curate::Pin)),
-    ("conversation.move_up", Action::Curate(Curate::MoveUp)),
-    ("conversation.move_down", Action::Curate(Curate::MoveDown)),
-    ("conversation.mute", Action::Curate(Curate::Mute)),
-    ("conversation.hide", Action::Curate(Curate::Hide)),
-    ("conversation.archive", Action::Curate(Curate::Archive)),
-    ("conversation.allow", Action::Curate(Curate::Allow)),
-    ("list.allowlist_mode", Action::Curate(Curate::AllowlistMode)),
-    ("list.switch_view", Action::Curate(Curate::SwitchView)),
-    ("view.sidebar", Action::ToggleLeftSidebar),
-    ("view.info", Action::ToggleRightSidebar),
-    ("focus.next", Action::FocusNext),
-    ("focus.previous", Action::FocusPrevious),
-    ("focus.input", Action::FocusInput),
-    ("scroll.page_up", Action::PageUp),
-    ("scroll.page_down", Action::PageDown),
-    ("input.send", Action::Send),
-    ("input.newline", Action::Edit(Edit::NewLine)),
-    ("input.delete_backward", Action::Edit(Edit::DeleteBackward)),
-    ("input.delete_forward", Action::Edit(Edit::DeleteForward)),
+/// Every bindable action: its config name and what the keybinding list
+/// (palette, `?`) calls it.
+pub const NAMES: &[(&str, &str, Action)] = &[
+    ("palette.open", "Command palette", Action::OpenPalette),
+    ("palette.keys", "Keybindings", Action::Help),
+    ("app.quit", "Quit", Action::Quit),
+    ("app.interrupt", "Quit (press twice)", Action::Interrupt),
+    ("app.back", "Back, dismiss", Action::Escape),
+    (
+        "conversation.previous",
+        "Previous conversation",
+        Action::PreviousConversation,
+    ),
+    (
+        "conversation.next",
+        "Next conversation",
+        Action::NextConversation,
+    ),
+    (
+        "conversation.first",
+        "First conversation",
+        Action::FirstConversation,
+    ),
+    (
+        "conversation.last",
+        "Last conversation",
+        Action::LastConversation,
+    ),
+    (
+        "conversation.pinned.1",
+        "Open pinned conversation 1",
+        Action::JumpToPinned(1),
+    ),
+    (
+        "conversation.pinned.2",
+        "Open pinned conversation 2",
+        Action::JumpToPinned(2),
+    ),
+    (
+        "conversation.pinned.3",
+        "Open pinned conversation 3",
+        Action::JumpToPinned(3),
+    ),
+    (
+        "conversation.pinned.4",
+        "Open pinned conversation 4",
+        Action::JumpToPinned(4),
+    ),
+    (
+        "conversation.pinned.5",
+        "Open pinned conversation 5",
+        Action::JumpToPinned(5),
+    ),
+    (
+        "conversation.pinned.6",
+        "Open pinned conversation 6",
+        Action::JumpToPinned(6),
+    ),
+    (
+        "conversation.pinned.7",
+        "Open pinned conversation 7",
+        Action::JumpToPinned(7),
+    ),
+    (
+        "conversation.pinned.8",
+        "Open pinned conversation 8",
+        Action::JumpToPinned(8),
+    ),
+    (
+        "conversation.pinned.9",
+        "Open pinned conversation 9",
+        Action::JumpToPinned(9),
+    ),
+    (
+        "conversation.menu",
+        "Conversation menu",
+        Action::Curate(Curate::Menu),
+    ),
+    (
+        "conversation.pin",
+        "Pin or unpin",
+        Action::Curate(Curate::Pin),
+    ),
+    (
+        "conversation.move_up",
+        "Move pin up",
+        Action::Curate(Curate::MoveUp),
+    ),
+    (
+        "conversation.move_down",
+        "Move pin down",
+        Action::Curate(Curate::MoveDown),
+    ),
+    (
+        "conversation.mute",
+        "Mute or unmute",
+        Action::Curate(Curate::Mute),
+    ),
+    (
+        "conversation.hide",
+        "Hide or unhide",
+        Action::Curate(Curate::Hide),
+    ),
+    (
+        "conversation.archive",
+        "Archive or unarchive",
+        Action::Curate(Curate::Archive),
+    ),
+    (
+        "conversation.allow",
+        "Allowlist add or remove",
+        Action::Curate(Curate::Allow),
+    ),
+    (
+        "list.allowlist_mode",
+        "Allowlist mode on or off",
+        Action::Curate(Curate::AllowlistMode),
+    ),
+    (
+        "list.switch_view",
+        "Chats or archive",
+        Action::Curate(Curate::SwitchView),
+    ),
+    (
+        "view.sidebar",
+        "Show or hide the conversation list",
+        Action::ToggleLeftSidebar,
+    ),
+    (
+        "view.info",
+        "Show or hide conversation info",
+        Action::ToggleRightSidebar,
+    ),
+    ("focus.next", "Next pane", Action::FocusNext),
+    ("focus.previous", "Previous pane", Action::FocusPrevious),
+    ("focus.input", "Write a message", Action::FocusInput),
+    ("scroll.page_up", "Scroll up a page", Action::PageUp),
+    ("scroll.page_down", "Scroll down a page", Action::PageDown),
+    ("input.send", "Send", Action::Send),
+    ("input.newline", "New line", Action::Edit(Edit::NewLine)),
+    (
+        "input.delete_backward",
+        "Delete character before",
+        Action::Edit(Edit::DeleteBackward),
+    ),
+    (
+        "input.delete_forward",
+        "Delete character after",
+        Action::Edit(Edit::DeleteForward),
+    ),
     (
         "input.delete_word_backward",
+        "Delete word before",
         Action::Edit(Edit::DeleteWordBackward),
     ),
     (
         "input.delete_word_forward",
+        "Delete word after",
         Action::Edit(Edit::DeleteWordForward),
     ),
     (
         "input.delete_to_line_start",
+        "Delete to line start",
         Action::Edit(Edit::DeleteToLineStart),
     ),
     (
         "input.delete_to_line_end",
+        "Delete to line end",
         Action::Edit(Edit::DeleteToLineEnd),
     ),
-    ("input.left", Action::Edit(Edit::Left)),
-    ("input.right", Action::Edit(Edit::Right)),
-    ("input.word_left", Action::Edit(Edit::WordLeft)),
-    ("input.word_right", Action::Edit(Edit::WordRight)),
-    ("input.line_start", Action::Edit(Edit::LineStart)),
-    ("input.line_end", Action::Edit(Edit::LineEnd)),
-    ("input.up", Action::Edit(Edit::Up)),
-    ("input.down", Action::Edit(Edit::Down)),
-    ("message.older", Action::SelectOlder),
-    ("message.newer", Action::SelectNewer),
-    ("message.oldest", Action::SelectOldest),
-    ("message.newest", Action::SelectNewest),
-    ("message.menu", Action::MessageMenu),
-    ("message.reply", Action::Reply),
-    ("message.react", Action::ReactPicker),
-    ("message.copy", Action::Copy),
-    ("message.open_link", Action::OpenLink),
+    ("input.left", "Cursor left", Action::Edit(Edit::Left)),
+    ("input.right", "Cursor right", Action::Edit(Edit::Right)),
+    ("input.word_left", "Word left", Action::Edit(Edit::WordLeft)),
+    (
+        "input.word_right",
+        "Word right",
+        Action::Edit(Edit::WordRight),
+    ),
+    (
+        "input.line_start",
+        "Line start",
+        Action::Edit(Edit::LineStart),
+    ),
+    ("input.line_end", "Line end", Action::Edit(Edit::LineEnd)),
+    (
+        "input.up",
+        "Line up; select newest message when empty",
+        Action::Edit(Edit::Up),
+    ),
+    ("input.down", "Line down", Action::Edit(Edit::Down)),
+    ("message.older", "Select older message", Action::SelectOlder),
+    ("message.newer", "Select newer message", Action::SelectNewer),
+    (
+        "message.oldest",
+        "Select oldest loaded message",
+        Action::SelectOldest,
+    ),
+    (
+        "message.newest",
+        "Select newest message",
+        Action::SelectNewest,
+    ),
+    ("message.menu", "Message menu", Action::MessageMenu),
+    ("message.reply", "Reply", Action::Reply),
+    ("message.react", "React", Action::ReactPicker),
+    ("message.copy", "Copy text", Action::Copy),
+    ("message.open_link", "Open link", Action::OpenLink),
 ];
 
 /// The default bindings, preferred key first for each action (hints show
 /// the first). Shifted characters are written as they arrive (`G`, `+`).
+/// The default bindings, preferred key first for each action (hints show
+/// the first). Shifted characters are written as they arrive (`G`, `+`).
 pub const BINDINGS: &[(Context, &str, Action)] = &[
+    (Global, "ctrl+p", Action::OpenPalette),
+    (Global, "f1", Action::Help),
     (Global, "ctrl+q", Action::Quit),
     (Global, "ctrl+c", Action::Interrupt),
     (Global, "alt+k", Action::PreviousConversation),
@@ -165,6 +300,7 @@ pub const BINDINGS: &[(Context, &str, Action)] = &[
     (Conversations, "l", Action::Curate(Curate::Allow)),
     (Conversations, "L", Action::Curate(Curate::AllowlistMode)),
     (Conversations, "A", Action::Curate(Curate::SwitchView)),
+    (Conversations, "?", Action::Help),
     // The message pane moves a selection (D40); keys act on it.
     (Messages, "up", Action::SelectOlder),
     (Messages, "k", Action::SelectOlder),
@@ -179,4 +315,5 @@ pub const BINDINGS: &[(Context, &str, Action)] = &[
     (Messages, "+", Action::ReactPicker),
     (Messages, "y", Action::Copy),
     (Messages, "o", Action::OpenLink),
+    (Messages, "?", Action::Help),
 ];

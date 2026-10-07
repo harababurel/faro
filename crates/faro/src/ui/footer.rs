@@ -65,7 +65,15 @@ const MESSAGE_HINTS: Hints = &[
     (&[Action::OpenLink], "open link"),
     (&[Action::Escape], "back"),
 ];
-/// Popups have fixed keys (D43).
+/// Popups and the palette have fixed keys (D43).
+const PALETTE_HINTS: &[(&str, &str)] = &[
+    ("↑↓", "choose"),
+    ("enter", "run"),
+    ("esc", "close"),
+    (">", "commands"),
+    ("@", "chats"),
+    ("?", "keys"),
+];
 const MENU_HINTS: &[(&str, &str)] = &[("↑↓", "choose"), ("enter", "do it"), ("esc", "close")];
 const MUTE_HINTS: &[(&str, &str)] = &[
     ("↑↓", "choose"),
@@ -138,6 +146,9 @@ fn hints(state: &State, geometry: &Geometry) -> Vec<(String, &'static str)> {
             .map(|&(key, action)| (key.to_owned(), action))
             .collect()
     };
+    if state.palette.is_some() {
+        return fixed(PALETTE_HINTS);
+    }
     if let Some(popup) = &state.popup {
         return match popup {
             Popup::Actions { .. } | Popup::Conversation { .. } => fixed(MENU_HINTS),

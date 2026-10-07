@@ -21,11 +21,13 @@ use super::timeline;
 
 mod curation;
 mod navigation;
+mod palette;
 mod presence;
 mod selection;
 mod sending;
 
 pub use navigation::mouse_affects_view;
+pub use sending::wall_clock;
 
 /// How many messages to load when a conversation opens.
 pub const PAGE: u32 = 200;
@@ -100,14 +102,21 @@ fn on_terminal(state: &mut State, event: &Event) -> Vec<Effect> {
     state.env.focused = !matches!(event, Event::FocusLost);
     let mut effects = match event {
         Event::Key(key) => {
-            let action = if let Some(popup) = &state.popup {
+            let action = if state.palette.is_some() {
+                keymap::palette_action(&state.keymap, *key)
+            } else if let Some(popup) = &state.popup {
                 keymap::popup_action(*key, matches!(popup, Popup::React { .. }))
             } else {
                 state.keymap.lookup(*key, state.focus)
             };
             action.map_or_else(Vec::new, |a| navigation::on_action(state, a))
         }
+        Event::Mouse(mouse) if state.palette.is_some() => palette::on_mouse(state, *mouse),
         Event::Mouse(mouse) => navigation::on_mouse(state, *mouse),
+        Event::Paste(text) if state.palette.is_some() => {
+            palette::paste(state, text);
+            vec![]
+        }
         Event::Paste(text) => {
             state.popup = None;
             navigation::paste(state, text);
@@ -152,6 +161,9 @@ fn on_drawn(state: &mut State, geometry: Geometry) -> Vec<Effect> {
                 before: first.reference(),
             });
         }
+    }
+    if let (Some(palette), Some(drawn)) = (state.palette.as_mut(), geometry.palette) {
+        palette.offset = drawn.offset;
     }
     state.geometry = geometry;
     // Scrolled back down: what arrived meanwhile has now been seen.

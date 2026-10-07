@@ -5,8 +5,9 @@ use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use faro_core::domain::ConversationId;
 use ratatui::layout::Position;
 
-use super::{curation, open_conversation, quit, selection};
+use super::{curation, open_conversation, palette, quit, selection};
 use crate::app::event::Effect;
+use crate::app::input::Input;
 use crate::app::keymap::{Action, Edit, WHEEL_ROWS};
 use crate::app::state::{Anchor, Focus, MessageAction, Notice, SidebarRow, State};
 
@@ -57,6 +58,9 @@ pub fn on_action(state: &mut State, action: Action) -> Vec<Effect> {
         Action::Popup(key) => return selection::on_popup(state, key),
         Action::JumpToPinned(n) => return curation::jump_to_pinned(state, n),
         Action::Curate(curate) => return curation::on_curate(state, curate),
+        Action::OpenPalette => palette::open(state, ""),
+        Action::Help => palette::open(state, "?"),
+        Action::Palette(key) => return palette::on_key(state, key),
     }
     vec![]
 }
@@ -81,7 +85,16 @@ fn apply_edit(state: &mut State, edit: Edit) -> bool {
     let Some(open) = state.open.as_mut() else {
         return false;
     };
-    let input = &mut open.input;
+    let changed = edit_input(&mut open.input, edit);
+    if changed {
+        open.draft_edited = Some(tokio::time::Instant::now());
+    }
+    changed
+}
+
+/// Apply `edit` to `input` (the message input or the palette's query);
+/// whether the text changed.
+pub fn edit_input(input: &mut Input, edit: Edit) -> bool {
     let before = input.text().len();
     let changes_text = match edit {
         Edit::Insert(c) => {
@@ -150,11 +163,7 @@ fn apply_edit(state: &mut State, edit: Edit) -> bool {
         }
     };
     // Every text change alters the length (inserts add, deletes remove).
-    let changed = changes_text && input.text().len() != before;
-    if changed {
-        open.draft_edited = Some(tokio::time::Instant::now());
-    }
-    changed
+    changes_text && input.text().len() != before
 }
 
 /// Pasted text (bracketed paste) goes into the input as typed, newlines kept.

@@ -357,6 +357,7 @@ fn geometry(state: &State) -> Geometry {
         scroll: state.open.as_ref().and_then(|o| o.scroll),
         at_top: false,
         history_rows: vec![],
+        palette: None,
     }
 }
 
@@ -1097,4 +1098,5 @@ fn clicking_a_message_selects_it_and_right_click_opens_the_menu() {
 }
 
 mod curation;
+mod palette;
 mod presence;

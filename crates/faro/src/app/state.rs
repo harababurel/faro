@@ -15,6 +15,7 @@ use tokio::time::Instant;
 
 use super::input::Input;
 use super::keymap::Keymap;
+use super::palette::{Palette, PaletteCommand};
 
 /// Signal clients stop showing a typing indicator after this long without an update.
 pub const TYPING_TIMEOUT: Duration = Duration::from_secs(15);
@@ -65,6 +66,10 @@ pub struct State {
     pub env: Environment,
     /// What each key does (D43).
     pub keymap: Keymap,
+    /// The command palette, while open (D44); takes the keys.
+    pub palette: Option<Palette>,
+    /// Commands last run from the palette, most recent first.
+    pub recent_commands: Vec<PaletteCommand>,
     /// `sent_at` of the last message sent from here; the next one is later, so
     /// two quick sends can't share an identity.
     pub last_sent_at: Timestamp,
@@ -315,6 +320,19 @@ pub struct Geometry {
     /// The message on each row of the history area from the top (`None`:
     /// blank, or a date or unread rule).
     pub history_rows: Vec<Option<MessageRef>>,
+    /// The palette, while open.
+    pub palette: Option<PaletteGeometry>,
+}
+
+/// Where the palette was drawn.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PaletteGeometry {
+    /// The whole box, border included (clicks outside close it).
+    pub area: Rect,
+    /// The result rows.
+    pub list: Rect,
+    /// The first result shown.
+    pub offset: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -402,6 +420,8 @@ impl State {
                 focused: true,
             },
             keymap: Keymap::default(),
+            palette: None,
+            recent_commands: Vec::new(),
             last_sent_at: Timestamp::from_millis(0),
             quit_armed: false,
             quit: false,

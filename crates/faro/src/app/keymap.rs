@@ -56,6 +56,24 @@ pub enum Action {
     JumpToPinned(u8),
     /// Curate the conversation highlighted in the sidebar (M4 task 5, D41).
     Curate(Curate),
+    /// `Ctrl+P` (M4 task 8, D44).
+    OpenPalette,
+    /// `F1`, `?`: the palette listing the keybindings.
+    Help,
+    Palette(PaletteKey),
+}
+
+/// Keys while the palette is open: moving through the results, editing the
+/// query, running the chosen one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaletteKey {
+    Previous,
+    Next,
+    PageUp,
+    PageDown,
+    Choose,
+    Close,
+    Edit(Edit),
 }
 
 /// Sidebar keys for curating the list (D41). The toggles resolve to a
@@ -166,15 +184,30 @@ impl Action {
     pub fn name(self) -> Option<&'static str> {
         defaults::NAMES
             .iter()
-            .find(|(_, action)| *action == self)
-            .map(|(name, _)| *name)
+            .find(|(_, _, action)| *action == self)
+            .map(|(name, _, _)| *name)
     }
 
     pub fn parse(name: &str) -> Option<Self> {
         defaults::NAMES
             .iter()
-            .find(|(n, _)| *n == name)
-            .map(|(_, action)| *action)
+            .find(|(n, _, _)| *n == name)
+            .map(|(_, _, action)| *action)
+    }
+}
+
+impl Action {
+    /// What the keybinding list calls it.
+    pub fn title(self) -> Option<&'static str> {
+        defaults::NAMES
+            .iter()
+            .find(|(_, _, action)| *action == self)
+            .map(|(_, title, _)| *title)
+    }
+
+    /// Every bindable action in a sensible order for listing.
+    pub fn bindable() -> impl Iterator<Item = Self> {
+        defaults::NAMES.iter().map(|(_, _, action)| *action)
     }
 }
 
@@ -311,6 +344,15 @@ impl Keymap {
         Ok(())
     }
 
+    /// The keys bound to `action` in exactly `context`, preferred first.
+    pub fn keys_in(&self, context: Context, action: Action) -> Vec<KeyChord> {
+        self.bindings
+            .iter()
+            .filter(|b| b.context == context && b.action == action)
+            .map(|b| b.chord)
+            .collect()
+    }
+
     /// The keys that do `action` with `focus`, preferred first: the pane's own
     /// bindings, then global ones the pane doesn't override.
     pub fn keys_for(&self, action: Action, focus: Focus) -> Vec<KeyChord> {
@@ -365,6 +407,40 @@ impl Keymap {
                 .join("/"),
         )
     }
+}
+
+/// While the palette is open it takes every key except quitting: arrows,
+/// `Tab` and `Ctrl+P/N` move, `Enter` runs, `Esc` closes, and the input's
+/// editing keys (as bound) edit the query.
+pub fn palette_action(keymap: &Keymap, key: KeyEvent) -> Option<Action> {
+    if key.kind == KeyEventKind::Release {
+        return None;
+    }
+    let modifiers = key.modifiers.difference(KeyModifiers::SHIFT);
+    let palette = match (key.code, modifiers) {
+        (KeyCode::Char('q'), KeyModifiers::CONTROL) => return Some(Action::Quit),
+        (KeyCode::Char('c'), KeyModifiers::CONTROL) => return Some(Action::Interrupt),
+        (KeyCode::Up | KeyCode::BackTab, _) | (KeyCode::Char('p'), KeyModifiers::CONTROL) => {
+            PaletteKey::Previous
+        }
+        (KeyCode::Down | KeyCode::Tab, _) | (KeyCode::Char('n'), KeyModifiers::CONTROL) => {
+            PaletteKey::Next
+        }
+        (KeyCode::PageUp, _) => PaletteKey::PageUp,
+        (KeyCode::PageDown, _) => PaletteKey::PageDown,
+        (KeyCode::Enter, KeyModifiers::NONE) => PaletteKey::Choose,
+        (KeyCode::Esc, _) => PaletteKey::Close,
+        _ => {
+            let Some(Action::Edit(edit)) = keymap.lookup(key, Focus::Input) else {
+                return None;
+            };
+            if matches!(edit, Edit::NewLine | Edit::Up | Edit::Down) {
+                return None;
+            }
+            PaletteKey::Edit(edit)
+        }
+    };
+    Some(Action::Palette(palette))
 }
 
 /// While a popup is open it takes every key except quitting. `h`/`l` move
