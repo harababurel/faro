@@ -40,6 +40,10 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
   - Drafts live in `ConversationSummary::state.draft` and are stored with `Effect::SaveConversationState`; hide/archive/pin/mute (task 5) use the same effect.
   - The unread marker is fixed when a conversation opens (`OpenConversation::unread_marker`); read receipts to the backend (`mark_read`) are M4 task 6.
   - Add every new key, mouse or rendering behaviour to `docs/MANUAL_TESTS.md` (rule 10).
+  - **Owner's hands-on testing is deferred to the end of M4** (owner's choice). They confirmed tasks 1–2 by hand; tasks 3+ are only agent-tested (unit tests + tmux smoke). When M4 is complete, tell the owner the prototype is ready and point them at the M4 section of `docs/MANUAL_TESTS.md`.
+  - Effects that aren't store work (`Effect::Backend`, `Effect::Copy`, `Effect::OpenUrl`) are routed in `app::run`'s `dispatch` closure; a new one must be added there **and** to the "not mine" arm in `effects.rs` (both matches are exhaustive).
+  - Modal UI goes through `State::popup` (`Popup` enum in `state.rs`, keys via `keys::popup_action`, reducer in `update/selection.rs::on_popup`, drawn by `ui/popup.rs`); task 8's palette can reuse the pattern (and `PopupKey`). Notices: use `Notice::info` (clears after 3 s), `Notice::warning`, `Notice::error`.
+  - Task 5 starting points: `ConversationState` (`hidden`, `archived`, `pinned: Option<u32>`, `muted_until`) already exists in the store schema and is saved with `Effect::SaveConversationState`; `State::visible_conversations` and `sort_conversations` (`state.rs`) decide what the sidebar shows; `Alt+1..9` goes in `keys::global`. Hiding/archiving needs a key or menu in the sidebar pane (`keys::conversations`) and probably a conversation action popup like D40's.
 
 ### Gotchas found so far
 
@@ -58,6 +62,8 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 - **Smoke-testing the TUI from an agent:** use a private tmux server and `respawn-pane` (chaining the command into `new-session` fails silently): `tmux -L faro-smoke -f /dev/null new-session -d -x 110 -y 30 -s s; tmux -L faro-smoke set -g remain-on-exit on; tmux -L faro-smoke respawn-pane -k -t s "./target/debug/faro --data-dir <scratch dir>"`. Drive it with `send-keys` (`M-Down`, `-l 'text'`, `C-q`), read it with `capture-pane -p`, then `kill-server`. Always use a scratch `--data-dir`.
 - **Flood tests** need `--mock-no-faults` as well as a small `--mock-activity`, or the mock spends most of its time in scripted outages. Judge CPU on a release build; debug is several times slower and takes seconds to flush queued writes on quit.
 - Key handling: match on `(code, modifiers)` tuples (no wildcard-lint trouble). Event handlers take `&Event` (`needless_pass_by_value`). `single_match_else` wants `if let ... else`.
+- Pedantic `struct_excessive_bools` allows at most 3 `bool` fields per struct: group new flags into a small struct (as with `SidebarScroll`, `Selection`, `Environment`). Other lints met recently: `double_ended_iterator_last` (use `next_back()`), `manual_assert_eq` in tests, `single_match_else`.
+- **Scripted multi-file edits:** `cargo fmt` reformats code after every run, so match against the formatted text and apply each file independently (a script that asserts on several files and stops at the first mismatch leaves the earlier files edited and the rest not).
 - **Run the quality gate with `set -o pipefail`** if you pipe its output (`cargo clippy ... | tail`): otherwise the pipe reports `tail`'s exit code and a failing gate looks green (this once let a lint failure get pushed).
 
 ### Code map
