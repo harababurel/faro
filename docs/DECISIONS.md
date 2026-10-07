@@ -147,3 +147,17 @@ All entries below were made on 2026-10-07 unless stated otherwise.
 
 - `<data dir>/logs/faro.log`, `0600`, written through a non-blocking writer so logging never stalls the UI. Filter via `FARO_LOG` (`RUST_LOG` syntax), default `info`.
 - At startup, a log over 10 MB is moved to `faro.log.old`. Simpler than date-based rotation; revisit if the daemon mode makes long-running logs common.
+
+### D27. Enforce correctness and efficiency rules mechanically, not by convention — Accepted (2026-10-07)
+
+- **Decision:** the owner likes the workspace-wide `unsafe_code = "forbid"` rule and wants many more constraints like it: rules that tools check, so mistakes fail the build or CI instead of relying on review. Agents should add such constraints as the code grows, each one recorded here or in a follow-up entry.
+- **How to add one:** prefer the cheapest mechanism that works: (1) rustc/clippy lints in `[workspace.lints]`; (2) `clippy.toml` `disallowed-methods` / `disallowed-types` / `disallowed-macros`, which can ban specific APIs; (3) CI tools (`cargo-deny`, etc.); (4) architecture tests in `cargo test`; (5) custom lints (`dylint`) only when nothing simpler can express the rule.
+- **Candidates** (evaluate when the relevant code exists; tick off in PLAN.md "Mechanical constraints"):
+  - No panics in non-test code: `unwrap_used`, `expect_used`, `panic`, `todo`, `unimplemented`, `dbg_macro`; `indexing_slicing` in core logic.
+  - Nothing writes to the terminal behind the TUI's back: `print_stdout`, `print_stderr` (with a narrow allowance for pre-TUI CLI output).
+  - Never block the UI (D22): `disallowed-methods` for `std::thread::sleep`, `std::fs::*`, blocking `std::net`, `block_on` in the app/reducer crates or modules; `await_holding_lock`; `large_futures`.
+  - Privacy: newtypes for message bodies and phone numbers whose `Debug`/`Display` redact, so they can't reach logs by accident.
+  - Arithmetic: `arithmetic_side_effects` or `cast_*` lints in the store/timestamp code.
+  - Dependencies: `cargo-deny` (licences compatible with AGPL, RustSec advisories, banned/duplicate crates, git sources allowlist for presage), `cargo-machete` for unused deps.
+  - Architecture: a test that fails if `faro-core` depends on `ratatui`/`crossterm`, or if the reducer module imports tokio I/O.
+  - Exhaustiveness: no `_ =>` wildcard arms on faro's own enums (`wildcard_enum_match_arm`) so new events/actions can't be silently ignored.

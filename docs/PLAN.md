@@ -15,6 +15,13 @@ M0–M6 are built entirely against a **mock backend**. A separate **test Signal 
 
 ---
 
+## Ongoing: mechanical constraints (D27)
+
+The owner wants correctness and efficiency rules enforced by tools wherever possible (like `unsafe_code = "forbid"`). In every milestone, look for rules the new code makes worth enforcing, add them, and record them in D27 (or a new entry). Adopted so far:
+
+- [x] `unsafe_code = "forbid"`, workspace-wide (M0)
+- [x] clippy `pedantic` as errors in CI (M0)
+
 ## M0: Scaffolding
 
 **Tasks**
