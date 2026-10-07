@@ -1,0 +1,383 @@
+# faro: design
+
+Status: draft v0.1, written before any code. This is the single source of truth for decisions made so far; update it when decisions change. Items marked **Open** are not decided yet.
+
+## 1. Why faro exists
+
+The author uses Signal by SSH-ing into a personal Mac mini and running a terminal Signal client inside tmux. The existing client (gurk) works, but has problems that faro is meant to fix:
+
+- Keybindings are hard to discover; the help screen is an unformatted wall of text.
+- The conversation list fills up with every contact ever seen, with no way to hide or prune them.
+- Typing freezes while incoming messages are being fetched.
+- No configuration or settings UI inside the app.
+
+faro is a terminal (TUI) Signal client focused on a polished, discoverable, never-blocking interface, inspired by **OpenCode** (command palette, panels, input box, themes) and **btop** (meaningful colour, glyph-based graphics).
+
+## 2. Goals and non-goals
+
+### Goals
+
+1. **Never block the UI.** Network, decryption and storage run off the UI thread; typing is always responsive.
+2. **Discoverable.** Every action is reachable from a fuzzy command palette that also shows its keybinding.
+3. **Curated conversation list.** Hide, archive, pin, mute; optionally show only an allowlist.
+4. **Works great over SSH + tmux**, and in modern terminals (kitty, WezTerm, Ghostty, iTerm2, foot, Alacritty).
+5. **Configurable from the UI and from a file**, with hot reload; the file has commented defaults.
+6. **Themeable**, with a large set of built-in themes.
+7. **Easy to install** on macOS and common Linux distros as a single binary.
+
+### Non-goals (for now)
+
+- Being a primary Signal device. faro is always a *linked device* (like Signal Desktop).
+- Voice/video calls.
+- Stories.
+- Windows support (not ruled out later; not designed against).
+- Reimplementing any part of the Signal protocol or service layer (see §4).
+
+## 3. Decisions log
+
+| # | Decision | Why |
+|---|---|---|
+| D1 | Terminal UI, not a web app | Terminal over SSH is the use case; a web client doesn't fit it. |
+| D2 | Language: **Rust** | Strong TUI ecosystem (ratatui), access to presage/libsignal, good fit for coding agents. Haskell (brick) was considered; rejected because it would force the signal-cli backend and has weaker visual widgets and agent support. |
+| D3 | Signal layer: **presage** (Rust) as the first backend | Single binary, no Java, uniform packaging across distros. Trade-off: slower fixes when Signal changes server behaviour than signal-cli. |
+| D4 | Backend behind a **trait**; signal-cli JSON-RPC backend possible later | Keeps UI independent of the backend; fallback if presage lags behind Signal. |
+| D5 | Never reimplement the Signal service layer or crypto | No public spec; silent, costly bugs; endless maintenance; no user-visible benefit. |
+| D6 | **faro owns message history** in its own SQLite DB | Backend-agnostic; survives a backend switch; needed anyway for signal-cli. |
+| D7 | Licence: **AGPL-3.0** | Required by presage/libsignal. |
+| D8 | Config: **TOML**, edited with `toml_edit` to preserve comments | Rust-ecosystem standard; UI edits must not destroy hand edits. |
+| D9 | Themes: **OpenCode-compatible JSON** theme format | Large existing theme library; familiar to OpenCode users. |
+| D10 | Name: **faro** (Italian/Spanish/Portuguese for "lighthouse"). Command `faro`; repo and packages may use `faro-chat` if needed | Free on Homebrew/Arch/AUR/Debian/Nix. Notable neighbours: Grafana Faro (observability), FARO Technologies (3D measurement), a tiny `faro` CLI on crates.io. |
+| D11 | Logo direction: **lighthouse with a rotating beam** | Chosen during naming; prototype in `tools/logos.py` (group `lighthouse`). |
+
+## 4. Architecture
+
+### 4.1 Overview
+
+```
+┌──────────────────────────────── faro process ────────────────────────────────┐
+│                                                                              │
+│   terminal input ──AppEvent──▶ ┌────────────────┐ ──Command──────▶ Backend    │
+│   (crossterm)                  │    App core    │                  (presage)  │
+│                                │ state, reducer │ ◀─BackendEvent──     │      │
+│   ratatui view ◀───render───── └────────────────┘                     ▼      │
+│                                   ▲         │ ▲               presage store  │
+│   timers, config/theme ───────────┘         ▼ │              (keys, sessions)│
+│   file watcher                          faro store                           │
+│                                         (SQLite: history, UI state)          │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Single process, async (tokio).** Each component is a task communicating over channels.
+- **App core** owns all UI state and is updated by a reducer: `fn update(state, event) -> Vec<Effect>`. It never awaits network or disk directly; effects are dispatched to tasks. This is what guarantees no freezing (Goal 1).
+- **Render loop** draws on state change, capped to a frame rate (e.g. 60 fps for animations, idle otherwise), using synchronized output (DEC mode 2026) where supported to avoid flicker.
+- **Backend task** wraps presage; translates between presage types and faro domain types.
+- **Store task** owns the SQLite connection; all writes go through it.
+- **Watcher task** watches config and theme files for hot reload.
+
+### 4.2 Later: daemon mode
+
+`faro daemon` runs the backend + store headless (e.g. under launchd/systemd) so messages arrive while no UI is open; `faro` (the TUI) then attaches over a local Unix socket. The channel boundaries in 4.1 are designed so this becomes a transport change, not a redesign. Not in the first release.
+
+### 4.3 Workspace layout (proposed)
+
+```
+crates/
+  faro/            # binary: CLI args, TUI (ratatui views), app core
+  faro-core/       # domain types, Backend trait, events, store (SQLite), config, themes
+  faro-presage/    # Backend impl on presage (heavy deps isolated here)
+tools/
+  logos.py         # naming-phase logo prototypes
+docs/
+  DESIGN.md
+```
+
+A **mock backend** lives in `faro-core` (behind a feature or `#[cfg(test)]`) so the UI and core can be developed and tested without a Signal account.
+
+## 5. Backend interface
+
+### 5.1 Trait (sketch)
+
+```rust
+#[async_trait]
+pub trait Backend: Send + Sync {
+    fn capabilities(&self) -> Capabilities;
+
+    // Account
+    async fn link_device(&self, device_name: &str) -> Result<LinkFlow>; // yields a URL to show as QR, then completion
+    async fn whoami(&self) -> Result<Account>;
+
+    // Directory
+    async fn contacts(&self) -> Result<Vec<Contact>>;
+    async fn groups(&self) -> Result<Vec<Group>>;
+
+    // Messaging
+    async fn send(&self, to: ConversationId, msg: OutgoingMessage) -> Result<SentMessage>;
+    async fn react(&self, target: MessageRef, emoji: Option<String>) -> Result<()>; // None = remove
+    async fn edit(&self, target: MessageRef, new_body: String) -> Result<()>;
+    async fn delete_for_everyone(&self, target: MessageRef) -> Result<()>;
+    async fn mark_read(&self, msgs: &[MessageRef]) -> Result<()>;
+    async fn send_typing(&self, to: ConversationId, typing: bool) -> Result<()>;
+
+    // Attachments
+    async fn fetch_attachment(&self, att: &AttachmentRef) -> Result<PathBuf>;
+
+    // Event stream: incoming messages, receipts, typing, sync from other devices,
+    // contact/group updates, connection state.
+    fn events(&self) -> mpsc::Receiver<BackendEvent>;
+}
+```
+
+### 5.2 Rules
+
+- **Domain types are faro's own**, modelled on Signal concepts, not on presage or signal-cli structs.
+- **Identifiers are Signal's stable IDs:** service IDs (ACI UUIDs) for people, group IDs (derived from the group master key) for groups. Phone numbers are display data, not keys.
+- **Sync messages** (messages you sent from your phone) are normalised into the same `BackendEvent::Message` with `direction = Outgoing`.
+- **Capabilities** gate UI actions (e.g. hide "edit" if a backend can't edit).
+- **Errors** are typed (`Network`, `Unauthorized/Unlinked`, `RateLimited`, `Protocol`, `Storage`) so the UI can show useful states instead of crashing.
+
+## 6. Data model (faro's SQLite)
+
+presage keeps its own store for keys, sessions and protocol state; faro never touches it directly. faro's DB holds history and UI state:
+
+| Table | Key fields |
+|---|---|
+| `recipients` | service_id (PK), profile name, contact name, phone (nullable), avatar path, colour seed |
+| `conversations` | id (PK; service_id or group id), kind (direct/group), title, last_activity, unread_count |
+| `conversation_state` | conversation_id, **hidden**, **archived**, **pinned** (order), **muted_until**, draft text, scroll position |
+| `messages` | id, conversation_id, sender, sent_at (server timestamp), received_at, body, quote_ref, edited_at, deleted, direction, status (sending/sent/delivered/read/failed) |
+| `reactions` | message_id, sender, emoji |
+| `attachments` | id, message_id, mime, filename, size, local_path (nullable), status |
+| `app_state` | key/value: sidebar widths, last open conversation, etc. |
+
+- Messages are identified Signal-style by `(sender, sent_at)`; faro adds its own row ID.
+- Migrations with `sqlx` (or `rusqlite` + `refinery`). **Open:** which.
+- **Open:** whether to reuse presage's own message store instead of duplicating history. Default plan is D6 (own DB).
+
+## 7. UI
+
+### 7.1 Layout
+
+```
+┌ Conversations ──────┐┌ Alice ─────────────────────────────────────┐┌ Info ─────────┐
+│ ▸ Pinned            ││                                            ││ Alice         │
+│   ● Alice        2  ││   Hey, are we still on for tonight?  19:02 ││ +1 555 …      │
+│     Book club       ││                                            ││ Safety number │
+│ ▸ Recent            ││ 19:03  Yes! 7pm at the usual place 👍      ││ Muted: no     │
+│     Bob             ││                                            ││ Shared media  │
+│     Mum             ││                                            ││               │
+│                     ││ ╭────────────────────────────────────────╮ ││               │
+│                     ││ │ Type a message…                        │ ││               │
+│                     ││ ╰────────────────────────────────────────╯ ││               │
+└─────────────────────┘└────────────────────────────────────────────┘└───────────────┘
+ ● connected · 3 unread · NORMAL       ctrl+p commands · ↑ select message · alt+enter newline
+```
+
+- **Left sidebar:** conversations (sections: pinned, recent; archived behind a toggle). Unread counts, mute markers, typing indicator.
+- **Main pane:** message list + **input box** rendered as a distinct panel with its own background colour (OpenCode style).
+- **Right sidebar (optional):** conversation info, members, safety number, shared links/files.
+- **Footer:** connection status, unread total, mode, and **context-sensitive key hints** (change with focus).
+- Sidebars are **collapsible**, **resizable** (mouse drag or keys), and **auto-hide on narrow terminals**. Widths persist in `app_state`.
+
+### 7.2 Command palette (`Ctrl+P`)
+
+- Fuzzy search (`nucleo`) over **commands, conversations and settings** in one list.
+- Every entry shows its **keybinding** (if any) right-aligned, and its **path** for nested items (`Settings › Messages › Alignment`).
+- Prefixes: `>` commands only, `@` conversations only, `:` settings only.
+- Recently used commands rank higher.
+- Sub-menus exist for browsing, but **typing never requires opening a sub-menu first**.
+
+### 7.3 Messages
+
+- **Layout option:** `bubbles` (own messages right, others left) or `irc` (all left, `time  name  text`), plus a `compact` density toggle.
+- Sender names coloured deterministically per person (hash → theme palette), like Signal/IRC.
+- Replies render a dimmed quoted preview; reactions as a compact row (`👍 2  ❤️ 1`); edited messages marked `(edited)`; deleted shown as a dim placeholder.
+- Delivery status glyphs for own messages (sending/sent/delivered/read/failed).
+- Unread marker line; date separators.
+- Links are detected and openable; attachments show name/size and open in the system viewer.
+- **Emoji:** rendered as-is. Widths are computed with grapheme clustering; a setting replaces problematic sequences (ZWJ families, flags, skin tones) with a fallback where terminals disagree. Emoji picker with `:shortcode:` fuzzy search.
+
+### 7.4 Message selection and actions
+
+- `↑` on an empty input (or `Alt+↑`) enters **message selection**.
+- Actions on the selected message: reply, react, copy, edit (own), delete, open link/attachment, info.
+- The same actions appear in a **context menu**, opened by right-click or `Enter` on a selected message. Every mouse action has a keyboard equivalent.
+
+### 7.5 Mouse
+
+Click to focus panes and open conversations; scroll anywhere; drag sidebar borders (border highlights on hover); right-click for context menus; click toggles on panel headers. Mouse capture can be turned off (setting + palette command) so native terminal text selection works; `Shift`+drag bypasses capture in most terminals. Copy uses **OSC 52**, which works over SSH and tmux.
+
+### 7.6 Default keybindings (initial proposal)
+
+Chosen to avoid tmux's default prefix (`Ctrl+B`) and common terminal shortcuts. All rebindable.
+
+| Key | Action |
+|---|---|
+| `Ctrl+P` | Command palette |
+| `Ctrl+Q` | Quit (`Ctrl+C` asks for confirmation) |
+| `Alt+↑` / `Alt+↓` | Previous / next conversation |
+| `Alt+1`…`Alt+9` | Jump to pinned conversation N |
+| `Tab` / `Shift+Tab` | Cycle focus between panes |
+| `Esc` | Close popup / leave selection / clear |
+| `↑` (empty input) | Select last message |
+| `r` `e` `d` `y` `+` `o` | (In selection) reply, edit, delete, copy, react, open |
+| `Enter` | Send; in selection: open context menu |
+| `Alt+Enter` | Newline (also `Shift+Enter` when the kitty keyboard protocol is available) |
+| `Alt+S` / `Alt+I` | Toggle left / right sidebar |
+| `F1` or `?` (in non-input focus) | Help: opens the palette listing all keybindings |
+
+### 7.7 Conversation list curation
+
+Hide (disappears until a new message arrives, configurable), archive, pin, mute (with durations), and an optional **allowlist mode** that only shows chosen conversations. Default: conversations with no messages are not shown. Bulk "hide all older than N days" from the palette.
+
+### 7.8 Graphics and motion
+
+Colour carries meaning (btop style): status, unread, mentions, own vs others, errors. Glyph graphics where they add information (e.g. activity sparkline in the info panel, connection quality). Splash/about screen uses the animated lighthouse logo. A `reduce_motion` setting disables animations.
+
+## 8. Notifications
+
+| Method | Works over SSH | Notes |
+|---|---|---|
+| Terminal bell (BEL) | Yes | tmux `monitor-bell` / visual bell |
+| OSC 9 / OSC 777 / OSC 99 (kitty) desktop notifications | Yes | Under tmux requires `allow-passthrough on`; faro wraps sequences for tmux automatically |
+| Window / tmux title with unread count | Yes | OSC 0/2 |
+| Native OS notification | Local only | When faro runs on the same machine as the display |
+
+Per-conversation overrides (mute, mentions only). **Privacy levels:** show nothing / sender only / sender + preview (default: sender only).
+
+## 9. Configuration
+
+- **File:** `$XDG_CONFIG_HOME/faro/config.toml`, default `~/.config/faro/config.toml` on both Linux and macOS. `--config` / `FARO_CONFIG` override.
+- **Data:** `$XDG_DATA_HOME/faro/` (default `~/.local/share/faro/`): faro DB, presage store, attachments, logs. `--data-dir` / `FARO_DATA_DIR` override. Files created `0600`, dirs `0700`.
+- **First run** writes a config file with every option present, **commented out, showing its default**, with a one-line explanation.
+- **UI edits** go through `toml_edit`: only the changed key is written; comments and layout are preserved.
+- **Hot reload:** config and theme files are watched; changes apply live. Invalid config shows an error toast and keeps the last good config.
+- **What lives where:** preferences (theme, layout, keybindings, notifications) in TOML; per-conversation state (hidden, pinned, muted, drafts) in SQLite. **Open:** optional export of the hidden/allowlist set to config for syncing across machines.
+
+Sketch:
+
+```toml
+# theme = "opencode"
+# reduce_motion = false
+
+[messages]
+# layout = "bubbles"        # "bubbles" | "irc"
+# density = "comfortable"   # "comfortable" | "compact"
+# timestamps = "relative"   # "relative" | "absolute" | "off"
+
+[notifications]
+# bell = true
+# desktop = "auto"          # "auto" | "osc" | "native" | "off"
+# privacy = "sender"        # "none" | "sender" | "preview"
+
+[mouse]
+# enabled = true
+
+[keybindings.global]
+# "ctrl+p" = "palette.open"
+```
+
+## 10. Themes
+
+- Theme files in **OpenCode's JSON format** (named `defs` + semantic roles), loaded from built-ins and `~/.config/faro/themes/`.
+- Semantic roles used by faro include: `background`, `backgroundPanel` (input box, popups), `backgroundElement` (selection), `text`, `textMuted`, `primary`, `secondary`, `accent`, `border`, `borderActive`, `success`, `warning`, `error`, plus faro-specific roles (e.g. `bubbleOwn`, `bubbleOther`, `unread`, `mention`) with sensible fallbacks to standard roles.
+- A **`system`** theme uses the terminal's own 16-colour palette.
+- Automatic **fallback to 256 colours** when truecolor isn't available.
+- **Live preview** while moving through the theme picker; theme files hot-reload.
+- **Open:** licence check for each bundled theme before shipping.
+
+## 11. Terminal compatibility
+
+- **Input:** crossterm. Use the **kitty keyboard protocol** when available (more distinguishable keys), but **all defaults must work without it** (tmux only partially supports it).
+- **tmux** recommended settings (documented, detected where possible): `set -g mouse on`, `set -g set-clipboard on`, `set -g allow-passthrough on`, `set -as terminal-features ",*:RGB"`, `set -g extended-keys on`.
+- **Width:** grapheme-aware width calculation (`unicode-segmentation` + `unicode-width`); test emoji-heavy content specifically under tmux.
+- **Images:** not in the first release (see §14).
+
+## 12. Security and privacy
+
+- faro stores Signal keys (via presage) and message history on disk. Files are user-only (`0600`).
+- **Open:** encryption at rest (presage store passphrase support; SQLCipher for faro's DB; OS keychain integration on macOS / Secret Service on Linux).
+- Logs (`tracing`, to a file) **never include message bodies or phone numbers** unless an explicit debug flag is set.
+- Notification privacy defaults to sender only.
+- Device name shown in the phone's linked-devices list defaults to `faro (<hostname>)`.
+
+## 13. Packaging and distribution
+
+- **Not on crates.io** (presage depends on Signal's git-only crates). `cargo install --git` works; build needs `protoc`.
+- **Release binaries** via cargo-dist / GitHub Actions: `x86_64` and `aarch64` for Linux (glibc; musl if feasible) and macOS.
+- **Homebrew:** own tap first (`harababurel/tap`), homebrew-core later.
+- **Arch:** AUR `faro-bin` and `faro-git`.
+- **Debian/Ubuntu:** `.deb` via `cargo-deb` attached to releases.
+- **Nix:** flake in the repo.
+- Package name `faro` where free; `faro-chat` as the fallback name.
+
+## 14. Release plan
+
+### v0.1: usable daily driver (MVP)
+
+- Link as secondary device (QR in terminal); receive and send text in direct and group chats
+- Never-blocking architecture (§4.1); faro's own history DB
+- Conversation list with hide / pin / mute; allowlist mode
+- Command palette with keybinding hints; context-sensitive footer
+- Input box panel; multi-line input
+- Reply, react, read receipts, typing indicators
+- Bubbles and IRC layouts
+- Config file with commented defaults + hot reload
+- Bell + title notifications
+- 2–3 built-in themes + `system` theme
+
+### v0.2: polish and reach
+
+- Full mouse support: drag-resize sidebars, right-click context menus
+- OpenCode theme compatibility + theme picker with live preview
+- Settings UI in the palette writing back to TOML
+- OSC desktop notifications with privacy levels
+- Edit / delete for everyone; attachments (send/receive/open)
+- Emoji picker; emoji width fallback
+- Release binaries, Homebrew tap, AUR, `.deb`, Nix flake
+
+### Later (backlog, do not forget)
+
+- **Inline images** (kitty graphics protocol / sixel / half-block fallback via `ratatui-image`), with tmux passthrough handling
+- `faro daemon` + attachable TUI (§4.2)
+- signal-cli JSON-RPC backend (D4)
+- Encryption at rest (§12)
+- Animated lighthouse splash and logo in the about screen
+- Search across messages
+- Voice note playback (external player)
+
+## 15. Testing strategy
+
+- **Core logic:** unit tests against the mock backend (reducer: event in → state + effects out).
+- **UI:** snapshot tests with ratatui's `TestBackend` + `insta`, including narrow widths and emoji-heavy content.
+- **Store:** migration tests on a temp DB.
+- **Backend:** thin integration tests behind a feature flag, run manually against a **test Signal account** (never the author's main account during development).
+- **Terminal matrix (manual checklist per release):** kitty, WezTerm, Ghostty, iTerm2, Alacritty, foot; each with and without tmux; over SSH; macOS and Linux. Agents cannot verify this; it is the main human testing task.
+
+## 16. Candidate crates
+
+| Purpose | Crate |
+|---|---|
+| TUI | `ratatui`, `crossterm` |
+| Async | `tokio` |
+| Signal | `presage`, presage SQLite store |
+| Storage | `sqlx` (SQLite) or `rusqlite` |
+| Fuzzy matching | `nucleo` |
+| Config | `serde`, `toml_edit` |
+| File watching | `notify` |
+| Text width | `unicode-width`, `unicode-segmentation` |
+| QR in terminal | `qrcode` |
+| Logging | `tracing`, `tracing-appender` |
+| Paths | `etcetera` or `directories` |
+| Native notifications | `notify-rust` |
+| Clipboard (local) | `arboard`, plus OSC 52 |
+| Snapshot tests | `insta` |
+
+## 17. Open questions
+
+1. `sqlx` vs `rusqlite` for faro's DB.
+2. Own history DB vs reusing presage's message store (default: own DB).
+3. Encryption at rest: scope and mechanism.
+4. Does presage support receiving message history transferred from the phone to a newly linked device? If not, faro starts with empty history (as gurk does).
+5. Optional sync of hidden/allowlist state via the config file.
+6. Final logo artwork and colours; licence of bundled themes.
+7. Repo/package name `faro` vs `faro-chat` before going public.
