@@ -18,11 +18,25 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 ## Current state (update this section as work progresses)
 
 - 2026-10-07: planning finished.
-- 2026-10-07: M0 done locally (commits `8c3fd5b`, `f71ddfb`): workspace (`crates/faro`, `crates/faro-core`), CLI, XDG paths with `0700`/`0600`, file logging, CI workflow. Pushed; CI green on ubuntu + macos.
+- 2026-10-07: M0 done (commits `8c3fd5b`, `f71ddfb`): workspace (`crates/faro`, `crates/faro-core`), CLI, XDG paths with `0700`/`0600`, file logging, CI workflow. Pushed; CI green on ubuntu + macos.
 - 2026-10-07: owner asked for correctness/efficiency rules to be enforced by tools wherever possible (D27, rule 9 below). Candidate rules are listed in D27; adopted ones are ticked in PLAN.md "Ongoing: mechanical constraints".
 - 2026-10-07: M1 started. D27 rules adopted (D28): no panics, no blocking std calls, no `print!`, and lint exceptions only via `#[expect(lint, reason = "...")]`.
 - 2026-10-07: M1 task 1 done: domain types (D29), including redacting `MessageBody`/`PhoneNumber` and the `wildcard_enum_match_arm` lint.
-- **Next: M1 task 2 (`Backend` trait, `BackendEvent`, `Capabilities`, `BackendError`)** in docs/PLAN.md.
+- 2026-10-07: M1 task 2 done: `Backend` trait, `BackendEvent`, `Capabilities`, `BackendError` (D30), and the `block_on` ban.
+- **Next: M1 task 3 (`MockBackend`)**, then task 4 (`faro --mock`); see docs/PLAN.md M1 for the full requirements and acceptance test. Notes for task 3:
+  - Put it in `crates/faro-core/src/mock.rs` (or `mock/`); always compiled in (DESIGN §4.3). The test `Stub` at the bottom of `backend.rs` shows a minimal `impl Backend`.
+  - Constructor returns `(MockBackend, BackendEvents)` using `mpsc::channel(EVENT_CHANNEL_CAPACITY)` (D30). `send` must emit `DeliveryUpdate`s for `MessageRef { sender: me, sent_at: msg.sent_at }` (sending → sent → delivered → read).
+  - Deterministic mode needs a seeded RNG and a controllable clock. Likely: a small seeded PRNG dependency (e.g. `rand_chacha`/`fastrand`) and tokio's `test-util` feature (`time::pause`/`advance`) for tests. Record the choices as a new D31 Judgement.
+  - Seed data: emoji-heavy names, very long names, many old empty conversations (to exercise curation later), a few groups.
+
+### Gotchas found so far
+
+- `#[expect(...)]` on a macro call (`println!`) is ignored; put it on the enclosing `fn`.
+- `#[tokio::test]` expands to `block_on`, which is banned: add `#[expect(clippy::disallowed_methods, reason = "#[tokio::test] expands to block_on; tests may block")]`.
+- Trait impls with `async fn` bodies that never `.await` trip `clippy::unused_async_trait_impl`.
+- `wildcard_enum_match_arm` doesn't catch `_` inside tuple patterns; spell out variants by hand.
+- Blocking std calls (fs, `Path::exists`, sleep…) are banned everywhere; startup code and tests opt out per function/module with `#[expect(clippy::disallowed_methods, reason = "...")]`.
+- Commit and push are separate permissions: push only when the owner says so (D23).
 
 ### Code map
 
@@ -30,10 +44,11 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 |---|---|
 | `Cargo.toml` | Workspace: shared package metadata, `[workspace.lints]` (unsafe forbidden, clippy pedantic, D28 no-panic/no-print rules), release profile |
 | `rust-toolchain.toml` | Pinned Rust version (D25) |
-| `clippy.toml` | Test relaxations for panic lints; `disallowed-methods` list of blocking calls (D28) |
+| `clippy.toml` | Test relaxations for panic lints; `disallowed-methods` list of blocking calls incl. `block_on` (D28, D30) |
 | `crates/faro/src/main.rs` | Entry point: parse CLI, resolve paths, start logging. Placeholder output until the TUI (M3) |
 | `crates/faro/src/cli.rs` | `clap` CLI definition (`--data-dir` / `FARO_DATA_DIR`) |
 | `crates/faro/src/logging.rs` | `tracing` to `<data dir>/logs/faro.log`, non-blocking, `FARO_LOG` filter, rotation over 10 MB (D26) |
+| `crates/faro-core/src/backend.rs`, `backend/` | `Backend` trait, `Account`, `OutgoingMessage`/`OutgoingEdit`, `Capabilities`; `event.rs` (`BackendEvent`), `error.rs` (`BackendError`) (D30) |
 | `crates/faro-core/src/domain/` | Domain types (D29): `ids.rs` (ServiceId, GroupId, ConversationId, Timestamp, MessageRef), `sensitive.rs` (redacting MessageBody, PhoneNumber), `people.rs`, `message.rs`, `presence.rs` |
 | `crates/faro-core/src/paths.rs` | XDG paths (D17), `0700` dirs / `0600` files helpers, with tests |
 | `.github/workflows/ci.yml` | fmt, clippy `-D warnings`, test on ubuntu + macos (`--locked`) |

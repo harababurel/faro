@@ -178,3 +178,16 @@ All entries below were made on 2026-10-07 unless stated otherwise.
 - **`DeliveryStatus::update` never regresses:** receipts can arrive late, twice or out of order, so a confirmed status (sent < delivered < read) only moves forward. `Failed` replaces only `Sending`; a retry or a confirmation replaces `Failed`.
 - **`ServiceId`** is `Aci(Uuid)` / `Pni(Uuid)` with Signal's string form (bare UUID / `PNI:<uuid>`). Adds the `uuid` crate (presage uses it anyway). **`GroupId`** is the 32-byte v2 ID, shown as hex. **`Timestamp`** is milliseconds since the epoch (`u64`), as Signal uses; no date library until the UI needs formatting.
 - **`wildcard_enum_match_arm`** is now on (D27 exhaustiveness candidate). It doesn't see `_` inside tuple patterns, so matches on tuples of faro enums should spell out the variants (see `DeliveryStatus::update`).
+
+### D30. Backend trait shape (M1) — Judgement
+
+Refines the DESIGN.md §5.1 sketch:
+
+- **Native async trait methods, no `Send` bound, no `async-trait` crate.** presage's futures have historically not been `Send` (gurk runs them on a `LocalSet`), so requiring `Send` could make the M7 backend impossible to write. The backend runs in one dedicated task anyway (D22), so nothing else needs `Send`. Consequence: the trait isn't object-safe (no `dyn Backend`); code is generic over `B: Backend`, and choosing mock vs presage at runtime will use an enum or a generic `run::<B>()`.
+- **faro picks `sent_at`** (`OutgoingMessage.sent_at`), as every Signal client does, so a sent message's `MessageRef` is known before sending. `send` returns `()`; delivery progress arrives as `BackendEvent::DeliveryUpdate`. This replaces the sketch's `SentMessage` return value.
+- **Event channel from the constructor**, not a trait method: one bounded `tokio::sync::mpsc` channel (capacity 1024; backpressure on the backend task, not unbounded memory). Avoids a `fn events()` that could only be called once.
+- **Conversation passed to `react`/`edit`/`delete_for_everyone`:** Signal sends these as messages to the conversation (the group or the person), so the backend needs it.
+- **Linking left out of the trait** until M7: it happens before a linked backend exists, and presage's flow decides the shape.
+- **Capabilities are optional features only** (`Edit`, `DeleteForEveryone`, `Attachments`), a small bitset. Text, replies, receipts, typing and reactions are required. `require()` gives backends a uniform `Unsupported` error.
+- **Errors:** `Network`, `Unlinked`, `RateLimited { retry_after }`, `Protocol`, `Storage`, `NotFound`, `Unsupported`, plus `is_transient()`. Detail strings are for logs and must not contain bodies or phone numbers.
+- **`block_on` banned** (D27/D28): `tokio` `Runtime::block_on`, `Handle::block_on`, `block_in_place`, and `futures::executor::block_on`, in `clippy.toml` with `allow-invalid` so crates without those dependencies don't warn. `#[tokio::test]` expands to `block_on`, so async tests carry `#[expect(clippy::disallowed_methods, reason = ...)]`.

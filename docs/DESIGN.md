@@ -98,37 +98,33 @@ A **mock backend** lives in `faro-core` and is always compiled in; `faro --mock`
 
 ## 5. Backend interface
 
-### 5.1 Trait (sketch)
+### 5.1 Trait
+
+Implemented in `crates/faro-core/src/backend.rs` (D30). Shown here with the `impl Future` returns written as `async fn`:
 
 ```rust
-#[async_trait]
-pub trait Backend: Send + Sync {
+pub trait Backend {                       // no Send bound: futures may be !Send (D30)
     fn capabilities(&self) -> Capabilities;
 
-    // Account
-    async fn link_device(&self, device_name: &str) -> Result<LinkFlow>; // yields a URL to show as QR, then completion
     async fn whoami(&self) -> Result<Account>;
-
-    // Directory
     async fn contacts(&self) -> Result<Vec<Contact>>;
     async fn groups(&self) -> Result<Vec<Group>>;
 
-    // Messaging
-    async fn send(&self, to: ConversationId, msg: OutgoingMessage) -> Result<SentMessage>;
-    async fn react(&self, target: MessageRef, emoji: Option<String>) -> Result<()>; // None = remove
-    async fn edit(&self, target: MessageRef, new_body: String) -> Result<()>;
-    async fn delete_for_everyone(&self, target: MessageRef) -> Result<()>;
-    async fn mark_read(&self, msgs: &[MessageRef]) -> Result<()>;
-    async fn send_typing(&self, to: ConversationId, typing: bool) -> Result<()>;
-
-    // Attachments
-    async fn fetch_attachment(&self, att: &AttachmentRef) -> Result<PathBuf>;
-
-    // Event stream: incoming messages, receipts, typing, sync from other devices,
-    // contact/group updates, connection state.
-    fn events(&self) -> mpsc::Receiver<BackendEvent>;
+    // faro picks msg.sent_at, so the MessageRef is known before sending;
+    // delivery progress arrives as BackendEvent::DeliveryUpdate.
+    async fn send(&self, to: ConversationId, msg: OutgoingMessage) -> Result<()>;
+    async fn react(&self, conversation: ConversationId, target: MessageRef, emoji: Option<String>) -> Result<()>; // None = remove
+    async fn edit(&self, conversation: ConversationId, target: MessageRef, edit: OutgoingEdit) -> Result<()>;
+    async fn delete_for_everyone(&self, conversation: ConversationId, target: MessageRef) -> Result<()>;
+    async fn mark_read(&self, messages: &[MessageRef]) -> Result<()>;
+    async fn send_typing(&self, to: ConversationId, state: TypingState) -> Result<()>;
+    async fn fetch_attachment(&self, attachment: &AttachmentRef) -> Result<PathBuf>;
 }
 ```
+
+- **Events** (`BackendEvent`: connection state, messages incl. sync, delivery updates, reactions, edits, deletes, typing, contact/group updates, unsolicited errors) come over a bounded `tokio::sync::mpsc` channel. Each backend's constructor returns `(backend, BackendEvents)`; the trait has no `events()` method.
+- **Linking** is not in the trait: it happens before a backend exists and is backend-specific. Designed in M7.
+- **Capabilities** are optional features only (`Edit`, `DeleteForEveryone`, `Attachments`). Text, replies, receipts, typing and reactions are required of every backend.
 
 ### 5.2 Rules
 
@@ -136,7 +132,7 @@ pub trait Backend: Send + Sync {
 - **Identifiers are Signal's stable IDs:** service IDs (ACI UUIDs) for people, group IDs (derived from the group master key) for groups. Phone numbers are display data, not keys.
 - **Sync messages** (messages you sent from your phone) are normalised into the same `BackendEvent::Message` with `direction = Outgoing`.
 - **Capabilities** gate UI actions (e.g. hide "edit" if a backend can't edit).
-- **Errors** are typed (`Network`, `Unauthorized/Unlinked`, `RateLimited`, `Protocol`, `Storage`) so the UI can show useful states instead of crashing.
+- **Errors** are typed (`Network`, `Unlinked`, `RateLimited`, `Protocol`, `Storage`, `NotFound`, `Unsupported`) so the UI can show useful states instead of crashing. `is_transient()` says whether a retry may help. Error details never contain message bodies or phone numbers.
 
 ## 6. Data model (faro's SQLite)
 

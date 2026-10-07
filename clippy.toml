@@ -12,8 +12,12 @@ allow-print-in-tests = true
 # tokio task (`tokio::fs`, `spawn_blocking`) instead. Code that legitimately blocks
 # (startup before the TUI, the store's own thread) opts out per function with
 # `#[expect(clippy::disallowed_methods, reason = "...")]`.
-# Add async-runtime entries (e.g. `block_on`) when those crates are added.
 disallowed-methods = [
+    { path = "tokio::runtime::Runtime::block_on", reason = "blocks the thread until the future completes; await it instead", allow-invalid = true },
+    { path = "tokio::runtime::Handle::block_on", reason = "blocks the thread until the future completes; await it instead", allow-invalid = true },
+    { path = "tokio::task::block_in_place", reason = "stalls the runtime worker; use spawn_blocking", allow-invalid = true },
+    { path = "futures::executor::block_on", reason = "blocks the thread until the future completes; await it instead", allow-invalid = true },
+
     { path = "std::thread::sleep", reason = "blocks the thread; use tokio::time::sleep" },
 
     { path = "std::fs::read", reason = "blocking disk I/O" },
