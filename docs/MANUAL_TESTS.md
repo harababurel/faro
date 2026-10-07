@@ -109,3 +109,26 @@ Switch with the palette (`Ctrl+P`, `:theme`) or `theme = "…"` in the config; c
 - [ ] **macOS Terminal.app** (no truecolor before macOS 26): detected as 256 colours (`TERM_PROGRAM=Apple_Terminal`), and looks right.
 - [ ] **Forced depths:** `:colours truecolor` in a 256-colour terminal shows what happens when the guess is overridden wrongly (garbled or approximated colours, terminal-dependent); `:colours 16` switches to the system theme whatever theme is set; `:colours auto` goes back.
 - [ ] **Live:** editing `theme` in the config file while faro runs switches the theme within about half a second; a misspelt name shows a warning listing the built-in themes and keeps `faro-dark`.
+
+## M8: terminal matrix (D50; run after M7 against the real backend, and once now with the mock)
+
+Columns: **direct** = faro straight in kitty; **tmux** = kitty → tmux (with the README's tmux settings); **SSH** = kitty → ssh → tmux on the other machine; **mosh** = kitty → mosh → tmux. Mark each cell ✓, ✗ (add a note below) or – (not applicable). Also try one other terminal per OS (WezTerm/Ghostty/Alacritty/foot on Linux, iTerm2 and Terminal.app on macOS) for the rows marked †.
+
+| Check (what to look for) | Linux direct | Linux tmux | Linux SSH | Linux mosh | macOS direct | macOS tmux | macOS SSH | macOS mosh |
+|---|---|---|---|---|---|---|---|---|
+| **Rendering †:** borders straight, no stray characters after scrolling, resizing and flooding (`--mock-activity 50 --mock-no-faults`) | | | | | | | | |
+| **Emoji:** emoji-heavy chats aligned; under mosh the "mosh detected" notice and compatible emoji, elsewhere full emoji | | | | | | | | |
+| **Colours †:** `:colours` shows the expected detection (truecolor in kitty and tmux; 256 in Terminal.app / plain SSH without tmux); each theme readable; `system` follows the terminal scheme | | | | | | | | |
+| **Mouse:** click a conversation, a message, the input; wheel scrolls messages and the list; right-click menu; `:mouse off` lets the terminal select text | | | | | | | | |
+| **Clipboard (OSC 52):** select a message, `y`, paste in another app on the machine you sit at | | | | | | | | |
+| **Bell:** a message in a background conversation rings (kitty bell / tmux bell flag in the status line) | | | | | | | | |
+| **Title:** window or pane title shows `faro (N)`; the old title comes back on quit | | | | | | | | |
+| **Focus events:** switch to another window/pane and back: messages arriving meanwhile stay unread and ring; on return they're read | | | | | | | | |
+| **Bracketed paste:** paste a multi-line text into the input: it arrives as one message draft with its newlines, nothing is sent early | | | | | | | | |
+| **Keys:** `Alt+J/K`, `Alt+1..9`, `Shift+Tab`, `Alt+Enter`/`Shift+Enter` new line, `F1`, `Ctrl+P` all reach faro | | | | | | | | |
+| **Ctrl+L:** repaints the whole screen; nothing freezes | | | | | | | | |
+| **Quit and restore:** `Ctrl+Q` leaves the shell as it was (cursor visible, no mouse escape garbage when clicking afterwards, title restored) | | | | | | | | |
+
+Notes (terminal, versions, what went wrong):
+
+- 
