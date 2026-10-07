@@ -18,6 +18,7 @@ use crate::ui::{self, View};
 
 mod effects;
 pub mod event;
+pub mod input;
 pub mod state;
 mod timeline;
 pub mod update;

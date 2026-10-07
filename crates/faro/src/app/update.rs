@@ -4,14 +4,17 @@
 
 use crossterm::event::Event;
 use faro_core::backend::BackendEvent;
-use faro_core::domain::{ConversationId, Direction, Message, MessageRef, ServiceId, TypingState};
+use faro_core::domain::{
+    ConversationId, Direction, Message, MessageBody, MessageRef, ServiceId, TypingState,
+};
 use faro_core::store::{ConversationState, ConversationSummary};
 use tokio::time::Instant;
 
 use super::event::{AppEvent, Effect};
+use super::input::Input;
 use super::state::{
-    Focus, Geometry, Notice, NoticeLevel, OpenConversation, SidebarScroll, State, TYPING_TIMEOUT,
-    Typist, sort_conversations,
+    DRAFT_SAVE_DELAY, Focus, Geometry, Notice, NoticeLevel, OpenConversation, SidebarScroll, State,
+    TYPING_TIMEOUT, Typist, sort_conversations,
 };
 use super::timeline;
 
@@ -54,13 +57,16 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
             vec![]
         }
         AppEvent::Tick => {
-            expire_typing(state, Instant::now());
-            vec![]
+            let now = Instant::now();
+            expire_typing(state, now);
+            let draft_due = state
+                .open
+                .as_ref()
+                .and_then(|o| o.draft_edited)
+                .is_some_and(|t| now >= t + DRAFT_SAVE_DELAY);
+            if draft_due { save_draft(state) } else { vec![] }
         }
-        AppEvent::Shutdown => {
-            state.quit = true;
-            vec![]
-        }
+        AppEvent::Shutdown => quit(state),
     }
 }
 
@@ -69,7 +75,11 @@ fn on_terminal(state: &mut State, event: &Event) -> Vec<Effect> {
         Event::Key(key) => keys::key_action(*key, state.focus)
             .map_or_else(Vec::new, |a| navigation::on_action(state, a)),
         Event::Mouse(mouse) => navigation::on_mouse(state, *mouse),
-        Event::FocusGained | Event::FocusLost | Event::Paste(_) | Event::Resize(_, _) => vec![],
+        Event::Paste(text) => {
+            navigation::paste(state, text);
+            vec![]
+        }
+        Event::FocusGained | Event::FocusLost | Event::Resize(_, _) => vec![],
     }
 }
 
@@ -108,17 +118,44 @@ fn on_drawn(state: &mut State, geometry: Geometry) -> Vec<Effect> {
     effects
 }
 
+/// Stop: save the draft first (effects still run before the store closes).
+fn quit(state: &mut State) -> Vec<Effect> {
+    state.quit = true;
+    save_draft(state)
+}
+
+/// Copy the open conversation's input into its summary as the draft and store
+/// it, if it changed since the last save.
+fn save_draft(state: &mut State) -> Vec<Effect> {
+    let Some(open) = state.open.as_mut() else {
+        return vec![];
+    };
+    if open.draft_edited.take().is_none() {
+        return vec![];
+    }
+    let id = open.id;
+    let draft = (!open.input.is_empty()).then(|| MessageBody::new(open.input.text()));
+    match summary_entry(state, id) {
+        Some(summary) => {
+            summary.state.draft = draft;
+            vec![Effect::SaveConversationState(
+                id,
+                Box::new(summary.state.clone()),
+            )]
+        }
+        None => vec![],
+    }
+}
+
 fn open_conversation(state: &mut State, id: ConversationId) -> Vec<Effect> {
     state.sidebar.reveal = true;
-    if let Some(previous) = state.open.take()
-        && !previous.input.is_empty()
-    {
-        state.drafts.insert(previous.id, previous.input);
-    }
-    let mut effects = vec![Effect::LoadMessages(id), Effect::RememberOpen(id)];
+    let mut effects = save_draft(state);
+    effects.extend([Effect::LoadMessages(id), Effect::RememberOpen(id)]);
     let mut unread = 0;
+    let mut draft = None;
     if let Some(summary) = state.conversations.iter_mut().find(|c| c.id == id) {
         unread = std::mem::take(&mut summary.unread);
+        draft = summary.state.draft.as_ref().map(|d| Input::new(d.expose()));
     }
     if unread > 0 {
         effects.push(Effect::MarkRead(id));
@@ -130,7 +167,8 @@ fn open_conversation(state: &mut State, id: ConversationId) -> Vec<Effect> {
         pending: Vec::new(),
         unread_on_open: unread,
         unread_marker: None,
-        input: state.drafts.remove(&id).unwrap_or_default(),
+        input: draft.unwrap_or_default(),
+        draft_edited: None,
         scroll: None,
         has_older: false,
         loading_older: false,

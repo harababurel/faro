@@ -83,6 +83,10 @@ async fn execute(store: &Store, effect: Effect) -> Result<Option<AppEvent>, Stor
             store.apply(*event).await?;
             None
         }
+        Effect::SaveConversationState(conversation, state) => {
+            store.set_conversation_state(conversation, *state).await?;
+            None
+        }
         Effect::MarkRead(conversation) => {
             store.mark_read(conversation).await?;
             None

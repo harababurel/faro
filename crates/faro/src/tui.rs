@@ -5,7 +5,9 @@
 use std::io::{self, Stdout, stdout};
 use std::sync::Once;
 
-use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+use crossterm::event::{
+    DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+};
 use crossterm::terminal::{
     BeginSynchronizedUpdate, EndSynchronizedUpdate, EnterAlternateScreen, LeaveAlternateScreen,
     disable_raw_mode, enable_raw_mode,
@@ -24,7 +26,14 @@ impl Tui {
         install_panic_hook();
         let setup = || -> io::Result<Self> {
             enable_raw_mode()?;
-            execute!(stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+            // Bracketed paste: a multi-line paste arrives as one event, not as
+            // keystrokes (where each newline would be Enter).
+            execute!(
+                stdout(),
+                EnterAlternateScreen,
+                EnableMouseCapture,
+                EnableBracketedPaste
+            )?;
             let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
             terminal.clear()?;
             Ok(Self { terminal })
@@ -54,6 +63,7 @@ fn restore() {
     let _ = disable_raw_mode();
     let _ = execute!(
         stdout(),
+        DisableBracketedPaste,
         DisableMouseCapture,
         LeaveAlternateScreen,
         cursor::Show

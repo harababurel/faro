@@ -229,7 +229,8 @@ Chosen to avoid tmux's default prefix (`Ctrl+B`) and common terminal shortcuts. 
 | `↑` (empty input) | Select last message |
 | `r` `e` `d` `y` `+` `o` | (In selection) reply, edit, delete, copy, react, open |
 | `Enter` | Send; in selection: open context menu |
-| `Alt+Enter` | Newline (also `Shift+Enter` when the kitty keyboard protocol is available) |
+| `Alt+Enter` | Newline (also `Ctrl+J`; `Shift+Enter` when the kitty keyboard protocol is available) (D38) |
+| `Ctrl+A/E`, `Alt+B/F`, `Ctrl+W`, `Alt+D`, `Ctrl+U/K` | Input editing: line start/end, word left/right, delete word back/forward, delete to line start/end; arrows, `Home/End` and `Alt`/`Ctrl`+arrows too (D38) |
 | `Alt+S` / `Alt+I` | Toggle left / right sidebar |
 | `F1` or `?` (in non-input focus) | Help: opens the palette listing all keybindings |
 | `PgUp` / `PgDn` | Scroll messages by a page, from any pane (D37) |

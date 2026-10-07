@@ -4,10 +4,9 @@
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use faro_core::domain::ConversationId;
 use ratatui::layout::Position;
-use unicode_segmentation::UnicodeSegmentation as _;
 
-use super::keys::{Action, WHEEL_ROWS};
-use super::open_conversation;
+use super::keys::{Action, Edit, WHEEL_ROWS};
+use super::{open_conversation, quit};
 use crate::app::event::Effect;
 use crate::app::state::{Anchor, Focus, Notice, NoticeLevel, State};
 
@@ -17,8 +16,8 @@ pub fn on_action(state: &mut State, action: Action) -> Vec<Effect> {
         state.notice = None;
     }
     match action {
-        Action::Quit => state.quit = true,
-        Action::Interrupt => interrupt(state),
+        Action::Quit => return quit(state),
+        Action::Interrupt => return interrupt(state),
         Action::PreviousConversation => return step_conversation(state, -1),
         Action::NextConversation => return step_conversation(state, 1),
         Action::FirstConversation => return step_conversation(state, isize::MIN),
@@ -43,32 +42,110 @@ pub fn on_action(state: &mut State, action: Action) -> Vec<Effect> {
         Action::PageDown => scroll(state, -page(state)),
         Action::ScrollTop => scroll(state, isize::MAX),
         Action::ScrollBottom => scroll_to_bottom(state),
-        Action::DeleteBackward => {
-            if let Some(open) = &mut state.open
-                && let Some((at, _)) = open.input.grapheme_indices(true).next_back()
-            {
-                open.input.truncate(at);
-            }
-        }
-        Action::Insert(c) => {
-            if let Some(open) = &mut state.open {
-                open.input.push(c);
-            }
-        }
+        Action::Edit(edit) => apply_edit(state, edit),
     }
     vec![]
 }
 
-fn interrupt(state: &mut State) {
+fn apply_edit(state: &mut State, edit: Edit) {
+    let Some(open) = state.open.as_mut() else {
+        return;
+    };
+    let input = &mut open.input;
+    let before = input.text().len();
+    let changes_text = match edit {
+        Edit::Insert(c) => {
+            input.insert(c);
+            true
+        }
+        Edit::NewLine => {
+            input.newline();
+            true
+        }
+        Edit::DeleteBackward => {
+            input.backspace();
+            true
+        }
+        Edit::DeleteForward => {
+            input.delete();
+            true
+        }
+        Edit::DeleteWordBackward => {
+            input.delete_word_back();
+            true
+        }
+        Edit::DeleteWordForward => {
+            input.delete_word_forward();
+            true
+        }
+        Edit::DeleteToLineStart => {
+            input.delete_to_line_start();
+            true
+        }
+        Edit::DeleteToLineEnd => {
+            input.delete_to_line_end();
+            true
+        }
+        Edit::Left => {
+            input.left();
+            false
+        }
+        Edit::Right => {
+            input.right();
+            false
+        }
+        Edit::WordLeft => {
+            input.word_left();
+            false
+        }
+        Edit::WordRight => {
+            input.word_right();
+            false
+        }
+        Edit::LineStart => {
+            input.home();
+            false
+        }
+        Edit::LineEnd => {
+            input.end();
+            false
+        }
+        Edit::Up => {
+            input.up();
+            false
+        }
+        Edit::Down => {
+            input.down();
+            false
+        }
+    };
+    // Every text change alters the length (inserts add, deletes remove).
+    if changes_text && input.text().len() != before {
+        open.draft_edited = Some(tokio::time::Instant::now());
+    }
+}
+
+/// Pasted text (bracketed paste) goes into the input as typed, newlines kept.
+pub fn paste(state: &mut State, text: &str) {
+    state.focus = Focus::Input;
+    if let Some(open) = state.open.as_mut() {
+        open.input.insert_str(text);
+        open.draft_edited = Some(tokio::time::Instant::now());
+    }
+}
+
+fn interrupt(state: &mut State) -> Vec<Effect> {
     if state.quit_armed {
-        state.quit = true;
-    } else {
+        return quit(state);
+    }
+    {
         state.quit_armed = true;
         state.notice = Some(Notice {
             text: "Press Ctrl+C again to quit (Ctrl+Q quits at once)".to_owned(),
             level: NoticeLevel::Warning,
         });
     }
+    vec![]
 }
 
 /// Move `step` places in the sidebar order (saturating at either end).

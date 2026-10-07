@@ -28,8 +28,28 @@ pub enum Action {
     PageDown,
     ScrollTop,
     ScrollBottom,
-    DeleteBackward,
+    Edit(Edit),
+}
+
+/// Changes to the input (M4 task 2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Edit {
     Insert(char),
+    NewLine,
+    DeleteBackward,
+    DeleteForward,
+    DeleteWordBackward,
+    DeleteWordForward,
+    DeleteToLineStart,
+    DeleteToLineEnd,
+    Left,
+    Right,
+    WordLeft,
+    WordRight,
+    LineStart,
+    LineEnd,
+    Up,
+    Down,
 }
 
 /// Rows per mouse wheel notch.
@@ -38,6 +58,10 @@ pub const WHEEL_ROWS: isize = 3;
 pub fn key_action(key: KeyEvent, focus: Focus) -> Option<Action> {
     if key.kind == KeyEventKind::Release {
         return None;
+    }
+    // Shift+Enter is only distinguishable with the kitty keyboard protocol.
+    if focus == Focus::Input && key.code == KeyCode::Enter && key.modifiers == KeyModifiers::SHIFT {
+        return Some(Action::Edit(Edit::NewLine));
     }
     // Shift only changes which character arrives (and turns Tab into BackTab).
     let modifiers = key.modifiers.difference(KeyModifiers::SHIFT);
@@ -71,12 +95,34 @@ fn global(code: KeyCode, modifiers: KeyModifiers) -> Option<Action> {
     }
 }
 
+/// Editing keys: arrows and Home/End, plus the readline/Emacs keys that work in
+/// shells (Ctrl+A/E/U/K/W, Alt+B/F/D). Alt+arrows and Ctrl+arrows move by
+/// word. Newline: Alt+Enter or Ctrl+J everywhere, Shift+Enter with the kitty
+/// keyboard protocol.
 fn input(code: KeyCode, modifiers: KeyModifiers) -> Option<Action> {
-    match (code, modifiers) {
-        (KeyCode::Backspace, KeyModifiers::NONE) => Some(Action::DeleteBackward),
-        (KeyCode::Char(c), KeyModifiers::NONE) => Some(Action::Insert(c)),
-        _ => None,
-    }
+    const NONE: KeyModifiers = KeyModifiers::NONE;
+    const CTRL: KeyModifiers = KeyModifiers::CONTROL;
+    const ALT: KeyModifiers = KeyModifiers::ALT;
+    let edit = match (code, modifiers) {
+        (KeyCode::Char(c), NONE) => Edit::Insert(c),
+        (KeyCode::Enter, ALT) | (KeyCode::Char('j'), CTRL) => Edit::NewLine,
+        (KeyCode::Backspace, NONE) => Edit::DeleteBackward,
+        (KeyCode::Delete, NONE) => Edit::DeleteForward,
+        (KeyCode::Backspace, ALT | CTRL) | (KeyCode::Char('w'), CTRL) => Edit::DeleteWordBackward,
+        (KeyCode::Delete, CTRL) | (KeyCode::Char('d'), ALT) => Edit::DeleteWordForward,
+        (KeyCode::Char('u'), CTRL) => Edit::DeleteToLineStart,
+        (KeyCode::Char('k'), CTRL) => Edit::DeleteToLineEnd,
+        (KeyCode::Left, NONE) => Edit::Left,
+        (KeyCode::Right, NONE) => Edit::Right,
+        (KeyCode::Left, ALT | CTRL) | (KeyCode::Char('b'), ALT) => Edit::WordLeft,
+        (KeyCode::Right, ALT | CTRL) | (KeyCode::Char('f'), ALT) => Edit::WordRight,
+        (KeyCode::Home, NONE) | (KeyCode::Char('a'), CTRL) => Edit::LineStart,
+        (KeyCode::End, NONE) | (KeyCode::Char('e'), CTRL) => Edit::LineEnd,
+        (KeyCode::Up, NONE) => Edit::Up,
+        (KeyCode::Down, NONE) => Edit::Down,
+        _ => return None,
+    };
+    Some(Action::Edit(edit))
 }
 
 fn conversations(code: KeyCode, modifiers: KeyModifiers) -> Option<Action> {
@@ -114,7 +160,7 @@ mod tests {
     #[test]
     fn letters_type_in_the_input_and_navigate_elsewhere() {
         let j = |focus| press(KeyCode::Char('j'), KeyModifiers::NONE, focus);
-        assert_eq!(j(Focus::Input), Some(Action::Insert('j')));
+        assert_eq!(j(Focus::Input), Some(Action::Edit(Edit::Insert('j'))));
         assert_eq!(j(Focus::Conversations), Some(Action::NextConversation));
         assert_eq!(j(Focus::Messages), Some(Action::Scroll(-1)));
         // Unbound letters do nothing outside the input.
@@ -136,7 +182,7 @@ mod tests {
         );
         assert_eq!(
             press(KeyCode::Char('H'), KeyModifiers::SHIFT, Focus::Input),
-            Some(Action::Insert('H'))
+            Some(Action::Edit(Edit::Insert('H')))
         );
         assert_eq!(
             press(
@@ -145,6 +191,50 @@ mod tests {
                 Focus::Input
             ),
             Some(Action::NextConversation)
+        );
+    }
+
+    #[test]
+    fn editing_keys() {
+        let input = |code, modifiers| press(code, modifiers, Focus::Input);
+        let edit = |e| Some(Action::Edit(e));
+        assert_eq!(
+            input(KeyCode::Enter, KeyModifiers::ALT),
+            edit(Edit::NewLine)
+        );
+        assert_eq!(
+            input(KeyCode::Enter, KeyModifiers::SHIFT),
+            edit(Edit::NewLine)
+        );
+        assert_eq!(
+            input(KeyCode::Char('j'), KeyModifiers::CONTROL),
+            edit(Edit::NewLine)
+        );
+        assert_eq!(
+            input(KeyCode::Backspace, KeyModifiers::ALT),
+            edit(Edit::DeleteWordBackward)
+        );
+        assert_eq!(
+            input(KeyCode::Char('w'), KeyModifiers::CONTROL),
+            edit(Edit::DeleteWordBackward)
+        );
+        assert_eq!(
+            input(KeyCode::Char('b'), KeyModifiers::ALT),
+            edit(Edit::WordLeft)
+        );
+        assert_eq!(
+            input(KeyCode::Left, KeyModifiers::CONTROL),
+            edit(Edit::WordLeft)
+        );
+        // Alt+J/K stay conversation switching, even in the input.
+        assert_eq!(
+            input(KeyCode::Char('k'), KeyModifiers::ALT),
+            Some(Action::PreviousConversation)
+        );
+        // Ctrl+K is "delete to end of line" in the input.
+        assert_eq!(
+            input(KeyCode::Char('k'), KeyModifiers::CONTROL),
+            edit(Edit::DeleteToLineEnd)
         );
     }
 

@@ -195,19 +195,25 @@ fn switching_conversations_keeps_drafts() {
     let mut state = loaded_state();
     typed(&mut state, "half a tho");
     update(&mut state, key(KeyCode::Backspace, KeyModifiers::NONE));
-    assert_eq!(state.open.as_ref().unwrap().input, "half a th");
+    assert_eq!(state.open.as_ref().unwrap().input.text(), "half a th");
 
     let effects = update(&mut state, key(KeyCode::Char('j'), KeyModifiers::ALT));
     assert_eq!(open_id(&state), Some(alice()));
+    // The draft is stored before switching.
+    let saved = ConversationState {
+        draft: Some(MessageBody::new("half a th")),
+        ..ConversationState::default()
+    };
     assert_eq!(
         effects,
         vec![
+            Effect::SaveConversationState(climbing(), Box::new(saved)),
             Effect::LoadMessages(alice()),
             Effect::RememberOpen(alice()),
             Effect::MarkRead(alice()),
         ]
     );
-    assert_eq!(state.open.as_ref().unwrap().input, "");
+    assert_eq!(state.open.as_ref().unwrap().input.text(), "");
     // Already at the end of the list; Alt+↓ is the same action.
     assert_eq!(
         update(&mut state, key(KeyCode::Down, KeyModifiers::ALT)),
@@ -216,14 +222,14 @@ fn switching_conversations_keeps_drafts() {
 
     update(&mut state, key(KeyCode::Char('k'), KeyModifiers::ALT));
     assert_eq!(open_id(&state), Some(climbing()));
-    assert_eq!(state.open.as_ref().unwrap().input, "half a th");
+    assert_eq!(state.open.as_ref().unwrap().input.text(), "half a th");
 
     update(&mut state, key(KeyCode::Down, KeyModifiers::ALT));
     assert_eq!(open_id(&state), Some(alice()));
     update(&mut state, key(KeyCode::Up, KeyModifiers::ALT));
     assert_eq!(open_id(&state), Some(climbing()));
     // Alt+letters are commands, never text.
-    assert_eq!(state.open.as_ref().unwrap().input, "half a th");
+    assert_eq!(state.open.as_ref().unwrap().input.text(), "half a th");
 }
 
 #[test]
@@ -234,9 +240,9 @@ fn shifted_characters_are_typed_and_releases_ignored() {
     release.kind = KeyEventKind::Release;
     update(&mut state, AppEvent::Terminal(Event::Key(release)));
     typed(&mut state, "i 🧗");
-    assert_eq!(state.open.as_ref().unwrap().input, "Hi 🧗");
+    assert_eq!(state.open.as_ref().unwrap().input.text(), "Hi 🧗");
     update(&mut state, key(KeyCode::Backspace, KeyModifiers::NONE));
-    assert_eq!(state.open.as_ref().unwrap().input, "Hi ");
+    assert_eq!(state.open.as_ref().unwrap().input.text(), "Hi ");
 }
 
 #[test]
@@ -403,7 +409,7 @@ fn sidebar_keys_switch_conversations() {
     update(&mut state, key(KeyCode::Up, KeyModifiers::NONE));
     assert_eq!(open_id(&state), Some(climbing()));
     // Letters navigate here instead of typing.
-    assert_eq!(state.open.as_ref().unwrap().input, "");
+    assert_eq!(state.open.as_ref().unwrap().input.text(), "");
     update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(state.focus, Focus::Input);
 }
@@ -519,4 +525,89 @@ fn mouse_clicks_and_wheel() {
         modifiers: KeyModifiers::NONE,
     };
     assert!(!mouse_affects_view(moved));
+}
+
+// --- M4 task 2: editing and drafts ---
+
+#[test]
+fn editing_keys_change_the_input() {
+    let mut state = loaded_state();
+    typed(&mut state, "see you");
+    update(&mut state, key(KeyCode::Enter, KeyModifiers::ALT));
+    typed(&mut state, "there");
+    update(&mut state, key(KeyCode::Char('w'), KeyModifiers::CONTROL));
+    typed(&mut state, "soon");
+    update(&mut state, key(KeyCode::Up, KeyModifiers::NONE));
+    update(&mut state, key(KeyCode::Char('a'), KeyModifiers::CONTROL));
+    typed(&mut state, "OK ");
+    assert_eq!(
+        state.open.as_ref().unwrap().input.text(),
+        "OK see you\nsoon"
+    );
+}
+
+#[test]
+fn paste_keeps_newlines_and_focuses_the_input() {
+    let mut state = loaded_state();
+    state.focus = Focus::Messages;
+    update(
+        &mut state,
+        AppEvent::Terminal(Event::Paste("line one\r\nline two".to_owned())),
+    );
+    assert_eq!(state.focus, Focus::Input);
+    assert_eq!(
+        state.open.as_ref().unwrap().input.text(),
+        "line one\nline two"
+    );
+}
+
+#[test]
+fn drafts_are_saved_after_a_pause_and_on_quit_and_restored() {
+    let mut state = loaded_state();
+    // Moving the cursor isn't an edit.
+    update(&mut state, key(KeyCode::Left, KeyModifiers::NONE));
+    assert_eq!(state.next_deadline(), None);
+    typed(&mut state, "draft");
+    let due = state.next_deadline().unwrap();
+    assert!(due > Instant::now());
+
+    // Due: a Tick saves it once.
+    state.open.as_mut().unwrap().draft_edited =
+        Some(Instant::now().checked_sub(Duration::from_secs(5)).unwrap());
+    let effects = update(&mut state, AppEvent::Tick);
+    let [Effect::SaveConversationState(id, saved)] = effects.as_slice() else {
+        panic!("expected a save, got {effects:?}");
+    };
+    assert_eq!(*id, climbing());
+    assert_eq!(saved.draft.as_ref().map(MessageBody::expose), Some("draft"));
+    assert_eq!(update(&mut state, AppEvent::Tick), vec![]);
+
+    // Clearing it saves "no draft" on quit.
+    for _ in 0.."draft".len() {
+        update(&mut state, key(KeyCode::Backspace, KeyModifiers::NONE));
+    }
+    let effects = update(&mut state, key(KeyCode::Char('q'), KeyModifiers::CONTROL));
+    assert!(state.quit);
+    let [Effect::SaveConversationState(_, saved)] = effects.as_slice() else {
+        panic!("expected a save, got {effects:?}");
+    };
+    assert_eq!(saved.draft, None);
+
+    // A stored draft comes back when the conversation opens.
+    let mut state = State::new(ME, fixtures::contacts(), fixtures::groups());
+    let mut summaries = fixtures::summaries();
+    for s in &mut summaries {
+        if s.id == alice() {
+            s.state.draft = Some(MessageBody::new("unfinished"));
+        }
+    }
+    update(
+        &mut state,
+        AppEvent::Loaded {
+            conversations: summaries,
+            last_open: Some(alice()),
+        },
+    );
+    let input = &state.open.as_ref().unwrap().input;
+    assert_eq!((input.text(), input.cursor()), ("unfinished", 10));
 }

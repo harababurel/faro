@@ -13,8 +13,12 @@ use faro_core::store::ConversationSummary;
 use ratatui::layout::Rect;
 use tokio::time::Instant;
 
+use super::input::Input;
+
 /// Signal clients stop showing a typing indicator after this long without an update.
 pub const TYPING_TIMEOUT: Duration = Duration::from_secs(15);
+/// A draft is saved this long after the last edit (and on switching or quitting).
+pub const DRAFT_SAVE_DELAY: Duration = Duration::from_secs(1);
 
 #[derive(Debug)]
 pub struct State {
@@ -27,8 +31,6 @@ pub struct State {
     /// The conversation list hasn't arrived from the store yet.
     pub loading: bool,
     pub open: Option<OpenConversation>,
-    /// Unsent input of conversations that aren't open (in memory until M4).
-    pub drafts: HashMap<ConversationId, String>,
     pub connection: ConnectionState,
     pub typing: HashMap<ConversationId, Vec<Typist>>,
     pub panels: Panels,
@@ -55,7 +57,9 @@ pub struct OpenConversation {
     pub unread_on_open: u32,
     /// First message that was unread when the conversation was opened.
     pub unread_marker: Option<MessageRef>,
-    pub input: String,
+    pub input: Input,
+    /// When the input last changed without being saved as a draft.
+    pub draft_edited: Option<Instant>,
     /// `None` follows the newest message; otherwise the view is pinned to a
     /// message, so new arrivals don't move it.
     pub scroll: Option<Anchor>,
@@ -143,7 +147,6 @@ impl State {
             conversations: Vec::new(),
             loading: true,
             open: None,
-            drafts: HashMap::new(),
             connection: ConnectionState::Connecting,
             typing: HashMap::new(),
             panels: Panels {
@@ -228,13 +231,20 @@ impl State {
         self.typing.get(&id).map_or(&[], Vec::as_slice)
     }
 
-    /// When the reducer next needs a `Tick` (a typing indicator expiring).
+    /// When the reducer next needs a `Tick` (a typing indicator expiring, a
+    /// draft to save).
     pub fn next_deadline(&self) -> Option<Instant> {
-        self.typing
+        let typing = self
+            .typing
             .values()
             .flatten()
-            .map(|t| t.since + TYPING_TIMEOUT)
-            .min()
+            .map(|t| t.since + TYPING_TIMEOUT);
+        let draft = self
+            .open
+            .as_ref()
+            .and_then(|o| o.draft_edited)
+            .map(|t| t + DRAFT_SAVE_DELAY);
+        typing.chain(draft).min()
     }
 }
 

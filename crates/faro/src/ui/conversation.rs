@@ -11,6 +11,7 @@ use unicode_width::UnicodeWidthStr as _;
 
 use super::text::{sanitize, truncate};
 use super::{View, focused, messages};
+use crate::app::input::Input;
 use crate::app::state::{Focus, Geometry, OpenConversation, State};
 
 /// The input box grows with its text up to this many lines.
@@ -62,8 +63,9 @@ pub fn render(
     frame.render_widget(block, area);
 
     let input_width = usize::from(inner.width.saturating_sub(4));
-    let input_lines = input_lines(&open.input, input_width);
-    let input_height = u16::try_from(input_lines.len().clamp(1, INPUT_MAX_LINES)).unwrap_or(1) + 2;
+    let input_layout = layout_input(&open.input, input_width);
+    let input_height =
+        u16::try_from(input_layout.lines.len().clamp(1, INPUT_MAX_LINES)).unwrap_or(1) + 2;
     let [history, typing, input] = Layout::vertical([
         Constraint::Fill(1),
         Constraint::Length(1),
@@ -75,7 +77,15 @@ pub fn render(
     geometry.input = Some(input);
     render_history(frame, history, state, open, view, geometry);
     render_typing(frame, typing, state, open, view);
-    render_input(frame, input, state, open, &input_lines, view, input_focused);
+    render_input(
+        frame,
+        input,
+        state,
+        open,
+        &input_layout,
+        view,
+        input_focused,
+    );
 }
 
 fn render_history(
@@ -179,7 +189,7 @@ fn render_input(
     area: Rect,
     state: &State,
     open: &OpenConversation,
-    lines: &[String],
+    layout: &InputLayout,
     view: &View<'_>,
     focused: bool,
 ) {
@@ -201,15 +211,19 @@ fn render_input(
         }
         return;
     }
-    let visible = usize::from(inner.height);
-    let skip = lines.len().saturating_sub(visible);
-    let shown: Vec<Line<'static>> = lines
+    // Keep the cursor's line in view.
+    let visible = usize::from(inner.height).max(1);
+    let (row, column) = layout.cursor;
+    let skip = (row + 1).saturating_sub(visible);
+    let shown: Vec<Line<'static>> = layout
+        .lines
         .iter()
         .skip(skip)
+        .take(visible)
         .map(|l| Line::from(l.clone()))
         .collect();
-    let cursor_row = shown.len().saturating_sub(1);
-    let cursor_col = lines.last().map_or(0, |l| l.width());
+    let cursor_row = row - skip;
+    let cursor_col = column;
     frame.render_widget(Paragraph::new(shown), inner);
     let x = inner.x
         + u16::try_from(cursor_col)
@@ -221,15 +235,29 @@ fn render_input(
     }
 }
 
+/// The input wrapped to the box, and where the cursor lands.
+struct InputLayout {
+    lines: Vec<String>,
+    /// Row and display column of the cursor.
+    cursor: (usize, usize),
+}
+
 /// Hard-wrap input between graphemes, keeping every character (including
-/// trailing spaces) so the cursor lands right after the last one. A full last
-/// line gets an empty line after it for the cursor.
-fn input_lines(input: &str, width: usize) -> Vec<String> {
+/// trailing spaces) so the cursor can sit after any of them. A cursor at the
+/// end of a full line moves to an extra empty line.
+fn layout_input(input: &Input, width: usize) -> InputLayout {
     let width = width.max(1);
+    // `Input` holds no control characters besides `\n` (see `insert_str`), so
+    // byte offsets match the cursor.
+    let text = input.text();
     let mut lines = vec![String::new()];
     let mut used = 0;
-    for g in sanitize_keep_newlines(input).graphemes(true) {
+    let mut cursor = None;
+    for (at, g) in text.grapheme_indices(true) {
         if g == "\n" {
+            if at == input.cursor() {
+                cursor = Some((lines.len() - 1, used));
+            }
             lines.push(String::new());
             used = 0;
             continue;
@@ -239,34 +267,60 @@ fn input_lines(input: &str, width: usize) -> Vec<String> {
             lines.push(String::new());
             used = 0;
         }
+        if at == input.cursor() {
+            cursor = Some((lines.len() - 1, used));
+        }
         if let Some(line) = lines.last_mut() {
             line.push_str(g);
         }
         used += w;
     }
-    if used >= width {
-        lines.push(String::new());
-    }
-    lines
-}
-
-fn sanitize_keep_newlines(text: &str) -> String {
-    text.split('\n')
-        .map(|part| sanitize(part).into_owned())
-        .collect::<Vec<_>>()
-        .join("\n")
+    let cursor = cursor.unwrap_or_else(|| {
+        if used >= width {
+            lines.push(String::new());
+            (lines.len() - 1, 0)
+        } else {
+            (lines.len() - 1, used)
+        }
+    });
+    InputLayout { lines, cursor }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn lines(text: &str, width: usize) -> Vec<String> {
+        layout_input(&Input::new(text), width).lines
+    }
+
     #[test]
     fn input_wraps_and_keeps_trailing_spaces() {
-        assert_eq!(input_lines("", 5), vec![""]);
-        assert_eq!(input_lines("hello ", 10), vec!["hello "]);
-        assert_eq!(input_lines("abcdefg", 3), vec!["abc", "def", "g"]);
-        assert_eq!(input_lines("abc", 3), vec!["abc", ""]);
-        assert_eq!(input_lines("a\nb", 5), vec!["a", "b"]);
+        assert_eq!(lines("", 5), vec![""]);
+        assert_eq!(lines("hello ", 10), vec!["hello "]);
+        assert_eq!(lines("abcdefg", 3), vec!["abc", "def", "g"]);
+        assert_eq!(lines("abc", 3), vec!["abc", ""]);
+        assert_eq!(lines("a\nb", 5), vec!["a", "b"]);
+    }
+
+    #[test]
+    fn cursor_lands_where_the_text_is_edited() {
+        let mut input = Input::new("abcdefg");
+        assert_eq!(layout_input(&input, 3).cursor, (2, 1));
+        input.home();
+        assert_eq!(layout_input(&input, 3).cursor, (0, 0));
+        for _ in 0..4 {
+            input.right();
+        }
+        assert_eq!(layout_input(&input, 3).cursor, (1, 1));
+        let mut input = Input::new("ab\n🧗x");
+        input.left();
+        assert_eq!(
+            layout_input(&input, 10).cursor,
+            (1, 2),
+            "after a wide emoji"
+        );
+        input.up();
+        assert_eq!(layout_input(&input, 10).cursor, (0, 2));
     }
 }

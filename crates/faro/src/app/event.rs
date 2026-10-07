@@ -2,7 +2,7 @@
 
 use faro_core::backend::BackendEvent;
 use faro_core::domain::{ConversationId, Message, MessageRef};
-use faro_core::store::ConversationSummary;
+use faro_core::store::{ConversationState, ConversationSummary};
 
 use super::state::Geometry;
 
@@ -49,6 +49,8 @@ pub enum Effect {
     },
     Persist(Box<BackendEvent>),
     MarkRead(ConversationId),
+    /// Store hide/archive/pin/mute/draft for a conversation.
+    SaveConversationState(ConversationId, Box<ConversationState>),
     /// Reopen this conversation on the next start.
     RememberOpen(ConversationId),
 }
