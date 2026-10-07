@@ -91,10 +91,13 @@ docs/
   DECISIONS.md     # why (decision log)
   PLAN.md          # milestones and progress
   BACKGROUND.md    # context and research
+  MANUAL_TESTS.md  # checks only a human at a real terminal can do
 AGENTS.md          # onboarding for coding agents
 ```
 
-A **mock backend** lives in `faro-core` (`src/mock.rs`, `src/mock/`) and is always compiled in; `faro --mock` selects it at runtime. It is used for development, tests and demos without a Signal account. A fixed cast of contacts and groups (emoji, long names, many quiet conversations) receives a backlog on connect and then seeded scripted activity (messages, typing, replies, reactions, edits, deletes, sync messages, outages, errors). With a fixed seed and tokio's paused clock its event sequence is deterministic (D31). Until the TUI exists (M3), `faro` runs the backend headless, logging event kinds and printing a summary on Ctrl+C (D32); `--mock-seed` picks the scripted activity.
+A **mock backend** lives in `faro-core` (`src/mock.rs`, `src/mock/`) and is always compiled in; `faro --mock` selects it at runtime. It is used for development, tests and demos without a Signal account. A fixed cast of contacts and groups (emoji, long names, many quiet conversations) receives a backlog on connect and then seeded scripted activity (messages, typing, replies, reactions, edits, deletes, sync messages, outages, errors). With a fixed seed and tokio's paused clock its event sequence is deterministic (D31). `--mock-seed` picks the scripted activity, `--mock-activity <ms>` its pace, and `--mock-no-faults` turns off scripted outages and errors (for flood tests, D35).
+
+Inside `crates/faro`: `app.rs` (event loop), `app/` (state, reducer, effects worker, in-memory timeline), `tui.rs` (terminal setup and restore), `theme.rs`, and `ui.rs` + `ui/` (pure rendering from `State`) (D35).
 
 ## 5. Backend interface
 
@@ -179,6 +182,7 @@ presage keeps its own store for keys, sessions and protocol state; faro never to
 - **Right sidebar (optional):** conversation info, members, safety number, shared links/files.
 - **Footer:** connection status, unread total, mode, and **context-sensitive key hints** (change with focus).
 - Sidebars are **collapsible**, **resizable** (mouse drag or keys), and **auto-hide on narrow terminals**. Widths persist in `app_state`.
+- **As built in M3 (D35):** fixed widths (left 30, right 28), auto-hidden below 70 and 110 columns; `Alt+S`/`Alt+I` toggle them. Pinned/Recent headers appear only when something is pinned. Resizing comes in v0.2.
 
 ### 7.2 Command palette (`Ctrl+P`)
 
@@ -286,6 +290,7 @@ Sketch:
 - Automatic **fallback to 256 colours** when truecolor isn't available.
 - **Live preview** while moving through the theme picker; theme files hot-reload.
 - **Open:** licence check for each bundled theme before shipping.
+- **As built in M3 (D35):** `Theme` lives in `crates/faro/src/theme.rs` (it holds ratatui colours, which `faro-core` can't depend on; parsing theme files can still live in `faro-core` later). One built-in theme, `faro-dark`, with faro's own colours; roles are those above plus `unread` and an 8-colour sender palette.
 
 ## 11. Terminal compatibility
 
@@ -355,7 +360,7 @@ Task-level breakdown and progress tracking: [PLAN.md](PLAN.md).
 - **UI:** snapshot tests with ratatui's `TestBackend` + `insta`, including narrow widths and emoji-heavy content.
 - **Store:** migration tests on a temp DB.
 - **Backend:** thin integration tests behind a feature flag, run manually against a **test Signal account** (never the author's main account during development).
-- **Terminal matrix (manual checklist per release):** kitty, WezTerm, Ghostty, iTerm2, Alacritty, foot; each with and without tmux; over SSH; macOS and Linux. Agents cannot verify this; it is the main human testing task.
+- **Terminal matrix (manual checklist per release):** kitty, WezTerm, Ghostty, iTerm2, Alacritty, foot; each with and without tmux; over SSH; macOS and Linux. Agents cannot verify this; it is the main human testing task. The checklist lives in [MANUAL_TESTS.md](MANUAL_TESTS.md); agents add an item whenever a change affects rendering, input, mouse, colours or emoji.
 
 ## 16. Candidate crates
 

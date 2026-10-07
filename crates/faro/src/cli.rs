@@ -26,6 +26,22 @@ pub struct Cli {
     /// same conversation.
     #[arg(long, env = "FARO_MOCK_SEED", value_name = "SEED", default_value_t = 0)]
     pub mock_seed: u64,
+
+    /// Mean milliseconds between the mock's scripted events. Small values flood
+    /// the UI, for checking that typing never stalls (e.g. 5).
+    #[arg(
+        long,
+        env = "FARO_MOCK_ACTIVITY",
+        value_name = "MS",
+        default_value_t = 4000
+    )]
+    pub mock_activity: u64,
+
+    /// Turn off the mock's scripted outages and errors. Use with a small
+    /// `--mock-activity` for a real flood: otherwise an outage starts almost at
+    /// once and the mock spends most of its time offline.
+    #[arg(long, env = "FARO_MOCK_NO_FAULTS")]
+    pub mock_no_faults: bool,
 }
 
 #[cfg(test)]
@@ -56,5 +72,11 @@ mod tests {
         assert_eq!(cli.mock_seed, 42);
 
         assert!(Cli::try_parse_from(["faro", "--mock-seed", "-1"]).is_err());
+        assert_eq!(cli.mock_activity, 4000);
+        let cli = Cli::try_parse_from(["faro", "--mock-activity", "5"]).unwrap();
+        assert_eq!(cli.mock_activity, 5);
+        assert!(!cli.mock_no_faults);
+        let cli = Cli::try_parse_from(["faro", "--mock-no-faults"]).unwrap();
+        assert!(cli.mock_no_faults);
     }
 }

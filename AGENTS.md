@@ -14,6 +14,7 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 | [docs/DESIGN.md](docs/DESIGN.md) | What to build: architecture, backend trait, data model, UI, config, themes, notifications. |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Why things are the way they are, and what was rejected. Don't relitigate accepted decisions without a new reason. |
 | [docs/BACKGROUND.md](docs/BACKGROUND.md) | The owner's setup, problems with gurk, research notes, naming history. |
+| [docs/MANUAL_TESTS.md](docs/MANUAL_TESTS.md) | Hands-on checks only a human at a real terminal can do; add to it per rule 10. |
 
 ## Current state (update this section as work progresses)
 
@@ -27,12 +28,14 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 - 2026-10-07: M1 task 3 done: `MockBackend` (D31). M1 acceptance test passes (`mock::tests::same_seed_same_event_sequence`).
 - 2026-10-07: M1 task 4 done, **M1 complete**: `faro [--mock] [--mock-seed N]` runs the mock headless on a current-thread tokio runtime until Ctrl+C, logging event kinds and a summary (D32).
 - 2026-10-07: **M2 complete** (store, D34): `faro-core::store` (SQLite via sqlx 0.9, one task owns the connection, `Store` handle over a channel), schema in `crates/faro-core/migrations/`. The headless run persists everything to `<data dir>/faro.db`; restart keeps history (tested and checked by hand).
-- **Next: M3 (TUI skeleton)**; see docs/PLAN.md M3 and DESIGN.md §7, §10. Notes:
-  - Add `ratatui` + `crossterm` (with `event-stream`) to `crates/faro` only; `faro-core` must never depend on them (D20).
-  - Startup: open the `Store`, load `store.conversations()` and the first page of `store.messages(conv, None, n)` for the open conversation, then persist each `BackendEvent` (as `headless.rs` does) *and* feed it to the reducer. Store calls are effects (D22): the reducer never awaits them.
-  - `ConversationSummary.title` is `None` when nothing is known; fall back to the phone number, then the ID. Contacts with no messages appear as empty conversations at the end of the list (D34); decide whether to show them.
-  - Replace `headless.rs` with the TUI and drop the `println!`s in `main.rs` (and their `#[expect(clippy::print_stdout)]`). Ctrl+C becomes a key event in raw mode.
-  - Rendering and input can't be verified by agents (rule 10): add items to a manual test checklist.
+- 2026-10-07: **M3 complete** (TUI skeleton, D35): ratatui + crossterm in `crates/faro`; select loop, synchronous reducer, sequential effects worker, IRC message view, sidebars, input panel, footer, `faro-dark` theme, insta snapshots. `headless.rs` is gone. Flood-tested in tmux (`--mock-activity 2 --mock-no-faults`). Hands-on checks for the owner are in `docs/MANUAL_TESTS.md`.
+- **Next: M4 (core interactions + command palette)**; see docs/PLAN.md M4 and DESIGN.md §7.2–7.7. Notes:
+  - **Sending needs the backend inside the app.** Today `main` passes only the event receiver to `app::run` and keeps the `MockBackend` alive outside it. Backend futures may be `!Send` (presage, D30), so run commands on the current-thread runtime (e.g. a command task that owns the backend, fed by a channel from the effects side), never in the reducer. The app owns the `Sending` state (D31): insert the outgoing message locally, then apply `Sent`/`Failed` from the result.
+  - Keys live in `app/update.rs` `key_action` as a tuple match; M4 task 7 turns `Action` into the rebindable action enum. Shifted characters arrive with `SHIFT` stripped before matching.
+  - Drafts are in-memory (`State::drafts`); the store already has `ConversationState::draft` and `set_conversation_state` for persisting them. Hide/archive/pin/mute map to the same struct.
+  - Mouse events are captured but ignored (`affects_view` skips redraws for them); M4 adds click and wheel handling.
+  - The unread marker is fixed when a conversation opens (`OpenConversation::unread_marker`); read receipts to the backend (`mark_read`) are M4 task 6.
+  - Add every new key, mouse or rendering behaviour to `docs/MANUAL_TESTS.md` (rule 10).
 
 ### Gotchas found so far
 
@@ -47,6 +50,10 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 - Store tests use real time, not `start_paused`: SQLite works on its own thread, so a paused clock auto-advances while waiting and timers fire early (D34).
 - Pedantic clippy wants `as_chunks::<N>()` over `chunks_exact(N)`, `type` aliases at module level (`items_after_statements`), and `assert_eq!(v, vec![])` over `assert!(v.is_empty())`.
 - Store SQL uses runtime `sqlx::query`/`query_as` with tuple rows (up to 16 columns), not `query!` (needs a DB at compile time).
+- **Snapshots:** after a UI change run `INSTA_UPDATE=always cargo test -p faro`, then read `git diff crates/faro/src/ui/snapshots/` before committing. Snapshot files store cells, so wide or variation-selector emoji make rows look misaligned in the `.snap` file even when the layout is right.
+- **Smoke-testing the TUI from an agent:** use a private tmux server and `respawn-pane` (chaining the command into `new-session` fails silently): `tmux -L faro-smoke -f /dev/null new-session -d -x 110 -y 30 -s s; tmux -L faro-smoke set -g remain-on-exit on; tmux -L faro-smoke respawn-pane -k -t s "./target/debug/faro --data-dir <scratch dir>"`. Drive it with `send-keys` (`M-Down`, `-l 'text'`, `C-q`), read it with `capture-pane -p`, then `kill-server`. Always use a scratch `--data-dir`.
+- **Flood tests** need `--mock-no-faults` as well as a small `--mock-activity`, or the mock spends most of its time in scripted outages. Judge CPU on a release build; debug is several times slower and takes seconds to flush queued writes on quit.
+- Key handling: match on `(code, modifiers)` tuples (no wildcard-lint trouble). Event handlers take `&Event` (`needless_pass_by_value`). `single_match_else` wants `if let ... else`.
 
 ### Code map
 
@@ -55,9 +62,14 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 | `Cargo.toml` | Workspace: shared package metadata, `[workspace.lints]` (unsafe forbidden, clippy pedantic, D28 no-panic/no-print rules), release profile |
 | `rust-toolchain.toml` | Pinned Rust version (D25) |
 | `clippy.toml` | Test relaxations for panic lints; `disallowed-methods` list of blocking calls incl. `block_on` (D28, D30) |
-| `crates/faro/src/main.rs` | Entry point: parse CLI, resolve paths, start logging (synchronous), then a current-thread tokio runtime that opens the store and runs the mock headless until Ctrl+C (D32) |
-| `crates/faro/src/cli.rs` | `clap` CLI definition (`--data-dir` / `FARO_DATA_DIR`, `--mock`, `--mock-seed` / `FARO_MOCK_SEED`) |
-| `crates/faro/src/headless.rs` | Interim stand-in for the TUI: drives a `Backend`, persists contacts, groups and events into the `Store`, logs event kinds (never content), returns a `Summary`. Delete in M3 |
+| `crates/faro/src/main.rs` | Entry point: parse CLI, resolve paths, start logging, read the time zone (synchronous), then a current-thread tokio runtime: open the store, start the mock, load the directory, run the TUI, close the store |
+| `crates/faro/src/cli.rs` | `clap` CLI definition (`--data-dir` / `FARO_DATA_DIR`, `--mock`, `--mock-seed`, `--mock-activity`, `--mock-no-faults`) |
+| `crates/faro/src/app.rs` | `Directory`/`load_directory` (account, contacts, groups) and `run`: the `tokio::select!` loop over terminal, backend, store results, redraw timer, typing deadline and signals (D35) |
+| `crates/faro/src/app/` | `event.rs` (`AppEvent`, `Effect`), `state.rs` (`State`, `OpenConversation`, panels, notices, title/name helpers), `update.rs` + `update/tests.rs` (the reducer and key map), `timeline.rs` (in-memory event application matching the store), `effects.rs` (sequential effects worker) |
+| `crates/faro/src/tui.rs` | `Tui`: raw mode, alternate screen, mouse capture, panic hook, synchronized-output draws; restores the terminal on drop |
+| `crates/faro/src/theme.rs` | `Theme` with semantic roles and sender palette; built-in `faro-dark` |
+| `crates/faro/src/ui.rs`, `ui/` | Pure rendering from `State`: layout in `ui.rs`; `sidebar.rs`, `conversation.rs` (pane, typing line, input panel), `messages.rs` (IRC layout), `info.rs`, `footer.rs`, `text.rs` (sanitize, width, wrap), `tests.rs` + `snapshots/` |
+| `crates/faro/src/fixtures.rs` | Test-only cast, history and loaded state for reducer and snapshot tests |
 | `crates/faro/src/logging.rs` | `tracing` to `<data dir>/logs/faro.log`, non-blocking, `FARO_LOG` filter, rotation over 10 MB (D26) |
 | `crates/faro-core/src/backend.rs`, `backend/` | `Backend` trait, `Account`, `OutgoingMessage`/`OutgoingEdit`, `Capabilities`; `event.rs` (`BackendEvent`), `error.rs` (`BackendError`) (D30) |
 | `crates/faro-core/src/domain/` | Domain types (D29): `ids.rs` (ServiceId, GroupId, ConversationId, Timestamp, MessageRef), `sensitive.rs` (redacting MessageBody, PhoneNumber), `people.rs`, `message.rs`, `presence.rs` |
@@ -65,6 +77,7 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 | `crates/faro-core/src/paths.rs` | XDG paths (D17) incl. `db_file()`, `0700` dirs / `0600` files helpers, with tests |
 | `crates/faro-core/src/store.rs`, `store/` | `Store` handle, request channel and serve task, `StoreError`, `ConversationSummary`/`ConversationState` (D34); `db.rs` (all SQL), `codec.rs` (domain ↔ column conversions), `tests.rs` (incl. restart acceptance test) |
 | `crates/faro-core/migrations/` | SQLite schema, embedded with `sqlx::migrate!()` and run on open |
+| `docs/MANUAL_TESTS.md` | Hands-on checklist for things agents can't verify (rule 10) |
 | `.github/workflows/ci.yml` | fmt, clippy `-D warnings`, test on ubuntu + macos (`--locked`) |
 
 ## Rules
@@ -78,7 +91,7 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 7. **Quality gate before every commit:** `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`.
 8. **Git:** after finishing each well-defined chunk of work (a PLAN task or milestone), with the quality gate green, **commit and push without asking** (D33). Small commits, short imperative messages (e.g. "Add mock backend event generator"). Never rewrite pushed history.
 9. **Prefer rules the tools enforce over conventions** (D27). When new code introduces a rule worth keeping (no panics, no blocking calls in the UI, no secrets in logs…), enforce it with lints, `clippy.toml` bans, CI checks or tests, and list it in PLAN.md "Ongoing: mechanical constraints".
-10. **Terminal behaviour can't be fully verified by agents.** When a change affects rendering, input, mouse, colours or emoji, say so and add an item to the manual test checklist instead of claiming it works.
+10. **Terminal behaviour can't be fully verified by agents.** When a change affects rendering, input, mouse, colours or emoji, say so and add an item to [docs/MANUAL_TESTS.md](docs/MANUAL_TESTS.md) instead of claiming it works.
 
 ## Working with the owner
 

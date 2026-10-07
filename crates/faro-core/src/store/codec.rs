@@ -6,31 +6,14 @@
 use super::{Result, StoreError};
 use crate::domain::{ConversationId, DeliveryStatus, Direction, ServiceId, Timestamp};
 
-const DIRECT: &str = "direct:";
-const GROUP: &str = "group:";
-
-/// `direct:<service id>` or `group:<hex>`.
+/// `direct:<service id>` or `group:<hex>` (`ConversationId`'s string form).
 pub(super) fn conversation_key(id: ConversationId) -> String {
-    match id {
-        ConversationId::Direct(peer) => format!("{DIRECT}{peer}"),
-        ConversationId::Group(group) => format!("{GROUP}{group}"),
-    }
+    id.to_string()
 }
 
 pub(super) fn conversation_from_key(key: &str) -> Result<ConversationId> {
-    let corrupt = || StoreError::Corrupt("conversation id");
-    if let Some(peer) = key.strip_prefix(DIRECT) {
-        peer.parse()
-            .map(ConversationId::Direct)
-            .map_err(|_| corrupt())
-    } else if let Some(group) = key.strip_prefix(GROUP) {
-        group
-            .parse()
-            .map(ConversationId::Group)
-            .map_err(|_| corrupt())
-    } else {
-        Err(corrupt())
-    }
+    key.parse()
+        .map_err(|_| StoreError::Corrupt("conversation id"))
 }
 
 pub(super) fn service_id_from_db(value: &str, column: &'static str) -> Result<ServiceId> {

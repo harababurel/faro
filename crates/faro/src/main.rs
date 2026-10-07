@@ -1,6 +1,11 @@
+mod app;
 mod cli;
-mod headless;
+#[cfg(test)]
+mod fixtures;
 mod logging;
+mod theme;
+mod tui;
+mod ui;
 
 use anyhow::Context as _;
 use clap::Parser as _;
@@ -8,10 +13,6 @@ use faro_core::mock::{MockBackend, MockConfig};
 use faro_core::paths::Paths;
 use faro_core::store::Store;
 
-#[expect(
-    clippy::print_stdout,
-    reason = "placeholder output before the TUI exists (M3)"
-)]
 #[expect(
     clippy::disallowed_methods,
     reason = "the program's entry point: main blocks on the runtime until faro exits"
@@ -23,7 +24,9 @@ fn main() -> anyhow::Result<()> {
     paths
         .ensure_data_dirs()
         .with_context(|| format!("creating data directory {}", paths.data_dir().display()))?;
-    let (_log_guard, log_file) = logging::init(&paths.log_dir())?;
+    let (_log_guard, _log_file) = logging::init(&paths.log_dir())?;
+    // Reads TZ or /etc/localtime once, before the UI; falls back to UTC.
+    let tz = jiff::tz::TimeZone::system();
 
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "faro starting");
     if !cli.mock {
@@ -32,17 +35,16 @@ fn main() -> anyhow::Result<()> {
     }
     let config = MockConfig {
         seed: cli.mock_seed,
+        activity: Some(std::time::Duration::from_millis(cli.mock_activity.max(1))),
+        disconnects: !cli.mock_no_faults,
+        errors: !cli.mock_no_faults,
         ..MockConfig::default()
     };
-    tracing::info!(seed = config.seed, "starting mock backend");
-
-    println!(
-        "faro {}: no UI yet (it arrives in M3).\n\
-         Running the mock backend (seed {}); events are logged to {}\n\
-         Press Ctrl+C to stop.",
-        env!("CARGO_PKG_VERSION"),
-        config.seed,
-        log_file.display()
+    tracing::info!(
+        seed = config.seed,
+        activity_ms = cli.mock_activity,
+        faults = !cli.mock_no_faults,
+        "starting mock backend"
     );
 
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -54,30 +56,12 @@ fn main() -> anyhow::Result<()> {
         let store = Store::open(&db_file)
             .await
             .with_context(|| format!("opening the database {}", db_file.display()))?;
-        let stats = store.stats().await?;
-        println!(
-            "History: {} messages in {} conversations ({}).",
-            stats.messages,
-            stats.conversations,
-            db_file.display()
-        );
-
         let (backend, events) = MockBackend::new(&config);
-        let summary = headless::run(&backend, events, &store, ctrl_c()).await;
-
-        let stats = store.stats().await?;
+        let directory = app::load_directory(&backend, &store).await?;
+        let result = app::run(events, store.clone(), directory, tz).await;
+        drop(backend);
         store.close().await.context("closing the database")?;
-        println!(
-            "\nStopped: {summary}.\nHistory: {} messages in {} conversations.",
-            stats.messages, stats.conversations
-        );
-        tracing::info!(%summary, messages = stats.messages, "faro exiting");
-        anyhow::Ok(())
+        tracing::info!("faro exiting");
+        result
     })
-}
-
-async fn ctrl_c() {
-    if let Err(error) = tokio::signal::ctrl_c().await {
-        tracing::error!(%error, "can't listen for Ctrl+C; stopping");
-    }
 }

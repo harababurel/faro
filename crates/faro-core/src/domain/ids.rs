@@ -122,6 +122,42 @@ impl From<GroupId> for ConversationId {
     }
 }
 
+const DIRECT_PREFIX: &str = "direct:";
+const GROUP_PREFIX: &str = "group:";
+
+/// `direct:<service id>` or `group:<hex>`: the database key and saved-state form.
+impl fmt::Display for ConversationId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Direct(peer) => write!(f, "{DIRECT_PREFIX}{peer}"),
+            Self::Group(group) => write!(f, "{GROUP_PREFIX}{group}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("invalid conversation ID")]
+pub struct ParseConversationIdError;
+
+impl FromStr for ConversationId {
+    type Err = ParseConversationIdError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Some(peer) = s.strip_prefix(DIRECT_PREFIX) {
+            peer.parse()
+                .map(Self::Direct)
+                .map_err(|_| ParseConversationIdError)
+        } else if let Some(group) = s.strip_prefix(GROUP_PREFIX) {
+            group
+                .parse()
+                .map(Self::Group)
+                .map_err(|_| ParseConversationIdError)
+        } else {
+            Err(ParseConversationIdError)
+        }
+    }
+}
+
 /// Milliseconds since the Unix epoch, as Signal uses for message timestamps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 pub struct Timestamp(u64);

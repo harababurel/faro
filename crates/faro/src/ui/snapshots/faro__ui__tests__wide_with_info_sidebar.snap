@@ -1,0 +1,36 @@
+---
+source: crates/faro/src/ui/tests.rs
+expression: "snapshot(&draw(&state, 120, 32))"
+---
+╭ Conversations ─────────────╮╭ Climbing 🧗 ───────────────────────────────────────────────╮╭ Info ────────────────────╮
+│ ▾ Pinned                   ││                                                            ││ Climbing 🧗              │
+│   Bob                      ││                                                            ││ Group · 4 members        │
+│ ▾ Recent                   ││                                                            ││                          │
+│   Climbing 🧗 …            ││                                                            ││ Members                  │
+│ ● Alice 🌸               1 ││                                                            ││ You                      │
+│                            ││                                                            ││ Alice 🌸                 │
+│                            ││                                                            ││ Bob                      │
+│                            ││ ─────────────────────── Yesterday ──────────────────────── ││ Carol Bartholomew-Smythe │
+│                            ││ 16:30   Alice 🌸 Anyone up for the wall on Thursday?       ││                          │
+│                            ││ 16:40        You Yes! 7pm at the usual place 👍 ✓✓         ││ Notifications            │
+│                            ││                  👍 2  ❤️                                  ││ On                       │
+│                            ││ ───────────────────────── Today ────────────────────────── ││                          │
+│                            ││ 17:20        Bob ▎ Alice 🌸: Anyone up for the wall on Th… ││                          │
+│                            ││                  Count me in, I'll bring the spare harness ││                          │
+│                            ││ 17:22            and chalk (edited)                        ││                          │
+│                            ││ 17:40 Carol Bar… This message was deleted                  ││                          │
+│                            ││ 17:50 Carol Bar… Route map from last time                  ││                          │
+│                            ││                  📎 route-map.jpg · 2.3 MB                 ││                          │
+│                            ││ ────────────────────── new messages ────────────────────── ││                          │
+│                            ││ 17:51            Also: the new overhang section opened     ││                          │
+│                            ││                  last week and apparently the grades are   ││                          │
+│                            ││                  soft, so bring your project shoes 🧗‍♀️🧗‍♂️    ││                          │
+│                            ││                  and maybe some tape for your fingers.     ││                          │
+│                            ││ 17:54        You On my way ✓                               ││                          │
+│                            ││ 17:55   Alice 🌸 Running 10 min late 🙈                    ││                          │
+│                            ││ Alice 🌸 is typing…                                        ││                          │
+│                            ││╭──────────────────────────────────────────────────────────╮││                          │
+│                            │││ See you there                                            │││                          │
+│                            ││╰──────────────────────────────────────────────────────────╯││                          │
+╰────────────────────────────╯╰────────────────────────────────────────────────────────────╯╰──────────────────────────╯
+ ● connected · 1 unread                                 alt+↑↓ conversations · alt+s sidebar · alt+i info · ctrl+q quit

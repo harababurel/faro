@@ -29,6 +29,9 @@ The owner wants correctness and efficiency rules enforced by tools wherever poss
 - [x] No `_ =>` on enums: `wildcard_enum_match_arm` (M1, D29)
 - [x] No `block_on` / `block_in_place` (tokio, futures) via `disallowed-methods` (M1, D30)
 - [x] The database rejects bad rows: STRICT tables, `CHECK` constraints, foreign keys on; reads validate values into `StoreError::Corrupt` instead of panicking (M2, D34)
+- [x] `faro-core` never depends on terminal crates: the `architecture` test fails if its `Cargo.toml` mentions `ratatui` or `crossterm` (M3, D20, D35)
+- [x] Network text can't inject escape sequences: everything rendered goes through `ui::text::sanitize`, with a test (M3, D35)
+- [x] Rendering never panics on tiny terminals: `ui::tests::tiny_terminals_never_panic` draws every size up to 40×12 (M3)
 
 ## M0: Scaffolding
 
@@ -139,7 +142,7 @@ The owner wants correctness and efficiency rules enforced by tools wherever poss
 
 **Tasks**
 1. Terminal matrix checklist (DESIGN.md §15) on Linux and macOS, with and without tmux, over SSH. The owner does the hands-on part; agents prepare the checklist and fix issues.
-2. Emoji-heavy conversations under tmux; fix width issues found.
+2. Emoji-heavy conversations under tmux; fix width issues found. Known since M3: variation-selector emoji (❤️), flags and ZWJ sequences are narrower in tmux than `unicode-width` says, shifting borders (D35; MANUAL_TESTS.md).
 3. Two or three built-in themes + `system` theme; 256-colour fallback.
 4. README: install-from-source instructions, tmux recommended settings, screenshots.
 5. Tag `v0.1.0`; build release binaries (manual or cargo-dist).
@@ -174,7 +177,7 @@ Drag-resizable sidebars with hover highlight; right-click context menus; setting
 | M0 Scaffolding | ✅ Done (2026-10-07); CI green on ubuntu + macos | Commits `8c3fd5b`, `f71ddfb`. `--data-dir`/`FARO_DATA_DIR` added now (needed for the log path); `--config` deferred to M5. `faro` prints a placeholder until M3. 8 tests (paths, CLI, log rotation). Decisions D24–D27. |
 | M1 Core + mock backend | ✅ Done (2026-10-07) | D27 lints adopted first (D28). Task 1: domain types in `faro-core/src/domain/` (D29; `Recipient` folded into `Contact`). Task 2: `Backend` trait, events, capabilities, errors in `faro-core/src/backend/` (D30; linking deferred to M7, `send` returns `()` since faro picks `sent_at`). Task 3: `MockBackend` in `faro-core/src/mock.rs` + `mock/` (D31; `fastrand`, tokio paused clock); acceptance test `mock::tests::same_seed_same_event_sequence` passes. Task 4: `faro [--mock] [--mock-seed N]` runs the mock headless until Ctrl+C and logs event kinds plus a summary (D32; `crates/faro/src/headless.rs`, removed in M3). |
 | M2 Store | ✅ Done (2026-10-07) | D34. `faro-core/src/store.rs` + `store/` (`db.rs` SQL, `codec.rs` conversions, `tests.rs`); schema in `faro-core/migrations/0001_initial.sql`. sqlx 0.9 is compatible with presage's store (copy its `[patch.crates-io]` in M7). Store task owns the one connection; `Store` handle over a channel. `<data dir>/faro.db`, `0600`. Headless run persists contacts, groups and all events and prints history stats. Acceptance test `store::tests::restart_keeps_mock_history` passes; manual double run kept history. |
-| M3 TUI skeleton | ⏳ Not started | |
+| M3 TUI skeleton | ✅ Done (2026-10-07); manual checks pending | D35. ratatui 0.30 + crossterm 0.29 in `crates/faro` only. `app.rs` select loop, `app/` (state, reducer, effects worker, timeline), `tui.rs` (terminal restore incl. panic hook), `theme.rs` (`faro-dark`), `ui/` (sidebar, IRC messages, input panel, info, footer). `headless.rs` removed. 4 insta snapshots (120, 100, 60 columns + loading) and a tiny-size no-panic test. Smoke-tested in tmux by the agent: live updates, switching, typing, quit. Flood (`--mock-activity 2 --mock-no-faults`, ~300 msg/s): input still responsive, memory flat, release build 55% CPU. Hands-on items in [MANUAL_TESTS.md](MANUAL_TESTS.md); known emoji width issue under tmux (M8 task 2). |
 | M4 Interactions + palette (first prototype) | ⏳ Not started | |
 | M5 Configuration | ⏳ Not started | |
 | M6 Notifications | ⏳ Not started | |

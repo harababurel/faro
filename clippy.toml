@@ -1,5 +1,8 @@
 # Clippy configuration (DECISIONS D27). Lint levels live in Cargo.toml `[workspace.lints]`.
 
+# Product names that aren't code.
+doc-valid-idents = ["OpenCode", ".."]
+
 # Tests may panic: that's how they fail.
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true

@@ -13,13 +13,21 @@ workspace = true
 
 [dependencies]
 anyhow = "1.0.104"
+crossterm = { version = "0.29.0", features = ["event-stream"] }
 clap = { version = "4.6.7", features = ["derive", "env"] }
 faro-core.workspace = true
-tokio = { version = "1.53.2", features = ["rt", "macros", "signal"] }
+futures-util = "0.3.34"
+jiff = "0.2.38"
+ratatui = { version = "0.30.2", default-features = false, features = ["crossterm", "layout-cache", "underline-color"] }
+tokio = { version = "1.53.2", features = ["rt", "macros", "signal", "sync", "time"] }
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+unicode-segmentation = "1.13.3"
+unicode-width = "0.2.2"
 
 [dev-dependencies]
+insta = "1.49.0"
 tempfile = "3.27.0"
 tokio = { version = "1.53.2", features = ["rt", "macros", "time", "test-util"] }
+uuid = "1.27.0"
