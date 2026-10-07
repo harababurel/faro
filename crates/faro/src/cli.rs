@@ -16,6 +16,16 @@ pub struct Cli {
                 [default: $XDG_DATA_HOME/faro, usually ~/.local/share/faro]"
     )]
     pub data_dir: Option<PathBuf>,
+
+    /// Use the mock backend: fake contacts and messages, no Signal account needed.
+    /// Currently always on: the Signal backend doesn't exist yet.
+    #[arg(long)]
+    pub mock: bool,
+
+    /// Seed for the mock backend's scripted activity; the same seed replays the
+    /// same conversation.
+    #[arg(long, env = "FARO_MOCK_SEED", value_name = "SEED", default_value_t = 0)]
+    pub mock_seed: u64,
 }
 
 #[cfg(test)]
@@ -33,5 +43,18 @@ mod tests {
     fn parses_data_dir() {
         let cli = Cli::try_parse_from(["faro", "--data-dir", "/tmp/x"]).unwrap();
         assert_eq!(cli.data_dir, Some(PathBuf::from("/tmp/x")));
+    }
+
+    #[test]
+    fn parses_mock_flags() {
+        let cli = Cli::try_parse_from(["faro"]).unwrap();
+        assert!(!cli.mock);
+        assert_eq!(cli.mock_seed, 0);
+
+        let cli = Cli::try_parse_from(["faro", "--mock", "--mock-seed", "42"]).unwrap();
+        assert!(cli.mock);
+        assert_eq!(cli.mock_seed, 42);
+
+        assert!(Cli::try_parse_from(["faro", "--mock-seed", "-1"]).is_err());
     }
 }

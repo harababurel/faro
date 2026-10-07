@@ -127,7 +127,7 @@ All entries below were made on 2026-10-07 unless stated otherwise.
 
 - App core is a pure-ish reducer `update(state, event) -> effects`; network/disk work happens in tokio tasks. This is the mechanism behind "never freeze the UI". Details in DESIGN.md §4.
 
-### D23. Defer to the owner on git operations — Judgement
+### D23. Defer to the owner on git operations — Judgement (superseded by D33)
 
 - Commit/push when the owner asks. Keep commits small with short imperative messages (existing style: "Add design doc and naming-phase logo prototypes").
 
@@ -207,3 +207,15 @@ Refines the DESIGN.md §5.1 sketch:
   - Edits and deletes of other people's messages return `NotFound`.
   - Mock messages have no attachments. `Attachments` is off by default, and `fetch_attachment` returns `NotFound` even if it's enabled.
   - `simulate_outage` and `inject_error` trigger outages and errors on demand.
+
+### D32. `faro --mock` before the TUI (M1) — Judgement
+
+- **Interim headless run:** until the TUI exists (M3), `faro` starts the mock backend, logs every event's *kind* (debug level; connection changes at info, errors at warn; never bodies, names or phone numbers), and on Ctrl+C prints and logs a one-line summary of event counts. The code is in `crates/faro/src/headless.rs`, to be deleted when the TUI replaces it.
+- **Flags:** `--mock` is accepted and does nothing extra for now: the mock is the only backend until M7, which makes presage the default. `--mock-seed <u64>` (env `FARO_MOCK_SEED`, default `0`) picks the scripted activity; the cast never changes (D31).
+- **Runtime:** `main` stays synchronous for setup (paths, logging), then builds a **current-thread** tokio runtime and calls `block_on` (with an `#[expect]` on `main`) instead of using `#[tokio::main]`. One thread is enough for a TUI plus I/O tasks and suits presage's `!Send` futures (D30). Revisit if the store or rendering needs more threads.
+- **Ctrl+C** uses `tokio::signal::ctrl_c` (tokio `signal` feature). Once the TUI is in raw mode, Ctrl+C arrives as a key event instead, so this only matters before M3.
+
+### D33. Commit and push after every finished task — Accepted (2026-10-07)
+
+- **Decision (owner):** whenever a well-defined chunk of work is finished (a PLAN task or a milestone), agents commit and push it without asking, once the quality gate (fmt, clippy, tests) is green. This supersedes D23.
+- Commits stay small with short imperative messages. Pushed history is never rewritten.

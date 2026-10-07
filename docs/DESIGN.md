@@ -94,7 +94,7 @@ docs/
 AGENTS.md          # onboarding for coding agents
 ```
 
-A **mock backend** lives in `faro-core` (`src/mock.rs`, `src/mock/`) and is always compiled in; `faro --mock` selects it at runtime. It is used for development, tests and demos without a Signal account. A fixed cast of contacts and groups (emoji, long names, many quiet conversations) receives a backlog on connect and then seeded scripted activity (messages, typing, replies, reactions, edits, deletes, sync messages, outages, errors). With a fixed seed and tokio's paused clock its event sequence is deterministic (D31).
+A **mock backend** lives in `faro-core` (`src/mock.rs`, `src/mock/`) and is always compiled in; `faro --mock` selects it at runtime. It is used for development, tests and demos without a Signal account. A fixed cast of contacts and groups (emoji, long names, many quiet conversations) receives a backlog on connect and then seeded scripted activity (messages, typing, replies, reactions, edits, deletes, sync messages, outages, errors). With a fixed seed and tokio's paused clock its event sequence is deterministic (D31). Until the TUI exists (M3), `faro` runs the backend headless, logging event kinds and printing a summary on Ctrl+C (D32); `--mock-seed` picks the scripted activity.
 
 ## 5. Backend interface
 

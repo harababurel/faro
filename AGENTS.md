@@ -25,11 +25,13 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 - 2026-10-07: M1 task 2 done: `Backend` trait, `BackendEvent`, `Capabilities`, `BackendError` (D30), and the `block_on` ban.
 - 2026-10-07: development moved from the owner's Mac mini to a Debian Linux machine as well; the toolchain, build and SSH push access are verified there (`protoc` installed, so M7 prerequisites are met).
 - 2026-10-07: M1 task 3 done: `MockBackend` (D31). M1 acceptance test passes (`mock::tests::same_seed_same_event_sequence`).
-- **Next: M1 task 4 (`faro --mock`, the default until M7)**; see docs/PLAN.md M1. Notes:
-  - `main` is synchronous today. It needs a tokio runtime (add `rt`/`rt-multi-thread` + `macros` to `crates/faro`); `#[tokio::main]` expands to `block_on`, so it needs `#[expect(clippy::disallowed_methods, reason = "...")]`.
-  - `MockBackend::new(&MockConfig)` must run inside the runtime (it spawns its driver). Commands fail with `Network` until the first `Connection(Connected)` event.
-  - There's no TUI until M3. A sensible interim: run the mock for a while (or until Ctrl+C) and log a summary of events via `tracing` (never message bodies: `MessageBody` redacts in `Debug` anyway), plus print a short placeholder line like today. Consider `--mock-seed <u64>`. Ask the owner if unsure.
-  - Choosing mock vs presage at runtime will be an enum or a generic `run::<B: Backend>()` (D30: the trait isn't object-safe).
+- 2026-10-07: M1 task 4 done, **M1 complete**: `faro [--mock] [--mock-seed N]` runs the mock headless on a current-thread tokio runtime until Ctrl+C, logging event kinds and a summary (D32).
+- **Next: M2 (store)**; see docs/PLAN.md M2 and DESIGN.md §6. Notes:
+  - D16 says `sqlx` (SQLite) aligned with presage's store. Two crates linking different `libsqlite3-sys` versions fail to build (`links = "sqlite3"`), so check which `sqlx` version presage's SQLite store uses before choosing; ask the owner if it forces an old version.
+  - The store runs in its own task and is the only owner of the connection; the app talks to it over a channel (D22). Blocking calls are banned (D28); `sqlx` is async, so that should be fine.
+  - Paths (`Paths`, `0700`/`0600` helpers) already exist in `faro-core/src/paths.rs`; the DB lives in the data dir.
+  - Acceptance includes "restart keeps history (mock)": the mock's cast IDs are stable across runs (D31), but each run's backlog is new messages with new timestamps, so history grows on each restart; that's expected.
+  - Once the store exists, `headless.rs` could persist events too, so a restart can be checked from the CLI before the TUI exists.
 
 ### Gotchas found so far
 
@@ -40,7 +42,7 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 - Blocking std calls (fs, `Path::exists`, sleep…) are banned everywhere; startup code and tests opt out per function/module with `#[expect(clippy::disallowed_methods, reason = "...")]`.
 - `fastrand::Rng::choice` needs an `ExactSizeIterator`: collect a filtered iterator into a `Vec` first.
 - Pedantic `too_many_lines` caps functions at 100 lines; split big `match`es into one method per arm.
-- Commit and push are separate permissions: push only when the owner says so (D23).
+- Commit and push automatically after each finished task or milestone (D33, superseding D23); don't wait to be asked.
 
 ### Code map
 
@@ -49,8 +51,9 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 | `Cargo.toml` | Workspace: shared package metadata, `[workspace.lints]` (unsafe forbidden, clippy pedantic, D28 no-panic/no-print rules), release profile |
 | `rust-toolchain.toml` | Pinned Rust version (D25) |
 | `clippy.toml` | Test relaxations for panic lints; `disallowed-methods` list of blocking calls incl. `block_on` (D28, D30) |
-| `crates/faro/src/main.rs` | Entry point: parse CLI, resolve paths, start logging. Placeholder output until the TUI (M3) |
-| `crates/faro/src/cli.rs` | `clap` CLI definition (`--data-dir` / `FARO_DATA_DIR`) |
+| `crates/faro/src/main.rs` | Entry point: parse CLI, resolve paths, start logging (synchronous), then a current-thread tokio runtime running the mock headless until Ctrl+C (D32) |
+| `crates/faro/src/cli.rs` | `clap` CLI definition (`--data-dir` / `FARO_DATA_DIR`, `--mock`, `--mock-seed` / `FARO_MOCK_SEED`) |
+| `crates/faro/src/headless.rs` | Interim stand-in for the TUI: drives a `Backend`, logs event kinds (never content), returns a `Summary`. Delete in M3 |
 | `crates/faro/src/logging.rs` | `tracing` to `<data dir>/logs/faro.log`, non-blocking, `FARO_LOG` filter, rotation over 10 MB (D26) |
 | `crates/faro-core/src/backend.rs`, `backend/` | `Backend` trait, `Account`, `OutgoingMessage`/`OutgoingEdit`, `Capabilities`; `event.rs` (`BackendEvent`), `error.rs` (`BackendError`) (D30) |
 | `crates/faro-core/src/domain/` | Domain types (D29): `ids.rs` (ServiceId, GroupId, ConversationId, Timestamp, MessageRef), `sensitive.rs` (redacting MessageBody, PhoneNumber), `people.rs`, `message.rs`, `presence.rs` |
@@ -67,7 +70,7 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 5. **Never reimplement Signal protocol/service-layer code** (D4). Domain types are faro's own, not presage's (D6).
 6. **Privacy:** never log message bodies or phone numbers by default; never commit Signal data, databases, keys or logs (see `.gitignore`).
 7. **Quality gate before every commit:** `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`.
-8. **Git:** commit and push only when the owner asks. Small commits, short imperative messages (e.g. "Add mock backend event generator").
+8. **Git:** after finishing each well-defined chunk of work (a PLAN task or milestone), with the quality gate green, **commit and push without asking** (D33). Small commits, short imperative messages (e.g. "Add mock backend event generator"). Never rewrite pushed history.
 9. **Prefer rules the tools enforce over conventions** (D27). When new code introduces a rule worth keeping (no panics, no blocking calls in the UI, no secrets in logs…), enforce it with lints, `clippy.toml` bans, CI checks or tests, and list it in PLAN.md "Ongoing: mechanical constraints".
 10. **Terminal behaviour can't be fully verified by agents.** When a change affects rendering, input, mouse, colours or emoji, say so and add an item to the manual test checklist instead of claiming it works.
 

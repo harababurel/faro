@@ -24,7 +24,7 @@ faro is an unofficial, independent project. It is not affiliated with, endorsed 
 
 ## Development
 
-Early days: `faro` builds and runs, but has no UI yet. See the [plan](docs/PLAN.md) for progress.
+Early days: `faro` builds and runs, but has no UI yet. Today it runs a mock Signal backend (fake contacts and messages, no account needed) until you press Ctrl+C, logs what happens, and prints a summary. See the [plan](docs/PLAN.md) for progress.
 
 **Prerequisites**
 
@@ -36,6 +36,7 @@ Early days: `faro` builds and runs, but has no UI yet. See the [plan](docs/PLAN.
 ```sh
 cargo run -- --help            # run faro
 cargo run -- --data-dir /tmp/faro-dev   # use a throwaway data dir
+FARO_LOG=info,faro=debug cargo run -- --mock-seed 7   # log every mock event; another seed, another conversation
 cargo test                     # tests
 cargo fmt --check              # formatting
 cargo clippy --all-targets -- -D warnings   # lints
