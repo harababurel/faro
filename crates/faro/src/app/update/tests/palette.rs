@@ -7,7 +7,7 @@ use ratatui::layout::Rect;
 use super::*;
 use crate::app::keymap::Action;
 use crate::app::palette::{ItemKind, Mode, PaletteCommand};
-use crate::app::state::{ConversationAction, Focus, PaletteGeometry, SidebarView};
+use crate::app::state::{ConversationAction, Focus, MessageLayout, PaletteGeometry, SidebarView};
 
 fn ctrl(c: char) -> AppEvent {
     key(KeyCode::Char(c), KeyModifiers::CONTROL)
@@ -312,4 +312,40 @@ fn mouse_picks_a_result_or_closes() {
     update(&mut state, ctrl('p'));
     update(&mut state, click(2, 20));
     assert!(state.palette.is_none(), "a click outside closes");
+}
+
+#[test]
+fn the_layout_switches_from_the_palette_and_is_remembered() {
+    let mut state = loaded_state();
+    state.layout = MessageLayout::Bubbles;
+    palette_open(&mut state, "irc layout");
+    assert_eq!(selected_title(&state), "Use the IRC layout");
+    let effects = enter(&mut state);
+    assert_eq!(state.layout, MessageLayout::Irc);
+    assert_eq!(effects, vec![Effect::SetMessageLayout(MessageLayout::Irc)]);
+
+    palette_open(&mut state, "layout");
+    assert_eq!(selected_title(&state), "Use the bubbles layout");
+    let effects = enter(&mut state);
+    assert_eq!(state.layout, MessageLayout::Bubbles);
+    assert_eq!(
+        effects,
+        vec![Effect::SetMessageLayout(MessageLayout::Bubbles)]
+    );
+}
+
+#[test]
+fn a_stored_layout_is_applied_on_load() {
+    let mut state = State::new(ME, fixtures::contacts(), fixtures::groups());
+    assert_eq!(state.layout, MessageLayout::Bubbles, "the default");
+    update(
+        &mut state,
+        AppEvent::Loaded {
+            conversations: fixtures::summaries(),
+            last_open: None,
+            allowlist: false,
+            layout: Some(MessageLayout::Irc),
+        },
+    );
+    assert_eq!(state.layout, MessageLayout::Irc);
 }

@@ -24,6 +24,10 @@ pub struct Theme {
     pub warning: Color,
     pub error: Color,
     pub unread: Color,
+    /// Own messages in the bubbles layout.
+    pub bubble_own: Color,
+    /// Others' messages in the bubbles layout.
+    pub bubble_other: Color,
     /// Sender names are coloured by person, picked from here.
     pub senders: [Color; 8],
 }
@@ -53,6 +57,8 @@ impl Theme {
             warning: Color::Rgb(0xf5, 0xa7, 0x42),
             error: Color::Rgb(0xe8, 0x6b, 0x6b),
             unread: Color::Rgb(0x5f, 0xc8, 0xe8),
+            bubble_own: Color::Rgb(0x33, 0x29, 0x1a),
+            bubble_other: Color::Rgb(0x1f, 0x23, 0x2b),
             senders: [
                 Color::Rgb(0xe8, 0x8a, 0x8a),
                 Color::Rgb(0x8a, 0xd0, 0x8a),

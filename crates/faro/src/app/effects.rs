@@ -8,6 +8,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use super::event::{AppEvent, Effect};
+use super::state::MessageLayout;
 use super::update::PAGE;
 
 /// `app_state` key of the conversation to reopen on start.
@@ -15,6 +16,9 @@ const LAST_OPEN: &str = "ui.last_open_conversation";
 /// `app_state` key for allowlist mode (`on`/`off`); moves to the config file
 /// when that exists (M5).
 const ALLOWLIST_MODE: &str = "ui.allowlist_mode";
+/// `app_state` key for the message layout (`bubbles`/`irc`); moves to the
+/// config file in M5 (D45).
+const MESSAGE_LAYOUT: &str = "ui.message_layout";
 
 /// Start the worker. Effects are queued without limit: the reducer must never
 /// wait, and the queue only grows as fast as the backend produces events.
@@ -61,10 +65,16 @@ async fn execute(store: &Store, effect: Effect) -> Result<Option<AppEvent>, Stor
                 .await?
                 .and_then(|id| id.parse::<ConversationId>().ok());
             let allowlist = store.app_state(ALLOWLIST_MODE).await?.as_deref() == Some("on");
+            let layout = store
+                .app_state(MESSAGE_LAYOUT)
+                .await?
+                .as_deref()
+                .and_then(MessageLayout::parse);
             Some(AppEvent::Loaded {
                 conversations,
                 last_open,
                 allowlist,
+                layout,
             })
         }
         Effect::LoadMessages(conversation) => {
@@ -106,6 +116,10 @@ async fn execute(store: &Store, effect: Effect) -> Result<Option<AppEvent>, Stor
             store
                 .set_app_state(ALLOWLIST_MODE, if on { "on" } else { "off" })
                 .await?;
+            None
+        }
+        Effect::SetMessageLayout(layout) => {
+            store.set_app_state(MESSAGE_LAYOUT, layout.name()).await?;
             None
         }
         Effect::Backend(_) | Effect::Copy(_) | Effect::OpenUrl(_) => {

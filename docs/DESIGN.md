@@ -202,6 +202,7 @@ presage keeps its own store for keys, sessions and protocol state; faro never to
 - Delivery status glyphs for own messages: `◌` sending, `✓` sent, `✓✓` delivered, `✓✓` in the secondary colour for read, `! not sent` in the error colour for failed (D39).
 - Unread marker line; date separators.
 - Links are detected and openable; attachments show name/size and open in the system viewer.
+- **As built in M4 task 9 (D45):** bubbles are the default (palette: "Use the IRC layout" / "Use the bubbles layout", remembered in `app_state` until M5). Bubbles size to their text, at most 75% of the pane, with 1 cell of padding on `bubbleOwn`/`bubbleOther`; others left, own right; time, `edited` and delivery glyph at the bottom right inside the bubble; reactions under it; names above others' first bubble of a run in groups only; one blank line between bubbles. No `compact` toggle yet.
 - **Emoji:** rendered as-is. Widths are computed with grapheme clustering; a setting replaces problematic sequences (ZWJ families, flags, skin tones) with a fallback where terminals disagree. Emoji picker with `:shortcode:` fuzzy search.
 
 ### 7.4 Message selection and actions
@@ -301,7 +302,7 @@ Sketch:
 ## 10. Themes
 
 - Theme files in **OpenCode's JSON format** (named `defs` + semantic roles), loaded from built-ins and `~/.config/faro/themes/`.
-- Semantic roles used by faro include: `background`, `backgroundPanel` (input box, popups), `backgroundElement` (selection), `text`, `textMuted`, `primary`, `secondary`, `accent`, `border`, `borderActive`, `success`, `warning`, `error`, plus faro-specific roles (e.g. `bubbleOwn`, `bubbleOther`, `unread`, `mention`) with sensible fallbacks to standard roles.
+- Semantic roles used by faro include: `background`, `backgroundPanel` (input box, popups), `backgroundElement` (selection), `text`, `textMuted`, `primary`, `secondary`, `accent`, `border`, `borderActive`, `success`, `warning`, `error`, plus faro-specific roles (e.g. `bubbleOwn`, `bubbleOther`, `unread`, `mention`) with sensible fallbacks to standard roles. Built so far (M4): `bubbleOwn`, `bubbleOther`, `unread`, and the sender palette.
 - A **`system`** theme uses the terminal's own 16-colour palette.
 - Automatic **fallback to 256 colours** when truecolor isn't available.
 - **Live preview** while moving through the theme picker; theme files hot-reload.

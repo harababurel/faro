@@ -8,6 +8,7 @@ use ratatui::widgets::Block;
 use crate::app::state::{Focus, Geometry, State};
 use crate::theme::Theme;
 
+mod bubbles;
 mod conversation;
 mod footer;
 mod info;

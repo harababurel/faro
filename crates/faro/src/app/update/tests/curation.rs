@@ -30,6 +30,7 @@ fn saved(effects: &[Effect], id: ConversationId) -> Option<ConversationState> {
         | Effect::MarkRead(_)
         | Effect::RememberOpen(_)
         | Effect::SetAllowlistMode(_)
+        | Effect::SetMessageLayout(_)
         | Effect::Backend(_)
         | Effect::Copy(_)
         | Effect::OpenUrl(_) => None,
@@ -161,6 +162,7 @@ fn hiding_the_last_conversation_closes_it() {
             conversations: vec![fixtures::summary(alice(), "Alice", 1, 0)],
             last_open: None,
             allowlist: false,
+            layout: None,
         },
     );
     typed(&mut state, "draft");
@@ -224,6 +226,7 @@ fn startup_restores_allowlist_mode_and_the_archive_view() {
             conversations: summaries,
             last_open: Some(climbing()),
             allowlist: true,
+            layout: None,
         },
     );
     assert!(state.list.allowlist);

@@ -131,6 +131,7 @@ fn opening_a_conversation_receipts_its_unread_messages() {
             conversations: fixtures::summaries(),
             last_open: Some(climbing()),
             allowlist: false,
+            layout: None,
         },
     );
     let effects = update(

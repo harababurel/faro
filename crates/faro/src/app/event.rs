@@ -5,7 +5,7 @@ use faro_core::domain::{ConversationId, Message, MessageRef, Timestamp};
 use faro_core::store::{ConversationState, ConversationSummary};
 
 use super::commands::Command;
-use super::state::Geometry;
+use super::state::{Geometry, MessageLayout};
 
 #[derive(Debug)]
 pub enum AppEvent {
@@ -17,6 +17,8 @@ pub enum AppEvent {
         last_open: Option<ConversationId>,
         /// Allowlist mode was on (D41).
         allowlist: bool,
+        /// The stored message layout, if any (D45).
+        layout: Option<MessageLayout>,
     },
     MessagesLoaded {
         conversation: ConversationId,
@@ -74,6 +76,8 @@ pub enum Effect {
     RememberOpen(ConversationId),
     /// Remember whether allowlist mode is on (D41).
     SetAllowlistMode(bool),
+    /// Remember the message layout (D45).
+    SetMessageLayout(MessageLayout),
     /// Ask the backend to do something; routed to the command task.
     Backend(Command),
     /// Put text on the clipboard (OSC 52; works over SSH and tmux).

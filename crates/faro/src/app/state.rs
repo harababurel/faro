@@ -53,6 +53,7 @@ pub struct State {
     pub connection: ConnectionState,
     pub typing: HashMap<ConversationId, Vec<Typist>>,
     pub panels: Panels,
+    pub layout: MessageLayout,
     /// Which pane keys go to (Tab cycles).
     pub focus: Focus,
     pub sidebar: SidebarScroll,
@@ -347,6 +348,41 @@ pub struct Panels {
     pub right: bool,
 }
 
+/// How messages are laid out (DESIGN.md §7.3, D45).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MessageLayout {
+    /// Own messages on the right, others on the left, in coloured boxes.
+    #[default]
+    Bubbles,
+    /// Everything on the left: `time  name  text`.
+    Irc,
+}
+
+impl MessageLayout {
+    /// The name stored in `app_state` (and, from M5, the config file).
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Bubbles => "bubbles",
+            Self::Irc => "irc",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "bubbles" => Some(Self::Bubbles),
+            "irc" => Some(Self::Irc),
+            _ => None,
+        }
+    }
+
+    pub const fn other(self) -> Self {
+        match self {
+            Self::Bubbles => Self::Irc,
+            Self::Irc => Self::Bubbles,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Notice {
     pub text: String,
@@ -403,6 +439,7 @@ impl State {
                 left: true,
                 right: false,
             },
+            layout: MessageLayout::default(),
             focus: Focus::Input,
             sidebar: SidebarScroll {
                 offset: 0,

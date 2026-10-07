@@ -174,6 +174,7 @@ pub fn loaded_state() -> State {
             conversations: summaries(),
             last_open: Some(climbing()),
             allowlist: false,
+            layout: Some(crate::app::state::MessageLayout::Irc),
         },
     );
     update(

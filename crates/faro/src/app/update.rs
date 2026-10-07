@@ -40,8 +40,12 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
             conversations,
             last_open,
             allowlist,
+            layout,
         } => {
             state.list.allowlist = allowlist;
+            if let Some(layout) = layout {
+                state.layout = layout;
+            }
             on_loaded(state, conversations, last_open)
         }
         AppEvent::MessagesLoaded {

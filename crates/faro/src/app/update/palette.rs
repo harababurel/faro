@@ -130,6 +130,10 @@ fn run(state: &mut State, command: PaletteCommand) -> Vec<Effect> {
             open(state, "?");
             vec![]
         }
+        (PaletteCommand::SwitchLayout, _) => {
+            state.layout = state.layout.other();
+            vec![Effect::SetMessageLayout(state.layout)]
+        }
     }
 }
 

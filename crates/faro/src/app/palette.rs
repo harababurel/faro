@@ -10,7 +10,9 @@ use nucleo_matcher::{Config, Matcher, Utf32Str};
 
 use super::input::Input;
 use super::keymap::{Action, Context, Curate, Keymap};
-use super::state::{ConversationAction, Focus, MUTE_CHOICES, Section, SidebarView, State};
+use super::state::{
+    ConversationAction, Focus, MUTE_CHOICES, MessageLayout, Section, SidebarView, State,
+};
 
 /// How many recently used commands are remembered (and ranked higher).
 pub const RECENT_MAX: usize = 10;
@@ -39,6 +41,8 @@ pub enum PaletteCommand {
     HideInactive(usize),
     /// Show the keybinding list.
     ShowKeys,
+    /// Switch between the bubbles and IRC layouts (D45).
+    SwitchLayout,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -300,6 +304,14 @@ fn commands(state: &State) -> Vec<Item> {
         } else {
             "Show conversation info"
         },
+    ));
+    items.push(command(
+        PaletteCommand::SwitchLayout,
+        match state.layout {
+            MessageLayout::Bubbles => "Use the IRC layout",
+            MessageLayout::Irc => "Use the bubbles layout",
+        },
+        None,
     ));
     items.push(command(
         PaletteCommand::ShowKeys,

@@ -12,7 +12,7 @@ use ratatui::buffer::Buffer;
 
 use super::{View, render};
 use crate::app::event::AppEvent;
-use crate::app::state::State;
+use crate::app::state::{MessageLayout, State};
 use crate::app::update::update;
 use crate::fixtures::{self, ALICE, ME, NOW_MS, climbing, loaded_state};
 use crate::theme::Theme;
@@ -132,8 +132,14 @@ fn colours_carry_meaning() {
 #[test]
 fn tiny_terminals_never_panic() {
     let mut state = typing_state();
-    for right in [false, true] {
+    for (right, layout) in [
+        (false, MessageLayout::Irc),
+        (true, MessageLayout::Irc),
+        (false, MessageLayout::Bubbles),
+        (true, MessageLayout::Bubbles),
+    ] {
         state.panels.right = right;
+        state.layout = layout;
         for width in 0..=40 {
             for height in 0..=12 {
                 draw(&state, width, height);
@@ -386,4 +392,46 @@ fn palette_reports_its_rows_for_the_mouse() {
     )));
     assert_eq!(geometry.offset, 0);
     assert!(geometry.list.height >= 3);
+}
+
+// --- Bubbles layout (M4 task 9, D45) ---
+
+fn bubbles_state() -> State {
+    let mut state = typing_state();
+    state.layout = MessageLayout::Bubbles;
+    state
+}
+
+#[test]
+fn bubbles_in_a_group() {
+    insta::assert_snapshot!(snapshot(&draw(&bubbles_state(), 100, 34)));
+}
+
+#[test]
+fn bubbles_narrow() {
+    insta::assert_snapshot!(snapshot(&draw(&bubbles_state(), 60, 24)));
+}
+
+#[test]
+fn bubbles_have_their_own_backgrounds_and_sides() {
+    let theme = Theme::default();
+    let buffer = draw(&bubbles_state(), 100, 34);
+    let text = snapshot(&buffer);
+    let find = |needle: &str| {
+        let (row, line) = text
+            .lines()
+            .enumerate()
+            .find(|(_, l)| l.contains(needle))
+            .unwrap_or_else(|| panic!("{needle:?} not on screen"));
+        let byte = line.find(needle).unwrap();
+        let col = unicode_width::UnicodeWidthStr::width(&line[..byte]);
+        (u16::try_from(col).unwrap(), u16::try_from(row).unwrap())
+    };
+    // Own message: own colour, on the right.
+    let (own_x, own_y) = find("On my way");
+    assert_eq!(buffer[(own_x, own_y)].bg, theme.bubble_own);
+    // Others' messages: the other colour, on the left.
+    let (x, y) = find("Running 10 min late");
+    assert_eq!(buffer[(x, y)].bg, theme.bubble_other);
+    assert!(own_x > x + 20, "own bubble on the right ({own_x} vs {x})");
 }

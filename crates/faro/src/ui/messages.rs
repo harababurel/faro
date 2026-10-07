@@ -1,6 +1,7 @@
-//! The message list, IRC layout (DESIGN.md §7.3): `time  name  text`, names
-//! right-aligned in a column and coloured per person, continuation lines
-//! indented under the text. Bubbles come in M4.
+//! The message list (DESIGN.md §7.3): windowing, date and unread rules, and
+//! the IRC layout: `time  name  text`, names right-aligned in a column and
+//! coloured per person, continuation lines indented under the text. The
+//! bubbles layout is in `bubbles.rs` (D45).
 
 use std::collections::BTreeMap;
 
@@ -10,8 +11,9 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
 use super::View;
+use super::bubbles;
 use super::text::{pad_left, sanitize, truncate, width, wrap};
-use crate::app::state::{Anchor, OpenConversation, State};
+use crate::app::state::{Anchor, MessageLayout, OpenConversation, State};
 
 /// Consecutive messages from one sender within this window share one name.
 const GROUPING_MS: u64 = 10 * 60 * 1000;
@@ -263,8 +265,23 @@ fn block(context: &Context<'_>, i: usize) -> Block {
                     .saturating_sub(p.sent_at.as_millis())
                     < GROUPING_MS
         });
-    let rules = block.len();
-    render_message(state, message, !continued, columns, view, &mut block);
+    let rules = match state.layout {
+        MessageLayout::Irc => {
+            let rules = block.len();
+            render_message(state, message, !continued, columns, view, &mut block);
+            rules
+        }
+        MessageLayout::Bubbles => {
+            // A blank line between bubbles (even from the same sender, or
+            // they'd merge into one box), unless a rule already separates them.
+            if block.is_empty() && previous.is_some() {
+                block.push(Line::default());
+            }
+            let rules = block.len();
+            bubbles::render(state, message, !continued, *width, view, &mut block);
+            rules
+        }
+    };
     Block {
         lines: block,
         rules,
@@ -299,49 +316,8 @@ fn render_message(
         Span::styled(name, name_style),
         Span::raw(" "),
     ];
-    let mut body: Vec<Vec<Span<'static>>> = Vec::new();
-
-    if let Some(quote) = &message.quote {
-        let who = state.person_name(quote.target.sender);
-        let preview = quote.preview.as_ref().map_or_else(
-            || "…".to_owned(),
-            |p| sanitize(p.expose()).replace('\n', " "),
-        );
-        let text = format!("▎ {who}: {preview}");
-        body.push(vec![Span::styled(
-            truncate(&text, columns.text_width).into_owned(),
-            theme.muted().add_modifier(Modifier::ITALIC),
-        )]);
-    }
-
-    if message.deleted {
-        body.push(vec![Span::styled(
-            "This message was deleted",
-            theme.muted().add_modifier(Modifier::ITALIC),
-        )]);
-    } else if let Some(text) = &message.body {
-        for line in wrap(text.expose(), columns.text_width) {
-            body.push(vec![Span::styled(line, Style::new().fg(theme.text))]);
-        }
-    }
-    for attachment in &message.attachments {
-        let name = attachment.file_name.as_deref().map_or_else(
-            || attachment.content_type.clone(),
-            |n| sanitize(n).into_owned(),
-        );
-        let size = attachment.size.map(format_size).unwrap_or_default();
-        let text = format!("📎 {name}{size}");
-        body.push(vec![Span::styled(
-            truncate(&text, columns.text_width).into_owned(),
-            Style::new().fg(theme.secondary),
-        )]);
-    }
-    if body.is_empty() {
-        body.push(vec![Span::styled("(empty message)", theme.muted())]);
-    }
-
+    let mut body = content(state, message, columns.text_width, view);
     append_suffix(&mut body, suffix(message, view), columns.text_width);
-
     if !message.reactions.is_empty() {
         body.push(vec![Span::styled(reactions(message), theme.muted())]);
     }
@@ -357,6 +333,57 @@ fn render_message(
     }
 }
 
+/// What a message says, as lines of at most `max` cells: the quoted
+/// message, the text (or the deleted placeholder) and attachments.
+pub(super) fn content(
+    state: &State,
+    message: &Message,
+    max: usize,
+    view: &View<'_>,
+) -> Vec<Vec<Span<'static>>> {
+    let theme = view.theme;
+    let mut body: Vec<Vec<Span<'static>>> = Vec::new();
+    if let Some(quote) = &message.quote {
+        let who = state.person_name(quote.target.sender);
+        let preview = quote.preview.as_ref().map_or_else(
+            || "…".to_owned(),
+            |p| sanitize(p.expose()).replace('\n', " "),
+        );
+        let text = format!("▎ {who}: {preview}");
+        body.push(vec![Span::styled(
+            truncate(&text, max).into_owned(),
+            theme.muted().add_modifier(Modifier::ITALIC),
+        )]);
+    }
+
+    if message.deleted {
+        body.push(vec![Span::styled(
+            "This message was deleted",
+            theme.muted().add_modifier(Modifier::ITALIC),
+        )]);
+    } else if let Some(text) = &message.body {
+        for line in wrap(text.expose(), max) {
+            body.push(vec![Span::styled(line, Style::new().fg(theme.text))]);
+        }
+    }
+    for attachment in &message.attachments {
+        let name = attachment.file_name.as_deref().map_or_else(
+            || attachment.content_type.clone(),
+            |n| sanitize(n).into_owned(),
+        );
+        let size = attachment.size.map(format_size).unwrap_or_default();
+        let text = format!("📎 {name}{size}");
+        body.push(vec![Span::styled(
+            truncate(&text, max).into_owned(),
+            Style::new().fg(theme.secondary),
+        )]);
+    }
+    if body.is_empty() {
+        body.push(vec![Span::styled("(empty message)", theme.muted())]);
+    }
+    body
+}
+
 /// `(edited)` and the delivery status of own messages.
 fn suffix(message: &Message, view: &View<'_>) -> Vec<Span<'static>> {
     let theme = view.theme;
@@ -364,17 +391,24 @@ fn suffix(message: &Message, view: &View<'_>) -> Vec<Span<'static>> {
     if message.edited_at.is_some() && !message.deleted {
         spans.push(Span::styled(" (edited)", theme.muted()));
     }
-    if let Direction::Outgoing(status) = message.direction {
-        let (glyph, style) = match status {
-            DeliveryStatus::Sending => (" ◌", theme.muted()),
-            DeliveryStatus::Sent => (" ✓", theme.muted()),
-            DeliveryStatus::Delivered => (" ✓✓", theme.muted()),
-            DeliveryStatus::Read => (" ✓✓", Style::new().fg(theme.secondary)),
-            DeliveryStatus::Failed => (" ! not sent", Style::new().fg(theme.error)),
-        };
-        spans.push(Span::styled(glyph, style));
-    }
+    spans.extend(delivery(message, view));
     spans
+}
+
+/// The delivery status of an own message (` ✓✓`), with a leading space.
+pub(super) fn delivery(message: &Message, view: &View<'_>) -> Option<Span<'static>> {
+    let theme = view.theme;
+    let Direction::Outgoing(status) = message.direction else {
+        return None;
+    };
+    let (glyph, style) = match status {
+        DeliveryStatus::Sending => (" ◌", theme.muted()),
+        DeliveryStatus::Sent => (" ✓", theme.muted()),
+        DeliveryStatus::Delivered => (" ✓✓", theme.muted()),
+        DeliveryStatus::Read => (" ✓✓", Style::new().fg(theme.secondary)),
+        DeliveryStatus::Failed => (" ! not sent", Style::new().fg(theme.error)),
+    };
+    Some(Span::styled(glyph, style))
 }
 
 /// Put `suffix` at the end of the last line, or on its own line if it won't fit.
@@ -394,7 +428,7 @@ fn append_suffix(body: &mut Vec<Vec<Span<'static>>>, suffix: Vec<Span<'static>>,
 }
 
 /// `👍 2  ❤️ 1`, in order of first appearance.
-fn reactions(message: &Message) -> String {
+pub(super) fn reactions(message: &Message) -> String {
     let mut order: Vec<&str> = Vec::new();
     let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
     for reaction in &message.reactions {
@@ -448,7 +482,7 @@ fn date_of_message(message: &Message, view: &View<'_>) -> Option<Date> {
     to_jiff(message.sent_at).map(|ts| date_of(ts, view))
 }
 
-fn format_time(ts: Timestamp, view: &View<'_>) -> String {
+pub(super) fn format_time(ts: Timestamp, view: &View<'_>) -> String {
     to_jiff(ts).map_or_else(
         || "--:--".to_owned(),
         |ts| zoned(ts, view).strftime("%H:%M").to_string(),
