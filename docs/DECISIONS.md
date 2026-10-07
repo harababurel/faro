@@ -219,3 +219,21 @@ Refines the DESIGN.md §5.1 sketch:
 
 - **Decision (owner):** whenever a well-defined chunk of work is finished (a PLAN task or a milestone), agents commit and push it without asking, once the quality gate (fmt, clippy, tests) is green. This supersedes D23.
 - Commits stay small with short imperative messages. Pushed history is never rewritten.
+
+### D34. Store design (M2) — Judgement
+
+- **sqlx 0.9, aligned with presage.** presage's SQLite store (`presage-store-sqlite`, main branch) uses `sqlx` 0.9 and `libsqlite3-sys` 0.36 from whisperfish's rusqlite fork through a workspace `[patch.crates-io]`; its default feature is `bundled-sqlcipher`. `sqlx-sqlite` 0.9 accepts `libsqlite3-sys >=0.30.1, <0.38`, so both can share one `libsqlite3-sys` (Cargo allows only one crate with `links = "sqlite3"`). Until M7 faro resolves 0.37 (bundled SQLite). **In M7, copy presage's `[patch.crates-io]` entry** so Cargo picks the fork; faro's database then links SQLCipher too, which behaves like plain SQLite when no key is set. No old version is forced.
+- **Runtime queries** (`sqlx::query`/`query_as` with tuple rows), not the compile-time `query!` macros, which need a live `DATABASE_URL` or checked-in offline data. Migrations are embedded with `sqlx::migrate!()` (`crates/faro-core/migrations/`) and run on open.
+- **One task owns the only connection (D22).** `Store` is a cloneable handle over a bounded `mpsc` channel (capacity 256, so callers wait under load instead of memory growing); each request carries a `oneshot` reply. A single `SqliteConnection` instead of a pool: one writer, no locking surprises, simple transactions. The task stops on `Store::close` (which closes the connection cleanly, checkpointing the WAL) or when every handle is dropped. Later handles get `StoreError::Closed`.
+- **File:** `<data dir>/faro.db` (`Paths::db_file`). Pre-created as `0600` before SQLite opens it; SQLite gives its `-wal`/`-shm` files the same mode. WAL journal, `synchronous = NORMAL`, foreign keys on.
+- **Applying events is idempotent:** duplicate messages (same `(sender, sent_at)`) are ignored, receipts go through `DeliveryStatus::update` so they never regress, only newer edits replace the text, and edits to deleted messages are ignored. A delete keeps a placeholder row and drops body, quote preview, reactions and attachments. Events for unknown messages are dropped (debug log). Connection, typing and error events aren't stored.
+- **Unread count** goes up only for new incoming, non-deleted messages; `mark_read` resets it. `last_activity` is the newest message's `sent_at`.
+- **Every contact gets a direct conversation**, possibly empty (listed after conversations with messages). Hiding empty ones, or showing them only in search, is a UI decision for M3/M4.
+- **Schema changes from the DESIGN.md §6 sketch:**
+  - STRICT tables and `CHECK` constraints (direction/status agree, quote columns both set or both null, booleans 0/1), so the database rejects bad rows.
+  - `conversations.peer` links a direct conversation to its recipient; the title is computed from the contact (`Contact::display_name`) when listing; `title` is used for groups only.
+  - `group_members` table (groups have members in the domain model).
+  - Quotes stored as `quote_sender` + `quote_sent_at` + `quote_preview`, not a row reference, because the quoted message may not be stored.
+  - Left out until something uses them: recipient avatar path and colour seed, `conversation_state.scroll_position`, `attachments.status`. Each is a future migration.
+- **Reads validate everything:** a bad stored value becomes `StoreError::Corrupt("<column>")`, never a panic.
+- **Testing note:** tests that use the store run on real time. With tokio's paused clock, the runtime looks idle while it waits on SQLite's worker thread, so the clock auto-advances and timers fire early.

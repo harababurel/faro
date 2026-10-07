@@ -7,7 +7,10 @@ mod people;
 mod presence;
 mod sensitive;
 
-pub use ids::{ConversationId, GroupId, MessageRef, ParseServiceIdError, ServiceId, Timestamp};
+pub use ids::{
+    ConversationId, GroupId, MessageRef, ParseGroupIdError, ParseServiceIdError, ServiceId,
+    Timestamp,
+};
 pub use message::{
     AttachmentId, AttachmentRef, DeliveryStatus, Direction, Message, Quote, Reaction,
 };

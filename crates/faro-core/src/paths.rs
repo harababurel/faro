@@ -16,6 +16,7 @@ use etcetera::BaseStrategy;
 const APP_DIR: &str = "faro";
 const CONFIG_FILE: &str = "config.toml";
 const LOG_DIR: &str = "logs";
+const DB_FILE: &str = "faro.db";
 
 /// Permissions for directories faro creates.
 pub const DIR_MODE: u32 = 0o700;
@@ -74,6 +75,11 @@ impl Paths {
 
     pub fn log_dir(&self) -> PathBuf {
         self.data_dir.join(LOG_DIR)
+    }
+
+    /// faro's own database (history, conversation state), not presage's.
+    pub fn db_file(&self) -> PathBuf {
+        self.data_dir.join(DB_FILE)
     }
 
     /// Create the data and log directories (`0700`) if they don't exist.
@@ -138,6 +144,10 @@ mod tests {
         );
         assert_eq!(paths.data_dir(), Path::new("/home/u/.local/share/faro"));
         assert_eq!(paths.log_dir(), Path::new("/home/u/.local/share/faro/logs"));
+        assert_eq!(
+            paths.db_file(),
+            Path::new("/home/u/.local/share/faro/faro.db")
+        );
     }
 
     #[test]

@@ -136,20 +136,23 @@ pub trait Backend {                       // no Send bound: futures may be !Send
 
 ## 6. Data model (faro's SQLite)
 
-presage keeps its own store for keys, sessions and protocol state; faro never touches it directly. faro's DB holds history and UI state:
+presage keeps its own store for keys, sessions and protocol state; faro never touches it directly. faro's DB (`<data dir>/faro.db`, `0600`) holds history and UI state. Schema: `crates/faro-core/migrations/` (STRICT tables with `CHECK` constraints; D34).
 
 | Table | Key fields |
 |---|---|
-| `recipients` | service_id (PK), profile name, contact name, phone (nullable), avatar path, colour seed |
-| `conversations` | id (PK; service_id or group id), kind (direct/group), title, last_activity, unread_count |
-| `conversation_state` | conversation_id, **hidden**, **archived**, **pinned** (order), **muted_until**, draft text, scroll position |
-| `messages` | id, conversation_id, sender, sent_at (server timestamp), received_at, body, quote_ref, edited_at, deleted, direction, status (sending/sent/delivered/read/failed) |
-| `reactions` | message_id, sender, emoji |
-| `attachments` | id, message_id, mime, filename, size, local_path (nullable), status |
+| `recipients` | service_id (PK), contact name, profile name, phone (nullable) |
+| `conversations` | id (PK; `direct:<service id>` or `group:<hex>`), kind (direct/group), peer (direct: recipient), title (groups), last_activity, unread_count |
+| `group_members` | group_id, service_id |
+| `conversation_state` | conversation_id, **hidden**, **archived**, **pinned** (order), **muted_until**, draft text |
+| `messages` | id, conversation_id, sender, sent_at (sender's timestamp), received_at, body, quote_sender, quote_sent_at, quote_preview, edited_at, deleted, direction, status (sending/sent/delivered/read/failed; outgoing only) |
+| `reactions` | message_id, sender, emoji (one per sender) |
+| `attachments` | id, message_id, backend_id, content_type, file_name, size, local_path (nullable) |
 | `app_state` | key/value: sidebar widths, last open conversation, etc. |
 
-- Messages are identified Signal-style by `(sender, sent_at)`; faro adds its own row ID.
-- SQLite via `sqlx` with embedded migrations (D16). Align the sqlx version with presage's store.
+- Messages are identified Signal-style by `(sender, sent_at)` (unique); faro adds its own row ID. History is paged backwards with `(sent_at, sender)` as the cursor.
+- Planned columns not yet added (each a future migration when first used): recipient avatar path and colour seed, conversation scroll position, attachment download status.
+- SQLite via `sqlx` 0.9 with embedded migrations (D16), version-compatible with presage's store (D34).
+- One store task owns the only connection; the app uses a cloneable `Store` handle over a channel (D22, D34). Applying a backend event is idempotent: duplicates are ignored, receipts never regress, only newer edits win.
 - faro keeps its own history even though presage's store can also hold messages (D7).
 
 ## 7. UI

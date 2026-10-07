@@ -26,12 +26,13 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 - 2026-10-07: development moved from the owner's Mac mini to a Debian Linux machine as well; the toolchain, build and SSH push access are verified there (`protoc` installed, so M7 prerequisites are met).
 - 2026-10-07: M1 task 3 done: `MockBackend` (D31). M1 acceptance test passes (`mock::tests::same_seed_same_event_sequence`).
 - 2026-10-07: M1 task 4 done, **M1 complete**: `faro [--mock] [--mock-seed N]` runs the mock headless on a current-thread tokio runtime until Ctrl+C, logging event kinds and a summary (D32).
-- **Next: M2 (store)**; see docs/PLAN.md M2 and DESIGN.md §6. Notes:
-  - D16 says `sqlx` (SQLite) aligned with presage's store. Two crates linking different `libsqlite3-sys` versions fail to build (`links = "sqlite3"`), so check which `sqlx` version presage's SQLite store uses before choosing; ask the owner if it forces an old version.
-  - The store runs in its own task and is the only owner of the connection; the app talks to it over a channel (D22). Blocking calls are banned (D28); `sqlx` is async, so that should be fine.
-  - Paths (`Paths`, `0700`/`0600` helpers) already exist in `faro-core/src/paths.rs`; the DB lives in the data dir.
-  - Acceptance includes "restart keeps history (mock)": the mock's cast IDs are stable across runs (D31), but each run's backlog is new messages with new timestamps, so history grows on each restart; that's expected.
-  - Once the store exists, `headless.rs` could persist events too, so a restart can be checked from the CLI before the TUI exists.
+- 2026-10-07: **M2 complete** (store, D34): `faro-core::store` (SQLite via sqlx 0.9, one task owns the connection, `Store` handle over a channel), schema in `crates/faro-core/migrations/`. The headless run persists everything to `<data dir>/faro.db`; restart keeps history (tested and checked by hand).
+- **Next: M3 (TUI skeleton)**; see docs/PLAN.md M3 and DESIGN.md §7, §10. Notes:
+  - Add `ratatui` + `crossterm` (with `event-stream`) to `crates/faro` only; `faro-core` must never depend on them (D20).
+  - Startup: open the `Store`, load `store.conversations()` and the first page of `store.messages(conv, None, n)` for the open conversation, then persist each `BackendEvent` (as `headless.rs` does) *and* feed it to the reducer. Store calls are effects (D22): the reducer never awaits them.
+  - `ConversationSummary.title` is `None` when nothing is known; fall back to the phone number, then the ID. Contacts with no messages appear as empty conversations at the end of the list (D34); decide whether to show them.
+  - Replace `headless.rs` with the TUI and drop the `println!`s in `main.rs` (and their `#[expect(clippy::print_stdout)]`). Ctrl+C becomes a key event in raw mode.
+  - Rendering and input can't be verified by agents (rule 10): add items to a manual test checklist.
 
 ### Gotchas found so far
 
@@ -43,6 +44,9 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 - `fastrand::Rng::choice` needs an `ExactSizeIterator`: collect a filtered iterator into a `Vec` first.
 - Pedantic `too_many_lines` caps functions at 100 lines; split big `match`es into one method per arm.
 - Commit and push automatically after each finished task or milestone (D33, superseding D23); don't wait to be asked.
+- Store tests use real time, not `start_paused`: SQLite works on its own thread, so a paused clock auto-advances while waiting and timers fire early (D34).
+- Pedantic clippy wants `as_chunks::<N>()` over `chunks_exact(N)`, `type` aliases at module level (`items_after_statements`), and `assert_eq!(v, vec![])` over `assert!(v.is_empty())`.
+- Store SQL uses runtime `sqlx::query`/`query_as` with tuple rows (up to 16 columns), not `query!` (needs a DB at compile time).
 
 ### Code map
 
@@ -51,14 +55,16 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 | `Cargo.toml` | Workspace: shared package metadata, `[workspace.lints]` (unsafe forbidden, clippy pedantic, D28 no-panic/no-print rules), release profile |
 | `rust-toolchain.toml` | Pinned Rust version (D25) |
 | `clippy.toml` | Test relaxations for panic lints; `disallowed-methods` list of blocking calls incl. `block_on` (D28, D30) |
-| `crates/faro/src/main.rs` | Entry point: parse CLI, resolve paths, start logging (synchronous), then a current-thread tokio runtime running the mock headless until Ctrl+C (D32) |
+| `crates/faro/src/main.rs` | Entry point: parse CLI, resolve paths, start logging (synchronous), then a current-thread tokio runtime that opens the store and runs the mock headless until Ctrl+C (D32) |
 | `crates/faro/src/cli.rs` | `clap` CLI definition (`--data-dir` / `FARO_DATA_DIR`, `--mock`, `--mock-seed` / `FARO_MOCK_SEED`) |
-| `crates/faro/src/headless.rs` | Interim stand-in for the TUI: drives a `Backend`, logs event kinds (never content), returns a `Summary`. Delete in M3 |
+| `crates/faro/src/headless.rs` | Interim stand-in for the TUI: drives a `Backend`, persists contacts, groups and events into the `Store`, logs event kinds (never content), returns a `Summary`. Delete in M3 |
 | `crates/faro/src/logging.rs` | `tracing` to `<data dir>/logs/faro.log`, non-blocking, `FARO_LOG` filter, rotation over 10 MB (D26) |
 | `crates/faro-core/src/backend.rs`, `backend/` | `Backend` trait, `Account`, `OutgoingMessage`/`OutgoingEdit`, `Capabilities`; `event.rs` (`BackendEvent`), `error.rs` (`BackendError`) (D30) |
 | `crates/faro-core/src/domain/` | Domain types (D29): `ids.rs` (ServiceId, GroupId, ConversationId, Timestamp, MessageRef), `sensitive.rs` (redacting MessageBody, PhoneNumber), `people.rs`, `message.rs`, `presence.rs` |
 | `crates/faro-core/src/mock.rs`, `mock/` | `MockBackend` + `MockConfig` (D31): `mock.rs` (Backend impl, driver task, paused-clock tests), `sim.rs` (seeded synchronous scheduler: backlog, scripted activity, receipts, outages), `world.rs` (fixed cast, canned texts) |
-| `crates/faro-core/src/paths.rs` | XDG paths (D17), `0700` dirs / `0600` files helpers, with tests |
+| `crates/faro-core/src/paths.rs` | XDG paths (D17) incl. `db_file()`, `0700` dirs / `0600` files helpers, with tests |
+| `crates/faro-core/src/store.rs`, `store/` | `Store` handle, request channel and serve task, `StoreError`, `ConversationSummary`/`ConversationState` (D34); `db.rs` (all SQL), `codec.rs` (domain ↔ column conversions), `tests.rs` (incl. restart acceptance test) |
+| `crates/faro-core/migrations/` | SQLite schema, embedded with `sqlx::migrate!()` and run on open |
 | `.github/workflows/ci.yml` | fmt, clippy `-D warnings`, test on ubuntu + macos (`--locked`) |
 
 ## Rules

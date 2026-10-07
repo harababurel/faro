@@ -80,6 +80,29 @@ impl fmt::Debug for GroupId {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("invalid group ID")]
+pub struct ParseGroupIdError;
+
+/// Parses the [`Display`](fmt::Display) form: 64 hex digits (either case).
+impl FromStr for GroupId {
+    type Err = ParseGroupIdError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // Checked up front: `from_str_radix` alone would accept a leading `+`.
+        if s.len() != 2 * Self::LEN || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(ParseGroupIdError);
+        }
+        let mut bytes = [0u8; Self::LEN];
+        let (pairs, _) = s.as_bytes().as_chunks::<2>();
+        for (byte, pair) in bytes.iter_mut().zip(pairs) {
+            let pair = std::str::from_utf8(pair).map_err(|_| ParseGroupIdError)?;
+            *byte = u8::from_str_radix(pair, 16).map_err(|_| ParseGroupIdError)?;
+        }
+        Ok(Self(bytes))
+    }
+}
+
 /// A conversation is either with one person or with a group.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ConversationId {
@@ -159,5 +182,27 @@ mod tests {
         assert!(hex.starts_with("ab00"));
         assert!(hex.ends_with("0001"));
         assert_eq!(format!("{id:?}"), format!("GroupId({hex})"));
+        assert_eq!(hex.parse::<GroupId>(), Ok(id));
+        assert_eq!(hex.to_uppercase().parse::<GroupId>(), Ok(id));
+    }
+
+    #[test]
+    fn group_id_rejects_garbage() {
+        let ok = "ab".repeat(GroupId::LEN);
+        assert!(ok.parse::<GroupId>().is_ok());
+        assert!(ok[2..].parse::<GroupId>().is_err(), "too short");
+        assert!(format!("{ok}00").parse::<GroupId>().is_err(), "too long");
+        assert!(
+            ok.replacen("ab", "zz", 1).parse::<GroupId>().is_err(),
+            "not hex"
+        );
+        assert!(
+            ok.replacen("ab", "+a", 1).parse::<GroupId>().is_err(),
+            "sign"
+        );
+        assert!(
+            ok.replacen("ab", "é", 1).parse::<GroupId>().is_err(),
+            "non-ASCII"
+        );
     }
 }

@@ -6,6 +6,7 @@ use anyhow::Context as _;
 use clap::Parser as _;
 use faro_core::mock::{MockBackend, MockConfig};
 use faro_core::paths::Paths;
+use faro_core::store::Store;
 
 #[expect(
     clippy::print_stdout,
@@ -48,14 +49,31 @@ fn main() -> anyhow::Result<()> {
         .enable_all()
         .build()
         .context("starting the async runtime")?;
-    let summary = runtime.block_on(async {
-        let (backend, events) = MockBackend::new(&config);
-        headless::run(&backend, events, ctrl_c()).await
-    });
+    let db_file = paths.db_file();
+    runtime.block_on(async {
+        let store = Store::open(&db_file)
+            .await
+            .with_context(|| format!("opening the database {}", db_file.display()))?;
+        let stats = store.stats().await?;
+        println!(
+            "History: {} messages in {} conversations ({}).",
+            stats.messages,
+            stats.conversations,
+            db_file.display()
+        );
 
-    println!("\nStopped: {summary}.");
-    tracing::info!(%summary, "faro exiting");
-    Ok(())
+        let (backend, events) = MockBackend::new(&config);
+        let summary = headless::run(&backend, events, &store, ctrl_c()).await;
+
+        let stats = store.stats().await?;
+        store.close().await.context("closing the database")?;
+        println!(
+            "\nStopped: {summary}.\nHistory: {} messages in {} conversations.",
+            stats.messages, stats.conversations
+        );
+        tracing::info!(%summary, messages = stats.messages, "faro exiting");
+        anyhow::Ok(())
+    })
 }
 
 async fn ctrl_c() {

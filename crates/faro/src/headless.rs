@@ -10,6 +10,7 @@ use std::future::Future;
 use std::time::Duration;
 
 use faro_core::backend::{Backend, BackendEvent, BackendEvents};
+use faro_core::store::Store;
 use tokio::time::Instant;
 
 /// What a run saw, for the exit message and the log.
@@ -43,16 +44,17 @@ impl fmt::Display for Summary {
     }
 }
 
-/// Receive and log `backend`'s events until `shutdown` completes or the backend
-/// stops.
+/// Receive, log and store `backend`'s events until `shutdown` completes or the
+/// backend stops.
 pub async fn run<B: Backend>(
     backend: &B,
     mut events: BackendEvents,
+    store: &Store,
     shutdown: impl Future<Output = ()>,
 ) -> Summary {
     let start = Instant::now();
-    if let Err(error) = log_account(backend).await {
-        tracing::warn!(%error, "couldn't read account, contacts or groups");
+    if let Err(error) = sync_directory(backend, store).await {
+        tracing::warn!(%error, "couldn't load account, contacts or groups");
     }
 
     let mut counts = BTreeMap::new();
@@ -68,6 +70,9 @@ pub async fn run<B: Backend>(
         };
         log_event(&event);
         *counts.entry(kind(&event)).or_insert(0) += 1;
+        if let Err(error) = store.apply(event).await {
+            tracing::warn!(%error, "couldn't store a backend event");
+        }
     }
     Summary {
         counts,
@@ -75,7 +80,8 @@ pub async fn run<B: Backend>(
     }
 }
 
-async fn log_account<B: Backend>(backend: &B) -> faro_core::backend::Result<()> {
+/// Log the account and copy contacts and groups into the store.
+async fn sync_directory<B: Backend>(backend: &B, store: &Store) -> anyhow::Result<()> {
     let account = backend.whoami().await?;
     let contacts = backend.contacts().await?;
     let groups = backend.groups().await?;
@@ -86,6 +92,8 @@ async fn log_account<B: Backend>(backend: &B) -> faro_core::backend::Result<()> 
         capabilities = ?backend.capabilities(),
         "backend ready"
     );
+    store.upsert_contacts(contacts).await?;
+    store.upsert_groups(groups).await?;
     Ok(())
 }
 
@@ -129,16 +137,25 @@ mod tests {
 
     use super::*;
 
-    #[tokio::test(start_paused = true)]
-    async fn runs_until_shutdown_and_counts_events() {
+    // Real time, not a paused clock: the store does real I/O on SQLite's own
+    // thread, and a paused clock would auto-advance while waiting for it.
+    #[tokio::test]
+    async fn runs_until_shutdown_and_stores_events() {
         let (backend, events) = MockBackend::new(&MockConfig::deterministic(1));
-        let shutdown = tokio::time::sleep(Duration::from_secs(120));
-        let summary = run(&backend, events, shutdown).await;
+        let store = Store::open_in_memory().await.unwrap();
+        // The mock connects at once and delivers its backlog at 400 ms.
+        let shutdown = tokio::time::sleep(Duration::from_millis(1500));
+        let summary = run(&backend, events, &store, shutdown).await;
 
-        assert_eq!(summary.elapsed, Duration::from_secs(120));
+        assert!(summary.elapsed >= Duration::from_millis(1500));
         assert!(summary.count("connection") >= 2);
-        assert!(summary.count("message") >= 60, "backlog plus activity");
+        assert!(summary.count("message") >= 60, "the backlog");
         assert_eq!(summary.total(), summary.counts.values().sum::<u64>());
+
+        // Everything was persisted: every message, and a conversation per contact.
+        let stats = store.stats().await.unwrap();
+        assert_eq!(stats.messages, summary.count("message"));
+        assert!(stats.conversations >= 70 + 6, "cast contacts and groups");
     }
 
     #[tokio::test(start_paused = true)]
@@ -147,7 +164,8 @@ mod tests {
         let (gone, events) = MockBackend::new(&MockConfig::deterministic(1));
         drop(gone);
         // Never completes: only the closed channel can end the run.
-        let summary = run(&backend, events, std::future::pending()).await;
+        let store = Store::open_in_memory().await.unwrap();
+        let summary = run(&backend, events, &store, std::future::pending()).await;
         assert_eq!(summary.total(), 0, "aborted before its first event");
     }
 
