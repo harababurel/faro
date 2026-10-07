@@ -6,7 +6,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Paragraph};
 
-use faro_core::store::ConversationSummary;
+use faro_core::store::{ConversationSummary, NotifyLevel};
 
 use super::View;
 use super::text::{self, sanitize, truncate};
@@ -164,7 +164,9 @@ fn row(state: &State, view: &View<'_>, summary: &ConversationSummary, width: usi
     let selected = state.open.as_ref().is_some_and(|o| o.id == summary.id);
     let unread = summary.unread > 0;
     let typing = !state.typists(summary.id).is_empty();
-    let muted = summary.state.muted_at(view.now_timestamp());
+    // Muted or mentions only: drawn quietly, as it won't notify (D49).
+    let muted = summary.state.muted_at(view.now_timestamp())
+        || summary.state.notify == NotifyLevel::Mentions;
 
     let marker = if unread {
         let colour = if muted {

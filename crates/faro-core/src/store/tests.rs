@@ -349,6 +349,7 @@ async fn conversation_and_app_state_round_trip() {
         muted_until: Some(ts(5_000)),
         draft: Some(MessageBody::new("half a thought")),
         allowed: true,
+        notify: NotifyLevel::Mentions,
     };
     store
         .set_conversation_state(group(), state.clone())

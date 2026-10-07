@@ -307,6 +307,7 @@ fn the_conversation_menu_offers_what_applies() {
         &vec![
             ConversationAction::Pin,
             ConversationAction::Mute,
+            ConversationAction::MentionsOnly,
             ConversationAction::Hide,
             ConversationAction::Archive,
             ConversationAction::Allow,

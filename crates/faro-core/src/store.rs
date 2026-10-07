@@ -72,6 +72,37 @@ pub struct ConversationState {
     pub draft: Option<MessageBody>,
     /// On the allowlist: still shown while allowlist mode is on.
     pub allowed: bool,
+    /// What notifies while not muted (D49).
+    pub notify: NotifyLevel,
+}
+
+/// Which new messages in a conversation notify (bell, window title), D49.
+/// A mute silences everything whatever the level.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum NotifyLevel {
+    #[default]
+    All,
+    /// Only messages that mention us. Mentions aren't modelled until the
+    /// Signal backend (M7), so for now nothing notifies.
+    Mentions,
+}
+
+impl NotifyLevel {
+    /// The database form.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Mentions => "mentions",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "all" => Some(Self::All),
+            "mentions" => Some(Self::Mentions),
+            _ => None,
+        }
+    }
 }
 
 impl ConversationState {

@@ -11,7 +11,7 @@ use super::codec::{
     optional_timestamp_from_db, service_id_from_db, status_from_db, status_to_db,
     timestamp_from_db, timestamp_to_db,
 };
-use super::{ConversationState, ConversationSummary, Result, StoreError, StoreStats};
+use super::{ConversationState, ConversationSummary, NotifyLevel, Result, StoreError, StoreStats};
 use crate::backend::BackendEvent;
 use crate::domain::{
     AttachmentId, AttachmentRef, Contact, ConversationId, DeliveryStatus, Direction, Group,
@@ -301,11 +301,13 @@ impl Db {
             Option<i64>,
             Option<String>,
             Option<bool>,
+            Option<String>,
         );
         let rows: Vec<Row> = sqlx::query_as(
             "SELECT c.id, c.title, c.last_activity, c.unread_count,
                     r.contact_name, r.profile_name, r.phone,
-                    s.hidden, s.archived, s.pinned, s.muted_until, s.draft, s.allowed
+                    s.hidden, s.archived, s.pinned, s.muted_until, s.draft, s.allowed,
+                    s.notify
              FROM conversations c
              LEFT JOIN recipients r ON r.service_id = c.peer
              LEFT JOIN conversation_state s ON s.conversation_id = c.id
@@ -319,8 +321,8 @@ impl Db {
             .map(|row| {
                 let (key, title, last_activity, unread, contact, profile, phone) =
                     (row.0, row.1, row.2, row.3, row.4, row.5, row.6);
-                let (hidden, archived, pinned, muted_until, draft, allowed) =
-                    (row.7, row.8, row.9, row.10, row.11, row.12);
+                let (hidden, archived, pinned, muted_until, draft, allowed, notify) =
+                    (row.7, row.8, row.9, row.10, row.11, row.12, row.13);
                 let id = conversation_from_key(&key)?;
                 let title = match id {
                     ConversationId::Group(_) => title,
@@ -346,6 +348,10 @@ impl Db {
                         muted_until: optional_timestamp_from_db(muted_until, "muted_until")?,
                         draft: draft.map(MessageBody::new),
                         allowed: allowed.unwrap_or(false),
+                        notify: notify
+                            .map(|n| NotifyLevel::parse(&n).ok_or(StoreError::Corrupt("notify")))
+                            .transpose()?
+                            .unwrap_or_default(),
                     },
                 })
             })
@@ -493,12 +499,13 @@ impl Db {
         let key = ensure_conversation(&mut tx, conversation).await?;
         sqlx::query(
             "INSERT INTO conversation_state
-                 (conversation_id, hidden, archived, pinned, muted_until, draft, allowed)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 (conversation_id, hidden, archived, pinned, muted_until, draft, allowed, notify)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
              ON CONFLICT (conversation_id) DO UPDATE SET
                  hidden = excluded.hidden, archived = excluded.archived,
                  pinned = excluded.pinned, muted_until = excluded.muted_until,
-                 draft = excluded.draft, allowed = excluded.allowed",
+                 draft = excluded.draft, allowed = excluded.allowed,
+                 notify = excluded.notify",
         )
         .bind(&key)
         .bind(state.hidden)
@@ -507,6 +514,7 @@ impl Db {
         .bind(state.muted_until.map(timestamp_to_db).transpose()?)
         .bind(state.draft.as_ref().map(MessageBody::expose))
         .bind(state.allowed)
+        .bind(state.notify.as_str())
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;

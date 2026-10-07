@@ -3,7 +3,7 @@
 
 use faro_core::config::key;
 use faro_core::domain::{ConversationId, Timestamp};
-use faro_core::store::ConversationState;
+use faro_core::store::{ConversationState, NotifyLevel};
 
 use super::selection::cycle;
 use super::sending::wall_clock;
@@ -52,6 +52,7 @@ fn toggle(state: &State, target: ConversationId, curate: Curate) -> Option<Conve
         Curate::MoveDown => ConversationAction::MoveDown,
         Curate::Mute if current.muted_at(wall_clock()) => ConversationAction::Unmute,
         Curate::Mute => ConversationAction::Mute,
+        Curate::Mentions => mentions_toggle(current),
         Curate::Hide if current.hidden => ConversationAction::Unhide,
         Curate::Hide => ConversationAction::Hide,
         Curate::Archive if current.archived => ConversationAction::Unarchive,
@@ -89,6 +90,7 @@ pub fn menu(state: &mut State, target: ConversationId) {
     } else {
         ConversationAction::Mute
     });
+    items.push(mentions_toggle(current));
     items.push(if current.hidden {
         ConversationAction::Unhide
     } else {
@@ -110,6 +112,14 @@ pub fn menu(state: &mut State, target: ConversationId) {
         items,
         selected: 0,
     });
+}
+
+/// Switch between "mentions only" and "every message".
+pub fn mentions_toggle(current: &ConversationState) -> ConversationAction {
+    match current.notify {
+        NotifyLevel::All => ConversationAction::MentionsOnly,
+        NotifyLevel::Mentions => ConversationAction::AllMessages,
+    }
 }
 
 /// A key in the conversation menu. Shortcuts are the sidebar keys.
@@ -253,6 +263,16 @@ pub fn perform(
         ConversationAction::Unpin => change(state, target, "Unpinned".into(), |s| s.pinned = None),
         ConversationAction::Unmute => {
             change(state, target, "Unmuted".into(), |s| s.muted_until = None)
+        }
+        ConversationAction::MentionsOnly => {
+            change(state, target, "Notifying for mentions only".into(), |s| {
+                s.notify = NotifyLevel::Mentions;
+            })
+        }
+        ConversationAction::AllMessages => {
+            change(state, target, "Notifying for every message".into(), |s| {
+                s.notify = NotifyLevel::All;
+            })
         }
         ConversationAction::Hide => {
             let notice = format!(

@@ -104,6 +104,11 @@ pub const NAMES: &[(&str, &str, Action)] = &[
         Action::Curate(Curate::Mute),
     ),
     (
+        "conversation.mentions",
+        "Notify for mentions only or every message",
+        Action::Curate(Curate::Mentions),
+    ),
+    (
         "conversation.hide",
         "Hide or unhide",
         Action::Curate(Curate::Hide),
@@ -297,6 +302,7 @@ pub const BINDINGS: &[(Context, &str, Action)] = &[
     (Conversations, "K", Action::Curate(Curate::MoveUp)),
     (Conversations, "J", Action::Curate(Curate::MoveDown)),
     (Conversations, "m", Action::Curate(Curate::Mute)),
+    (Conversations, "@", Action::Curate(Curate::Mentions)),
     (Conversations, "h", Action::Curate(Curate::Hide)),
     (Conversations, "a", Action::Curate(Curate::Archive)),
     (Conversations, "l", Action::Curate(Curate::Allow)),

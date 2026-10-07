@@ -7,7 +7,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Paragraph};
 
-use faro_core::store::ConversationState;
+use faro_core::store::{ConversationState, NotifyLevel};
 
 use super::View;
 use super::messages::{to_jiff, zoned};
@@ -79,13 +79,16 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, view: &View<'_>)
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
-/// "On", "Muted", or "Muted until Thu 19:00".
+/// "On", "Mentions only", "Muted", or "Muted until Thu 19:00".
 fn notifications(state: Option<&ConversationState>, view: &View<'_>) -> String {
     let Some(until) = state
         .filter(|s| s.muted_at(view.now_timestamp()))
         .and_then(|s| s.muted_until)
     else {
-        return "On".to_owned();
+        return match state.map(|s| s.notify) {
+            Some(NotifyLevel::Mentions) => "Mentions only".to_owned(),
+            Some(NotifyLevel::All) | None => "On".to_owned(),
+        };
     };
     match to_jiff(until).filter(|_| until != ConversationState::MUTED_FOREVER) {
         Some(until) => format!("Muted until {}", zoned(until, view).strftime("%a %H:%M")),

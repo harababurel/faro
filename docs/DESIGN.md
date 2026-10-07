@@ -267,6 +267,8 @@ Colour carries meaning (btop style): status, unread, mentions, own vs others, er
 
 Per-conversation overrides (mute, mentions only). **Privacy levels:** show nothing / sender only / sender + preview (default: sender only).
 
+- **As built in M6 (D49):** bell and title only; desktop notifications are v0.2. A conversation *notifies* if it's in the main list (not archived, hidden or left out by allowlist mode), not muted, and set to every message (`State::notifies`). The bell (`[notifications] bell`) rings for a new incoming message in such a conversation unless it's already in front of the user (D42), at most once every 2 s. The window title (`[notifications] title`, OSC 0, pushed/popped on the terminal's title stack) is `faro (N)` with the footer's unread total over conversations that notify. Per conversation: mute (with durations) and "mentions only" (`@`; silent until mentions are mapped in M7).
+
 ## 9. Configuration
 
 - **File:** `$XDG_CONFIG_HOME/faro/config.toml`, default `~/.config/faro/config.toml` on both Linux and macOS. `--config` / `FARO_CONFIG` override.

@@ -6,6 +6,7 @@
 
 use faro_core::config::{Choice as _, EmojiChoice};
 use faro_core::domain::ConversationId;
+use faro_core::store::NotifyLevel;
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher, Utf32Str};
 
@@ -453,6 +454,8 @@ fn open_conversation_commands(state: &State) -> Vec<Item> {
             items.push(command(PaletteCommand::MuteFor(i), title, None));
         }
     }
+    let mentions = super::update::mentions_toggle(current);
+    items.push(item(mentions, mentions.label().0, Curate::Mentions));
     items.push(if current.hidden {
         item(ConversationAction::Unhide, "Unhide", Curate::Hide)
     } else {
@@ -522,6 +525,9 @@ fn conversations(state: &State) -> Vec<Item> {
             }
             if summary.state.muted_at(now) {
                 notes.push("muted".to_owned());
+            }
+            if summary.state.notify == NotifyLevel::Mentions {
+                notes.push("mentions only".to_owned());
             }
             match state.section(summary) {
                 Section::Pinned => notes.push("pinned".to_owned()),

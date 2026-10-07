@@ -87,6 +87,8 @@ pub enum Curate {
     MoveUp,
     MoveDown,
     Mute,
+    /// Mentions only, or every message (D49).
+    Mentions,
     Hide,
     Archive,
     Allow,

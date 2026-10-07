@@ -30,6 +30,7 @@ mod selection;
 mod sending;
 mod settings;
 
+pub use curation::mentions_toggle;
 pub use navigation::mouse_affects_view;
 pub use sending::wall_clock;
 pub use settings::configure;

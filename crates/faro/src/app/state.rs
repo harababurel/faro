@@ -10,7 +10,7 @@ use faro_core::domain::{
     ConnectionState, Contact, ConversationId, Direction, Group, GroupId, Message, MessageRef,
     Quote, ServiceId, Timestamp,
 };
-use faro_core::store::ConversationSummary;
+use faro_core::store::{ConversationSummary, NotifyLevel};
 use ratatui::layout::Rect;
 use tokio::time::Instant;
 
@@ -214,6 +214,9 @@ pub enum ConversationAction {
     /// Opens the mute picker.
     Mute,
     Unmute,
+    /// Notify only for mentions, or for every message again (D49).
+    MentionsOnly,
+    AllMessages,
     Hide,
     Unhide,
     Archive,
@@ -234,6 +237,8 @@ impl ConversationAction {
             Self::MoveDown => ("Move down", "J"),
             Self::Mute => ("Mute…", "m"),
             Self::Unmute => ("Unmute", "m"),
+            Self::MentionsOnly => ("Notify for mentions only", "@"),
+            Self::AllMessages => ("Notify for every message", "@"),
             Self::Hide => ("Hide", "h"),
             Self::Unhide => ("Unhide", "h"),
             Self::Archive => ("Archive", "a"),
@@ -546,9 +551,13 @@ impl State {
 
     /// Whether new messages in `summary` ring the bell and count in the
     /// window title (D49): it's in the main list (not archived, hidden or
-    /// left out by allowlist mode) and not muted.
+    /// left out by allowlist mode), not muted, and notifies for every
+    /// message. "Mentions only" notifies for nothing until the Signal backend
+    /// maps mentions (M7).
     pub fn notifies(&self, summary: &ConversationSummary, now: Timestamp) -> bool {
-        self.section(summary).view() == SidebarView::Chats && !summary.state.muted_at(now)
+        self.section(summary).view() == SidebarView::Chats
+            && !summary.state.muted_at(now)
+            && summary.state.notify == NotifyLevel::All
     }
 
     /// Name to show for a conversation: known title, then phone number, then a

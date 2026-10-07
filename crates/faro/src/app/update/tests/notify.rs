@@ -172,3 +172,39 @@ fn bell_and_title_can_be_switched_from_the_palette() {
         })]
     );
 }
+
+#[test]
+fn mentions_only_is_quiet_until_mentions_exist() {
+    use faro_core::store::NotifyLevel;
+
+    let mut state = loaded_state();
+    // `@` in the sidebar acts on the open conversation (Climbing).
+    state.focus = Focus::Conversations;
+    let effects = update(&mut state, key(KeyCode::Char('@'), KeyModifiers::NONE));
+    let climbing_state = state.summary(climbing()).unwrap().state.clone();
+    assert_eq!(climbing_state.notify, NotifyLevel::Mentions);
+    assert_eq!(
+        effects,
+        vec![Effect::SaveConversationState(
+            climbing(),
+            Box::new(climbing_state)
+        )]
+    );
+
+    // Not rung for, nor counted, even when not in front of the user.
+    update(&mut state, AppEvent::Terminal(Event::FocusLost));
+    assert_eq!(bells(&incoming(&mut state, climbing(), 1)), 0);
+    assert_eq!(state.summary(climbing()).unwrap().unread, 1);
+    assert_eq!(state.unread_total(wall_clock()), 1, "only Alice's");
+
+    // And back.
+    update(&mut state, AppEvent::Terminal(Event::FocusGained));
+    update(&mut state, key(KeyCode::Char('@'), KeyModifiers::NONE));
+    assert_eq!(
+        state.summary(climbing()).unwrap().state.notify,
+        NotifyLevel::All
+    );
+    state.last_bell = None;
+    update(&mut state, AppEvent::Terminal(Event::FocusLost));
+    assert_eq!(bells(&incoming(&mut state, climbing(), 2)), 1);
+}
