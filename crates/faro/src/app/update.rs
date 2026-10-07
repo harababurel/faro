@@ -88,10 +88,10 @@ fn key_action(key: KeyEvent) -> Option<Action> {
     match (key.code, modifiers) {
         (KeyCode::Char('q'), KeyModifiers::CONTROL) => Some(Action::Quit),
         (KeyCode::Char('c'), KeyModifiers::CONTROL) => Some(Action::Interrupt),
-        (KeyCode::Char('k' | 'K'), KeyModifiers::ALT) | (KeyCode::Up, KeyModifiers::ALT) => {
+        (KeyCode::Char('k' | 'K') | KeyCode::Up, KeyModifiers::ALT) => {
             Some(Action::PreviousConversation)
         }
-        (KeyCode::Char('j' | 'J'), KeyModifiers::ALT) | (KeyCode::Down, KeyModifiers::ALT) => {
+        (KeyCode::Char('j' | 'J') | KeyCode::Down, KeyModifiers::ALT) => {
             Some(Action::NextConversation)
         }
         (KeyCode::Char('s' | 'S'), KeyModifiers::ALT) => Some(Action::ToggleLeftSidebar),
