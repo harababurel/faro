@@ -26,6 +26,8 @@ pub fn send(state: &mut State) -> Vec<Effect> {
     let quote = open.reply_to.take();
     open.input = Input::default();
     open.draft_edited = None;
+    // The message itself ends our typing indicator; no "stopped" needed.
+    open.typing_sent = None;
     // Jump to the newest message, where this one appears.
     open.scroll = None;
     open.unseen = 0;

@@ -19,6 +19,11 @@ use super::input::Input;
 pub const TYPING_TIMEOUT: Duration = Duration::from_secs(15);
 /// A draft is saved this long after the last edit (and on switching or quitting).
 pub const DRAFT_SAVE_DELAY: Duration = Duration::from_secs(1);
+/// After this long without an edit we tell the others we stopped typing (D42).
+pub const TYPING_PAUSE: Duration = Duration::from_secs(3);
+/// While typing goes on, "started typing" is repeated this often, so the
+/// others' indicators don't time out (`TYPING_TIMEOUT`).
+pub const TYPING_REFRESH: Duration = Duration::from_secs(10);
 /// Informational notices ("Copied") disappear after this long.
 pub const INFO_NOTICE_TIME: Duration = Duration::from_secs(3);
 /// Signal's default reactions, in its order.
@@ -93,6 +98,18 @@ pub struct OpenConversation {
     pub selected: Option<Selection>,
     /// The next message sent replies to this.
     pub reply_to: Option<Quote>,
+    /// Incoming messages not yet marked read: receipts wait until they've been
+    /// seen (`State::seeing_open`, D42).
+    pub unreceipted: Vec<MessageRef>,
+    /// We told the others we're typing here.
+    pub typing_sent: Option<TypingSent>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TypingSent {
+    /// When "started typing" was last sent.
+    pub started: Instant,
+    pub last_edit: Instant,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,12 +119,15 @@ pub struct Selection {
     pub reveal: bool,
 }
 
-/// Facts about where faro runs, read once at startup.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// Facts about where faro runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Environment {
     /// Running over SSH: links are copied instead of opened (a browser would
-    /// open on the remote machine, if at all).
+    /// open on the remote machine, if at all). Read once at startup.
     pub over_ssh: bool,
+    /// The terminal has focus (focus reporting; assumed until it says
+    /// otherwise, and whenever a key or click arrives). D42.
+    pub focused: bool,
 }
 
 /// A small modal over the message area.
@@ -374,7 +394,10 @@ impl State {
             geometry: Geometry::default(),
             notice: None,
             popup: None,
-            env: Environment::default(),
+            env: Environment {
+                over_ssh: false,
+                focused: true,
+            },
             last_sent_at: Timestamp::from_millis(0),
             quit_armed: false,
             quit: false,
@@ -478,12 +501,23 @@ impl State {
         id.uuid().simple().to_string().chars().take(8).collect()
     }
 
+    /// The open conversation's newest messages are in front of the user: the
+    /// terminal has focus, the history has loaded, and the view is at the
+    /// bottom. Only then are messages read (D42).
+    pub fn seeing_open(&self) -> bool {
+        self.env.focused
+            && self
+                .open
+                .as_ref()
+                .is_some_and(|o| !o.loading && o.scroll.is_none())
+    }
+
     pub fn typists(&self, id: ConversationId) -> &[Typist] {
         self.typing.get(&id).map_or(&[], Vec::as_slice)
     }
 
     /// When the reducer next needs a `Tick` (a typing indicator expiring, a
-    /// draft to save, a notice to clear).
+    /// draft to save, a notice to clear, "stopped typing" to send).
     pub fn next_deadline(&self) -> Option<Instant> {
         let typing = self
             .typing
@@ -496,7 +530,12 @@ impl State {
             .and_then(|o| o.draft_edited)
             .map(|t| t + DRAFT_SAVE_DELAY);
         let notice = self.notice.as_ref().and_then(|n| n.until);
-        typing.chain(draft).chain(notice).min()
+        let typing_sent = self
+            .open
+            .as_ref()
+            .and_then(|o| o.typing_sent)
+            .map(|t| t.last_edit + TYPING_PAUSE);
+        typing.chain(draft).chain(notice).chain(typing_sent).min()
     }
 }
 

@@ -187,6 +187,7 @@ fn messages_update_the_list_and_the_open_conversation() {
         vec![
             Effect::Persist(Box::new(BackendEvent::Message(in_climbing.clone()))),
             Effect::MarkRead(climbing()),
+            Effect::Backend(Command::MarkRead(vec![in_climbing.reference()])),
         ]
     );
     assert_eq!(state.summary(climbing()).unwrap().unread, 0);
@@ -213,6 +214,10 @@ fn switching_conversations_keeps_drafts() {
     assert_eq!(
         effects,
         vec![
+            Effect::Backend(Command::Typing {
+                conversation: climbing(),
+                state: TypingState::Stopped,
+            }),
             Effect::SaveConversationState(climbing(), Box::new(saved)),
             Effect::LoadMessages(alice()),
             Effect::RememberOpen(alice()),
@@ -1092,3 +1097,4 @@ fn clicking_a_message_selects_it_and_right_click_opens_the_menu() {
 }
 
 mod curation;
+mod presence;

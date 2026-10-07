@@ -320,7 +320,8 @@ fn follow(state: &mut State, target: ConversationId, before: &[ConversationId]) 
 
 /// Close the open conversation (nothing left to show).
 fn close(state: &mut State) -> Vec<Effect> {
-    let effects = save_draft(state);
+    let mut effects = super::presence::stop_typing(state);
+    effects.extend(save_draft(state));
     state.open = None;
     state.popup = None;
     if state.focus == Focus::Messages {

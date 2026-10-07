@@ -21,6 +21,7 @@ use super::timeline;
 mod curation;
 mod keys;
 mod navigation;
+mod presence;
 mod selection;
 mod sending;
 
@@ -44,10 +45,7 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
         AppEvent::MessagesLoaded {
             conversation,
             messages,
-        } => {
-            on_messages_loaded(state, conversation, messages);
-            vec![]
-        }
+        } => on_messages_loaded(state, conversation, messages),
         AppEvent::OlderLoaded {
             conversation,
             messages,
@@ -87,14 +85,20 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
                 .as_ref()
                 .and_then(|o| o.draft_edited)
                 .is_some_and(|t| now >= t + DRAFT_SAVE_DELAY);
-            if draft_due { save_draft(state) } else { vec![] }
+            let mut effects = presence::on_tick(state, now);
+            if draft_due {
+                effects.extend(save_draft(state));
+            }
+            effects
         }
         AppEvent::Shutdown => quit(state),
     }
 }
 
 fn on_terminal(state: &mut State, event: &Event) -> Vec<Effect> {
-    match event {
+    // Keys and clicks only come from a focused terminal, whatever it reported.
+    state.env.focused = !matches!(event, Event::FocusLost);
+    let mut effects = match event {
         Event::Key(key) => {
             let action = if let Some(popup) = &state.popup {
                 keys::popup_action(*key, matches!(popup, Popup::React { .. }))
@@ -107,10 +111,12 @@ fn on_terminal(state: &mut State, event: &Event) -> Vec<Effect> {
         Event::Paste(text) => {
             state.popup = None;
             navigation::paste(state, text);
-            vec![]
+            presence::on_edited(state)
         }
         Event::FocusGained | Event::FocusLost | Event::Resize(_, _) => vec![],
-    }
+    };
+    effects.extend(presence::catch_up(state));
+    effects
 }
 
 /// Take in what the last frame looked like: the normalised scroll position and
@@ -148,13 +154,17 @@ fn on_drawn(state: &mut State, geometry: Geometry) -> Vec<Effect> {
         }
     }
     state.geometry = geometry;
+    // Scrolled back down: what arrived meanwhile has now been seen.
+    effects.extend(presence::catch_up(state));
     effects
 }
 
 /// Stop: save the draft first (effects still run before the store closes).
 fn quit(state: &mut State) -> Vec<Effect> {
     state.quit = true;
-    save_draft(state)
+    let mut effects = presence::stop_typing(state);
+    effects.extend(save_draft(state));
+    effects
 }
 
 /// Copy the open conversation's input into its summary as the draft and store
@@ -186,7 +196,8 @@ fn open_conversation(state: &mut State, id: ConversationId) -> Vec<Effect> {
     if state.focus == Focus::Messages {
         state.focus = Focus::Input;
     }
-    let mut effects = save_draft(state);
+    let mut effects = presence::stop_typing(state);
+    effects.extend(save_draft(state));
     effects.extend([Effect::LoadMessages(id), Effect::RememberOpen(id)]);
     let mut unread = 0;
     let mut draft = None;
@@ -212,6 +223,8 @@ fn open_conversation(state: &mut State, id: ConversationId) -> Vec<Effect> {
         unseen: 0,
         selected: None,
         reply_to: None,
+        unreceipted: Vec::new(),
+        typing_sent: None,
     });
     effects
 }
@@ -236,14 +249,18 @@ fn on_loaded(
     open_conversation(state, id)
 }
 
-fn on_messages_loaded(state: &mut State, conversation: ConversationId, messages: Vec<Message>) {
+fn on_messages_loaded(
+    state: &mut State,
+    conversation: ConversationId,
+    messages: Vec<Message>,
+) -> Vec<Effect> {
     let Some(open) = state
         .open
         .as_mut()
         .filter(|o| o.id == conversation && o.loading)
     else {
         // The user moved on before the page arrived.
-        return;
+        return vec![];
     };
     open.has_older = full_page(&messages);
     open.messages = messages;
@@ -251,7 +268,10 @@ fn on_messages_loaded(state: &mut State, conversation: ConversationId, messages:
         timeline::apply(&mut open.messages, &event);
     }
     open.loading = false;
-    open.unread_marker = first_unread(&open.messages, open.unread_on_open);
+    let unread = last_unread(&open.messages, open.unread_on_open);
+    open.unread_marker = unread.first().copied().or(open.unread_marker);
+    presence::on_history(state, &unread);
+    presence::catch_up(state)
 }
 
 fn on_older_loaded(state: &mut State, conversation: ConversationId, messages: Vec<Message>) {
@@ -272,16 +292,18 @@ fn full_page(messages: &[Message]) -> bool {
     u32::try_from(messages.len()).is_ok_and(|n| n >= PAGE)
 }
 
-/// The `unread`-th incoming message from the end.
-fn first_unread(messages: &[Message], unread: u32) -> Option<MessageRef> {
-    let n = usize::try_from(unread).ok().filter(|n| *n > 0)?;
-    messages
+/// The last `unread` incoming messages, oldest first.
+fn last_unread(messages: &[Message], unread: u32) -> Vec<MessageRef> {
+    let n = usize::try_from(unread).unwrap_or(usize::MAX);
+    let mut refs: Vec<MessageRef> = messages
         .iter()
         .rev()
         .filter(|m| m.direction == Direction::Incoming && !m.deleted)
         .take(n)
-        .last()
         .map(Message::reference)
+        .collect();
+    refs.reverse();
+    refs
 }
 
 fn on_backend(state: &mut State, event: BackendEvent) -> Vec<Effect> {
@@ -347,10 +369,12 @@ fn on_message(state: &mut State, message: &Message, effects: &mut Vec<Effect>) {
         typists.retain(|t| t.who != message.sender);
     }
     let is_open = state.open.as_ref().is_some_and(|o| o.id == id);
+    // Unread unless it's in front of the user (D42).
+    let seen = is_open && state.seeing_open();
     let incoming = message.direction == Direction::Incoming && !message.deleted;
     if let Some(summary) = summary_entry(state, id) {
         summary.last_activity = summary.last_activity.max(Some(message.sent_at));
-        if incoming && !is_open {
+        if incoming && !seen {
             summary.unread += 1;
         }
         // Hidden until a new message arrives (DESIGN.md §7.7).
@@ -376,11 +400,10 @@ fn on_message(state: &mut State, message: &Message, effects: &mut Vec<Effect>) {
         {
             open.unseen += 1;
         }
-        if incoming {
-            // Persisted first (effects run in order), so this clears the count
-            // the store just raised.
-            effects.push(Effect::MarkRead(id));
-        }
+        presence::on_new_message(state, message);
+        // Persisted first (effects run in order), so a `MarkRead` here clears
+        // the count the store just raised.
+        effects.extend(presence::catch_up(state));
     }
 }
 

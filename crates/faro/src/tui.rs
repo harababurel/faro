@@ -6,7 +6,8 @@ use std::io::{self, Stdout, stdout};
 use std::sync::Once;
 
 use crossterm::event::{
-    DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+    DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
+    EnableFocusChange, EnableMouseCapture,
 };
 use crossterm::terminal::{
     BeginSynchronizedUpdate, EndSynchronizedUpdate, EnterAlternateScreen, LeaveAlternateScreen,
@@ -28,11 +29,14 @@ impl Tui {
             enable_raw_mode()?;
             // Bracketed paste: a multi-line paste arrives as one event, not as
             // keystrokes (where each newline would be Enter).
+            // Focus reporting: messages count as read only while the terminal
+            // has focus (D42). Under tmux this needs `focus-events on`.
             execute!(
                 stdout(),
                 EnterAlternateScreen,
                 EnableMouseCapture,
-                EnableBracketedPaste
+                EnableBracketedPaste,
+                EnableFocusChange
             )?;
             let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
             terminal.clear()?;
@@ -64,6 +68,7 @@ fn restore() {
     let _ = execute!(
         stdout(),
         DisableBracketedPaste,
+        DisableFocusChange,
         DisableMouseCapture,
         LeaveAlternateScreen,
         cursor::Show

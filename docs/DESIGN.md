@@ -179,6 +179,7 @@ presage keeps its own store for keys, sessions and protocol state; faro never to
 
 - **Left sidebar:** conversations (sections: pinned, recent; archived behind a toggle). Unread counts, mute markers, typing indicator.
 - **Main pane:** message list + **input box** rendered as a distinct panel with its own background colour (OpenCode style).
+- **Read receipts and typing (D42):** a message is read only once it's actually seen (terminal focused, view at the bottom); only then are receipts sent and the unread count cleared. Typing indicators: "started" on the first edit and every 10 s, "stopped" after 3 s idle, on an empty input, or on leaving the conversation.
 - **Right sidebar (optional):** conversation info, members, safety number, shared links/files.
 - **Footer:** connection status, unread total, mode, and **context-sensitive key hints** (change with focus).
 - Sidebars are **collapsible**, **resizable** (mouse drag or keys), and **auto-hide on narrow terminals**. Widths persist in `app_state`.
@@ -306,7 +307,7 @@ Sketch:
 ## 11. Terminal compatibility
 
 - **Input:** crossterm. Use the **kitty keyboard protocol** when available (more distinguishable keys), but **all defaults must work without it** (tmux only partially supports it).
-- **tmux** recommended settings (documented, detected where possible): `set -g mouse on`, `set -g set-clipboard on`, `set -g allow-passthrough on`, `set -as terminal-features ",*:RGB"`, `set -g extended-keys on`.
+- **tmux** recommended settings (documented, detected where possible): `set -g mouse on`, `set -g set-clipboard on`, `set -g allow-passthrough on`, `set -as terminal-features ",*:RGB"`, `set -g extended-keys on`, `set -g focus-events on` (read receipts wait for focus, D42).
 - **Width:** grapheme-aware width calculation (`unicode-segmentation` + `unicode-width`); test emoji-heavy content specifically under tmux.
 - **Images:** not in the first release (see §14).
 

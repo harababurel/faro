@@ -168,8 +168,15 @@ pub async fn run<B: Backend + 'static>(
 fn affects_view(event: &AppEvent) -> bool {
     match event {
         AppEvent::Terminal(Event::Mouse(mouse)) => update::mouse_affects_view(*mouse),
-        AppEvent::Terminal(Event::FocusGained | Event::FocusLost) | AppEvent::Drawn(_) => false,
-        AppEvent::Terminal(Event::Key(_) | Event::Paste(_) | Event::Resize(..))
+        AppEvent::Drawn(_) => false,
+        // Focus changes can clear unread counts (D42).
+        AppEvent::Terminal(
+            Event::Key(_)
+            | Event::Paste(_)
+            | Event::Resize(..)
+            | Event::FocusGained
+            | Event::FocusLost,
+        )
         | AppEvent::Backend(_)
         | AppEvent::Loaded { .. }
         | AppEvent::MessagesLoaded { .. }

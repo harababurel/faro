@@ -40,7 +40,11 @@ pub fn on_action(state: &mut State, action: Action) -> Vec<Effect> {
         Action::Edit(Edit::Up) if state.open.as_ref().is_some_and(|o| o.input.is_empty()) => {
             selection::enter(state);
         }
-        Action::Edit(edit) => apply_edit(state, edit),
+        Action::Edit(edit) => {
+            if apply_edit(state, edit) {
+                return super::presence::on_edited(state);
+            }
+        }
         Action::SelectOlder => selection::step(state, true),
         Action::SelectNewer => selection::step(state, false),
         Action::SelectOldest => selection::jump(state, true),
@@ -72,9 +76,10 @@ fn escape(state: &mut State) {
     }
 }
 
-fn apply_edit(state: &mut State, edit: Edit) {
+/// Whether the text changed.
+fn apply_edit(state: &mut State, edit: Edit) -> bool {
     let Some(open) = state.open.as_mut() else {
-        return;
+        return false;
     };
     let input = &mut open.input;
     let before = input.text().len();
@@ -145,9 +150,11 @@ fn apply_edit(state: &mut State, edit: Edit) {
         }
     };
     // Every text change alters the length (inserts add, deletes remove).
-    if changes_text && input.text().len() != before {
+    let changed = changes_text && input.text().len() != before;
+    if changed {
         open.draft_edited = Some(tokio::time::Instant::now());
     }
+    changed
 }
 
 /// Pasted text (bracketed paste) goes into the input as typed, newlines kept.

@@ -1,12 +1,12 @@
-//! Runs the reducer's backend commands (sending and, later, reactions, receipts
-//! and typing) one at a time, in order, and reports results back to the app loop
+//! Runs the reducer's backend commands (sending, reactions, read receipts,
+//! typing) one at a time, in order, and reports results back to the app loop
 //! as `AppEvent`s (D39).
 //!
 //! Backend futures need not be `Send` (D30), so the task is local to the
 //! current-thread runtime (`spawn_local`, inside the `LocalSet` set up in `main`).
 
 use faro_core::backend::{Backend, OutgoingMessage};
-use faro_core::domain::{ConversationId, MessageRef};
+use faro_core::domain::{ConversationId, MessageRef, TypingState};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
@@ -29,6 +29,14 @@ pub enum Command {
         emoji: Option<String>,
         previous: Option<String>,
     },
+    /// Read receipts for messages that have been seen (D42). No answer;
+    /// failures are only logged.
+    MarkRead(Vec<MessageRef>),
+    /// Our typing indicator (D42). No answer; failures are only logged.
+    Typing {
+        conversation: ConversationId,
+        state: TypingState,
+    },
 }
 
 /// Start the task; it owns the backend and drops it when the sender is dropped
@@ -49,15 +57,17 @@ async fn run<B: Backend>(
     results: mpsc::UnboundedSender<AppEvent>,
 ) {
     while let Some(command) = queue.recv().await {
-        let event = execute(&backend, command).await;
+        let Some(event) = execute(&backend, command).await else {
+            continue;
+        };
         if results.send(event).is_err() {
             tracing::debug!("app loop stopped before a backend result arrived");
         }
     }
 }
 
-async fn execute<B: Backend>(backend: &B, command: Command) -> AppEvent {
-    match command {
+async fn execute<B: Backend>(backend: &B, command: Command) -> Option<AppEvent> {
+    let event = match command {
         Command::Send {
             conversation,
             message,
@@ -86,5 +96,21 @@ async fn execute<B: Backend>(backend: &B, command: Command) -> AppEvent {
                 result,
             }
         }
-    }
+        Command::MarkRead(messages) => {
+            if let Err(error) = backend.mark_read(&messages).await {
+                tracing::warn!(%error, count = messages.len(), "sending read receipts failed");
+            }
+            return None;
+        }
+        Command::Typing {
+            conversation,
+            state,
+        } => {
+            if let Err(error) = backend.send_typing(conversation, state).await {
+                tracing::debug!(%error, %conversation, "sending a typing indicator failed");
+            }
+            return None;
+        }
+    };
+    Some(event)
 }
