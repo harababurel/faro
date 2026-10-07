@@ -324,6 +324,7 @@ Sketch:
 - **Width:** grapheme-aware width calculation (`unicode-segmentation` + `unicode-width`); test emoji-heavy content specifically under tmux.
 - **mosh** measures emoji per code point, unlike kitty and tmux ≥ 3.5: faro switches to compatible emoji when any client of its tmux session (or faro itself) runs under `mosh-server` (D47). Other panes in the same tmux (e.g. a shell) still look wrong through mosh; that's outside faro's control.
 - **Frame output:** every wide cell is sent with `ForcedWidth`, so ratatui never writes a wide character's hidden cell (D47).
+- **Colours (D51):** truecolor is assumed inside tmux (tmux rounds RGB itself for clients without it) and in known truecolor terminals even when `COLORTERM` was lost over SSH; elsewhere 256 colours, mapped once at theme load; 16-colour terminals get the `system` theme. `[ui] colors` overrides the guess. Details in §10.
 - **Images:** not in the first release (see §14).
 
 ## 12. Security and privacy
