@@ -118,6 +118,7 @@ enum Request {
     FailUnsent(Reply<u64>),
     AppState(String, Reply<Option<String>>),
     SetAppState(String, String, Reply<()>),
+    RemoveAppState(String, Reply<()>),
     Stats(Reply<StoreStats>),
     Close(Reply<()>),
 }
@@ -227,6 +228,13 @@ impl Store {
             .await
     }
 
+    /// Forget a piece of app state (e.g. a preference that moved to the
+    /// config file).
+    pub async fn remove_app_state(&self, key: &str) -> Result<()> {
+        let key = key.to_owned();
+        self.call(|reply| Request::RemoveAppState(key, reply)).await
+    }
+
     pub async fn stats(&self) -> Result<StoreStats> {
         self.call(Request::Stats).await
     }
@@ -301,6 +309,9 @@ async fn handle(db: &mut Db, request: Request) -> Option<Reply<()>> {
         }
         Request::SetAppState(key, value, reply) => {
             let _ = reply.send(db.set_app_state(&key, &value).await);
+        }
+        Request::RemoveAppState(key, reply) => {
+            let _ = reply.send(db.remove_app_state(&key).await);
         }
         Request::Stats(reply) => {
             let _ = reply.send(db.stats().await);

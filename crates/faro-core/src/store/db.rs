@@ -553,6 +553,14 @@ impl Db {
         Ok(())
     }
 
+    pub(super) async fn remove_app_state(&mut self, key: &str) -> Result<()> {
+        sqlx::query("DELETE FROM app_state WHERE key = ?1")
+            .bind(key)
+            .execute(&mut self.conn)
+            .await?;
+        Ok(())
+    }
+
     pub(super) async fn stats(&mut self) -> Result<StoreStats> {
         let (conversations, messages): (i64, i64) = sqlx::query_as(
             "SELECT (SELECT count(*) FROM conversations), (SELECT count(*) FROM messages)",

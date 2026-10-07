@@ -363,6 +363,9 @@ async fn conversation_and_app_state_round_trip() {
         store.app_state("last").await.unwrap().as_deref(),
         Some("two")
     );
+    store.remove_app_state("last").await.unwrap();
+    assert_eq!(store.app_state("last").await.unwrap(), None);
+    store.remove_app_state("never set").await.unwrap();
 }
 
 #[tokio::test]
