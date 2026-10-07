@@ -191,3 +191,19 @@ Refines the DESIGN.md §5.1 sketch:
 - **Capabilities are optional features only** (`Edit`, `DeleteForEveryone`, `Attachments`), a small bitset. Text, replies, receipts, typing and reactions are required. `require()` gives backends a uniform `Unsupported` error.
 - **Errors:** `Network`, `Unlinked`, `RateLimited { retry_after }`, `Protocol`, `Storage`, `NotFound`, `Unsupported`, plus `is_transient()`. Detail strings are for logs and must not contain bodies or phone numbers.
 - **`block_on` banned** (D27/D28): `tokio` `Runtime::block_on`, `Handle::block_on`, `block_in_place`, and `futures::executor::block_on`, in `clippy.toml` with `allow-invalid` so crates without those dependencies don't warn. `#[tokio::test]` expands to `block_on`, so async tests carry `#[expect(clippy::disallowed_methods, reason = ...)]`.
+
+### D31. Mock backend design (M1) — Judgement
+
+- **Pure core, thin driver.** `mock/sim.rs` is a synchronous, seeded scheduler with no I/O: a priority queue of entries due at "milliseconds since start". `mock.rs` holds it behind a `std::sync::Mutex` (never held across `.await`; poisoning ignored) and runs a driver task that sleeps until the next entry and forwards events. Follow-ups are scheduled from each entry's *due* time, not the wall clock, so for a given seed the sequence doesn't depend on how late the driver wakes. Determinism can be tested without a runtime, by jumping from one due time to the next.
+- **RNG: `fastrand` 2** (small, no dependencies, seedable). Its output isn't promised to stay the same across versions, so tests compare two runs with each other instead of checking fixed expected values, and `Cargo.lock` pins the version. Chosen over `rand_chacha`, whose version-stable output isn't needed.
+- **Clock: tokio's** (`tokio::time::Instant`, `sleep_until`). Tests use `#[tokio::test(start_paused = true)]` (dev-only `test-util` feature), so time jumps instantly and deterministically. Message timestamps are `epoch + elapsed`; `MockEpoch::Fixed` (`MockConfig::deterministic`) makes them reproducible, `MockEpoch::Now` makes them look normal.
+- **Fixed cast, seeded behaviour.** Contacts, groups and IDs come from a constant seed, separate from `MockConfig::seed`, so IDs stay the same across runs and stored history (M2) still matches. Only the activity depends on the seed. The default seed is `0`; a CLI flag can override it later.
+- **`MockBackend::new` spawns the driver** with `tokio::spawn` and aborts it on drop, so it must be called inside a Tokio runtime (otherwise tokio panics). This is accepted because it's called once at startup, where a mistake shows up immediately.
+- **Behaviour:**
+  - On connect, the mock delivers a backlog of messages dated over the past three days (Signal's server queue), then scripted activity: messages with typing indicators, replies (quotes), reactions, edits, deletes, sync messages (`Outgoing`), profile changes, and optionally outages and decryption errors.
+  - Events produced during an outage are held back and delivered on reconnect.
+  - **Commands fail with `Network` while offline, including before the first `Connected`**, so the app must cope at startup.
+  - The app owns the `Sending` state. After `send` returns `Ok`, the mock emits `Sent` → `Delivered` → `Read` (every recipient reads) and replies 60% of the time.
+  - Edits and deletes of other people's messages return `NotFound`.
+  - Mock messages have no attachments. `Attachments` is off by default, and `fetch_attachment` returns `NotFound` even if it's enabled.
+  - `simulate_outage` and `inject_error` trigger outages and errors on demand.

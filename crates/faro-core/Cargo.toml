@@ -13,10 +13,11 @@ workspace = true
 
 [dependencies]
 etcetera = "0.11.0"
+fastrand = "2.5.0"
 thiserror = "2.0.21"
-tokio = { version = "1.53.2", features = ["sync"] }
+tokio = { version = "1.53.2", features = ["macros", "rt", "sync", "time"] }
 uuid = "1.27.0"
 
 [dev-dependencies]
 tempfile = "3.27.0"
-tokio = { version = "1.53.2", features = ["rt", "macros"] }
+tokio = { version = "1.53.2", features = ["rt", "macros", "test-util"] }

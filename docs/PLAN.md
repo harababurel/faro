@@ -171,7 +171,7 @@ Drag-resizable sidebars with hover highlight; right-click context menus; setting
 |---|---|---|
 | Docs, naming, repo setup | ✅ Done (2026-10-07) | README, LICENSE, DESIGN, DECISIONS, BACKGROUND, PLAN, AGENTS, logo prototypes |
 | M0 Scaffolding | ✅ Done (2026-10-07); CI green on ubuntu + macos | Commits `8c3fd5b`, `f71ddfb`. `--data-dir`/`FARO_DATA_DIR` added now (needed for the log path); `--config` deferred to M5. `faro` prints a placeholder until M3. 8 tests (paths, CLI, log rotation). Decisions D24–D27. |
-| M1 Core + mock backend | 🚧 In progress | D27 lints adopted first (D28). Task 1 done: domain types in `faro-core/src/domain/` (D29; `Recipient` folded into `Contact`). Task 2 done: `Backend` trait, events, capabilities, errors in `faro-core/src/backend/` (D30; linking deferred to M7, `send` returns `()` since faro picks `sent_at`). Next: task 3, `MockBackend`. |
+| M1 Core + mock backend | 🚧 In progress | D27 lints adopted first (D28). Task 1 done: domain types in `faro-core/src/domain/` (D29; `Recipient` folded into `Contact`). Task 2 done: `Backend` trait, events, capabilities, errors in `faro-core/src/backend/` (D30; linking deferred to M7, `send` returns `()` since faro picks `sent_at`). Task 3 done: `MockBackend` in `faro-core/src/mock.rs` + `mock/` (D31; `fastrand`, tokio paused clock); acceptance test `mock::tests::same_seed_same_event_sequence` passes. Next: task 4, `faro --mock`. |
 | M2 Store | ⏳ Not started | |
 | M3 TUI skeleton | ⏳ Not started | |
 | M4 Interactions + palette (first prototype) | ⏳ Not started | |

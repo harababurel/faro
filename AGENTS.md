@@ -23,19 +23,23 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 - 2026-10-07: M1 started. D27 rules adopted (D28): no panics, no blocking std calls, no `print!`, and lint exceptions only via `#[expect(lint, reason = "...")]`.
 - 2026-10-07: M1 task 1 done: domain types (D29), including redacting `MessageBody`/`PhoneNumber` and the `wildcard_enum_match_arm` lint.
 - 2026-10-07: M1 task 2 done: `Backend` trait, `BackendEvent`, `Capabilities`, `BackendError` (D30), and the `block_on` ban.
-- **Next: M1 task 3 (`MockBackend`)**, then task 4 (`faro --mock`); see docs/PLAN.md M1 for the full requirements and acceptance test. Notes for task 3:
-  - Put it in `crates/faro-core/src/mock.rs` (or `mock/`); always compiled in (DESIGN §4.3). The test `Stub` at the bottom of `backend.rs` shows a minimal `impl Backend`.
-  - Constructor returns `(MockBackend, BackendEvents)` using `mpsc::channel(EVENT_CHANNEL_CAPACITY)` (D30). `send` must emit `DeliveryUpdate`s for `MessageRef { sender: me, sent_at: msg.sent_at }` (sending → sent → delivered → read).
-  - Deterministic mode needs a seeded RNG and a controllable clock. Likely: a small seeded PRNG dependency (e.g. `rand_chacha`/`fastrand`) and tokio's `test-util` feature (`time::pause`/`advance`) for tests. Record the choices as a new D31 Judgement.
-  - Seed data: emoji-heavy names, very long names, many old empty conversations (to exercise curation later), a few groups.
+- 2026-10-07: development moved from the owner's Mac mini to a Debian Linux machine as well; the toolchain, build and SSH push access are verified there (`protoc` installed, so M7 prerequisites are met).
+- 2026-10-07: M1 task 3 done: `MockBackend` (D31). M1 acceptance test passes (`mock::tests::same_seed_same_event_sequence`).
+- **Next: M1 task 4 (`faro --mock`, the default until M7)**; see docs/PLAN.md M1. Notes:
+  - `main` is synchronous today. It needs a tokio runtime (add `rt`/`rt-multi-thread` + `macros` to `crates/faro`); `#[tokio::main]` expands to `block_on`, so it needs `#[expect(clippy::disallowed_methods, reason = "...")]`.
+  - `MockBackend::new(&MockConfig)` must run inside the runtime (it spawns its driver). Commands fail with `Network` until the first `Connection(Connected)` event.
+  - There's no TUI until M3. A sensible interim: run the mock for a while (or until Ctrl+C) and log a summary of events via `tracing` (never message bodies: `MessageBody` redacts in `Debug` anyway), plus print a short placeholder line like today. Consider `--mock-seed <u64>`. Ask the owner if unsure.
+  - Choosing mock vs presage at runtime will be an enum or a generic `run::<B: Backend>()` (D30: the trait isn't object-safe).
 
 ### Gotchas found so far
 
 - `#[expect(...)]` on a macro call (`println!`) is ignored; put it on the enclosing `fn`.
-- `#[tokio::test]` expands to `block_on`, which is banned: add `#[expect(clippy::disallowed_methods, reason = "#[tokio::test] expands to block_on; tests may block")]`.
-- Trait impls with `async fn` bodies that never `.await` trip `clippy::unused_async_trait_impl`.
-- `wildcard_enum_match_arm` doesn't catch `_` inside tuple patterns; spell out variants by hand.
+- `#[tokio::test]` expands to `block_on`, which is banned: add `#[expect(clippy::disallowed_methods, reason = "#[tokio::test] expands to block_on; tests may block")]` (on the test fn, or once on the whole `mod tests`).
+- Trait impls with `async fn` bodies that never `.await` trip `clippy::unused_async_trait_impl`. In real impls, write those methods as `fn ... -> impl Future<Output = ...>` returning `std::future::ready(...)` (see `mock.rs`).
+- `wildcard_enum_match_arm` doesn't catch `_` inside tuple patterns; spell out variants by hand. In tests, prefer `let ... else` / `if let` over a `_ =>` arm.
 - Blocking std calls (fs, `Path::exists`, sleep…) are banned everywhere; startup code and tests opt out per function/module with `#[expect(clippy::disallowed_methods, reason = "...")]`.
+- `fastrand::Rng::choice` needs an `ExactSizeIterator`: collect a filtered iterator into a `Vec` first.
+- Pedantic `too_many_lines` caps functions at 100 lines; split big `match`es into one method per arm.
 - Commit and push are separate permissions: push only when the owner says so (D23).
 
 ### Code map
@@ -50,6 +54,7 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 | `crates/faro/src/logging.rs` | `tracing` to `<data dir>/logs/faro.log`, non-blocking, `FARO_LOG` filter, rotation over 10 MB (D26) |
 | `crates/faro-core/src/backend.rs`, `backend/` | `Backend` trait, `Account`, `OutgoingMessage`/`OutgoingEdit`, `Capabilities`; `event.rs` (`BackendEvent`), `error.rs` (`BackendError`) (D30) |
 | `crates/faro-core/src/domain/` | Domain types (D29): `ids.rs` (ServiceId, GroupId, ConversationId, Timestamp, MessageRef), `sensitive.rs` (redacting MessageBody, PhoneNumber), `people.rs`, `message.rs`, `presence.rs` |
+| `crates/faro-core/src/mock.rs`, `mock/` | `MockBackend` + `MockConfig` (D31): `mock.rs` (Backend impl, driver task, paused-clock tests), `sim.rs` (seeded synchronous scheduler: backlog, scripted activity, receipts, outages), `world.rs` (fixed cast, canned texts) |
 | `crates/faro-core/src/paths.rs` | XDG paths (D17), `0700` dirs / `0600` files helpers, with tests |
 | `.github/workflows/ci.yml` | fmt, clippy `-D warnings`, test on ubuntu + macos (`--locked`) |
 

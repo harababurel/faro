@@ -3,4 +3,5 @@
 
 pub mod backend;
 pub mod domain;
+pub mod mock;
 pub mod paths;

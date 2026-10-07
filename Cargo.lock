@@ -190,6 +190,7 @@ name = "faro-core"
 version = "0.1.0-dev"
 dependencies = [
  "etcetera",
+ "fastrand",
  "tempfile",
  "thiserror",
  "tokio",
