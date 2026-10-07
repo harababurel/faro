@@ -13,11 +13,12 @@ use tokio::time::Instant;
 use super::event::{AppEvent, Effect};
 use super::input::Input;
 use super::state::{
-    DRAFT_SAVE_DELAY, Focus, Geometry, Notice, OpenConversation, SidebarScroll, State,
+    DRAFT_SAVE_DELAY, Focus, Geometry, Notice, OpenConversation, Popup, SidebarScroll, State,
     TYPING_TIMEOUT, Typist, sort_conversations,
 };
 use super::timeline;
 
+mod curation;
 mod keys;
 mod navigation;
 mod selection;
@@ -35,7 +36,11 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
         AppEvent::Loaded {
             conversations,
             last_open,
-        } => on_loaded(state, conversations, last_open),
+            allowlist,
+        } => {
+            state.list.allowlist = allowlist;
+            on_loaded(state, conversations, last_open)
+        }
         AppEvent::MessagesLoaded {
             conversation,
             messages,
@@ -91,8 +96,8 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
 fn on_terminal(state: &mut State, event: &Event) -> Vec<Effect> {
     match event {
         Event::Key(key) => {
-            let action = if state.popup.is_some() {
-                keys::popup_action(*key)
+            let action = if let Some(popup) = &state.popup {
+                keys::popup_action(*key, matches!(popup, Popup::React { .. }))
             } else {
                 keys::key_action(*key, state.focus)
             };
@@ -221,10 +226,14 @@ fn on_loaded(
     state.loading = false;
     let first = state.visible_conversations().next().map(|c| c.id);
     let remembered = last_open.filter(|id| state.summary(*id).is_some());
-    match remembered.or(first) {
-        Some(id) => open_conversation(state, id),
-        None => vec![],
+    let Some(id) = remembered.or(first) else {
+        return vec![];
+    };
+    // Show the list the conversation is in (it may be archived).
+    if let Some(summary) = state.summary(id) {
+        state.list.view = state.section(summary).view();
     }
+    open_conversation(state, id)
 }
 
 fn on_messages_loaded(state: &mut State, conversation: ConversationId, messages: Vec<Message>) {
@@ -343,6 +352,14 @@ fn on_message(state: &mut State, message: &Message, effects: &mut Vec<Effect>) {
         summary.last_activity = summary.last_activity.max(Some(message.sent_at));
         if incoming && !is_open {
             summary.unread += 1;
+        }
+        // Hidden until a new message arrives (DESIGN.md §7.7).
+        if summary.state.hidden && !message.deleted {
+            summary.state.hidden = false;
+            effects.push(Effect::SaveConversationState(
+                id,
+                Box::new(summary.state.clone()),
+            ));
         }
     }
     sort_conversations(&mut state.conversations);

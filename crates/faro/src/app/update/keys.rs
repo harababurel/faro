@@ -39,6 +39,27 @@ pub enum Action {
     Copy,
     OpenLink,
     Popup(PopupKey),
+    /// `Alt+1`…`Alt+9`: open the Nth pinned conversation.
+    JumpToPinned(u8),
+    /// Curate the conversation highlighted in the sidebar (M4 task 5, D41).
+    Curate(Curate),
+}
+
+/// Sidebar keys for curating the list (D41). The toggles resolve to a
+/// `ConversationAction` against the conversation's current state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Curate {
+    Menu,
+    Pin,
+    MoveUp,
+    MoveDown,
+    Mute,
+    Hide,
+    Archive,
+    Allow,
+    AllowlistMode,
+    /// Between the chats and the archive.
+    SwitchView,
 }
 
 /// Keys while a menu or picker is open.
@@ -112,6 +133,10 @@ fn global(code: KeyCode, modifiers: KeyModifiers) -> Option<Action> {
         (KeyCode::PageUp, KeyModifiers::NONE) => Some(Action::PageUp),
         (KeyCode::PageDown, KeyModifiers::NONE) => Some(Action::PageDown),
         (KeyCode::Esc, KeyModifiers::NONE) => Some(Action::Escape),
+        (KeyCode::Char(c @ '1'..='9'), KeyModifiers::ALT) => c
+            .to_digit(10)
+            .and_then(|n| u8::try_from(n).ok())
+            .map(Action::JumpToPinned),
         _ => None,
     }
 }
@@ -147,17 +172,28 @@ fn input(code: KeyCode, modifiers: KeyModifiers) -> Option<Action> {
     Some(Action::Edit(edit))
 }
 
+/// Moving through the list, and curating it (D41).
 fn conversations(code: KeyCode, modifiers: KeyModifiers) -> Option<Action> {
-    match (code, modifiers) {
-        (KeyCode::Up | KeyCode::Char('k'), KeyModifiers::NONE) => {
-            Some(Action::PreviousConversation)
-        }
-        (KeyCode::Down | KeyCode::Char('j'), KeyModifiers::NONE) => Some(Action::NextConversation),
-        (KeyCode::Home | KeyCode::Char('g'), KeyModifiers::NONE) => Some(Action::FirstConversation),
-        (KeyCode::End | KeyCode::Char('G'), KeyModifiers::NONE) => Some(Action::LastConversation),
-        (KeyCode::Enter, KeyModifiers::NONE) => Some(Action::FocusInput),
-        _ => None,
-    }
+    const NONE: KeyModifiers = KeyModifiers::NONE;
+    let curate = match (code, modifiers) {
+        (KeyCode::Up | KeyCode::Char('k'), NONE) => return Some(Action::PreviousConversation),
+        (KeyCode::Down | KeyCode::Char('j'), NONE) => return Some(Action::NextConversation),
+        (KeyCode::Home | KeyCode::Char('g'), NONE) => return Some(Action::FirstConversation),
+        (KeyCode::End | KeyCode::Char('G'), NONE) => return Some(Action::LastConversation),
+        (KeyCode::Enter, NONE) => return Some(Action::FocusInput),
+        (KeyCode::Char(' '), NONE) => Curate::Menu,
+        (KeyCode::Char('p'), NONE) => Curate::Pin,
+        (KeyCode::Char('K'), NONE) => Curate::MoveUp,
+        (KeyCode::Char('J'), NONE) => Curate::MoveDown,
+        (KeyCode::Char('m'), NONE) => Curate::Mute,
+        (KeyCode::Char('h'), NONE) => Curate::Hide,
+        (KeyCode::Char('a'), NONE) => Curate::Archive,
+        (KeyCode::Char('l'), NONE) => Curate::Allow,
+        (KeyCode::Char('L'), NONE) => Curate::AllowlistMode,
+        (KeyCode::Char('A'), NONE) => Curate::SwitchView,
+        _ => return None,
+    };
+    Some(Action::Curate(curate))
 }
 
 /// The message pane moves a selection (D40); keys act on the selected message.
@@ -178,19 +214,23 @@ fn messages(code: KeyCode, modifiers: KeyModifiers) -> Option<Action> {
     Some(action)
 }
 
-/// While a popup is open it takes every key except quitting.
-pub fn popup_action(key: KeyEvent) -> Option<Action> {
+/// While a popup is open it takes every key except quitting. `h`/`l` move
+/// only in a `horizontal` popup (the reaction picker); in menus they're
+/// shortcuts (D41).
+pub fn popup_action(key: KeyEvent, horizontal: bool) -> Option<Action> {
     if key.kind == KeyEventKind::Release {
         return None;
     }
     let modifiers = key.modifiers.difference(KeyModifiers::SHIFT);
     let popup = match (key.code, modifiers) {
         (KeyCode::Char('q' | 'c'), KeyModifiers::CONTROL) => return global(key.code, modifiers),
+        (KeyCode::Char('h'), KeyModifiers::NONE) if horizontal => PopupKey::Previous,
+        (KeyCode::Char('l'), KeyModifiers::NONE) if horizontal => PopupKey::Next,
         (KeyCode::Up | KeyCode::Left | KeyCode::BackTab, _)
-        | (KeyCode::Char('k' | 'h'), KeyModifiers::NONE)
+        | (KeyCode::Char('k'), KeyModifiers::NONE)
         | (KeyCode::Char('p'), KeyModifiers::CONTROL) => PopupKey::Previous,
         (KeyCode::Down | KeyCode::Right | KeyCode::Tab, _)
-        | (KeyCode::Char('j' | 'l'), KeyModifiers::NONE)
+        | (KeyCode::Char('j'), KeyModifiers::NONE)
         | (KeyCode::Char('n'), KeyModifiers::CONTROL) => PopupKey::Next,
         (KeyCode::Enter, _) => PopupKey::Choose,
         (KeyCode::Esc, _) | (KeyCode::Char('q'), KeyModifiers::NONE) => PopupKey::Close,
@@ -295,7 +335,7 @@ mod tests {
 
     #[test]
     fn popups_take_keys_but_not_quitting() {
-        let popup = |code, modifiers| popup_action(KeyEvent::new(code, modifiers));
+        let popup = |code, modifiers| popup_action(KeyEvent::new(code, modifiers), false);
         assert_eq!(
             popup(KeyCode::Char('j'), KeyModifiers::NONE),
             Some(Action::Popup(PopupKey::Next))
@@ -317,6 +357,56 @@ mod tests {
             Some(Action::Quit)
         );
         assert_eq!(popup(KeyCode::Char('j'), KeyModifiers::ALT), None);
+        // h/l: shortcuts in menus, moves in the reaction picker.
+        assert_eq!(
+            popup(KeyCode::Char('h'), KeyModifiers::NONE),
+            Some(Action::Popup(PopupKey::Char('h')))
+        );
+        assert_eq!(
+            popup_action(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE), true),
+            Some(Action::Popup(PopupKey::Previous))
+        );
+    }
+
+    #[test]
+    fn curation_keys_work_in_the_sidebar_only() {
+        let sidebar = |c| press(KeyCode::Char(c), KeyModifiers::NONE, Focus::Conversations);
+        assert_eq!(sidebar('p'), Some(Action::Curate(Curate::Pin)));
+        assert_eq!(sidebar(' '), Some(Action::Curate(Curate::Menu)));
+        // Capitals arrive with SHIFT, which is ignored.
+        assert_eq!(
+            press(
+                KeyCode::Char('A'),
+                KeyModifiers::SHIFT,
+                Focus::Conversations
+            ),
+            Some(Action::Curate(Curate::SwitchView))
+        );
+        assert_eq!(
+            press(
+                KeyCode::Char('K'),
+                KeyModifiers::SHIFT,
+                Focus::Conversations
+            ),
+            Some(Action::Curate(Curate::MoveUp))
+        );
+        assert_eq!(
+            press(KeyCode::Char('p'), KeyModifiers::NONE, Focus::Messages),
+            None
+        );
+        // Alt+digit jumps to a pinned conversation from anywhere.
+        assert_eq!(
+            press(KeyCode::Char('3'), KeyModifiers::ALT, Focus::Input),
+            Some(Action::JumpToPinned(3))
+        );
+        assert_eq!(
+            press(KeyCode::Char('0'), KeyModifiers::ALT, Focus::Input),
+            None
+        );
+        assert_eq!(
+            press(KeyCode::Char('3'), KeyModifiers::NONE, Focus::Input),
+            Some(Action::Edit(Edit::Insert('3')))
+        );
     }
 
     #[test]

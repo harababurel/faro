@@ -12,6 +12,9 @@ use super::update::PAGE;
 
 /// `app_state` key of the conversation to reopen on start.
 const LAST_OPEN: &str = "ui.last_open_conversation";
+/// `app_state` key for allowlist mode (`on`/`off`); moves to the config file
+/// when that exists (M5).
+const ALLOWLIST_MODE: &str = "ui.allowlist_mode";
 
 /// Start the worker. Effects are queued without limit: the reducer must never
 /// wait, and the queue only grows as fast as the backend produces events.
@@ -57,9 +60,11 @@ async fn execute(store: &Store, effect: Effect) -> Result<Option<AppEvent>, Stor
                 .app_state(LAST_OPEN)
                 .await?
                 .and_then(|id| id.parse::<ConversationId>().ok());
+            let allowlist = store.app_state(ALLOWLIST_MODE).await?.as_deref() == Some("on");
             Some(AppEvent::Loaded {
                 conversations,
                 last_open,
+                allowlist,
             })
         }
         Effect::LoadMessages(conversation) => {
@@ -94,6 +99,12 @@ async fn execute(store: &Store, effect: Effect) -> Result<Option<AppEvent>, Stor
         Effect::RememberOpen(conversation) => {
             store
                 .set_app_state(LAST_OPEN, &conversation.to_string())
+                .await?;
+            None
+        }
+        Effect::SetAllowlistMode(on) => {
+            store
+                .set_app_state(ALLOWLIST_MODE, if on { "on" } else { "off" })
                 .await?;
             None
         }

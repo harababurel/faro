@@ -146,7 +146,7 @@ presage keeps its own store for keys, sessions and protocol state; faro never to
 | `recipients` | service_id (PK), contact name, profile name, phone (nullable) |
 | `conversations` | id (PK; `direct:<service id>` or `group:<hex>`), kind (direct/group), peer (direct: recipient), title (groups), last_activity, unread_count |
 | `group_members` | group_id, service_id |
-| `conversation_state` | conversation_id, **hidden**, **archived**, **pinned** (order), **muted_until**, draft text |
+| `conversation_state` | conversation_id, **hidden**, **archived**, **pinned** (order), **muted_until**, draft text, **allowed** (allowlist, D41) |
 | `messages` | id, conversation_id, sender, sent_at (sender's timestamp), received_at, body, quote_sender, quote_sent_at, quote_preview, edited_at, deleted, direction, status (sending/sent/delivered/read/failed; outgoing only) |
 | `reactions` | message_id, sender, emoji (one per sender) |
 | `attachments` | id, message_id, backend_id, content_type, file_name, size, local_path (nullable) |
@@ -225,7 +225,7 @@ Chosen to avoid tmux's default prefix (`Ctrl+B`) and common terminal shortcuts. 
 | `Ctrl+P` | Command palette |
 | `Ctrl+Q` | Quit (`Ctrl+C` asks for confirmation) |
 | `Alt+K` / `Alt+J` | Previous / next conversation (also `Alt+↑` / `Alt+↓`, D36) |
-| `Alt+1`…`Alt+9` | Jump to pinned conversation N |
+| `Alt+1`…`Alt+9` | Jump to pinned conversation N (D41) |
 | `Tab` / `Shift+Tab` | Cycle focus between panes (conversations, messages, input; D37) |
 | `Esc` | Close popup / leave selection / clear; back to the input (D37) |
 | `↑` (empty input) | Select the newest message (focuses the message pane, D40) |
@@ -237,11 +237,14 @@ Chosen to avoid tmux's default prefix (`Ctrl+B`) and common terminal shortcuts. 
 | `F1` or `?` (in non-input focus) | Help: opens the palette listing all keybindings |
 | `PgUp` / `PgDn` | Scroll messages by a page, from any pane (D37) |
 | `↑↓` / `j k`, `g G` / `Home End` | In the sidebar: switch conversation, first/last (D37). In the message pane: select an older/newer message, oldest/newest loaded; `↓` past the newest goes back to the input (D40) |
-| In a popup | `↑↓`/`←→`/`j k h l` move, `Enter` chooses, `Esc` closes; the menu takes the selection keys as shortcuts, the reaction picker `1`–`6` (D40) |
+| In a popup | `↑↓`/`←→`/`j k` move (`h l` too in the reaction picker), `Enter` chooses, `Esc` closes; menus take their keys as shortcuts, the pickers digits (D40, D41) |
+| `p` `K`/`J` `m` `h` `a` `l` `L` `A` `Space` | In the sidebar: pin, move pin up/down, mute, hide, archive, allowlist add/remove, allowlist mode, chats ⇄ archive, conversation menu (D41) |
 
 ### 7.7 Conversation list curation
 
 Hide (disappears until a new message arrives, configurable), archive, pin, mute (with durations), and an optional **allowlist mode** that only shows chosen conversations. Default: conversations with no messages are not shown. Bulk "hide all older than N days" from the palette.
+
+**As built in M4 task 5 (D41):** the sidebar has two lists: the **chats** (Pinned, Recent; ending in a "▸ Archive (N)" row) and the **archive** (Archived, "Hidden until a message", "Not on the allowlist"; starting with "◂ Chats"). `A` or a click on those rows switches. Sidebar keys act on the highlighted conversation: `p` pin (`K`/`J` reorder pins), `m` mute (1 hour … until unmuted), `h` hide, `a` archive, `l` allowlist, `L` allowlist mode, `Space` or right-click for a menu. Hidden conversations return on any new message; archived ones don't. With allowlist mode on, the chats show only allowed and pinned conversations. When the open conversation leaves the list, the next one opens. Muted conversations are dim and left out of the unread total. Allowlist mode is stored in `app_state` until the config file exists (M5). Not built yet: configurable hide behaviour (M5), bulk hide (palette, task 8).
 
 ### 7.8 Graphics and motion
 

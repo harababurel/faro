@@ -10,7 +10,7 @@ use ratatui::widgets::Paragraph;
 
 use super::text::{sanitize, truncate, width};
 use super::{View, focused};
-use crate::app::state::{Focus, Geometry, NoticeLevel, Popup, State};
+use crate::app::state::{Focus, Geometry, NoticeLevel, Popup, SidebarView, State};
 
 /// Key hints for each focus, most important first; dropped from the end when
 /// space runs out (DESIGN.md §7.1: context-sensitive).
@@ -26,9 +26,22 @@ const INPUT_HINTS: &[(&str, &str)] = &[
 const CONVERSATION_HINTS: &[(&str, &str)] = &[
     ("↑↓", "choose"),
     ("enter", "write"),
+    ("space", "actions"),
+    ("p", "pin"),
+    ("m", "mute"),
+    ("h", "hide"),
+    ("a", "archive"),
+    ("A", "archive list"),
     ("tab", "focus"),
-    ("g/G", "first/last"),
-    ("ctrl+q", "quit"),
+];
+const ARCHIVE_HINTS: &[(&str, &str)] = &[
+    ("↑↓", "choose"),
+    ("enter", "write"),
+    ("space", "actions"),
+    ("a", "unarchive"),
+    ("h", "unhide"),
+    ("A", "back to chats"),
+    ("tab", "focus"),
 ];
 const MESSAGE_HINTS: &[(&str, &str)] = &[
     ("↑↓", "select"),
@@ -40,6 +53,12 @@ const MESSAGE_HINTS: &[(&str, &str)] = &[
     ("esc", "back"),
 ];
 const MENU_HINTS: &[(&str, &str)] = &[("↑↓", "choose"), ("enter", "do it"), ("esc", "close")];
+const MUTE_HINTS: &[(&str, &str)] = &[
+    ("↑↓", "choose"),
+    ("1-5", "pick"),
+    ("enter", "mute"),
+    ("esc", "close"),
+];
 const REACT_HINTS: &[(&str, &str)] = &[
     ("←→", "choose"),
     ("1-6", "pick"),
@@ -66,7 +85,7 @@ pub fn render(
         Span::styled(glyph, Style::new().fg(colour)),
         Span::styled(format!(" {label}"), theme.muted()),
     ];
-    let unread = state.unread_total();
+    let unread = state.unread_total(view.now_timestamp());
     if unread > 0 {
         left.push(Span::styled(" · ", theme.muted()));
         left.push(Span::styled(
@@ -94,13 +113,17 @@ pub fn render(
     } else {
         let hints = if let Some(popup) = &state.popup {
             match popup {
-                Popup::Actions { .. } => MENU_HINTS,
+                Popup::Actions { .. } | Popup::Conversation { .. } => MENU_HINTS,
                 Popup::React { .. } => REACT_HINTS,
+                Popup::Mute { .. } => MUTE_HINTS,
             }
         } else if focused(state, geometry, Focus::Messages) {
             MESSAGE_HINTS
         } else if focused(state, geometry, Focus::Conversations) {
-            CONVERSATION_HINTS
+            match state.list.view {
+                SidebarView::Chats => CONVERSATION_HINTS,
+                SidebarView::Archive => ARCHIVE_HINTS,
+            }
         } else {
             INPUT_HINTS
         };

@@ -288,3 +288,44 @@ fn selecting_an_old_message_scrolls_to_it() {
     let (_, window) = window_text(&state, 6);
     assert_eq!(window.scroll, None);
 }
+
+// --- Curation (M4 task 5, D41) ---
+
+fn sidebar_keys(state: &mut State, list: &[crossterm::event::KeyCode]) {
+    state.focus = Focus::Conversations;
+    keys(state, list);
+}
+
+#[test]
+fn conversation_menu_beside_the_sidebar() {
+    let mut state = loaded_state();
+    sidebar_keys(&mut state, &[Char(' ')]);
+    insta::assert_snapshot!(snapshot(&draw(&state, 100, 20)));
+}
+
+#[test]
+fn archive_row_and_a_muted_conversation() {
+    let mut state = loaded_state();
+    // Archive Climbing (Alice opens), then mute Alice until unmuted.
+    sidebar_keys(&mut state, &[Char('a'), Char('m'), Char('5')]);
+    state.panels.right = true;
+    state.notice = None;
+    insta::assert_snapshot!(snapshot(&draw(&state, 120, 16)));
+}
+
+#[test]
+fn archive_view() {
+    let mut state = loaded_state();
+    sidebar_keys(&mut state, &[Char('a'), Char('h'), Char('A')]);
+    state.notice = None;
+    insta::assert_snapshot!(snapshot(&draw(&state, 100, 14)));
+}
+
+#[test]
+fn allowlist_mode_shows_in_the_title() {
+    let mut state = loaded_state();
+    sidebar_keys(&mut state, &[Char('l'), Char('L')]);
+    let text = snapshot(&draw(&state, 100, 14));
+    assert!(text.contains("Conversations · allowlist"), "{text}");
+    assert!(text.contains("▸ Archive (1)"), "{text}");
+}

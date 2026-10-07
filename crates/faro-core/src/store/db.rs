@@ -300,11 +300,12 @@ impl Db {
             Option<i64>,
             Option<i64>,
             Option<String>,
+            Option<bool>,
         );
         let rows: Vec<Row> = sqlx::query_as(
             "SELECT c.id, c.title, c.last_activity, c.unread_count,
                     r.contact_name, r.profile_name, r.phone,
-                    s.hidden, s.archived, s.pinned, s.muted_until, s.draft
+                    s.hidden, s.archived, s.pinned, s.muted_until, s.draft, s.allowed
              FROM conversations c
              LEFT JOIN recipients r ON r.service_id = c.peer
              LEFT JOIN conversation_state s ON s.conversation_id = c.id
@@ -318,8 +319,8 @@ impl Db {
             .map(|row| {
                 let (key, title, last_activity, unread, contact, profile, phone) =
                     (row.0, row.1, row.2, row.3, row.4, row.5, row.6);
-                let (hidden, archived, pinned, muted_until, draft) =
-                    (row.7, row.8, row.9, row.10, row.11);
+                let (hidden, archived, pinned, muted_until, draft, allowed) =
+                    (row.7, row.8, row.9, row.10, row.11, row.12);
                 let id = conversation_from_key(&key)?;
                 let title = match id {
                     ConversationId::Group(_) => title,
@@ -344,6 +345,7 @@ impl Db {
                         pinned: pinned.map(|p| count_from_db(p, "pinned")).transpose()?,
                         muted_until: optional_timestamp_from_db(muted_until, "muted_until")?,
                         draft: draft.map(MessageBody::new),
+                        allowed: allowed.unwrap_or(false),
                     },
                 })
             })
@@ -491,12 +493,12 @@ impl Db {
         let key = ensure_conversation(&mut tx, conversation).await?;
         sqlx::query(
             "INSERT INTO conversation_state
-                 (conversation_id, hidden, archived, pinned, muted_until, draft)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                 (conversation_id, hidden, archived, pinned, muted_until, draft, allowed)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
              ON CONFLICT (conversation_id) DO UPDATE SET
                  hidden = excluded.hidden, archived = excluded.archived,
                  pinned = excluded.pinned, muted_until = excluded.muted_until,
-                 draft = excluded.draft",
+                 draft = excluded.draft, allowed = excluded.allowed",
         )
         .bind(&key)
         .bind(state.hidden)
@@ -504,6 +506,7 @@ impl Db {
         .bind(state.pinned.map(i64::from))
         .bind(state.muted_until.map(timestamp_to_db).transpose()?)
         .bind(state.draft.as_ref().map(MessageBody::expose))
+        .bind(state.allowed)
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;

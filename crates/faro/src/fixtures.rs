@@ -173,6 +173,7 @@ pub fn loaded_state() -> State {
         AppEvent::Loaded {
             conversations: summaries(),
             last_open: Some(climbing()),
+            allowlist: false,
         },
     );
     update(

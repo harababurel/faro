@@ -6,9 +6,9 @@ use faro_core::domain::ConversationId;
 use ratatui::layout::Position;
 
 use super::keys::{Action, Edit, WHEEL_ROWS};
-use super::{open_conversation, quit, selection};
+use super::{curation, open_conversation, quit, selection};
 use crate::app::event::Effect;
-use crate::app::state::{Anchor, Focus, MessageAction, Notice, State};
+use crate::app::state::{Anchor, Focus, MessageAction, Notice, SidebarRow, State};
 
 pub fn on_action(state: &mut State, action: Action) -> Vec<Effect> {
     if action != Action::Interrupt && state.quit_armed {
@@ -51,6 +51,8 @@ pub fn on_action(state: &mut State, action: Action) -> Vec<Effect> {
         Action::Copy => return selection::on_selected(state, MessageAction::Copy),
         Action::OpenLink => return selection::open_link(state),
         Action::Popup(key) => return selection::on_popup(state, key),
+        Action::JumpToPinned(n) => return curation::jump_to_pinned(state, n),
+        Action::Curate(curate) => return curation::on_curate(state, curate),
     }
     vec![]
 }
@@ -245,6 +247,10 @@ pub fn on_mouse(state: &mut State, mouse: MouseEvent) -> Vec<Effect> {
         let row = usize::from(at.y.saturating_sub(history.y));
         geometry.history_rows.get(row).copied().flatten()
     });
+    let sidebar_row = in_sidebar.and_then(|sidebar| {
+        let row = usize::from(at.y.saturating_sub(sidebar.y));
+        geometry.sidebar_rows.get(row).copied()
+    });
     if state.popup.is_some() && mouse_affects_view(mouse) {
         // A click or scroll outside the popup closes it.
         state.popup = None;
@@ -252,17 +258,20 @@ pub fn on_mouse(state: &mut State, mouse: MouseEvent) -> Vec<Effect> {
     }
     match mouse.kind {
         MouseEventKind::Down(MouseButton::Left) => {
-            if let Some(sidebar) = in_sidebar {
-                let row = usize::from(at.y.saturating_sub(sidebar.y));
-                let clicked = geometry.sidebar_rows.get(row).copied().flatten();
-                if let Some(id) = clicked {
-                    // Open it and get ready to type.
-                    state.focus = Focus::Input;
-                    if state.open.as_ref().is_none_or(|o| o.id != id) {
-                        return open_conversation(state, id);
+            if in_sidebar.is_some() {
+                match sidebar_row {
+                    Some(SidebarRow::Conversation(id)) => {
+                        // Open it and get ready to type.
+                        state.focus = Focus::Input;
+                        if state.open.as_ref().is_none_or(|o| o.id != id) {
+                            return open_conversation(state, id);
+                        }
                     }
-                } else {
-                    state.focus = Focus::Conversations;
+                    Some(SidebarRow::SwitchView) => {
+                        state.focus = Focus::Conversations;
+                        curation::switch_view(state);
+                    }
+                    Some(SidebarRow::Label) | None => state.focus = Focus::Conversations,
                 }
             } else if in_history.is_some() {
                 if let Some(message) = message_at {
@@ -293,6 +302,9 @@ pub fn on_mouse(state: &mut State, mouse: MouseEvent) -> Vec<Effect> {
             if let Some(message) = message_at {
                 selection::select(state, message);
                 selection::menu(state);
+            } else if let Some(SidebarRow::Conversation(id)) = sidebar_row {
+                state.focus = Focus::Conversations;
+                curation::menu(state, id);
             }
         }
         MouseEventKind::Down(MouseButton::Middle)

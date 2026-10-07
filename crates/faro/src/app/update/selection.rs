@@ -5,7 +5,7 @@ use faro_core::backend::{BackendError, BackendEvent, OutgoingMessage};
 use faro_core::domain::{ConversationId, DeliveryStatus, Direction, Message, MessageRef, Quote};
 
 use super::keys::PopupKey;
-use super::on_backend;
+use super::{curation, on_backend};
 use crate::app::commands::Command;
 use crate::app::event::Effect;
 use crate::app::state::{Focus, MessageAction, Notice, Popup, REACTIONS, Selection, State};
@@ -199,10 +199,16 @@ pub fn on_popup(state: &mut State, key: PopupKey) -> Vec<Effect> {
                 None => vec![],
             }
         }
+        Popup::Conversation {
+            target,
+            items,
+            selected,
+        } => curation::on_menu_key(state, target, items, selected, key),
+        Popup::Mute { target, selected } => curation::on_mute_key(state, target, selected, key),
     }
 }
 
-fn cycle(at: usize, len: usize, forward: bool) -> usize {
+pub(super) fn cycle(at: usize, len: usize, forward: bool) -> usize {
     match len {
         0 => 0,
         _ if forward => (at + 1) % len,

@@ -23,6 +23,14 @@ pub const DRAFT_SAVE_DELAY: Duration = Duration::from_secs(1);
 pub const INFO_NOTICE_TIME: Duration = Duration::from_secs(3);
 /// Signal's default reactions, in its order.
 pub const REACTIONS: [&str; 6] = ["❤️", "👍", "👎", "😂", "😮", "😢"];
+/// The mute picker's choices: label and length (`None`: until unmuted).
+pub const MUTE_CHOICES: [(&str, Option<Duration>); 5] = [
+    ("1 hour", Some(Duration::from_hours(1))),
+    ("8 hours", Some(Duration::from_hours(8))),
+    ("1 day", Some(Duration::from_hours(24))),
+    ("1 week", Some(Duration::from_hours(7 * 24))),
+    ("Until unmuted", None),
+];
 
 #[derive(Debug)]
 pub struct State {
@@ -41,6 +49,8 @@ pub struct State {
     /// Which pane keys go to (Tab cycles).
     pub focus: Focus,
     pub sidebar: SidebarScroll,
+    /// Which conversations the sidebar lists (D41).
+    pub list: ConversationList,
     /// Where things were on the last frame, for mouse hits and page sizes.
     pub geometry: Geometry,
     pub notice: Option<Notice>,
@@ -111,6 +121,61 @@ pub enum Popup {
     },
     /// Pick one of `REACTIONS`.
     React { target: MessageRef, selected: usize },
+    /// What can be done with a conversation (`Space` or right-click in the
+    /// sidebar, D41).
+    Conversation {
+        target: ConversationId,
+        items: Vec<ConversationAction>,
+        selected: usize,
+    },
+    /// Pick one of `MUTE_CHOICES`.
+    Mute {
+        target: ConversationId,
+        selected: usize,
+    },
+}
+
+/// Curating the conversation list (M4 task 5, D41).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConversationAction {
+    Pin,
+    Unpin,
+    /// Move a pinned conversation up (earlier) or down the pinned list.
+    MoveUp,
+    MoveDown,
+    /// Opens the mute picker.
+    Mute,
+    Unmute,
+    Hide,
+    Unhide,
+    Archive,
+    Unarchive,
+    Allow,
+    Disallow,
+    /// Turn allowlist mode on (`true`) or off.
+    AllowlistMode(bool),
+}
+
+impl ConversationAction {
+    /// Menu label and the key that does the same in the sidebar.
+    pub fn label(self) -> (&'static str, &'static str) {
+        match self {
+            Self::Pin => ("Pin", "p"),
+            Self::Unpin => ("Unpin", "p"),
+            Self::MoveUp => ("Move up", "K"),
+            Self::MoveDown => ("Move down", "J"),
+            Self::Mute => ("Mute…", "m"),
+            Self::Unmute => ("Unmute", "m"),
+            Self::Hide => ("Hide", "h"),
+            Self::Unhide => ("Unhide", "h"),
+            Self::Archive => ("Archive", "a"),
+            Self::Unarchive => ("Unarchive", "a"),
+            Self::Allow => ("Add to allowlist", "l"),
+            Self::Disallow => ("Remove from allowlist", "l"),
+            Self::AllowlistMode(true) => ("Turn allowlist mode on", "L"),
+            Self::AllowlistMode(false) => ("Turn allowlist mode off", "L"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -152,6 +217,53 @@ pub struct SidebarScroll {
     pub reveal: bool,
 }
 
+/// The sidebar's two lists (D41).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SidebarView {
+    /// Pinned and recent conversations.
+    Chats,
+    /// Archived, hidden and (in allowlist mode) not-allowed conversations.
+    Archive,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConversationList {
+    pub view: SidebarView,
+    /// Allowlist mode: only allowed (and pinned) conversations are in `Chats`.
+    pub allowlist: bool,
+}
+
+/// Where a conversation is listed, in display order (D41).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Section {
+    Pinned,
+    Recent,
+    Archived,
+    /// Comes back to `Recent` when a message arrives.
+    Hidden,
+    /// Allowlist mode is on and this conversation isn't on the list.
+    NotAllowed,
+}
+
+impl Section {
+    pub fn view(self) -> SidebarView {
+        match self {
+            Self::Pinned | Self::Recent => SidebarView::Chats,
+            Self::Archived | Self::Hidden | Self::NotAllowed => SidebarView::Archive,
+        }
+    }
+}
+
+/// What's on a sidebar row (reported by the renderer for mouse hits).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SidebarRow {
+    /// A section header or a note.
+    Label,
+    Conversation(ConversationId),
+    /// "▸ Archive" / "◂ Chats": switches the list.
+    SwitchView,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
     Conversations,
@@ -165,8 +277,8 @@ pub enum Focus {
 pub struct Geometry {
     /// Inside the sidebar's border; `None` when hidden.
     pub sidebar: Option<Rect>,
-    /// The conversation on each sidebar row from the top (`None`: a header).
-    pub sidebar_rows: Vec<Option<ConversationId>>,
+    /// What's on each sidebar row from the top.
+    pub sidebar_rows: Vec<SidebarRow>,
     /// The sidebar offset actually used (clamped, selection revealed).
     pub sidebar_offset: usize,
     /// The message history area.
@@ -255,6 +367,10 @@ impl State {
                 offset: 0,
                 reveal: true,
             },
+            list: ConversationList {
+                view: SidebarView::Chats,
+                allowlist: false,
+            },
             geometry: Geometry::default(),
             notice: None,
             popup: None,
@@ -265,22 +381,57 @@ impl State {
         }
     }
 
-    /// Conversations shown in the sidebar: not hidden, not archived, not empty
-    /// (DESIGN.md §7.7), plus the open one.
+    /// Conversations listed in the sidebar's current view, in display order
+    /// (section by section, D41).
     pub fn visible_conversations(&self) -> impl Iterator<Item = &ConversationSummary> {
+        self.listed_in(self.list.view)
+    }
+
+    /// Conversations listed in `view`, in display order. Empty conversations
+    /// aren't listed (DESIGN.md §7.7) unless open, pinned or allowed.
+    pub fn listed_in(&self, view: SidebarView) -> impl Iterator<Item = &ConversationSummary> {
+        let sections: &[Section] = match view {
+            SidebarView::Chats => &[Section::Pinned, Section::Recent],
+            SidebarView::Archive => &[Section::Archived, Section::Hidden, Section::NotAllowed],
+        };
         let open = self.open.as_ref().map(|o| o.id);
-        self.conversations.iter().filter(move |c| {
-            Some(c.id) == open
-                || (!c.state.hidden && !c.state.archived && c.last_activity.is_some())
+        sections.iter().flat_map(move |&section| {
+            self.conversations.iter().filter(move |c| {
+                self.section(c) == section
+                    && (c.last_activity.is_some()
+                        || Some(c.id) == open
+                        || c.state.pinned.is_some()
+                        || (self.list.allowlist && c.state.allowed))
+            })
         })
+    }
+
+    /// Where `summary` is listed.
+    pub fn section(&self, summary: &ConversationSummary) -> Section {
+        let state = &summary.state;
+        if state.archived {
+            Section::Archived
+        } else if state.hidden {
+            Section::Hidden
+        } else if state.pinned.is_some() {
+            Section::Pinned
+        } else if self.list.allowlist && !state.allowed {
+            Section::NotAllowed
+        } else {
+            Section::Recent
+        }
     }
 
     pub fn summary(&self, id: ConversationId) -> Option<&ConversationSummary> {
         self.conversations.iter().find(|c| c.id == id)
     }
 
-    pub fn unread_total(&self) -> u32 {
-        self.visible_conversations().map(|c| c.unread).sum()
+    /// Unread messages in the main list, muted conversations excepted.
+    pub fn unread_total(&self, now: Timestamp) -> u32 {
+        self.listed_in(SidebarView::Chats)
+            .filter(|c| !c.state.muted_at(now))
+            .map(|c| c.unread)
+            .sum()
     }
 
     /// Name to show for a conversation: known title, then phone number, then a

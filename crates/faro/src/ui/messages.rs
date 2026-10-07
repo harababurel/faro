@@ -431,11 +431,11 @@ fn rule(label: &str, width: usize, style: Style) -> Line<'static> {
     ))
 }
 
-fn zoned(ts: jiff::Timestamp, view: &View<'_>) -> jiff::Zoned {
+pub(super) fn zoned(ts: jiff::Timestamp, view: &View<'_>) -> jiff::Zoned {
     ts.to_zoned(view.tz.clone())
 }
 
-fn to_jiff(ts: Timestamp) -> Option<jiff::Timestamp> {
+pub(super) fn to_jiff(ts: Timestamp) -> Option<jiff::Timestamp> {
     let ms = i64::try_from(ts.as_millis()).ok()?;
     jiff::Timestamp::from_millisecond(ms).ok()
 }

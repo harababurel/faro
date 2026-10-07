@@ -348,6 +348,7 @@ async fn conversation_and_app_state_round_trip() {
         pinned: Some(3),
         muted_until: Some(ts(5_000)),
         draft: Some(MessageBody::new("half a thought")),
+        allowed: true,
     };
     store
         .set_conversation_state(group(), state.clone())
@@ -362,6 +363,29 @@ async fn conversation_and_app_state_round_trip() {
         store.app_state("last").await.unwrap().as_deref(),
         Some("two")
     );
+}
+
+#[tokio::test]
+async fn a_mute_without_end_round_trips() {
+    let store = Store::open_in_memory().await.unwrap();
+    let state = ConversationState {
+        muted_until: Some(ConversationState::MUTED_FOREVER),
+        ..ConversationState::default()
+    };
+    store
+        .set_conversation_state(group(), state.clone())
+        .await
+        .unwrap();
+    let stored = summary(&store, group()).await.state;
+    assert_eq!(stored, state);
+    assert!(stored.muted_at(ts(u64::from(u32::MAX))));
+    assert!(!ConversationState::default().muted_at(ts(0)));
+    let until_5s = ConversationState {
+        muted_until: Some(ts(5_000)),
+        ..ConversationState::default()
+    };
+    assert!(until_5s.muted_at(ts(4_999)));
+    assert!(!until_5s.muted_at(ts(5_000)));
 }
 
 #[tokio::test]

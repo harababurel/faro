@@ -70,6 +70,18 @@ pub struct ConversationState {
     pub pinned: Option<u32>,
     pub muted_until: Option<Timestamp>,
     pub draft: Option<MessageBody>,
+    /// On the allowlist: still shown while allowlist mode is on.
+    pub allowed: bool,
+}
+
+impl ConversationState {
+    /// `muted_until` for a mute with no end.
+    pub const MUTED_FOREVER: Timestamp = Timestamp::from_millis(9_223_372_036_854_775_807);
+
+    /// Whether the conversation is muted at `now`.
+    pub fn muted_at(&self, now: Timestamp) -> bool {
+        self.muted_until.is_some_and(|until| until > now)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

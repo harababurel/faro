@@ -15,6 +15,8 @@ pub enum AppEvent {
     Loaded {
         conversations: Vec<ConversationSummary>,
         last_open: Option<ConversationId>,
+        /// Allowlist mode was on (D41).
+        allowlist: bool,
     },
     MessagesLoaded {
         conversation: ConversationId,
@@ -70,6 +72,8 @@ pub enum Effect {
     SaveConversationState(ConversationId, Box<ConversationState>),
     /// Reopen this conversation on the next start.
     RememberOpen(ConversationId),
+    /// Remember whether allowlist mode is on (D41).
+    SetAllowlistMode(bool),
     /// Ask the backend to do something; routed to the command task.
     Backend(Command),
     /// Put text on the clipboard (OSC 52; works over SSH and tmux).

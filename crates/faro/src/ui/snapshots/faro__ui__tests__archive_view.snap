@@ -1,0 +1,18 @@
+---
+source: crates/faro/src/ui/tests.rs
+expression: "snapshot(&draw(&state, 100, 14))"
+---
+╭ Archive ───────────────────╮╭ Bob ───────────────────────────────────────────────────────────────╮
+│ ◂ Chats                    ││                              Loading…                              │
+│ ▾ Archived                 ││                                                                    │
+│   Climbing 🧗              ││                                                                    │
+│ ▾ Hidden until a message   ││                                                                    │
+│   Alice 🌸                 ││                                                                    │
+│                            ││                                                                    │
+│                            ││                                                                    │
+│                            ││                                                                    │
+│                            ││╭──────────────────────────────────────────────────────────────────╮│
+│                            │││ Message Bob…                                                     ││
+│                            ││╰──────────────────────────────────────────────────────────────────╯│
+╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯
+ ● connected     ↑↓ choose · enter write · space actions · a unarchive · h unhide · A back to chats

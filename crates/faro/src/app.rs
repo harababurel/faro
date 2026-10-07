@@ -92,7 +92,8 @@ pub async fn run<B: Backend + 'static>(
                 | Effect::Persist(_)
                 | Effect::MarkRead(_)
                 | Effect::SaveConversationState(..)
-                | Effect::RememberOpen(_)) => effects.send(store).is_ok(),
+                | Effect::RememberOpen(_)
+                | Effect::SetAllowlistMode(_)) => effects.send(store).is_ok(),
             };
             if !delivered {
                 tracing::error!("effects worker or command task stopped; dropping an effect");

@@ -7,9 +7,12 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Paragraph};
 
+use faro_core::store::ConversationState;
+
 use super::View;
+use super::messages::{to_jiff, zoned};
 use super::text::{sanitize, truncate};
-use crate::app::state::State;
+use crate::app::state::{Section, State};
 
 pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, view: &View<'_>) {
     let theme = view.theme;
@@ -56,17 +59,36 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, view: &View<'_>)
             }
         }
     }
-    let conversation_state = summary.map(|s| &s.state);
     lines.push(Line::default());
     lines.push(label("Notifications"));
-    let muted = conversation_state
-        .and_then(|s| s.muted_until)
-        .is_some_and(|until| {
-            i64::try_from(until.as_millis()).unwrap_or(i64::MAX) > view.now.as_millisecond()
-        });
-    lines.push(value(
-        (if muted { "Muted" } else { "On" }).to_owned(),
-        plain,
-    ));
+    let conversation_state = summary.map(|s| &s.state);
+    lines.push(value(notifications(conversation_state, view), plain));
+    // Where it's listed, unless that's just among the recent ones.
+    let place = summary.and_then(|s| match state.section(s) {
+        Section::Pinned => Some("Pinned"),
+        Section::Recent => None,
+        Section::Archived => Some("Archived"),
+        Section::Hidden => Some("Hidden until a message"),
+        Section::NotAllowed => Some("Not on the allowlist"),
+    });
+    if let Some(place) = place {
+        lines.push(Line::default());
+        lines.push(label("List"));
+        lines.push(value(place.to_owned(), plain));
+    }
     frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// "On", "Muted", or "Muted until Thu 19:00".
+fn notifications(state: Option<&ConversationState>, view: &View<'_>) -> String {
+    let Some(until) = state
+        .filter(|s| s.muted_at(view.now_timestamp()))
+        .and_then(|s| s.muted_until)
+    else {
+        return "On".to_owned();
+    };
+    match to_jiff(until).filter(|_| until != ConversationState::MUTED_FOREVER) {
+        Some(until) => format!("Muted until {}", zoned(until, view).strftime("%a %H:%M")),
+        None => "Muted".to_owned(),
+    }
 }

@@ -27,6 +27,15 @@ pub struct View<'a> {
     pub now: jiff::Timestamp,
 }
 
+impl View<'_> {
+    /// `now` as a domain timestamp (for mute ends).
+    pub fn now_timestamp(&self) -> faro_core::domain::Timestamp {
+        faro_core::domain::Timestamp::from_millis(
+            u64::try_from(self.now.as_millisecond()).unwrap_or(0),
+        )
+    }
+}
+
 const LEFT_WIDTH: u16 = 30;
 const RIGHT_WIDTH: u16 = 28;
 /// Below these terminal widths the sidebars hide themselves (DESIGN.md §7.1).

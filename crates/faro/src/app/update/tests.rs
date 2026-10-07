@@ -36,6 +36,7 @@ fn startup_opens_the_remembered_conversation() {
         AppEvent::Loaded {
             conversations: fixtures::summaries(),
             last_open: Some(climbing()),
+            allowlist: false,
         },
     );
     assert_eq!(
@@ -62,6 +63,7 @@ fn startup_falls_back_to_the_first_conversation() {
         AppEvent::Loaded {
             conversations: fixtures::summaries(),
             last_open: None,
+            allowlist: false,
         },
     );
     assert_eq!(open_id(&state), Some(bob()));
@@ -78,6 +80,7 @@ fn first_message_opens_a_conversation_on_a_fresh_start() {
         AppEvent::Loaded {
             conversations: vec![empty],
             last_open: None,
+            allowlist: false,
         },
     );
     assert_eq!(open_id(&state), None);
@@ -107,6 +110,7 @@ fn events_during_loading_are_replayed_on_the_loaded_page() {
         AppEvent::Loaded {
             conversations: fixtures::summaries(),
             last_open: Some(climbing()),
+            allowlist: false,
         },
     );
     let history = climbing_history();
@@ -332,13 +336,16 @@ fn shutdown_and_store_failures() {
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 
-use crate::app::state::{Anchor, Focus, Geometry};
+use crate::app::state::{Anchor, Focus, Geometry, SidebarRow};
 
 /// A frame's geometry: sidebar rows at y=1.., history at x=31.., input below.
 fn geometry(state: &State) -> Geometry {
     Geometry {
         sidebar: Some(Rect::new(1, 1, 28, 20)),
-        sidebar_rows: state.visible_conversations().map(|c| Some(c.id)).collect(),
+        sidebar_rows: state
+            .visible_conversations()
+            .map(|c| SidebarRow::Conversation(c.id))
+            .collect(),
         sidebar_offset: 0,
         history: Some(Rect::new(31, 1, 60, 12)),
         input: Some(Rect::new(31, 14, 60, 3)),
@@ -614,6 +621,7 @@ fn drafts_are_saved_after_a_pause_and_on_quit_and_restored() {
         AppEvent::Loaded {
             conversations: summaries,
             last_open: Some(alice()),
+            allowlist: false,
         },
     );
     let input = &state.open.as_ref().unwrap().input;
@@ -1082,3 +1090,5 @@ fn clicking_a_message_selects_it_and_right_click_opens_the_menu() {
     );
     assert_eq!(state.popup, None);
 }
+
+mod curation;

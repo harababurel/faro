@@ -6,12 +6,11 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Paragraph};
 
-use faro_core::domain::ConversationId;
 use faro_core::store::ConversationSummary;
 
 use super::View;
 use super::text::{self, sanitize, truncate};
-use crate::app::state::{Focus, Geometry, State};
+use crate::app::state::{Focus, Geometry, Section, SidebarRow, SidebarView, State};
 
 pub fn render(
     frame: &mut Frame<'_>,
@@ -27,10 +26,15 @@ pub fn render(
     } else {
         theme.muted()
     };
+    let title = match (state.list.view, state.list.allowlist) {
+        (SidebarView::Chats, false) => " Conversations ",
+        (SidebarView::Chats, true) => " Conversations · allowlist ",
+        (SidebarView::Archive, _) => " Archive ",
+    };
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
         .border_style(theme.border(focused))
-        .title(Span::styled(" Conversations ", title_style));
+        .title(Span::styled(title, title_style));
     let inner = block.inner(area);
     frame.render_widget(block, area);
     geometry.sidebar = Some(inner);
@@ -43,11 +47,6 @@ pub fn render(
         return;
     }
     let rows = rows(state, view, usize::from(inner.width));
-    if rows.is_empty() {
-        let empty = Paragraph::new(Span::styled(" No conversations yet", theme.muted()));
-        frame.render_widget(empty, inner);
-        return;
-    }
     let height = usize::from(inner.height);
     let selected = rows.iter().position(|r| r.selected);
     let offset = visible_offset(
@@ -60,7 +59,7 @@ pub fn render(
     geometry.sidebar_offset = offset;
     let mut lines = Vec::with_capacity(height);
     for row in rows.into_iter().skip(offset).take(height) {
-        geometry.sidebar_rows.push(row.id);
+        geometry.sidebar_rows.push(row.kind);
         lines.push(row.line);
     }
     frame.render_widget(Paragraph::new(lines), inner);
@@ -88,34 +87,76 @@ fn visible_offset(
 
 struct Row {
     line: Line<'static>,
-    /// `None` for section headers.
-    id: Option<ConversationId>,
+    kind: SidebarRow,
     selected: bool,
 }
 
+impl Row {
+    fn label(text: impl Into<String>, style: Style) -> Self {
+        Self {
+            line: Line::from(Span::styled(text.into(), style)),
+            kind: SidebarRow::Label,
+            selected: false,
+        }
+    }
+}
+
+/// The current view's rows (D41). Chats: pinned and recent (headed only when
+/// something is pinned), then a row into the archive. Archive: a row back,
+/// then archived, hidden and not-allowed conversations under headers.
 fn rows(state: &State, view: &View<'_>, width: usize) -> Vec<Row> {
     let theme = view.theme;
-    let visible: Vec<&ConversationSummary> = state.visible_conversations().collect();
-    let pinned = visible.iter().any(|c| c.state.pinned.is_some());
-    let mut rows = Vec::with_capacity(visible.len() + 2);
-    let mut in_pinned = false;
-    for (i, summary) in visible.iter().enumerate() {
-        if pinned && (i == 0 || (in_pinned && summary.state.pinned.is_none())) {
-            in_pinned = summary.state.pinned.is_some();
-            let label = if in_pinned {
-                " ▾ Pinned"
-            } else {
-                " ▾ Recent"
-            };
-            rows.push(Row {
-                line: Line::from(Span::styled(label, theme.muted())),
-                id: None,
-                selected: false,
-            });
+    let listed: Vec<&ConversationSummary> = state.visible_conversations().collect();
+    let archive = state.list.view == SidebarView::Archive;
+    let headed = archive || listed.iter().any(|c| state.section(c) == Section::Pinned);
+    let mut rows = Vec::with_capacity(listed.len() + 6);
+    if archive {
+        rows.push(Row {
+            line: Line::from(Span::styled(" ◂ Chats", Style::new().fg(theme.accent))),
+            kind: SidebarRow::SwitchView,
+            selected: false,
+        });
+    }
+    let mut current = None;
+    for summary in &listed {
+        let section = state.section(summary);
+        if headed && current != Some(section) {
+            current = Some(section);
+            rows.push(Row::label(section_label(section), theme.muted()));
         }
         rows.push(row(state, view, summary, width));
     }
+    if listed.is_empty() {
+        let note = match (archive, state.list.allowlist) {
+            (true, _) => " Nothing archived or hidden",
+            (false, true) => " Allowlist is empty",
+            (false, false) => " No conversations yet",
+        };
+        rows.push(Row::label(note, theme.muted()));
+    }
+    let elsewhere = state.listed_in(SidebarView::Archive).count();
+    if !archive && elsewhere > 0 {
+        rows.push(Row::label("", theme.muted()));
+        rows.push(Row {
+            line: Line::from(vec![
+                Span::styled(" ▸ Archive", Style::new().fg(theme.accent)),
+                Span::styled(format!(" ({elsewhere})"), theme.muted()),
+            ]),
+            kind: SidebarRow::SwitchView,
+            selected: false,
+        });
+    }
     rows
+}
+
+fn section_label(section: Section) -> &'static str {
+    match section {
+        Section::Pinned => " ▾ Pinned",
+        Section::Recent => " ▾ Recent",
+        Section::Archived => " ▾ Archived",
+        Section::Hidden => " ▾ Hidden until a message",
+        Section::NotAllowed => " ▾ Not on the allowlist",
+    }
 }
 
 fn row(state: &State, view: &View<'_>, summary: &ConversationSummary, width: usize) -> Row {
@@ -123,13 +164,15 @@ fn row(state: &State, view: &View<'_>, summary: &ConversationSummary, width: usi
     let selected = state.open.as_ref().is_some_and(|o| o.id == summary.id);
     let unread = summary.unread > 0;
     let typing = !state.typists(summary.id).is_empty();
-    let muted = summary
-        .state
-        .muted_until
-        .is_some_and(|until| until.as_millis() > now_millis(view));
+    let muted = summary.state.muted_at(view.now_timestamp());
 
     let marker = if unread {
-        Span::styled(" ● ", Style::new().fg(theme.unread))
+        let colour = if muted {
+            theme.text_muted
+        } else {
+            theme.unread
+        };
+        Span::styled(" ● ", Style::new().fg(colour))
     } else {
         Span::raw("   ")
     };
@@ -145,34 +188,32 @@ fn row(state: &State, view: &View<'_>, summary: &ConversationSummary, width: usi
     let pad = room.saturating_sub(text::width(&name));
 
     let mut name_style = Style::new().fg(if muted { theme.text_muted } else { theme.text });
-    if unread {
+    if unread && !muted {
         name_style = name_style.add_modifier(Modifier::BOLD);
     }
     if selected {
         name_style = name_style.fg(theme.primary).add_modifier(Modifier::BOLD);
     }
+    let count_style = if muted {
+        Style::new().fg(theme.text_muted)
+    } else {
+        Style::new().fg(theme.unread).add_modifier(Modifier::BOLD)
+    };
     let mut line = Line::from(vec![
         marker,
         Span::styled(name, name_style),
         Span::styled(suffix, Style::new().fg(theme.accent)),
         Span::raw(" ".repeat(pad)),
-        Span::styled(
-            count,
-            Style::new().fg(theme.unread).add_modifier(Modifier::BOLD),
-        ),
+        Span::styled(count, count_style),
     ]);
     if selected {
         line = line.style(Style::new().bg(theme.background_element));
     }
     Row {
         line,
-        id: Some(summary.id),
+        kind: SidebarRow::Conversation(summary.id),
         selected,
     }
-}
-
-fn now_millis(view: &View<'_>) -> u64 {
-    u64::try_from(view.now.as_millisecond()).unwrap_or(0)
 }
 
 #[cfg(test)]
