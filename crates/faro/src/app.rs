@@ -236,6 +236,9 @@ fn draw(
     }
     tui.draw(|frame| geometry = ui::render(frame, state, &view))
         .context("drawing")?;
+    // Follows what's on screen, so it's checked once per frame (D49).
+    tui.set_title(state.window_title(view.now_timestamp()).as_deref())
+        .context("setting the window title")?;
     Ok(geometry)
 }
 

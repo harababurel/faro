@@ -124,3 +124,51 @@ fn the_unread_total_counts_conversations_that_notify() {
     edit_state(&mut state, alice(), |s| s.archived = true);
     assert_eq!(state.unread_total(now), 0);
 }
+
+#[test]
+fn the_window_title_shows_the_unread_total() {
+    let mut state = loaded_state();
+    let now = wall_clock();
+    assert_eq!(state.window_title(now).as_deref(), Some("faro (1)"));
+    incoming(&mut state, bob(), 1);
+    assert_eq!(state.window_title(now).as_deref(), Some("faro (2)"));
+    for id in [alice(), bob()] {
+        state
+            .conversations
+            .iter_mut()
+            .find(|c| c.id == id)
+            .unwrap()
+            .unread = 0;
+    }
+    assert_eq!(state.window_title(now).as_deref(), Some("faro"));
+    state.config.notifications.title = false;
+    assert_eq!(state.window_title(now), None);
+}
+
+#[test]
+fn bell_and_title_can_be_switched_from_the_palette() {
+    use crate::app::palette::SettingChoice;
+    use faro_core::config::{ConfigValue, SettingEdit, key};
+
+    let mut state = loaded_state();
+    let effects = crate::app::update::settings::choose(&mut state, SettingChoice::Bell(false));
+    assert!(!state.config.notifications.bell);
+    assert_eq!(
+        effects,
+        vec![Effect::SaveSetting(SettingEdit {
+            path: key::BELL,
+            value: ConfigValue::Bool(false),
+        })]
+    );
+    assert_eq!(bells(&incoming(&mut state, alice(), 1)), 0);
+
+    let effects = crate::app::update::settings::choose(&mut state, SettingChoice::Title(false));
+    assert_eq!(state.window_title(wall_clock()), None);
+    assert_eq!(
+        effects,
+        vec![Effect::SaveSetting(SettingEdit {
+            path: key::TITLE,
+            value: ConfigValue::Bool(false),
+        })]
+    );
+}

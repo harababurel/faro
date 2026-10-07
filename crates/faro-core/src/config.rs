@@ -138,6 +138,8 @@ pub struct Messages {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Notifications {
     pub bell: bool,
+    /// Put the unread count in the window (and tmux pane) title.
+    pub title: bool,
     pub desktop: DesktopNotifications,
     pub privacy: NotificationPrivacy,
 }
@@ -168,6 +170,7 @@ impl Default for Config {
             messages: Messages::default(),
             notifications: Notifications {
                 bell: true,
+                title: true,
                 desktop: DesktopNotifications::default(),
                 privacy: NotificationPrivacy::default(),
             },
@@ -184,6 +187,8 @@ pub mod key {
     pub const ALLOWLIST: &str = "conversations.allowlist";
     pub const LAYOUT: &str = "messages.layout";
     pub const MOUSE: &str = "mouse.enabled";
+    pub const BELL: &str = "notifications.bell";
+    pub const TITLE: &str = "notifications.title";
 }
 
 /// A setting's value, as written in the file.
@@ -301,8 +306,9 @@ pub static SETTINGS: &[Setting] = &[
         },
     },
     Setting {
-        path: "notifications.bell",
-        help: "Ring the terminal bell for new messages.",
+        path: key::BELL,
+        help: "Ring the terminal bell for new messages (not for muted or archived \
+               conversations, nor for what you're looking at).",
         get: |c| ConfigValue::Bool(c.notifications.bell),
         set: |c, v| {
             c.notifications.bell = boolean(v)?;
@@ -310,9 +316,18 @@ pub static SETTINGS: &[Setting] = &[
         },
     },
     Setting {
+        path: key::TITLE,
+        help: "Show the unread count in the window and tmux pane title: \"faro (3)\".",
+        get: |c| ConfigValue::Bool(c.notifications.title),
+        set: |c, v| {
+            c.notifications.title = boolean(v)?;
+            Ok(())
+        },
+    },
+    Setting {
         path: "notifications.desktop",
         help: "Desktop notifications: \"auto\", \"osc\" (through the terminal), \"native\" or \
-               \"off\" (from M6).",
+               \"off\" (not used yet: v0.2).",
         get: |c| text(c.notifications.desktop),
         set: |c, v| {
             c.notifications.desktop = choice(v)?;
@@ -322,7 +337,7 @@ pub static SETTINGS: &[Setting] = &[
     Setting {
         path: "notifications.privacy",
         help: "What notifications show: \"none\", \"sender\" or \"preview\" (sender and text; \
-               from M6).",
+               not used yet: v0.2).",
         get: |c| text(c.notifications.privacy),
         set: |c, v| {
             c.notifications.privacy = choice(v)?;

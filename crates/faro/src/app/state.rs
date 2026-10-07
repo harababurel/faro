@@ -531,6 +531,19 @@ impl State {
             .sum()
     }
 
+    /// The window title (D49): "faro", with the unread total if there is
+    /// one; `None` if the title is left to the terminal
+    /// (`[notifications] title = false`).
+    pub fn window_title(&self, now: Timestamp) -> Option<String> {
+        self.config
+            .notifications
+            .title
+            .then(|| match self.unread_total(now) {
+                0 => "faro".to_owned(),
+                unread => format!("faro ({unread})"),
+            })
+    }
+
     /// Whether new messages in `summary` ring the bell and count in the
     /// window title (D49): it's in the main list (not archived, hidden or
     /// left out by allowlist mode) and not muted.

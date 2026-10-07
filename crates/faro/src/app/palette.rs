@@ -52,6 +52,8 @@ pub enum SettingChoice {
     Allowlist(bool),
     Emoji(EmojiChoice),
     Mouse(bool),
+    Bell(bool),
+    Title(bool),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -363,6 +365,18 @@ fn settings(state: &State) -> Vec<Item> {
             SettingChoice::Mouse(on),
             format!("Mouse: {}", on_off(on)),
             state.config.mouse.enabled == on,
+        ));
+    }
+    for on in [true, false] {
+        choices.push((
+            SettingChoice::Bell(on),
+            format!("Bell: {}", on_off(on)),
+            state.config.notifications.bell == on,
+        ));
+        choices.push((
+            SettingChoice::Title(on),
+            format!("Unread count in the window title: {}", on_off(on)),
+            state.config.notifications.title == on,
         ));
     }
     let overridden = state.env.emoji.from_cli;

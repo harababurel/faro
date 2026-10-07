@@ -170,6 +170,20 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
             }));
             save(state, key::MOUSE)
         }
+        SettingChoice::Bell(on) => {
+            state.config.notifications.bell = on;
+            state.notice = Some(Notice::info(if on { "Bell on" } else { "Bell off" }));
+            save(state, key::BELL)
+        }
+        SettingChoice::Title(on) => {
+            state.config.notifications.title = on;
+            state.notice = Some(Notice::info(if on {
+                "The window title shows the unread count"
+            } else {
+                "The window title is left to the terminal"
+            }));
+            save(state, key::TITLE)
+        }
     }
 }
 
