@@ -28,6 +28,8 @@ pub enum Action {
     PageDown,
     ScrollTop,
     ScrollBottom,
+    /// Send the input (Enter).
+    Send,
     Edit(Edit),
 }
 
@@ -104,6 +106,7 @@ fn input(code: KeyCode, modifiers: KeyModifiers) -> Option<Action> {
     const CTRL: KeyModifiers = KeyModifiers::CONTROL;
     const ALT: KeyModifiers = KeyModifiers::ALT;
     let edit = match (code, modifiers) {
+        (KeyCode::Enter, NONE) => return Some(Action::Send),
         (KeyCode::Char(c), NONE) => Edit::Insert(c),
         (KeyCode::Enter, ALT) | (KeyCode::Char('j'), CTRL) => Edit::NewLine,
         (KeyCode::Backspace, NONE) => Edit::DeleteBackward,
@@ -198,6 +201,10 @@ mod tests {
     fn editing_keys() {
         let input = |code, modifiers| press(code, modifiers, Focus::Input);
         let edit = |e| Some(Action::Edit(e));
+        assert_eq!(
+            input(KeyCode::Enter, KeyModifiers::NONE),
+            Some(Action::Send)
+        );
         assert_eq!(
             input(KeyCode::Enter, KeyModifiers::ALT),
             edit(Edit::NewLine)

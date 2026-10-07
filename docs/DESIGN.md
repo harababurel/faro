@@ -65,7 +65,7 @@ All decisions, their reasoning and rejected alternatives are in [DECISIONS.md](D
 - **Single process, async (tokio).** Each component is a task communicating over channels.
 - **App core** owns all UI state and is updated by a reducer: `fn update(state, event) -> Vec<Effect>`. It never awaits network or disk directly; effects are dispatched to tasks. This is what guarantees no freezing (Goal 1).
 - **Render loop** draws on state change, capped to a frame rate (e.g. 60 fps for animations, idle otherwise), using synchronized output (DEC mode 2026) where supported to avoid flicker.
-- **Backend task** wraps presage; translates between presage types and faro domain types.
+- **Backend task** wraps presage; translates between presage types and faro domain types. The app drives it through a **command task** (`app/commands.rs`) that owns the backend and runs the reducer's `Effect::Backend(Command)`s one at a time, reporting results as `AppEvent`s. Backend futures may be `!Send` (D30), so that task is spawned with `spawn_local` and the whole app runs inside a `LocalSet` on the current-thread runtime (D39).
 - **Store task** owns the SQLite connection; all writes go through it.
 - **Watcher task** watches config and theme files for hot reload.
 
@@ -97,7 +97,7 @@ AGENTS.md          # onboarding for coding agents
 
 A **mock backend** lives in `faro-core` (`src/mock.rs`, `src/mock/`) and is always compiled in; `faro --mock` selects it at runtime. It is used for development, tests and demos without a Signal account. A fixed cast of contacts and groups (emoji, long names, many quiet conversations) receives a backlog on connect and then seeded scripted activity (messages, typing, replies, reactions, edits, deletes, sync messages, outages, errors). With a fixed seed and tokio's paused clock its event sequence is deterministic (D31). `--mock-seed` picks the scripted activity, `--mock-activity <ms>` its pace, and `--mock-no-faults` turns off scripted outages and errors (for flood tests, D35).
 
-Inside `crates/faro`: `app.rs` (event loop), `app/` (state, reducer, effects worker, in-memory timeline), `tui.rs` (terminal setup and restore), `theme.rs`, and `ui.rs` + `ui/` (pure rendering from `State`) (D35).
+Inside `crates/faro`: `app.rs` (event loop), `app/` (state, reducer, effects worker, backend command task, in-memory timeline), `tui.rs` (terminal setup and restore), `theme.rs`, and `ui.rs` + `ui/` (pure rendering from `State`) (D35).
 
 ## 5. Backend interface
 
@@ -197,7 +197,7 @@ presage keeps its own store for keys, sessions and protocol state; faro never to
 - **Layout option:** `bubbles` (own messages right, others left) or `irc` (all left, `time  name  text`), plus a `compact` density toggle.
 - Sender names coloured deterministically per person (hash → theme palette), like Signal/IRC.
 - Replies render a dimmed quoted preview; reactions as a compact row (`👍 2  ❤️ 1`); edited messages marked `(edited)`; deleted shown as a dim placeholder.
-- Delivery status glyphs for own messages (sending/sent/delivered/read/failed).
+- Delivery status glyphs for own messages: `◌` sending, `✓` sent, `✓✓` delivered, `✓✓` in the secondary colour for read, `! not sent` in the error colour for failed (D39).
 - Unread marker line; date separators.
 - Links are detected and openable; attachments show name/size and open in the system viewer.
 - **Emoji:** rendered as-is. Widths are computed with grapheme clustering; a setting replaces problematic sequences (ZWJ families, flags, skin tones) with a fallback where terminals disagree. Emoji picker with `:shortcode:` fuzzy search.

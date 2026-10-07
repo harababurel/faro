@@ -7,7 +7,7 @@ use std::time::Duration;
 use faro_core::backend::BackendEvent;
 use faro_core::domain::{
     ConnectionState, Contact, ConversationId, Direction, Group, GroupId, Message, MessageRef,
-    ServiceId,
+    ServiceId, Timestamp,
 };
 use faro_core::store::ConversationSummary;
 use ratatui::layout::Rect;
@@ -40,6 +40,9 @@ pub struct State {
     /// Where things were on the last frame, for mouse hits and page sizes.
     pub geometry: Geometry,
     pub notice: Option<Notice>,
+    /// `sent_at` of the last message sent from here; the next one is later, so
+    /// two quick sends can't share an identity.
+    pub last_sent_at: Timestamp,
     /// Ctrl+C was pressed once; a second press quits.
     pub quit_armed: bool,
     pub quit: bool,
@@ -160,6 +163,7 @@ impl State {
             },
             geometry: Geometry::default(),
             notice: None,
+            last_sent_at: Timestamp::from_millis(0),
             quit_armed: false,
             quit: false,
         }

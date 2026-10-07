@@ -20,6 +20,7 @@ use super::timeline;
 
 mod keys;
 mod navigation;
+mod sending;
 
 pub use navigation::mouse_affects_view;
 
@@ -48,6 +49,7 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
             on_older_loaded(state, conversation, messages);
             vec![]
         }
+        AppEvent::SendResult { sent_at, result } => sending::on_send_result(state, sent_at, result),
         AppEvent::Drawn(geometry) => on_drawn(state, geometry),
         AppEvent::StoreFailed(error) => {
             state.notice = Some(Notice {

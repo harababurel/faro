@@ -33,4 +33,4 @@ expression: "snapshot(&draw(&state, 120, 32))"
 │                            │││ See you there                                            │││                          │
 │                            ││╰──────────────────────────────────────────────────────────╯││                          │
 ╰────────────────────────────╯╰────────────────────────────────────────────────────────────╯╰──────────────────────────╯
- ● connected · 1 unread      alt+j/k conversations · tab focus · pgup scroll · alt+s sidebar · alt+i info · ctrl+q quit
+ ● connected · 1 unread       enter send · alt+j/k conversations · tab focus · pgup scroll · alt+s sidebar · alt+i info

@@ -170,6 +170,31 @@ async fn receipts_never_regress() {
 }
 
 #[tokio::test]
+async fn unsent_messages_fail_on_startup() {
+    let store = store_with(&[
+        outgoing(direct(ALICE), 100, DeliveryStatus::Sending),
+        outgoing(direct(ALICE), 200, DeliveryStatus::Delivered),
+    ])
+    .await;
+    assert_eq!(store.fail_unsent().await.unwrap(), 1);
+    let statuses: Vec<_> = store
+        .messages(direct(ALICE), None, 10)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|m| m.direction)
+        .collect();
+    assert_eq!(
+        statuses,
+        vec![
+            Direction::Outgoing(DeliveryStatus::Failed),
+            Direction::Outgoing(DeliveryStatus::Delivered)
+        ]
+    );
+    assert_eq!(store.fail_unsent().await.unwrap(), 0);
+}
+
+#[tokio::test]
 async fn reactions_are_set_replaced_and_removed() {
     let message = incoming(group(), ALICE, 100, "hi all");
     let store = store_with(std::slice::from_ref(&message)).await;

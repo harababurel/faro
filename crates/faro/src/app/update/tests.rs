@@ -3,10 +3,11 @@
 use std::time::Duration;
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use faro_core::backend::BackendEvent;
-use faro_core::domain::{MessageBody, Timestamp, TypingState};
+use faro_core::backend::{BackendError, BackendEvent, OutgoingMessage};
+use faro_core::domain::{DeliveryStatus, MessageBody, Timestamp, TypingState};
 
 use super::*;
+use crate::app::commands::Command;
 use crate::fixtures::{
     self, ALICE, BOB, CAROL, ME, alice, bob, climbing, climbing_history, loaded_state, text,
 };
@@ -610,4 +611,138 @@ fn drafts_are_saved_after_a_pause_and_on_quit_and_restored() {
     );
     let input = &state.open.as_ref().unwrap().input;
     assert_eq!((input.text(), input.cursor()), ("unfinished", 10));
+}
+
+// --- M4 task 3: sending ---
+
+fn last_message(state: &State) -> Message {
+    state
+        .open
+        .as_ref()
+        .unwrap()
+        .messages
+        .last()
+        .cloned()
+        .unwrap()
+}
+
+#[test]
+fn enter_sends_shows_and_stores_the_message() {
+    let mut state = loaded_state();
+    typed(&mut state, "  on my way  ");
+    update(&mut state, key(KeyCode::Enter, KeyModifiers::ALT));
+    typed(&mut state, "see you");
+    let effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+
+    let sent = last_message(&state);
+    assert_eq!(sent.sender, ME);
+    assert_eq!(sent.direction, Direction::Outgoing(DeliveryStatus::Sending));
+    let body = "on my way  \nsee you";
+    assert_eq!(sent.body.as_ref().map(MessageBody::expose), Some(body));
+    assert_eq!(state.last_sent_at, sent.sent_at);
+    assert!(state.open.as_ref().unwrap().input.is_empty());
+    assert_eq!(
+        state.summary(climbing()).and_then(|s| s.last_activity),
+        Some(sent.sent_at)
+    );
+    assert_eq!(
+        effects,
+        vec![
+            Effect::Persist(Box::new(BackendEvent::Message(sent.clone()))),
+            Effect::Backend(Command::Send {
+                conversation: climbing(),
+                message: OutgoingMessage {
+                    sent_at: sent.sent_at,
+                    body: MessageBody::new(body),
+                    quote: None,
+                },
+            }),
+        ]
+    );
+}
+
+#[test]
+fn blank_input_sends_nothing() {
+    let mut state = loaded_state();
+    let before = state.open.as_ref().unwrap().messages.len();
+    typed(&mut state, "   ");
+    let effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(effects, vec![]);
+    assert_eq!(state.open.as_ref().unwrap().messages.len(), before);
+}
+
+#[test]
+fn sending_clears_a_stored_draft_and_jumps_to_the_bottom() {
+    let mut state = loaded_state();
+    if let Some(summary) = summary_entry(&mut state, climbing()) {
+        summary.state.draft = Some(MessageBody::new("old"));
+    }
+    update(&mut state, key(KeyCode::PageUp, KeyModifiers::NONE));
+    typed(&mut state, "hi");
+    let effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    let Some(Effect::SaveConversationState(id, saved)) = effects.first() else {
+        panic!("expected the cleared draft to be saved first: {effects:?}");
+    };
+    assert_eq!((*id, saved.draft.clone()), (climbing(), None));
+    let open = state.open.as_ref().unwrap();
+    assert_eq!(
+        (open.scroll, open.unseen, open.draft_edited),
+        (None, 0, None)
+    );
+}
+
+#[test]
+fn send_results_become_delivery_updates() {
+    let mut state = loaded_state();
+    typed(&mut state, "one");
+    update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    let first = last_message(&state).sent_at;
+    typed(&mut state, "two");
+    update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    let second = last_message(&state).sent_at;
+    assert!(second > first);
+
+    let effects = update(
+        &mut state,
+        AppEvent::SendResult {
+            sent_at: first,
+            result: Ok(()),
+        },
+    );
+    let sent = BackendEvent::DeliveryUpdate {
+        message: MessageRef {
+            sender: ME,
+            sent_at: first,
+        },
+        status: DeliveryStatus::Sent,
+    };
+    assert_eq!(effects, vec![Effect::Persist(Box::new(sent))]);
+    update(
+        &mut state,
+        AppEvent::SendResult {
+            sent_at: second,
+            result: Err(BackendError::Network("offline".into())),
+        },
+    );
+    let statuses: Vec<_> = state
+        .open
+        .as_ref()
+        .unwrap()
+        .messages
+        .iter()
+        .rev()
+        .take(2)
+        .map(|m| m.direction)
+        .collect();
+    assert_eq!(
+        statuses,
+        vec![
+            Direction::Outgoing(DeliveryStatus::Failed),
+            Direction::Outgoing(DeliveryStatus::Sent)
+        ]
+    );
+    assert_eq!(
+        state.notice.as_ref().map(|n| n.level),
+        Some(NoticeLevel::Error)
+    );
 }

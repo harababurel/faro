@@ -52,14 +52,23 @@ fn main() -> anyhow::Result<()> {
         .build()
         .context("starting the async runtime")?;
     let db_file = paths.db_file();
-    runtime.block_on(async {
+    // Backend futures may be `!Send` (D30): the app drives the backend from a
+    // local task, so everything runs inside a `LocalSet`.
+    let local = tokio::task::LocalSet::new();
+    local.block_on(&runtime, async {
         let store = Store::open(&db_file)
             .await
             .with_context(|| format!("opening the database {}", db_file.display()))?;
+        let unsent = store.fail_unsent().await?;
+        if unsent > 0 {
+            tracing::info!(
+                unsent,
+                "messages left sending by the last run marked failed"
+            );
+        }
         let (backend, events) = MockBackend::new(&config);
         let directory = app::load_directory(&backend, &store).await?;
-        let result = app::run(events, store.clone(), directory, tz).await;
-        drop(backend);
+        let result = app::run(backend, events, store.clone(), directory, tz).await;
         store.close().await.context("closing the database")?;
         tracing::info!("faro exiting");
         result

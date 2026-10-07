@@ -16,6 +16,7 @@ use crate::theme::Theme;
 use crate::tui::Tui;
 use crate::ui::{self, View};
 
+pub mod commands;
 mod effects;
 pub mod event;
 pub mod input;
@@ -58,8 +59,10 @@ pub async fn load_directory<B: Backend>(backend: &B, store: &Store) -> anyhow::R
     })
 }
 
-/// Run the TUI until the user quits or faro is told to stop.
-pub async fn run(
+/// Run the TUI until the user quits or faro is told to stop. Must run inside a
+/// `LocalSet`: the backend is driven by a local task (`commands.rs`).
+pub async fn run<B: Backend + 'static>(
+    backend: B,
     mut backend_events: BackendEvents,
     store: Store,
     directory: Directory,
@@ -68,11 +71,22 @@ pub async fn run(
     let mut terminate = signal(SignalKind::terminate()).context("listening for SIGTERM")?;
     let mut hangup = signal(SignalKind::hangup()).context("listening for SIGHUP")?;
     let (results_tx, mut results) = mpsc::unbounded_channel();
-    let (effects, worker) = effects::spawn(store, results_tx);
+    let (effects, worker) = effects::spawn(store, results_tx.clone());
+    let (commands, command_task) = commands::spawn(backend, results_tx);
     let dispatch = |list: Vec<Effect>| {
         for effect in list {
-            if effects.send(effect).is_err() {
-                tracing::error!("effects worker stopped; dropping an effect");
+            let delivered = match effect {
+                Effect::Backend(command) => commands.send(command).is_ok(),
+                store @ (Effect::LoadConversations
+                | Effect::LoadMessages(_)
+                | Effect::LoadOlder { .. }
+                | Effect::Persist(_)
+                | Effect::MarkRead(_)
+                | Effect::SaveConversationState(..)
+                | Effect::RememberOpen(_)) => effects.send(store).is_ok(),
+            };
+            if !delivered {
+                tracing::error!("effects worker or command task stopped; dropping an effect");
             }
         }
     };
@@ -128,6 +142,9 @@ pub async fn run(
     }
 
     drop(tui);
+    // A send still in flight is abandoned; the store marks it failed on the
+    // next start (`Store::fail_unsent`).
+    command_task.abort();
     // Let queued writes finish before the caller closes the store.
     drop(effects);
     if let Err(error) = worker.await {
@@ -146,6 +163,7 @@ fn affects_view(event: &AppEvent) -> bool {
         | AppEvent::Loaded { .. }
         | AppEvent::MessagesLoaded { .. }
         | AppEvent::OlderLoaded { .. }
+        | AppEvent::SendResult { .. }
         | AppEvent::StoreFailed(_)
         | AppEvent::Tick
         | AppEvent::Shutdown => true,

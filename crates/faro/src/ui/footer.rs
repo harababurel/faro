@@ -15,6 +15,7 @@ use crate::app::state::{Focus, Geometry, NoticeLevel, State};
 /// Key hints for each focus, most important first; dropped from the end when
 /// space runs out (DESIGN.md §7.1: context-sensitive).
 const INPUT_HINTS: &[(&str, &str)] = &[
+    ("enter", "send"),
     ("alt+j/k", "conversations"),
     ("tab", "focus"),
     ("pgup", "scroll"),

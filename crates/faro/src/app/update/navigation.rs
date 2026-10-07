@@ -42,6 +42,7 @@ pub fn on_action(state: &mut State, action: Action) -> Vec<Effect> {
         Action::PageDown => scroll(state, -page(state)),
         Action::ScrollTop => scroll(state, isize::MAX),
         Action::ScrollBottom => scroll_to_bottom(state),
+        Action::Send => return super::sending::send(state),
         Action::Edit(edit) => apply_edit(state, edit),
     }
     vec![]

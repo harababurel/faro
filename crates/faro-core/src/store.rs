@@ -103,6 +103,7 @@ enum Request {
     },
     SetConversationState(ConversationId, Box<ConversationState>, Reply<()>),
     MarkRead(ConversationId, Reply<()>),
+    FailUnsent(Reply<u64>),
     AppState(String, Reply<Option<String>>),
     SetAppState(String, String, Reply<()>),
     Stats(Reply<StoreStats>),
@@ -195,6 +196,13 @@ impl Store {
             .await
     }
 
+    /// Mark outgoing messages still "sending" as failed and return how many.
+    /// Call on startup: a send that was in flight when faro stopped has an
+    /// unknown outcome, and showing it as failed lets the user retry it.
+    pub async fn fail_unsent(&self) -> Result<u64> {
+        self.call(Request::FailUnsent).await
+    }
+
     /// A small piece of app state (last open conversation, panel sizes…).
     pub async fn app_state(&self, key: &str) -> Result<Option<String>> {
         let key = key.to_owned();
@@ -272,6 +280,9 @@ async fn handle(db: &mut Db, request: Request) -> Option<Reply<()>> {
         }
         Request::MarkRead(conversation, reply) => {
             let _ = reply.send(db.mark_read(conversation).await);
+        }
+        Request::FailUnsent(reply) => {
+            let _ = reply.send(db.fail_unsent().await);
         }
         Request::AppState(key, reply) => {
             let _ = reply.send(db.app_state(&key).await);

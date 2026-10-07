@@ -518,6 +518,18 @@ impl Db {
         Ok(())
     }
 
+    /// Mark outgoing messages still `sending` as `failed`; returns how many.
+    pub(super) async fn fail_unsent(&mut self) -> Result<u64> {
+        let done = sqlx::query(
+            "UPDATE messages SET status = ?1 WHERE direction = 'outgoing' AND status = ?2",
+        )
+        .bind(status_to_db(DeliveryStatus::Failed))
+        .bind(status_to_db(DeliveryStatus::Sending))
+        .execute(&mut self.conn)
+        .await?;
+        Ok(done.rows_affected())
+    }
+
     pub(super) async fn app_state(&mut self, key: &str) -> Result<Option<String>> {
         let value: Option<(String,)> = sqlx::query_as("SELECT value FROM app_state WHERE key = ?1")
             .bind(key)

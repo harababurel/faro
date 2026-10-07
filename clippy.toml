@@ -18,6 +18,7 @@ allow-print-in-tests = true
 disallowed-methods = [
     { path = "tokio::runtime::Runtime::block_on", reason = "blocks the thread until the future completes; await it instead", allow-invalid = true },
     { path = "tokio::runtime::Handle::block_on", reason = "blocks the thread until the future completes; await it instead", allow-invalid = true },
+    { path = "tokio::task::LocalSet::block_on", reason = "blocks the thread until the future completes; await it instead", allow-invalid = true },
     { path = "tokio::task::block_in_place", reason = "stalls the runtime worker; use spawn_blocking", allow-invalid = true },
     { path = "futures::executor::block_on", reason = "blocks the thread until the future completes; await it instead", allow-invalid = true },
 
