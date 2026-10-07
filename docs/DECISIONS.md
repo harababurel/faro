@@ -257,7 +257,7 @@ Refines the DESIGN.md §5.1 sketch:
 - **Keys in M3** (a subset of D13): `Ctrl+Q` quits; `Ctrl+C` asks for a second press; `Alt+↑/↓` switch conversation (`Alt+J/K` added by D36); `Alt+S`/`Alt+I` toggle sidebars; `Esc` dismisses the notice; printable characters and `Backspace` (by grapheme) edit the input. `Enter` does nothing until sending exists (M4). Mouse events are captured but ignored until M4. Drafts are kept per conversation in memory only, until M4.
 - **Startup order:** the backend's account, contacts and groups are loaded (and stored) before the terminal enters raw mode, so the first frame already has names.
 - **Mock flags:** `--mock-activity <ms>` (env `FARO_MOCK_ACTIVITY`, default 4000) sets the mean time between scripted events; `--mock-no-faults` (env `FARO_MOCK_NO_FAULTS`) turns off scripted outages and errors. A flood test needs both (`--mock-activity 2 --mock-no-faults`): with faults on, an outage starts within a few hundred events and nothing arrives while offline.
-- **Known issue, not fixed in M3:** emoji with variation selectors (☺️ ❤️), flags and ZWJ sequences are drawn narrower by tmux than `unicode-width` reports, which shifts borders on those lines. Tracked by the emoji width fallback (DESIGN §7.3) and PLAN M8 task 2.
+- **Known issue, not fixed in M3:** emoji with variation selectors (☺️ ❤️), flags and ZWJ sequences are drawn narrower by tmux than `unicode-width` reports, which shifts borders on those lines. Tracked by the emoji width fallback (DESIGN §7.3) and PLAN M8 task 2. *(Amended by D46: not reproduced with tmux 3.6b; moved to M4.5.)*
 
 ### D36. `Alt+J/K` switch conversations — Accepted (2026-10-07)
 
@@ -355,3 +355,9 @@ Refines the DESIGN.md §5.1 sketch:
 - **Names only in groups, only for others, only at the start of a run** (same 10-minute rule as IRC). One blank line between bubbles, even from the same sender: same-coloured boxes stacked with no gap read as one message. Date and unread rules replace the blank line. The blank line belongs to the next message's leading rows (not selectable, like rules).
 - **Selection** keeps the existing tint and `▌` bar over the whole row (the bubble's colour is replaced on the selected message's rows). Simple and clearly visible; a bubble-shaped highlight can come with M8 polish if it looks wrong in practice.
 - `compact` density (DESIGN §7.3) is not in M4.
+
+### D46. Emoji widths before M5 — Accepted (owner, 2026-10-07)
+
+- **Decision (owner):** after trying the M4 prototype, the owner's main complaint is alignment and stray characters around emoji. PLAN M8 task 2 moves forward as **M4.5**, before M5.
+- **First measurement (agent, Debian, tmux 3.6b):** `tools/emoji_widths.py` found **no** disagreement between tmux and faro's widths (`unicode-width` 0.2.2 per grapheme) for variation selectors, skin tones, flags, ZWJ sequences or keycaps. D35's "tmux draws them narrower" was an unmeasured guess; it depends on versions. Suspects for the owner's artifacts: an older tmux on the machine where faro runs, or the outer terminal (kitty) disagreeing with tmux, which faro can't detect from inside tmux.
+- **Approach (Judgement, to confirm against the owner's numbers):** draw graphemes whose width is in doubt as fallbacks with an unambiguous width, per category, chosen by startup detection where possible and a manual override otherwise (config setting from M5). The probe's numbers decide which categories need it by default.

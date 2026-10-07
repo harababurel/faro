@@ -39,7 +39,8 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 - 2026-10-07: M4 task 7 done (D43): `app/keymap.rs` (+ `keymap/chord.rs`, `keymap/defaults.rs`, `keymap/tests.rs`) replaces `update/keys.rs`; `State::keymap.lookup(key, focus)`; footer hints from `Keymap::hint`; `Keymap::apply` ready for M5.
 - 2026-10-07: M4 task 8 done (D44): `app/palette.rs` (items, modes, `nucleo-matcher` ranking), `update/palette.rs` (keys, mouse, running commands), `ui/palette.rs`, `Action::OpenPalette`/`Help`/`Palette(PaletteKey)`, `keymap::palette_action`, `curation::{mute_for, hide_inactive}`, `Geometry::palette`.
 - 2026-10-07: M4 task 9 done (D45), **M4 complete** (owner's hands-on checks pending): `ui/bubbles.rs` (the default layout), `MessageLayout` in `State::layout`, `messages::content` shared by both layouts, palette `SwitchLayout`, `Effect::SetMessageLayout` + `Loaded::layout` (`app_state` `ui.message_layout`), theme roles `bubble_own`/`bubble_other`. Fixtures pin IRC so the older snapshots are unchanged; bubble snapshots are separate.
-- **Next: M5 (configuration)**, see docs/PLAN.md M5 and DESIGN.md §9. Wait for the owner's M4 feedback before big UI changes. Notes:
+- 2026-10-07: owner's M4 hands-on: mostly fine; main complaint is emoji alignment/stray characters. Emoji widths moved forward as **M4.5** (D46). `tools/emoji_widths.py` measures terminal vs faro widths; agent's tmux 3.6b matches on all samples, so we're waiting for the owner's measurements (inside their tmux and directly in kitty).
+- **Next: M4.5 (emoji widths)**, see docs/PLAN.md M4.5, then **M5 (configuration)**, see PLAN M5 and DESIGN.md §9. Notes:
   - Preferences currently in `app_state` move to TOML in M5: `ui.allowlist_mode` (D41) and `ui.message_layout` (D45). `Keymap::apply` (D43) is the hook for `[keys]`. Palette toggles (layout, allowlist) should write back through `toml_edit` (PLAN M5 task 4).
   - The `:` palette prefix (settings) is empty until M5 (`palette::Mode::Settings`; a test asserts it's empty).
   - The mock's backlog is generated relative to the start time (`MockConfig::epoch`), so each restart adds a fresh backlog to the stored history (unread counts grow). Harmless for testing persistence, but surprising; fix if it gets in the way.
@@ -131,3 +132,4 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
   - Debian/Ubuntu: `sudo apt install protobuf-compiler cmake clang pkg-config`
   - macOS: `brew install protobuf cmake`
 - Logo prototypes (Python 3, no deps): `python3 tools/logos.py browse lighthouse`.
+- Emoji width probe (Python 3, no deps): `python3 tools/emoji_widths.py`, run in the terminal to check (inside tmux and outside).

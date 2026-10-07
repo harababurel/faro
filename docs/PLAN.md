@@ -103,6 +103,19 @@ The owner wants correctness and efficiency rules enforced by tools wherever poss
 **Acceptance**
 - A full chat flow against the mock is pleasant to use entirely from the keyboard, and basic mouse use works. **This is the first prototype to show the owner.**
 
+## M4.5: Emoji widths (moved forward from M8 task 2, D46)
+
+The owner's main complaint after trying the prototype: misaligned borders and stray characters around emoji. Fixed before M5 because it affects every screen and needs no config, notifications or real backend.
+
+**Tasks**
+1. Measure: `tools/emoji_widths.py` compares the widths faro assumes with what a terminal draws (cursor position reports). The owner runs it inside the tmux where faro runs **and** directly in the terminal they look at (kitty), on each machine they use; agents run it in their own tmux.
+2. Make what faro draws agree with the terminal: for each kind of grapheme the terminal measures differently (variation selectors, skin tones, flags, ZWJ sequences, keycaps), draw a fallback with an unambiguous width instead (e.g. drop the selector or skin tone, split a ZWJ sequence into its parts, flags as letters). Detect what's possible at startup; a manual override covers what can't be detected (e.g. the outer terminal behind tmux). The override is a CLI flag/env var until M5 makes it a config setting.
+3. Fix what still overflows: sidebar names, bubbles, popups and the palette over emoji; copy (`y`) keeps the original text.
+4. Enforce it (D27): a test that no rendered cell holds a grapheme the current mode considers unsafe.
+
+**Acceptance**
+- The emoji-heavy mock conversations render with straight borders and no stray characters in the owner's tmux + kitty, locally and over SSH.
+
 ## M5: Configuration
 
 **Tasks**
@@ -143,7 +156,7 @@ The owner wants correctness and efficiency rules enforced by tools wherever poss
 
 **Tasks**
 1. Terminal matrix checklist (DESIGN.md §15) on Linux and macOS, with and without tmux, over SSH. The owner does the hands-on part; agents prepare the checklist and fix issues.
-2. Emoji-heavy conversations under tmux; fix width issues found. Known since M3: variation-selector emoji (❤️), flags and ZWJ sequences are narrower in tmux than `unicode-width` says, shifting borders (D35; MANUAL_TESTS.md).
+2. ~~Emoji-heavy conversations under tmux; fix width issues found.~~ Moved to M4.5 (D46). Here: re-check emoji in the terminal matrix (task 1).
 3. Two or three built-in themes + `system` theme; 256-colour fallback.
 4. README: install-from-source instructions, tmux recommended settings, screenshots.
 5. Tag `v0.1.0`; build release binaries (manual or cargo-dist).
@@ -180,6 +193,7 @@ Drag-resizable sidebars with hover highlight; right-click context menus; setting
 | M2 Store | ✅ Done (2026-10-07) | D34. `faro-core/src/store.rs` + `store/` (`db.rs` SQL, `codec.rs` conversions, `tests.rs`); schema in `faro-core/migrations/0001_initial.sql`. sqlx 0.9 is compatible with presage's store (copy its `[patch.crates-io]` in M7). Store task owns the one connection; `Store` handle over a channel. `<data dir>/faro.db`, `0600`. Headless run persists contacts, groups and all events and prints history stats. Acceptance test `store::tests::restart_keeps_mock_history` passes; manual double run kept history. |
 | M3 TUI skeleton | ✅ Done (2026-10-07); manual checks pending | D35. ratatui 0.30 + crossterm 0.29 in `crates/faro` only. `app.rs` select loop, `app/` (state, reducer, effects worker, timeline), `tui.rs` (terminal restore incl. panic hook), `theme.rs` (`faro-dark`), `ui/` (sidebar, IRC messages, input panel, info, footer). `headless.rs` removed. 4 insta snapshots (120, 100, 60 columns + loading) and a tiny-size no-panic test. Smoke-tested in tmux by the agent: live updates, switching, typing, quit. Flood (`--mock-activity 2 --mock-no-faults`, ~300 msg/s): input still responsive, memory flat, release build 55% CPU. Hands-on items in [MANUAL_TESTS.md](MANUAL_TESTS.md); known emoji width issue under tmux (M8 task 2). |
 | M4 Interactions + palette (first prototype) | ✅ Done (owner's hands-on checks pending) | Keys amended first: `Alt+J/K` switch conversations, arrows kept (D36). Task 1 done: focus cycling, sidebar and message-pane keys, anchored scrolling with older pages loaded on demand, mouse click and wheel, renderer `Geometry` feedback (D37). Task 2 done: input editor with cursor, word/line editing, multi-line, bracketed paste, drafts stored on switch/quit/1 s after editing (D38). Task 3 done: `Enter` sends through a backend command task (`LocalSet`), local `Sending` echo, `Sent`/`Failed` from the result, unsent messages marked failed on startup (D39). Task 4 done: message selection in the message pane, reply bar, reaction picker, OSC 52 copy, open/copy links, action menu with retry, right-click menu, self-clearing info notices (D40). Task 5 done: pin (with order and `Alt+1..9`), mute with durations, hide (back on a new message), archive, allowlist flag (migration 0002) and mode; chats/archive views in the sidebar, conversation menu and mute picker, moving on when the open conversation leaves the list (D41). Task 6 done: read receipts sent only when messages are seen (terminal focus + view at the bottom), unread counts follow the same rule, typing indicators started/refreshed/stopped (D42). Task 7 done: key bindings as a per-context table with stable action names, context-first lookup, `Keymap::apply` for the M5 config, footer hints read from the key map (D43). Task 8 done: `Ctrl+P` palette with `nucleo-matcher` over commands, conversations (incl. hidden/archived) and keybindings (`?`, `F1`); `>`/`@`/`:`/`?` prefixes, recency, keys shown, bulk hide by inactivity, mouse (D44). Task 9 done: bubbles layout (default) beside IRC, switched from the palette and remembered in `app_state`, new `bubble_own`/`bubble_other` theme roles (D45). |
+| M4.5 Emoji widths (from M8 task 2) | 🔄 In progress | Moved forward at the owner's request (D46). Task 1: `tools/emoji_widths.py` added; in the agent's tmux 3.6b (Debian) all 24 samples match faro's widths, so the artifacts depend on the owner's setup; waiting for the owner's measurements. |
 | M5 Configuration | ⏳ Not started | |
 | M6 Notifications | ⏳ Not started | |
 | M7 presage backend (test account needed) | ⏳ Not started | |
