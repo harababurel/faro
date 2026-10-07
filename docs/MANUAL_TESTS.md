@@ -97,3 +97,15 @@ Run `faro --mock --mock-no-faults --config /tmp/faro-test.toml` in a tmux window
 - [ ] **Muted / archived:** mute a busy conversation (`m`) or archive it (`a`): its messages no longer ring. `[notifications] bell = false` silences everything.
 - [ ] **Window title:** the tmux pane title (`tmux display -p '#{pane_title}'`, or `set -g set-titles on` to see it in kitty's title bar) reads `faro (N)` with the footer's unread count, and `faro` when everything is read. Directly in kitty, the window/tab title does the same. After quitting (and after `:title off` / `title = false`), your previous title is back.
 - [ ] **Mentions only:** `@` on a conversation in the sidebar (or its menu, or the palette) shows "Notifying for mentions only", dims it in the list like a muted one, and the info panel (`Alt+I`) says "Mentions only". Its messages no longer ring or count in the title. `@` again goes back to every message. (Mentions themselves arrive with the Signal backend in M7; until then "mentions only" is silent.)
+
+## M8: themes and colours (D51)
+
+Switch with the palette (`Ctrl+P`, `:theme`) or `theme = "…"` in the config; colours with `:colours` or `[ui] colors = "…"`.
+
+- [ ] **Each theme in kitty, directly and under tmux:** `faro-dark`, `faro-dusk`, `faro-light`. Everything is readable: message text, times and ticks (muted), the selected sidebar row, the palette's selected row, menus, the "↓ N new messages" badge, both bubble colours (distinct from each other and from the background), sender names in a group. Nothing looks out of place in the light theme (e.g. a dark block left over from the dark theme).
+- [ ] **system theme:** `:theme system` in a dark and in a light kitty colour scheme: faro uses the terminal's background and text colours; the selected sidebar/palette/menu row and the selected message are in reverse video; muted text is dim; bubbles have no fill (own messages on the right, others on the left). Readable in both schemes.
+- [ ] **256-colour fallback, detected:** outside tmux, `TERM=xterm-256color COLORTERM= faro --mock …`: `:colours` says "auto (256 colours detected)"; the theme looks close to the truecolor one (greys may be a step off), and the bubbles, selection and input box are still distinct from the background.
+- [ ] **Plain tmux:** in `tmux -f /dev/null` (no `terminal-features RGB`) faro sends truecolor and tmux rounds it to 256 colours itself: it should look like the previous check, not garbled.
+- [ ] **macOS Terminal.app** (no truecolor before macOS 26): detected as 256 colours (`TERM_PROGRAM=Apple_Terminal`), and looks right.
+- [ ] **Forced depths:** `:colours truecolor` in a 256-colour terminal shows what happens when the guess is overridden wrongly (garbled or approximated colours, terminal-dependent); `:colours 16` switches to the system theme whatever theme is set; `:colours auto` goes back.
+- [ ] **Live:** editing `theme` in the config file while faro runs switches the theme within about half a second; a misspelt name shows a warning listing the built-in themes and keeps `faro-dark`.

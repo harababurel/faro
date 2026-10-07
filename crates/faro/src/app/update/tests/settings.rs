@@ -108,7 +108,7 @@ fn bad_keybindings_and_themes_are_reported_and_skipped() {
         state.config_problems,
         vec![
             "keybindings.global: unknown action \"no.such\"".to_owned(),
-            "theme: there's no theme called \"solarized\"; using faro-dark (built in: faro-dark)"
+            "theme: there's no theme called \"solarized\"; using faro-dark (built in: faro-dark, faro-dusk, faro-light, system)"
                 .to_owned(),
         ]
     );
@@ -175,4 +175,44 @@ fn a_failed_save_says_so() {
         AppEvent::SettingNotSaved("the config file has an error (line 1: x)".into()),
     );
     assert_eq!(notice(&state).map(|n| n.0), Some(NoticeLevel::Error));
+}
+
+#[test]
+fn themes_and_colours_are_chosen_in_the_palette_and_saved() {
+    use crate::app::palette::SettingChoice;
+    use crate::app::update::settings::choose;
+    use crate::theme::ColorDepth;
+
+    let mut state = loaded_state();
+    state.env.colors = ColorDepth::Indexed256;
+    assert_eq!(
+        state.colors(),
+        ColorDepth::Indexed256,
+        "auto follows detection"
+    );
+    let effects = choose(&mut state, SettingChoice::Theme("faro-light"));
+    assert_eq!(state.config.theme, "faro-light");
+    assert_eq!(
+        effects,
+        vec![Effect::SaveSetting(core::SettingEdit {
+            path: core::key::THEME,
+            value: core::ConfigValue::Text("faro-light".to_owned()),
+        })]
+    );
+    let effects = choose(
+        &mut state,
+        SettingChoice::Colors(core::ColorChoice::Truecolor),
+    );
+    assert_eq!(state.colors(), ColorDepth::Truecolor);
+    assert_eq!(
+        effects,
+        vec![Effect::SaveSetting(core::SettingEdit {
+            path: core::key::COLORS,
+            value: core::ConfigValue::Text("truecolor".to_owned()),
+        })]
+    );
+    // And from the file, live.
+    reload(&mut state, "theme = \"system\"\n[ui]\ncolors = \"16\"\n");
+    assert_eq!(state.config.theme, "system");
+    assert_eq!(state.colors(), ColorDepth::Ansi16);
 }

@@ -199,10 +199,7 @@ fn menu(
             let label = truncate(label, room).into_owned();
             let gap = row_width.saturating_sub(3 + width(&label) + key_width);
             let style = if chosen {
-                Style::new()
-                    .fg(theme.text)
-                    .bg(theme.background_element)
-                    .add_modifier(Modifier::BOLD)
+                theme.selected().fg(theme.text).add_modifier(Modifier::BOLD)
             } else {
                 Style::new().fg(theme.text)
             };
@@ -210,7 +207,7 @@ fn menu(
                 Span::styled(marker, style.fg(theme.primary)),
                 Span::styled(label, style),
                 Span::styled(" ".repeat(gap), style),
-                Span::styled(pad_left(key, key_width), style.fg(theme.text_muted)),
+                Span::styled(pad_left(key, key_width), style.patch(theme.muted())),
             ])
         })
         .collect();
@@ -232,13 +229,11 @@ fn react(
             style = style.add_modifier(Modifier::UNDERLINED);
         }
         if i == selected {
-            style = style
-                .bg(theme.background_element)
-                .add_modifier(Modifier::BOLD);
+            style = style.patch(theme.selected()).add_modifier(Modifier::BOLD);
         }
         spans.push(Span::styled(
             format!("{} ", i + 1),
-            style.fg(theme.text_muted),
+            style.patch(theme.muted()),
         ));
         spans.push(Span::styled(format!("{} ", sanitize(emoji)), style));
         spans.push(Span::raw(" "));

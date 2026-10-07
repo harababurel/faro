@@ -1,9 +1,19 @@
 //! Colours by meaning (DESIGN.md §10). Widgets never hard-code colours; they ask
-//! the theme for a role. Theme files (OpenCode's JSON format) and the `system`
-//! theme come with configuration (M5); for now there is one built-in theme.
+//! the theme for a role. The built-in themes are in `builtin.rs`. Terminals
+//! without truecolor get each colour's nearest xterm-256 colour, and those with
+//! only 16 colours get the `system` theme (`colors.rs`); both happen once, when
+//! the theme is loaded, not per frame. Theme files (OpenCode's JSON format)
+//! are v0.2 (D50).
+
+mod builtin;
+mod colors;
+#[cfg(test)]
+mod tests;
 
 use faro_core::domain::ServiceId;
 use ratatui::style::{Color, Modifier, Style};
+
+pub use self::colors::ColorDepth;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Theme {
@@ -30,6 +40,11 @@ pub struct Theme {
     pub bubble_other: Color,
     /// Sender names are coloured by person, picked from here.
     pub senders: [Color; 8],
+    /// The colours are the terminal's own (the `system` theme): faro doesn't
+    /// know what they look like, so the background and text are the
+    /// terminal's defaults, selections and badges are drawn in reverse video
+    /// and muted text is dim instead of a darker colour.
+    pub terminal_palette: bool,
 }
 
 impl Default for Theme {
@@ -39,48 +54,71 @@ impl Default for Theme {
 }
 
 impl Theme {
-    /// The built-in themes' names (the config's `theme`).
-    pub const NAMES: [&str; 1] = ["faro-dark"];
+    /// The built-in themes' names (the config's `theme`), in the order the
+    /// palette lists them.
+    pub const NAMES: [&str; 4] = ["faro-dark", "faro-dusk", "faro-light", "system"];
 
-    /// The built-in theme called `name`.
+    /// The built-in theme called `name`, in full colour.
     pub fn named(name: &str) -> Option<Self> {
         match name {
             "faro-dark" => Some(Self::faro_dark()),
+            "faro-dusk" => Some(Self::faro_dusk()),
+            "faro-light" => Some(Self::faro_light()),
+            "system" => Some(Self::system()),
             _ => None,
         }
     }
 
-    /// faro's own dark theme: warm lighthouse amber on near-black.
-    pub const fn faro_dark() -> Self {
-        Self {
-            name: "faro-dark",
-            background: Color::Rgb(0x10, 0x12, 0x16),
-            background_panel: Color::Rgb(0x1a, 0x1d, 0x23),
-            background_element: Color::Rgb(0x26, 0x2a, 0x33),
-            text: Color::Rgb(0xe6, 0xe6, 0xe6),
-            text_muted: Color::Rgb(0x7c, 0x83, 0x8f),
-            primary: Color::Rgb(0xf5, 0xb9, 0x4a),
-            secondary: Color::Rgb(0x6c, 0xa8, 0xf0),
-            accent: Color::Rgb(0xb4, 0x8e, 0xf0),
-            border: Color::Rgb(0x3a, 0x3f, 0x4a),
-            border_active: Color::Rgb(0xf5, 0xb9, 0x4a),
-            success: Color::Rgb(0x7f, 0xd8, 0x8f),
-            warning: Color::Rgb(0xf5, 0xa7, 0x42),
-            error: Color::Rgb(0xe8, 0x6b, 0x6b),
-            unread: Color::Rgb(0x5f, 0xc8, 0xe8),
-            bubble_own: Color::Rgb(0x33, 0x29, 0x1a),
-            bubble_other: Color::Rgb(0x1f, 0x23, 0x2b),
-            senders: [
-                Color::Rgb(0xe8, 0x8a, 0x8a),
-                Color::Rgb(0x8a, 0xd0, 0x8a),
-                Color::Rgb(0xe8, 0xc0, 0x6a),
-                Color::Rgb(0x7a, 0xb0, 0xf0),
-                Color::Rgb(0xd0, 0x8a, 0xe0),
-                Color::Rgb(0x6a, 0xd0, 0xc8),
-                Color::Rgb(0xf0, 0xa0, 0x70),
-                Color::Rgb(0xa8, 0xb8, 0xf8),
-            ],
+    /// The theme called `name` (the default one if there's none: that was
+    /// reported when the config was read) for a terminal showing `depth`.
+    pub fn load(name: &str, depth: ColorDepth) -> Self {
+        let theme = Self::named(name).unwrap_or_default();
+        match depth {
+            ColorDepth::Truecolor => theme,
+            ColorDepth::Indexed256 => theme.clone().map(colors::nearest_256).keep_apart(&theme),
+            // Picking 16 colours for a palette faro can't see would guess;
+            // the system theme leaves them to the terminal.
+            ColorDepth::Ansi16 => Self::system(),
         }
+    }
+
+    /// Every colour passed through `f`.
+    fn map(self, f: impl Fn(Color) -> Color) -> Self {
+        Self {
+            background: f(self.background),
+            background_panel: f(self.background_panel),
+            background_element: f(self.background_element),
+            text: f(self.text),
+            text_muted: f(self.text_muted),
+            primary: f(self.primary),
+            secondary: f(self.secondary),
+            accent: f(self.accent),
+            border: f(self.border),
+            border_active: f(self.border_active),
+            success: f(self.success),
+            warning: f(self.warning),
+            error: f(self.error),
+            unread: f(self.unread),
+            bubble_own: f(self.bubble_own),
+            bubble_other: f(self.bubble_other),
+            senders: self.senders.map(&f),
+            ..self
+        }
+    }
+
+    /// After rounding to 256 colours: surfaces drawn next to each other
+    /// that differ in the theme are kept different (the next nearest colour)
+    /// even where they rounded to the same one, e.g. near-black greys.
+    fn keep_apart(mut self, original: &Self) -> Self {
+        let near = colors::nearest_256_except;
+        self.background_panel = near(original.background_panel, &[self.background]);
+        self.background_element = near(
+            original.background_element,
+            &[self.background, self.background_panel],
+        );
+        self.bubble_other = near(original.bubble_other, &[self.background]);
+        self.bubble_own = near(original.bubble_own, &[self.background, self.bubble_other]);
+        self
     }
 
     pub fn base(&self) -> Style {
@@ -88,11 +126,38 @@ impl Theme {
     }
 
     pub fn muted(&self) -> Style {
-        Style::new().fg(self.text_muted)
+        let style = Style::new().fg(self.text_muted);
+        if self.terminal_palette {
+            style.add_modifier(Modifier::DIM)
+        } else {
+            style
+        }
     }
 
     pub fn panel(&self) -> Style {
         Style::new().fg(self.text).bg(self.background_panel)
+    }
+
+    /// A selected row (sidebar, palette, menus, the selected message).
+    pub fn selected(&self) -> Style {
+        if self.terminal_palette {
+            Style::new().add_modifier(Modifier::REVERSED)
+        } else {
+            Style::new().bg(self.background_element)
+        }
+    }
+
+    /// Text in the background colour on `colour` (badges).
+    pub fn inverse(&self, colour: Color) -> Style {
+        if self.terminal_palette {
+            // The default background isn't a colour faro can name.
+            Style::new()
+                .fg(colour)
+                .bg(Color::Reset)
+                .add_modifier(Modifier::REVERSED)
+        } else {
+            Style::new().fg(self.background).bg(colour)
+        }
     }
 
     pub fn border(&self, active: bool) -> Style {
@@ -109,5 +174,42 @@ impl Theme {
         let index = usize::try_from(id.uuid().as_u128() % self.senders.len() as u128).unwrap_or(0);
         let colour = self.senders.get(index).copied().unwrap_or(self.text);
         Style::new().fg(colour).add_modifier(Modifier::BOLD)
+    }
+}
+
+/// The theme in use, loaded again only when its name or the colour depth
+/// changes (the app loop asks every frame).
+#[derive(Debug)]
+pub struct Themes {
+    depth: ColorDepth,
+    theme: Theme,
+}
+
+impl Default for Themes {
+    fn default() -> Self {
+        Self {
+            depth: ColorDepth::Truecolor,
+            theme: Theme::default(),
+        }
+    }
+}
+
+impl Themes {
+    pub fn get(&mut self, name: &str, depth: ColorDepth) -> &Theme {
+        let wanted = if Theme::NAMES.contains(&name) {
+            name
+        } else {
+            faro_core::config::DEFAULT_THEME
+        };
+        let loaded = match depth {
+            ColorDepth::Ansi16 => "system",
+            ColorDepth::Truecolor | ColorDepth::Indexed256 => wanted,
+        };
+        if self.depth != depth || self.theme.name != loaded {
+            tracing::info!(theme = name, ?depth, "loading the theme");
+            self.theme = Theme::load(name, depth);
+            self.depth = depth;
+        }
+        &self.theme
     }
 }

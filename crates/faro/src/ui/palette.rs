@@ -181,7 +181,7 @@ fn result_line(
 ) -> Line<'static> {
     let theme = view.theme;
     let base = if selected {
-        Style::new().fg(theme.text).bg(theme.background_element)
+        theme.selected().fg(theme.text)
     } else {
         Style::new().fg(theme.text)
     };
@@ -204,13 +204,13 @@ fn result_line(
     let mut used = 1 + width(glyph);
     let mut spans = vec![
         Span::styled(marker, base.fg(theme.primary)),
-        Span::styled(glyph, base.fg(theme.text_muted)),
+        Span::styled(glyph, base.patch(theme.muted())),
     ];
     if let Some(path) = &item.path {
         let path = truncate(&sanitize(&format!("{path} › ")), room / 2).into_owned();
         room = room.saturating_sub(width(&path));
         used += width(&path);
-        spans.push(Span::styled(path, base.fg(theme.text_muted)));
+        spans.push(Span::styled(path, base.patch(theme.muted())));
     }
     let title_style = if selected {
         base.add_modifier(Modifier::BOLD)
@@ -227,7 +227,7 @@ fn result_line(
     if !detail.is_empty() {
         spans.push(Span::styled(
             format!(" {detail} "),
-            base.fg(theme.text_muted),
+            base.patch(theme.muted()),
         ));
     }
     Line::from(spans)

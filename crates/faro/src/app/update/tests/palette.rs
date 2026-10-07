@@ -111,7 +111,8 @@ fn prefixes_pick_what_is_searched() {
     update(&mut state, ctrl('u'));
     typed(&mut state, ":");
     let settings = kinds(&state);
-    assert_eq!(settings.len(), 13);
+    // 4 themes, 4 colour depths, 2 layouts, 2 allowlist, 3 emoji, 2 mouse, 2 bell, 2 title.
+    assert_eq!(settings.len(), 21);
     assert!(settings.iter().all(|k| matches!(k, ItemKind::Setting(_))));
     typed(&mut state, "zzz");
     assert_eq!(kinds(&state), vec![]);

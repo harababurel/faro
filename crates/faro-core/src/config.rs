@@ -83,6 +83,18 @@ choice! {
 }
 
 choice! {
+    /// How many colours to draw with (D50): `auto` guesses from the
+    /// environment; with `16`, every theme becomes the `system` theme.
+    ColorChoice {
+        #[default]
+        Auto = "auto",
+        Truecolor = "truecolor",
+        Colors256 = "256",
+        Colors16 = "16",
+    }
+}
+
+choice! {
     /// How desktop notifications are sent (DESIGN.md §8; used from M6).
     DesktopNotifications {
         #[default]
@@ -122,6 +134,7 @@ pub struct Config {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Ui {
     pub emoji: EmojiChoice,
+    pub colors: ColorChoice,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -184,6 +197,7 @@ impl Default for Config {
 pub mod key {
     pub const THEME: &str = "theme";
     pub const EMOJI: &str = "ui.emoji";
+    pub const COLORS: &str = "ui.colors";
     pub const ALLOWLIST: &str = "conversations.allowlist";
     pub const LAYOUT: &str = "messages.layout";
     pub const MOUSE: &str = "mouse.enabled";
@@ -260,7 +274,8 @@ fn text(c: impl Choice) -> ConfigValue {
 pub static SETTINGS: &[Setting] = &[
     Setting {
         path: key::THEME,
-        help: "Colour theme. Built in: \"faro-dark\" (more themes come later).",
+        help: "Colour theme: \"faro-dark\", \"faro-dusk\", \"faro-light\" or \"system\" (the \
+               terminal's own 16 colours).",
         get: |c| ConfigValue::Text(c.theme.clone()),
         set: |c, v| {
             c.theme = string(v)?;
@@ -283,6 +298,16 @@ pub static SETTINGS: &[Setting] = &[
         get: |c| text(c.ui.emoji),
         set: |c, v| {
             c.ui.emoji = choice(v)?;
+            Ok(())
+        },
+    },
+    Setting {
+        path: key::COLORS,
+        help: "Colours: \"auto\" (detected), \"truecolor\", \"256\" (nearest of the 256) or \
+               \"16\" (the system theme).",
+        get: |c| text(c.ui.colors),
+        set: |c, v| {
+            c.ui.colors = choice(v)?;
             Ok(())
         },
     },

@@ -169,12 +169,12 @@ fn row(state: &State, view: &View<'_>, summary: &ConversationSummary, width: usi
         || summary.state.notify == NotifyLevel::Mentions;
 
     let marker = if unread {
-        let colour = if muted {
-            theme.text_muted
+        let style = if muted {
+            theme.muted()
         } else {
-            theme.unread
+            Style::new().fg(theme.unread)
         };
-        Span::styled(" ● ", Style::new().fg(colour))
+        Span::styled(" ● ", style)
     } else {
         Span::raw("   ")
     };
@@ -189,15 +189,22 @@ fn row(state: &State, view: &View<'_>, summary: &ConversationSummary, width: usi
     let name = truncate(&sanitize(&title), room).into_owned();
     let pad = room.saturating_sub(text::width(&name));
 
-    let mut name_style = Style::new().fg(if muted { theme.text_muted } else { theme.text });
+    let mut name_style = if muted {
+        theme.muted()
+    } else {
+        Style::new().fg(theme.text)
+    };
     if unread && !muted {
         name_style = name_style.add_modifier(Modifier::BOLD);
     }
     if selected {
-        name_style = name_style.fg(theme.primary).add_modifier(Modifier::BOLD);
+        name_style = name_style
+            .fg(theme.primary)
+            .remove_modifier(Modifier::DIM)
+            .add_modifier(Modifier::BOLD);
     }
     let count_style = if muted {
-        Style::new().fg(theme.text_muted)
+        theme.muted()
     } else {
         Style::new().fg(theme.unread).add_modifier(Modifier::BOLD)
     };
@@ -209,7 +216,7 @@ fn row(state: &State, view: &View<'_>, summary: &ConversationSummary, width: usi
         Span::styled(count, count_style),
     ]);
     if selected {
-        line = line.style(Style::new().bg(theme.background_element));
+        line = line.style(theme.selected());
     }
     Row {
         line,

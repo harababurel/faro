@@ -13,7 +13,7 @@ use tokio::sync::mpsc;
 use tokio::time::{Instant, sleep_until};
 
 use crate::config::{self, Startup};
-use crate::theme::Theme;
+use crate::theme::{ColorDepth, Themes};
 use crate::tui::Tui;
 use crate::ui::{self, View};
 
@@ -99,11 +99,14 @@ pub async fn run<B: Backend + 'static>(
     let mut state = State::new(directory.me, directory.contacts, directory.groups);
     state.env.over_ssh = system::over_ssh();
     state.env.emoji = emoji;
+    state.env.colors = ColorDepth::detect(|var| std::env::var(var).ok());
+    tracing::info!(colors = ?state.env.colors, "colour depth detected");
     dispatch(update::configure(&mut state, settings, problems));
     let mut tui = Tui::enter(state.config.mouse.enabled).context("setting up the terminal")?;
     let mut input = EventStream::new();
     dispatch(vec![Effect::LoadConversations]);
 
+    let mut themes = Themes::default();
     let mut dirty = true;
     let mut last_draw: Option<Instant> = None;
     loop {
@@ -112,7 +115,7 @@ pub async fn run<B: Backend + 'static>(
                 .context("switching the mouse")?;
         }
         if dirty && last_draw.is_none_or(|t| t.elapsed() >= FRAME) {
-            let geometry = draw(&mut tui, &mut state, &tz)?;
+            let geometry = draw(&mut tui, &mut state, &mut themes, &tz)?;
             last_draw = Some(Instant::now());
             dirty = false;
             // Same picture; only bookkeeping (and maybe loading older messages).
@@ -221,12 +224,13 @@ async fn finish(task: tokio::task::JoinHandle<()>, name: &str) {
 fn draw(
     tui: &mut Tui,
     state: &mut State,
+    themes: &mut Themes,
     tz: &jiff::tz::TimeZone,
 ) -> anyhow::Result<state::Geometry> {
     // Unknown names were reported when the config was read.
-    let theme = Theme::named(&state.config.theme).unwrap_or_default();
+    let theme = themes.get(&state.config.theme, state.colors());
     let view = View {
-        theme: &theme,
+        theme,
         tz,
         now: jiff::Timestamp::now(),
     };

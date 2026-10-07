@@ -156,7 +156,7 @@ fn highlight(
     selected: MessageRef,
     view: &View<'_>,
 ) {
-    let tint = Style::new().bg(view.theme.background_element);
+    let tint = view.theme.selected();
     let bar = Style::new().fg(view.theme.primary);
     for (i, row) in rows.iter().enumerate() {
         if *row != Some(selected) {
@@ -197,9 +197,8 @@ fn render_more_below(frame: &mut Frame<'_>, area: Rect, open: &OpenConversation,
         height: 1,
     };
     let style = if open.unseen > 0 {
-        Style::new()
-            .fg(view.theme.background)
-            .bg(view.theme.unread)
+        view.theme
+            .inverse(view.theme.unread)
             .add_modifier(Modifier::BOLD)
     } else {
         Style::new()

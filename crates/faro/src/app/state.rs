@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use faro_core::backend::BackendEvent;
-use faro_core::config::Config;
+use faro_core::config::{ColorChoice, Config};
 use faro_core::domain::{
     ConnectionState, Contact, ConversationId, Direction, Group, GroupId, Message, MessageRef,
     Quote, ServiceId, Timestamp,
@@ -17,6 +17,7 @@ use tokio::time::Instant;
 use super::input::Input;
 use super::keymap::Keymap;
 use super::palette::{Palette, PaletteCommand};
+use crate::theme::ColorDepth;
 
 /// Signal clients stop showing a typing indicator after this long without an update.
 pub const TYPING_TIMEOUT: Duration = Duration::from_secs(15);
@@ -153,6 +154,9 @@ pub struct Environment {
     /// app loop takes it).
     pub repaint: bool,
     pub emoji: EmojiSetting,
+    /// The colours the terminal shows, guessed at startup (D50); the
+    /// config's `ui.colors` can override it (`State::colors`).
+    pub colors: ColorDepth,
 }
 
 /// How emoji are drawn (D47).
@@ -469,6 +473,7 @@ impl State {
                 focused: true,
                 repaint: false,
                 emoji: EmojiSetting::default(),
+                colors: ColorDepth::default(),
             },
             keymap: Keymap::default(),
             palette: None,
@@ -602,6 +607,17 @@ impl State {
             return phone.expose().to_owned();
         }
         id.uuid().simple().to_string().chars().take(8).collect()
+    }
+
+    /// The colours to draw with: the config's `ui.colors`, or what was
+    /// detected (D50).
+    pub const fn colors(&self) -> ColorDepth {
+        match self.config.ui.colors {
+            ColorChoice::Auto => self.env.colors,
+            ColorChoice::Truecolor => ColorDepth::Truecolor,
+            ColorChoice::Colors256 => ColorDepth::Indexed256,
+            ColorChoice::Colors16 => ColorDepth::Ansi16,
+        }
     }
 
     /// The open conversation's newest messages are in front of the user: the

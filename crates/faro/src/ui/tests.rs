@@ -18,11 +18,14 @@ use crate::fixtures::{self, ALICE, ME, NOW_MS, climbing, loaded_state};
 use crate::theme::Theme;
 
 fn draw(state: &State, width: u16, height: u16) -> Buffer {
-    let theme = Theme::default();
+    draw_with(state, width, height, &Theme::default())
+}
+
+fn draw_with(state: &State, width: u16, height: u16, theme: &Theme) -> Buffer {
     let tz = TimeZone::UTC;
     let now = jiff::Timestamp::from_millisecond(i64::try_from(NOW_MS).unwrap()).unwrap();
     let view = View {
-        theme: &theme,
+        theme,
         tz: &tz,
         now,
     };
@@ -127,6 +130,107 @@ fn colours_carry_meaning() {
     // The input box has the panel background.
     let (x, y) = find("See you there");
     assert_eq!(buffer[(x, y)].bg, theme.background_panel);
+}
+
+/// Every screen worth checking colours on: the main view with the info
+/// panel and a selected message, the palette, and a popup, in both layouts.
+fn screens() -> Vec<State> {
+    use crossterm::event::KeyCode::{Enter, Esc, Up};
+    let mut screens = Vec::new();
+    for layout in [MessageLayout::Irc, MessageLayout::Bubbles] {
+        let mut state = typing_state();
+        state.layout = layout;
+        state.panels.right = true;
+        screens.push(state);
+        let mut selected = loaded_state();
+        selected.layout = layout;
+        keys(&mut selected, &[Up]);
+        screens.push(selected);
+        let mut menu = loaded_state();
+        menu.layout = layout;
+        keys(&mut menu, &[Up, Enter]);
+        screens.push(menu);
+        let mut palette = loaded_state();
+        palette.layout = layout;
+        keys(&mut palette, &[Esc]);
+        update(
+            &mut palette,
+            AppEvent::Terminal(crossterm::event::Event::Key(
+                crossterm::event::KeyEvent::new(
+                    crossterm::event::KeyCode::Char('p'),
+                    crossterm::event::KeyModifiers::CONTROL,
+                ),
+            )),
+        );
+        assert!(palette.palette.is_some());
+        screens.push(palette);
+    }
+    screens
+}
+
+#[test]
+fn the_colour_fallbacks_draw_only_colours_the_terminal_has() {
+    use crate::theme::ColorDepth;
+    use ratatui::style::Color;
+    for name in Theme::NAMES {
+        let indexed = Theme::load(name, ColorDepth::Indexed256);
+        let system = Theme::load(name, ColorDepth::Ansi16);
+        for state in screens() {
+            let buffer = draw_with(&state, 100, 30, &indexed);
+            for cell in &buffer.content {
+                for colour in [cell.fg, cell.bg] {
+                    assert!(!matches!(colour, Color::Rgb(..)), "{name}: {colour:?}");
+                }
+            }
+            let buffer = draw_with(&state, 100, 30, &system);
+            for cell in &buffer.content {
+                for colour in [cell.fg, cell.bg] {
+                    assert!(
+                        !matches!(colour, Color::Rgb(..) | Color::Indexed(_)),
+                        "{name} in 16 colours: {colour:?}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn the_system_theme_selects_in_reverse_video() {
+    use ratatui::style::Modifier;
+    let system = Theme::system();
+    let state = typing_state();
+    let buffer = draw_with(&state, 100, 30, &system);
+    let text = snapshot(&buffer);
+    // The open conversation's row in the sidebar.
+    let title = state.conversation_title(state.open.as_ref().unwrap().id);
+    let row = text
+        .lines()
+        .position(|l| {
+            l.chars()
+                .take(24)
+                .collect::<String>()
+                .contains(title.as_str())
+        })
+        .unwrap();
+    let reversed = (0..20)
+        .filter(|x| {
+            buffer[(*x, u16::try_from(row).unwrap())]
+                .modifier
+                .contains(Modifier::REVERSED)
+        })
+        .count();
+    assert!(
+        reversed >= 10,
+        "{reversed} reversed cells in the selected row"
+    );
+    // Muted text is dim, not a colour.
+    assert!(
+        buffer
+            .content
+            .iter()
+            .any(|c| c.modifier.contains(Modifier::DIM))
+    );
 }
 
 #[test]

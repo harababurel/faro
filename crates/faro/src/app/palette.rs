@@ -4,7 +4,7 @@
 //! matching is synchronous (`nucleo-matcher`): a few hundred short strings
 //! take well under a millisecond.
 
-use faro_core::config::{Choice as _, EmojiChoice};
+use faro_core::config::{Choice as _, ColorChoice, EmojiChoice};
 use faro_core::domain::ConversationId;
 use faro_core::store::NotifyLevel;
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
@@ -15,6 +15,7 @@ use super::keymap::{Action, Context, Curate, Keymap};
 use super::state::{
     ConversationAction, Focus, MUTE_CHOICES, MessageLayout, Section, SidebarView, State,
 };
+use crate::theme::Theme;
 
 /// How many recently used commands are remembered (and ranked higher).
 pub const RECENT_MAX: usize = 10;
@@ -49,6 +50,9 @@ pub enum PaletteCommand {
 /// and saves it to the config file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingChoice {
+    /// One of `Theme::NAMES`.
+    Theme(&'static str),
+    Colors(ColorChoice),
     Layout(MessageLayout),
     Allowlist(bool),
     Emoji(EmojiChoice),
@@ -335,7 +339,7 @@ fn commands(state: &State) -> Vec<Item> {
 /// says so.
 fn settings(state: &State) -> Vec<Item> {
     let on_off = |on: bool| if on { "on" } else { "off" };
-    let mut choices: Vec<(SettingChoice, String, bool)> = Vec::new();
+    let mut choices = look_choices(state);
     for layout in MessageLayout::ALL.iter().copied() {
         let name = match layout {
             MessageLayout::Bubbles => "bubbles",
@@ -402,6 +406,40 @@ fn settings(state: &State) -> Vec<Item> {
             }
         })
         .collect()
+}
+
+/// Theme and colour depth choices, the current ones flagged.
+fn look_choices(state: &State) -> Vec<(SettingChoice, String, bool)> {
+    let configured = &state.config.theme;
+    let current = if Theme::NAMES.contains(&configured.as_str()) {
+        configured.as_str()
+    } else {
+        faro_core::config::DEFAULT_THEME
+    };
+    let mut choices: Vec<(SettingChoice, String, bool)> = Theme::NAMES
+        .iter()
+        .map(|name| {
+            (
+                SettingChoice::Theme(name),
+                format!("Theme: {name}"),
+                *name == current,
+            )
+        })
+        .collect();
+    for colors in ColorChoice::ALL.iter().copied() {
+        let title = match colors {
+            ColorChoice::Auto => format!("Colours: auto ({} detected)", state.env.colors.name()),
+            ColorChoice::Truecolor => "Colours: truecolor".to_owned(),
+            ColorChoice::Colors256 => "Colours: 256".to_owned(),
+            ColorChoice::Colors16 => "Colours: 16 (system theme)".to_owned(),
+        };
+        choices.push((
+            SettingChoice::Colors(colors),
+            title,
+            state.config.ui.colors == colors,
+        ));
+    }
+    choices
 }
 
 /// Curating the open conversation (the sidebar's highlight), with its name
