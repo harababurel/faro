@@ -174,20 +174,53 @@ The owner's main complaint after trying the prototype: misaligned borders and st
 
 ## v0.2 (after v0.1; details to be planned then)
 
-Drag-resizable sidebars with hover highlight; right-click context menus; settings UI in the palette writing back to TOML; ~~OpenCode theme compatibility + theme picker with live preview~~ (done early, D54); OSC 9/99/777 desktop notifications with privacy levels; edit/delete for everyone; attachments (send/receive/open); emoji picker with `:shortcode:` search and width fallback; packaging (cargo-dist binaries, Homebrew tap, AUR `faro-bin`/`faro-git`, `.deb`, Nix flake).
+Media has its own milestones (M9, M10, D69); the rest of v0.2 is planned when v0.1 ships:
+
+Drag-resizable sidebars with hover highlight; right-click context menus; settings UI in the palette writing back to TOML; ~~OpenCode theme compatibility + theme picker with live preview~~ (done early, D54); OSC 9/99/777 desktop notifications with privacy levels; edit/delete for everyone; emoji picker with `:shortcode:` search and width fallback; packaging (cargo-dist binaries, Homebrew tap, AUR `faro-bin`/`faro-git`, `.deb`, Nix flake).
+
+## M9: attachments and inline images (v0.2, D69)
+
+Outline only; the design (and its decisions) is done when the milestone starts.
+
+**Tasks**
+1. Receive: download attachments through presage into `<data dir>/attachments/` (`0600`), with a download status (the planned `attachments.status` migration), a size limit above which faro asks first, and progress shown on the message. Never on the UI thread.
+2. Open and save: the system viewer (`open` / `xdg-open`) when faro runs on the machine in front of the user. Over SSH or mosh that would open on the remote machine, so offer the alternatives there: show it inline (task 4), save it to a chosen folder, copy its path.
+3. Send: attach a file from the input (a path, with completion; a pasted path, which is what dragging a file into most terminals gives), a caption, and the upload progress. Sending stays behind the guard (D62).
+4. Inline images: thumbnails in the message pane, a full-size view in a popup. `ratatui-image` with the kitty graphics protocol, sixel or iTerm2 where the terminal has one, and half-block cells everywhere else. Through tmux, passthrough (`allow-passthrough on`, already in the recommended settings); through mosh, half-blocks only. Detection like D47/D58 (terminal and every tmux client), and a setting such as `[media] inline_images = "auto" | "halfblocks" | "off"`. Stickers drawn as images too.
+5. Rendering safety: images must not break the D55 frame checks (redraw on scroll and resize, clear on palette/popup overlap); add the cases to `tools/frames`.
+
+**Acceptance**
+- A photo sent from the phone shows inline in kitty directly and through tmux, as half-blocks through mosh, and opens or saves; a file sent from faro arrives on the phone.
+
+## M10: voice notes and transcription (v0.2, D69)
+
+Outline only, like M9; it builds on M9's downloads.
+
+**Tasks**
+1. Voice notes as their own row: a play glyph, the duration and, where cheap, a waveform drawn from the audio.
+2. Playback through an external player, configurable (e.g. `afplay` on macOS, `mpv --no-video` / `pw-play` on Linux), with play/stop keys and progress. Over SSH or mosh the sound would play on the remote machine: say so, and offer save/copy instead (no audio forwarding planned).
+3. **Transcription, opt-in (owner's idea, 2026-10-08):** off by default. When the user sets it up, incoming voice notes (or ones chosen by hand) are transcribed in the background and the text shown under the note and kept in faro's database. Two kinds of backend, chosen in the config:
+   - **local**: a Whisper model on the user's machine (e.g. whisper.cpp through `whisper-rs`, or an external command such as `whisper-cli`), with the model's path or a one-off download;
+   - **remote**: an OpenAI-compatible `/audio/transcriptions` endpoint (OpenAI, Groq, a self-hosted server), with the key read from the environment or the OS keychain, never from the config file.
+
+   The remote kind sends other people's voice to a third party: faro asks for explicit consent when it's turned on, says so where the transcript is shown, and allows it per conversation. Language detection, a length limit and the cost are open questions for the design.
+4. Not planned yet: recording and sending voice notes from faro.
+
+**Acceptance**
+- A voice note from the phone plays locally and, with transcription set up, shows its text a few seconds later without freezing anything.
 
 Pulled forward on 2026-10-08 at the owner's request: the palette as a tree (D52), do not disturb (D53), and OpenCode's themes bundled, user theme files with hot reload and the live-preview theme picker (D54).
 
 ## Later (backlog: do not lose)
 
-- **Inline images** (kitty graphics / sixel / half-block fallback via `ratatui-image`, tmux passthrough)
 - `faro daemon` + attachable TUI
 - signal-cli JSON-RPC backend
 - Encryption at rest
 - About screen with the logo (the animated lighthouse itself is done: the empty message pane, D61)
 - Message search
-- Voice note playback via external player
 - Optional sync of hidden/allowlist state via config
+- Recording and sending voice notes
+- (Inline images and voice note playback moved to M9 and M10, D69.)
 
 ---
 
@@ -206,3 +239,5 @@ Pulled forward on 2026-10-08 at the owner's request: the palette as a tree (D52)
 | M6 Notifications | ✅ Done (2026-10-07; owner's hands-on checks pending) | D49. Task 1: terminal bell (`Effect::Bell`, `update/notify.rs`) for new unseen incoming messages in conversations that notify (main list, not muted, every-message level), at most once per 2 s, `[notifications] bell`. Task 2: window/tmux title `faro (N)` via OSC 0, written only on change, terminal title pushed/popped (blanked where there's no title stack), `[notifications] title`; bell and title are `:` palette settings. Task 3: per-conversation "mentions only" level (migration 0003, `@` in the sidebar, menu, palette; silent until M7 maps mentions), next to mute. Acceptance smoke-tested in a private tmux server: background mock messages set `#{window_bell_flag}` and fire `alert-bell` (≥ 2 s apart), `#{pane_title}` reads `faro (49)` and returns to the old title on quit and when turned off live. Desktop notifications stay v0.2. |
 | M7 presage backend (test account needed) | 🚧 In progress | Safeguards first: allowlist guard (D62). `faro-presage` (D63): `faro link` (terminal QR), `faro ids` (IDs for the allowlist), the backend behind a mandatory `--allowlist`, mapping of messages, receipts, typing, reactions, edits, deletions and sync transcripts (tested), reconnect with backoff. Next: link the test account, then the acceptance checks with the owner. Not yet: read syncs, delivery receipts, attachments, history transfer. |
 | M8 v0.1 hardening + release | 🚧 In progress (tasks 1, 3, 4 pulled ahead of M7, D50) | Task 3 done: themes `faro-dusk`, `faro-light`, `system` (terminal's 16 colours, reverse-video selection, dim muted text) beside `faro-dark`; colour depth detected (`COLORTERM`, tmux, known terminals) with `[ui] colors` override; 256-colour fallback mapped once at load, surfaces kept apart; 16 colours → `system`; `:` palette theme/colour settings with write-back; contrast tests (D51). Task 4 done: README rewritten (pre-release status, install from source incl. the future `protoc` packages, trying the mock, flags, keys, config, recommended tmux settings, mosh, colours) with a text capture of the UI; real screenshots left to the owner (TODO comment in the README). Task 1 prepared: [MANUAL_TESTS.md](MANUAL_TESTS.md) "M8: terminal matrix" (Linux/macOS × direct, tmux, SSH, mosh × rendering, emoji, colours, mouse, OSC 52, bell, title, focus, paste, keys, Ctrl+L, restore); the owner runs it after M7. Left: the hands-on matrix and task 5 (tag, binaries), both after M7. Owner-reported glitches (2026-10-08, D55): tmux joined code points onto the wrong cell (flags, VS16 emoji, skin tones on bases it doesn't know); fixed in `tui/backend.rs` and `ui/emoji.rs`, found with the frame log (`FARO_DEBUG_FRAMES`) and `tools/frames/`; 20,122 replayed frames, 0 divergent, direct and nested (was 1176 of 2900). Bubble styles (owner's choice, D58, superseding D56's half-block corners): rounded (Powerline caps on one-line bubbles, two-thirds Legacy Computing edges on taller ones) or a bar on the outer side in the sender's colour; `[messages] bubble_style = "auto"` draws rounded only where every terminal is kitty (it draws those glyphs itself), detected with the D47 terminal check; the `system` theme always draws bars. Logo screen (owner's choice, D61): the animated lighthouse from `tools/logos.py` ported to `ui/logo.rs` fills the message pane while no chat is open, in four sizes, with key hints; 10 fps only while visible, focused and `reduce_motion` off (now a palette switch). |
+| M9 Attachments + inline images (v0.2) | 📋 Planned (D69) | Outline in this file; designed when it starts. |
+| M10 Voice notes + transcription (v0.2) | 📋 Planned (D69) | Outline in this file; playback through an external player, opt-in local or remote Whisper transcription. |

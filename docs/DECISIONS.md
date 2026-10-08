@@ -592,3 +592,10 @@ Refines the DESIGN.md §5.1 sketch:
 - **Listed at once:** `ContactUpdated` and `GroupUpdated` for a conversation the app doesn't have add it to `State::conversations` (as the store already does), and the list is sorted again. Empty conversations still stay out of the sidebar (DESIGN §7.7); the palette's `Chats ›` lists them.
 - **Seen on the owner's iPhone:** the phone answers only once Signal is opened on it (iOS doesn't run it in the background); the contacts then arrive within a second and are listed at once.
 - **Still missing:** the full group list. presage learns a group only from a message in it; Signal keeps the list in its storage service, which presage doesn't read.
+
+### D69. Media gets milestones in v0.2: M9 attachments and images, M10 voice notes and transcription — Accepted (owner, 2026-10-08)
+
+- **Why:** the owner wants inline images and voice notes scheduled, not left in the "Later" backlog.
+- **M9** bundles attachments (receive, open/save, send) with inline images (kitty graphics, sixel, half-block fallback; tmux passthrough; half-blocks through mosh). **M10** adds voice note playback through an external player, plus **opt-in transcription** (the owner's idea): a local Whisper model or a remote OpenAI-compatible endpoint, off by default, with explicit consent for the remote kind since it sends other people's voice to a third party.
+- Both come after v0.1 (M8) and before the rest of v0.2. Their designs are done when each starts; PLAN.md has the outlines. Opening and playing over SSH/mosh happen on the remote machine, so both milestones offer save/copy (and, for images, inline display) there.
+- Still in "Later": recording and sending voice notes. Calls stay out of scope.

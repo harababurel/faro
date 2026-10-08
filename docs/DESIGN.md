@@ -348,7 +348,7 @@ Sketch:
 - **Frame output:** every wide cell is sent with `ForcedWidth`, so ratatui never writes a wide character's hidden cell (D47).
 - **tmux builds emoji one code point at a time** and, when it widens a cell for a flag or VS16 emoji, leaves whatever wide character started in the next cell half-cleared. faro's backend (`tui/backend.rs`) writes a blank into that next cell first (D55). `FARO_DEBUG_FRAMES=<file>` logs every intended frame, for comparing with what a terminal shows (`tools/frames/`).
 - **Colours (D51):** truecolor is assumed inside tmux (tmux rounds RGB itself for clients without it) and in known truecolor terminals even when `COLORTERM` was lost over SSH; elsewhere 256 colours, mapped once at theme load; 16-colour terminals get the `system` theme. `[ui] colors` overrides the guess. Details in §10.
-- **Images:** not in the first release (see §14).
+- **Images:** not in the first release; inline images are M9 in v0.2 (kitty graphics, sixel, half-block fallback; tmux passthrough; half-blocks through mosh) (see §14, D69).
 
 ## 12. Security and privacy
 
@@ -391,19 +391,20 @@ Task-level breakdown and progress tracking: [PLAN.md](PLAN.md).
 - OpenCode theme compatibility + theme picker with live preview (pulled forward: done, D54)
 - Settings UI in the palette writing back to TOML
 - OSC desktop notifications with privacy levels
-- Edit / delete for everyone; attachments (send/receive/open)
+- Edit / delete for everyone
+- **Attachments and inline images (M9):** receive, open or save (SSH-aware), send; thumbnails in the message pane via kitty graphics / sixel / half-block fallback (`ratatui-image`), with tmux passthrough
+- **Voice notes (M10):** playback through an external player; opt-in transcription of incoming voice notes with a local Whisper model or a remote OpenAI-compatible endpoint (consent required for remote)
 - Emoji picker; emoji width fallback
 - Release binaries, Homebrew tap, AUR, `.deb`, Nix flake
 
 ### Later (backlog, do not forget)
 
-- **Inline images** (kitty graphics protocol / sixel / half-block fallback via `ratatui-image`), with tmux passthrough handling
 - `faro daemon` + attachable TUI (§4.2)
 - signal-cli JSON-RPC backend (D6)
 - Encryption at rest (§12)
 - Logo in an about screen (the animated lighthouse already fills the empty message pane, D61)
 - Search across messages
-- Voice note playback (external player)
+- Recording and sending voice notes
 
 ## 15. Testing strategy
 
