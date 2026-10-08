@@ -84,6 +84,8 @@ choice! {
         Rounded = "rounded",
         /// A heavy bar on the bubble's outer side, in the sender's colour.
         Bar = "bar",
+        /// The bar on the outer side, rounded toward the middle (D66).
+        Mixed = "mixed",
     }
 }
 
@@ -353,8 +355,8 @@ pub static SETTINGS: &[Setting] = &[
     Setting {
         path: key::BUBBLE_STYLE,
         help: "Bubbles: \"rounded\" (needs a terminal or font with Powerline and Legacy \
-               Computing glyphs, as kitty has), \"bar\" (a bar on the outer side) or \
-               \"auto\" (rounded in kitty, bars elsewhere). The system theme always draws bars.",
+               Computing glyphs, as kitty has), \"bar\" (a bar on the outer side), \
+               \"mixed\" (the bar outside, rounded toward the middle) or \"auto\" (rounded in kitty, bars elsewhere). The system theme always draws bars.",
         get: |c| text(c.messages.bubble_style),
         set: |c, v| {
             c.messages.bubble_style = choice(v)?;

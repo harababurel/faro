@@ -56,6 +56,8 @@ pub(super) const BAR: &str = "\u{2503}";
 pub(super) enum Shape {
     Rounded,
     Bar,
+    /// The bar on the outer side, rounded on the inner one (D66).
+    Mixed,
 }
 
 /// The style in use: the setting (`auto`: rounded where the terminal draws
@@ -67,6 +69,7 @@ pub(super) fn shape(state: &State, theme: &Theme) -> Shape {
     }
     match state.bubble_style() {
         BubbleStyle::Rounded => Shape::Rounded,
+        BubbleStyle::Mixed => Shape::Mixed,
         BubbleStyle::Auto if state.env.glyphs == BlockGlyphs::Native => Shape::Rounded,
         BubbleStyle::Auto | BubbleStyle::Bar => Shape::Bar,
     }
@@ -119,23 +122,40 @@ pub(super) fn render(
         0
     };
     let shape = shape(state, theme);
-    let pill = shape == Shape::Rounded && lines.len() == 1;
-    let edges = shape == Shape::Rounded && !pill;
+    let rounds = matches!(shape, Shape::Rounded | Shape::Mixed);
+    let pill = rounds && lines.len() == 1;
+    let edges = rounds && !pill;
     let padding = Span::styled(" ", bg);
-    let (left, right) = match shape {
-        Shape::Rounded if pill => {
-            let cap = Style::new().fg(colour);
-            (Span::styled(CAPS[0], cap), Span::styled(CAPS[1], cap))
-        }
-        Shape::Rounded => (padding.clone(), padding),
-        Shape::Bar if own => (padding, Span::styled(BAR, bg.fg(theme.primary))),
-        Shape::Bar => {
-            let sender = theme.sender(message.sender).fg.unwrap_or(theme.text);
-            (Span::styled(BAR, bg.fg(sender)), padding)
+    let cap = Style::new().fg(colour);
+    let bar = if own {
+        Span::styled(BAR, bg.fg(theme.primary))
+    } else {
+        let sender = theme.sender(message.sender).fg.unwrap_or(theme.text);
+        Span::styled(BAR, bg.fg(sender))
+    };
+    // The inner side: a cap on a pill, padding beside taller text.
+    let inner_side = |glyph: &'static str| {
+        if pill {
+            Span::styled(glyph, cap)
+        } else {
+            padding.clone()
         }
     };
+    let (left, right) = match shape {
+        Shape::Rounded => (inner_side(CAPS[0]), inner_side(CAPS[1])),
+        Shape::Bar if own => (padding, bar),
+        Shape::Bar => (bar, padding),
+        Shape::Mixed if own => (inner_side(CAPS[0]), bar),
+        Shape::Mixed => (bar, inner_side(CAPS[1])),
+    };
+    // Mixed: the corner on the bar's side is square (the edge's fill).
+    let square = |[left, fill, right]: [&'static str; 3]| match shape {
+        Shape::Mixed if own => [left, fill, fill],
+        Shape::Mixed => [fill, fill, right],
+        Shape::Rounded | Shape::Bar => [left, fill, right],
+    };
     if edges {
-        out.push(edge(margin, inner, TOP, colour));
+        out.push(edge(margin, inner, square(TOP), colour));
     }
     for spans in lines {
         let fill = inner.saturating_sub(spans_width(&spans));
@@ -146,7 +166,7 @@ pub(super) fn render(
         out.push(Line::from(line));
     }
     if edges {
-        out.push(edge(margin, inner, BOTTOM, colour));
+        out.push(edge(margin, inner, square(BOTTOM), colour));
     }
 
     if !message.reactions.is_empty() {

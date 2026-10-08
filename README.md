@@ -160,7 +160,7 @@ The palette's Themes list says which of these applies.
 
 ## Bubbles
 
-Rounded bubbles are drawn with Powerline half circles (U+E0B6, U+E0B4) and Legacy Computing wedges and sextants (U+1FB0E to U+1FB65). kitty draws these itself, whatever your font; other terminals take them from the font, and most fonts without Nerd Font patches lack them (you'd see boxes or question marks). So by default (`bubble_style = "auto"`) faro draws rounded bubbles only when every terminal it's shown in is kitty, inside tmux too (it asks tmux for each attached client's terminal), and otherwise a coloured bar on each bubble's outer side. Through mosh the terminal can't be seen, so it draws bars there; set `[messages] bubble_style = "rounded"` (or `Settings › Bubble style` in the palette) if your terminal or font has the glyphs, or `"bar"` to always have bars.
+Rounded bubbles are drawn with Powerline half circles (U+E0B6, U+E0B4) and Legacy Computing wedges and sextants (U+1FB0E to U+1FB65). kitty draws these itself, whatever your font; other terminals take them from the font, and most fonts without Nerd Font patches lack them (you'd see boxes or question marks). So by default (`bubble_style = "auto"`) faro draws rounded bubbles only when every terminal it's shown in is kitty, inside tmux too (it asks tmux for each attached client's terminal), and otherwise a coloured bar on each bubble's outer side. Through mosh the terminal can't be seen, so it draws bars there; set `[messages] bubble_style = "rounded"` (or `Settings › Bubble style` in the palette) if your terminal or font has the glyphs, or `"bar"` to always have bars. `"mixed"` puts the bar on the outer side and rounds the inner one (it needs the same glyphs as `"rounded"`).
 
 ## Development
 

@@ -617,6 +617,10 @@ fn bar(state: State) -> State {
     styled(state, faro_core::config::BubbleStyle::Bar)
 }
 
+fn mixed(state: State) -> State {
+    styled(state, faro_core::config::BubbleStyle::Mixed)
+}
+
 #[test]
 fn bubbles_rounded() {
     insta::assert_snapshot!(snapshot(&draw(&rounded(bubbles_state()), 100, 34)));
@@ -630,6 +634,16 @@ fn bubbles_rounded_narrow() {
 #[test]
 fn bubbles_rounded_very_narrow() {
     insta::assert_snapshot!(snapshot(&draw(&rounded(bubbles_state()), 32, 18)));
+}
+
+#[test]
+fn bubbles_mixed() {
+    insta::assert_snapshot!(snapshot(&draw(&mixed(bubbles_state()), 100, 34)));
+}
+
+#[test]
+fn bubbles_mixed_narrow() {
+    insta::assert_snapshot!(snapshot(&draw(&mixed(bubbles_state()), 60, 24)));
 }
 
 #[test]
@@ -763,8 +777,65 @@ fn bars_go_on_the_outer_side_in_the_senders_colour() {
 }
 
 #[test]
+fn mixed_bubbles_have_the_bar_outside_and_round_inside() {
+    let theme = Theme::default();
+    let buffer = draw(&mixed(bubbles_state()), 100, 34);
+    // One line, own: a cap on the left (inner), the bar on the right.
+    let (x, y) = find(&buffer, "On my way");
+    let pane = buffer[(x, y - 1)].bg;
+    let cap = &buffer[(x - 1, y)];
+    assert_eq!(cap.symbol(), "\u{E0B6}");
+    assert_eq!((cap.fg, cap.bg), (theme.bubble_own, pane));
+    let right = next(&buffer, x, y, super::bubbles::BAR);
+    assert_eq!(buffer[(right, y)].fg, theme.primary);
+    assert_eq!(buffer[(right, y)].bg, theme.bubble_own);
+    // Others: the bar on the left (outer).
+    let (ox, oy) = find(&buffer, "Running 10 min late");
+    let bar = &buffer[(ox - 1, oy)];
+    assert_eq!(bar.symbol(), super::bubbles::BAR);
+    assert_eq!(bar.bg, theme.bubble_other);
+}
+
+#[test]
+fn taller_mixed_bubbles_have_a_square_corner_on_the_bars_side() {
+    let buffer = draw(&mixed(bubbles_state()), 60, 24);
+    let text = snapshot(&buffer);
+    let fill_top = "\u{1FB39}";
+    let fill_bottom = "\u{1FB0E}";
+    let mut seen = 0;
+    for y in 0..buffer.area.height {
+        let row: Vec<&str> = (0..buffer.area.width)
+            .map(|x| buffer[(x, y)].symbol())
+            .collect();
+        for (fill, rounded) in [
+            (fill_top, ["\u{1FB4A}", "\u{1FB3F}"]),
+            (fill_bottom, ["\u{1FB65}", "\u{1FB5A}"]),
+        ] {
+            let Some(start) = row.iter().position(|s| *s == fill || rounded.contains(s)) else {
+                continue;
+            };
+            let end = row
+                .iter()
+                .rposition(|s| *s == fill || rounded.contains(s))
+                .unwrap();
+            let ends = [row[start], row[end]];
+            // Exactly one end is rounded, the other is the fill (square).
+            let rounded_ends = ends.iter().filter(|s| rounded.contains(s)).count();
+            assert_eq!(rounded_ends, 1, "row {y}: {ends:?}\n{text}");
+            assert!(ends.contains(&fill), "row {y}: {ends:?}\n{text}");
+            seen += 1;
+        }
+    }
+    assert!(seen >= 2, "{text}");
+}
+
+#[test]
 fn a_blank_line_separates_bubbles_in_both_styles() {
-    for state in [rounded(bubbles_state()), bar(bubbles_state())] {
+    for state in [
+        rounded(bubbles_state()),
+        bar(bubbles_state()),
+        mixed(bubbles_state()),
+    ] {
         let text = snapshot(&draw(&state, 100, 34));
         let lines: Vec<&str> = text.lines().collect();
         let (y, _) = lines
@@ -779,7 +850,7 @@ fn a_blank_line_separates_bubbles_in_both_styles() {
 #[test]
 fn a_selected_bubble_is_a_clean_tinted_block_in_both_styles() {
     let theme = Theme::default();
-    for style in [rounded, bar] {
+    for style in [rounded, bar, mixed] {
         let mut state = style(loaded_state());
         state.layout = MessageLayout::Bubbles;
         keys(&mut state, &[Up]);
@@ -804,7 +875,11 @@ fn a_selected_bubble_is_a_clean_tinted_block_in_both_styles() {
 
 #[test]
 fn the_system_theme_always_draws_bars() {
-    for state in [rounded(bubbles_state()), bar(bubbles_state())] {
+    for state in [
+        rounded(bubbles_state()),
+        bar(bubbles_state()),
+        mixed(bubbles_state()),
+    ] {
         let buffer = draw_with(&state, 100, 34, &Theme::system());
         let text = snapshot(&buffer);
         assert!(
@@ -843,6 +918,7 @@ fn compatible_mode_draws_only_what_every_terminal_measures_alike() {
         assert_drawable(&compatible(typing_state()), width, height);
         assert_drawable(&compatible(bubbles_state()), width, height);
         assert_drawable(&compatible(rounded(bubbles_state())), width, height);
+        assert_drawable(&compatible(mixed(bubbles_state())), width, height);
     }
     let mut menu = loaded_state();
     keys(&mut menu, &[Up, Char('k'), Enter]);

@@ -103,7 +103,7 @@ Terminal matrix (DESIGN §15): kitty, WezTerm, Ghostty, iTerm2, Alacritty, foot;
 
 ## Bubble styles (D58)
 
-Run `faro --mock --config /tmp/faro-test.toml` (bubbles is the default layout). `Settings › Bubble style` in the palette switches between auto, rounded and bar.
+Run `faro --mock --config /tmp/faro-test.toml` (bubbles is the default layout). `Settings › Bubble style` in the palette switches between auto, rounded, bar and mixed (D66).
 
 - [ ] **Rounded in kitty, directly:** with `auto`, faro in a plain kitty window draws rounded bubbles. One-line bubbles are pills: half circles at both ends that meet the fill with no seam. Taller bubbles have edges above and below, two thirds of a row high, with diagonal corners that read as rounded and meet the fill without a gap or lighter line. Check at two or three font sizes and with a couple of fonts (kitty draws these glyphs itself, so they should look the same in every font).
 - [ ] **Rounded in kitty, under tmux over ssh:** with only kitty clients attached to the session, `auto` is rounded too. Attach a second client from another terminal (or through mosh): on the next focus change, faro switches to bars; detach it and refocus: rounded again.
@@ -193,6 +193,10 @@ Switch with the palette (`Ctrl+P` › Themes) or `theme = "…"` in the config; 
 - [ ] **Your own theme:** copy `crates/faro/themes/opencode/nord.json` to `~/.config/faro/themes/mynord.json` while faro runs: a notice says "Themes reloaded" and `mynord` (and `mynord-light`) appear under Themes, labelled "your file". Choose it, then change its `background` in the file and save: the background changes within about half a second, without touching the palette.
 - [ ] **A broken theme file:** save `~/.config/faro/themes/broken.json` with `{`: a warning names the file and says what's wrong; the other themes still work. Restart faro: the same warning shows at startup. Remove the file.
 - [ ] **Replacing a built-in theme:** a file named `nord.json` in the themes directory replaces OpenCode's `nord` (one `nord` listed, labelled "your file"); one named `system.json` is refused with a warning.
+
+## Mixed bubbles (D66)
+
+- [ ] `Ctrl+P` › Settings › Bubble style › mixed (previews while moving): your bubbles have the bar on the right and round on the left; others' the bar on the left and round on the right. Taller bubbles have square corners on the bar's side, and the bar looks continuous down the text rows. Check in kitty direct and through tmux, a dark and a light theme, and with a message selected (a plain tinted block).
 
 ## Allowlist guard (D62)
 

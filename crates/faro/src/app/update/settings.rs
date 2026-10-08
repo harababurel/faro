@@ -199,6 +199,7 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
                 BubbleStyle::Auto => "Bubbles: rounded in kitty, bars elsewhere",
                 BubbleStyle::Rounded => "Bubbles have rounded ends",
                 BubbleStyle::Bar => "Bubbles have a bar on the outer side",
+                BubbleStyle::Mixed => "Bubbles have a bar outside and round inside",
             }));
             let mut effects = apply_bubble_style(state);
             effects.extend(save(state, key::BUBBLE_STYLE));

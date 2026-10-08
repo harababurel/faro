@@ -921,6 +921,7 @@ fn values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)>
                     BubbleStyle::Auto => "auto",
                     BubbleStyle::Rounded => "rounded",
                     BubbleStyle::Bar => "bar",
+                    BubbleStyle::Mixed => "mixed",
                 };
                 (
                     SettingChoice::BubbleStyle(*style),
