@@ -9,7 +9,7 @@ use crate::app::event::Effect;
 use crate::app::keymap::Keymap;
 use crate::app::palette::SettingChoice;
 use crate::app::state::{EmojiMode, MessageLayout, Notice, State};
-use crate::theme::{Theme, ThemeText};
+use crate::theme::{ColorDepth, Theme, ThemeText};
 
 /// At startup: the config `main` read, with its problems. The emoji mode
 /// was already decided by `main` (it looks for mosh before the first frame).
@@ -235,10 +235,17 @@ pub fn toggle_bell(state: &mut State) -> Vec<Effect> {
     choose(state, SettingChoice::Bell(!state.config.notifications.bell))
 }
 
-/// A theme chosen in the palette: drawn from the next frame and saved.
+/// A theme chosen in the palette: drawn from the next frame and saved. At
+/// 16 colours it's saved all the same, but `system` is drawn until the
+/// terminal (or `[ui] colors`) allows more (D57).
 pub fn choose_theme(state: &mut State, name: &str) -> Vec<Effect> {
     name.clone_into(&mut state.config.theme);
-    state.notice = Some(Notice::info(format!("Theme: {name}")));
+    let text = if state.colors() == ColorDepth::Ansi16 && name != "system" {
+        format!("Theme: {name} (drawn as system until 256 colours or more)")
+    } else {
+        format!("Theme: {name}")
+    };
+    state.notice = Some(Notice::info(text));
     save(state, key::THEME)
 }
 

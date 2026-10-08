@@ -381,3 +381,15 @@ fn themes_are_loaded_once() {
         "unknown"
     );
 }
+
+/// The example in the README and DESIGN §10: at 256 colours solarized's
+/// dark blue background has no close match and becomes a neutral grey,
+/// 235 (#262626), a step from Solarized's own 256-colour fallback (234).
+#[test]
+fn solarized_turns_grey_in_256_colours() {
+    let truecolor = load("solarized", ColorDepth::Truecolor);
+    assert_eq!(truecolor.background, Color::Rgb(0x00, 0x2b, 0x36));
+    let approximated = load("solarized", ColorDepth::Indexed256);
+    assert_eq!(approximated.background, Color::Indexed(235));
+    assert_eq!(indexed_rgb(235), Some((0x26, 0x26, 0x26)));
+}

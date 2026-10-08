@@ -7,7 +7,7 @@ use ratatui::layout::Position;
 use super::{curation, navigation, open_conversation, settings};
 use crate::app::event::Effect;
 use crate::app::keymap::{Edit, PaletteKey};
-use crate::app::palette::{self, ItemKind, Level, Palette, PaletteCommand, RECENT_MAX};
+use crate::app::palette::{self, ItemKind, Level, Palette, PaletteCommand, RECENT_MAX, Setting};
 use crate::app::state::{Focus, State};
 
 /// Result rows shown on the last frame (a guess before the first one).
@@ -31,6 +31,7 @@ pub fn open(state: &mut State, level: Level) {
     if let Some(current) = current_item(state, level) {
         palette.select(&current);
     }
+    palette.note = palette::note(state, level);
     state.palette = Some(palette);
 }
 
@@ -107,10 +108,12 @@ fn jump_by_prefix(state: &mut State) {
 fn enter(state: &mut State, level: Level, query: &str) {
     let items = palette::items(state, level, &state.recent_commands);
     let current = current_item(state, level);
+    let note = palette::note(state, level);
     if let Some(palette) = state.palette.as_mut() {
         let mut path = palette.path.clone();
         path.push(level);
         palette.show(path, items, query, current.as_ref());
+        palette.note = note;
     }
 }
 
@@ -127,8 +130,10 @@ fn up(state: &mut State) {
     let left = path.pop().map(ItemKind::Level);
     let parent = path.last().copied().unwrap_or(Level::Root);
     let items = palette::items(state, parent, &state.recent_commands);
+    let note = palette::note(state, parent);
     if let Some(palette) = state.palette.as_mut() {
         palette.show(path, items, "", left.as_ref());
+        palette.note = note;
     }
 }
 
@@ -156,7 +161,7 @@ pub fn on_mouse(state: &mut State, mouse: MouseEvent) -> Vec<Effect> {
     }
     if geometry.list.contains(at) {
         let index = geometry.offset + usize::from(at.y - geometry.list.y);
-        if index < palette.matches.len() {
+        if palette.selectable(index) {
             palette.selected = index;
             return choose(state);
         }
@@ -166,8 +171,9 @@ pub fn on_mouse(state: &mut State, mouse: MouseEvent) -> Vec<Effect> {
     vec![]
 }
 
-/// Open the selected category, or run the selected item and close. With
-/// nothing matching, stay open.
+/// Open the selected category, flip the selected on/off setting (staying
+/// open), or run the selected item and close. With nothing matching, stay
+/// open.
 fn choose(state: &mut State) -> Vec<Effect> {
     let Some(kind) = state
         .palette
@@ -181,6 +187,9 @@ fn choose(state: &mut State) -> Vec<Effect> {
         enter(state, level, "");
         return vec![];
     }
+    if let ItemKind::Switch(setting) = kind {
+        return flip(state, setting);
+    }
     state.palette = None;
     match kind {
         ItemKind::Conversation(id) => show_conversation(state, id),
@@ -190,8 +199,32 @@ fn choose(state: &mut State) -> Vec<Effect> {
             remember(state, command);
             run(state, command)
         }
-        ItemKind::Key | ItemKind::Level(_) => vec![],
+        ItemKind::Key | ItemKind::Level(_) | ItemKind::Switch(_) | ItemKind::Header => vec![],
     }
+}
+
+/// Flip an on/off setting from the list: applied and saved, the palette
+/// left open with the query kept and the row showing its new value (D57).
+fn flip(state: &mut State, setting: Setting) -> Vec<Effect> {
+    let Some(choice) = palette::flipped(state, setting) else {
+        return vec![];
+    };
+    let effects = settings::choose(state, choice);
+    let level = state
+        .palette
+        .as_ref()
+        .map_or(Level::Settings, Palette::level);
+    let items = palette::items(state, level, &state.recent_commands);
+    if let Some(palette) = state.palette.as_mut() {
+        let (path, query, offset) = (
+            palette.path.clone(),
+            palette.input.text().to_owned(),
+            palette.offset,
+        );
+        palette.show(path, items, &query, Some(&ItemKind::Switch(setting)));
+        palette.offset = offset;
+    }
+    effects
 }
 
 fn remember(state: &mut State, command: PaletteCommand) {

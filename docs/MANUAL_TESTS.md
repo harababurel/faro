@@ -56,17 +56,28 @@ Terminal matrix (DESIGN §15): kitty, WezTerm, Ghostty, iTerm2, Alacritty, foot;
 - [ ] **Typing indicators** can't be seen with the mock (it ignores them); check them in M7 on the test account's phone: "typing…" appears while you type, disappears ~3 s after you stop, and when you switch conversation.
 - [ ] **Bubbles (D45):** the default layout. Others' messages sit on the left in a cool-coloured box, yours on the right in a warm one; times and ticks at the bottom right inside each box; reactions just under it; in groups the name is above the first bubble of a run. Check the two colours are distinct from each other, from the background and from the selection tint, in kitty and under tmux. Emoji in bubbles may push the right edge out by a cell under tmux (the emoji width issue, M8 task 2).
 - [ ] **Selection over bubbles:** `↑` on an empty input: the selected bubble's rows get the tint and `▌` bar across the pane; check it's obvious which message is selected, including your own (right-hand) ones.
-- [ ] **Layout switch:** palette → `:` Appearance › Message layout › IRC: the classic `time  name  text` view; "bubbles" switches back. Quit and restart: the last choice is kept (it's in the config file now).
+- [ ] **Layout switch:** palette → `:` Message layout › IRC: the classic `time  name  text` view; "bubbles" switches back. Quit and restart: the last choice is kept (it's in the config file now).
 - [ ] **Failed sends:** run without `--mock-no-faults` and send while the footer says offline: the message shows `! not sent` in red with an error notice. Quit right after sending and restart: a message that hadn't been confirmed shows `! not sent`, not `◌`.
 
 
 ## Palette tree (D52)
 
-- [ ] **Root and levels:** `Ctrl+P` shows five categories (Chats, Themes, Settings, Commands, Keys) with `›` after each and the title "Command palette". `Enter` on Settings: the title becomes "Settings"; `notif` + `Enter`: "Settings › Notifications"; `→` on Bell: its values with `●` on the current one. `←` goes back with Bell still selected; `Backspace` on the empty query goes back again. `Esc` closes from any level.
+- [ ] **Root and levels:** `Ctrl+P` shows five categories (Chats, Themes, Settings, Commands, Keys) with `›` after each and the title "Command palette". `Enter` on Settings: the title becomes "Settings"; `colo` + `→` on Colours: "Settings › Colours", its values with `●` on the current one. `←` goes back with Colours still selected; `Backspace` on the empty query goes back again. `Esc` closes from any level.
 - [ ] **Typing filters the level only:** at the root, `ali` shows "No matches (@ chats, …)"; `@ali` jumps into Chats and finds Alice. `>mute 8` + `Enter` mutes the open conversation for 8 hours. `?` lists the keys; `F1` and `?` outside the input open Keys directly, and `Backspace` from there shows the root.
 - [ ] **Cursor keys in a query:** type `abc` in a level: `←` moves the cursor (doesn't go up) until it's at the start; `→` moves it back, and at the end opens the selected category.
 - [ ] **Mouse:** the wheel moves the selection; clicking a category opens it, clicking a command runs it; clicking outside closes.
-- [ ] **Footer:** at the root it lists `@ chats · : settings · > commands · ? keys`; below the root `← back`.
+- [ ] **Footer:** at the root it lists `@ chats · : settings · > commands · ? keys`; below the root `← back`; at Settings `enter flip/open`.
+
+## One settings list and colour-depth notes (D57)
+
+- [ ] **The list:** `Ctrl+P`, `:`: every setting at once under bold, dim section headers (Appearance, Notifications, Conversations, Input), each with its current value on the right; Theme and the multi-value settings end in `›`. Say whether it reads well and whether the headers stand out enough from the settings.
+- [ ] **Headers are skipped:** `↑`/`↓` never stop on a header (and wrap from Theme to Mouse and back); `PgUp`/`PgDn` and the wheel don't either; clicking a header does nothing.
+- [ ] **Filtering:** `:bell` shows only "Notifications" and Bell; `:notif` shows both notification settings; `:zzz` says "No matches".
+- [ ] **Flip in place:** `:bell` + `Enter`: the row turns `off`, the footer says `bell off`, the palette stays open with `bell` still typed; `Enter` again turns it back on. Same with a click on Mouse (then the mouse is off, so turn it back with the keyboard). The config file changes each time.
+- [ ] **Values:** `Enter` on Colours, Emoji, Message layout or Bubble corners opens its values (`●` on the current one); choosing one applies it and closes.
+- [ ] **Theme from Settings:** `Enter` on Theme opens the picker ("Settings › Themes") with the live preview, as from the root.
+- [ ] **256-colour note:** `env -u TMUX COLORTERM= TERM=xterm-256color faro --mock …` (outside tmux, or forced with `Settings › Colours › 256`): Themes shows a dim line "256 colours: themes are approximated (truecolor: Settings › Colours)" above the list. Preview solarized: its blue background turns grey, as the README says. At truecolor there's no note.
+- [ ] **16-colour note:** `Settings › Colours › 16`: Themes says "16 colours: the system theme is drawn; others need 256 colours or more". Choose `nord`: the notice says "Theme: nord (drawn as system until 256 colours or more)", faro stays in `system`, and `theme = "nord"` is in the file. `Settings › Colours › auto` (in kitty): nord appears.
 
 ## M4.5: emoji widths (D47)
 
@@ -98,10 +109,10 @@ Run `faro --mock --config /tmp/faro-test.toml` (bubbles is the default layout).
 - [ ] **Under tmux:** the same in your usual tmux over ssh and through mosh; nothing shifts while scrolling past bubbles.
 - [ ] **Light and dark:** `faro-dark`, `faro-light` and one OpenCode theme (e.g. `nord`): the edges are in the bubble's colour on the pane background, both for your own and others' bubbles.
 - [ ] **No blank lines:** consecutive bubbles are separated by their edges alone; it still reads as separate bubbles. Say if you'd rather have a blank line back.
-- [ ] **`system` theme:** palette → `:` Appearance › Theme › system: bubbles are square with a blank line between them, as before.
+- [ ] **`system` theme:** palette → `:` Theme › system: bubbles are square with a blank line between them, as before.
 - [ ] **Selection:** select a message (`Tab` to the messages, `k`): the selected bubble is one clean tinted block (no edge glyphs left half-coloured).
 - [ ] **Reactions:** a message with reactions shows them under the bottom edge, outside the bubble.
-- [ ] **Palette:** `Ctrl+P` → `:` Appearance › Bubble corners › square: bubbles turn square at once and `bubble_corners = "square"` is written to the config; › rounded brings them back.
+- [ ] **Palette:** `Ctrl+P` → `:` Bubble corners › square: bubbles turn square at once and `bubble_corners = "square"` is written to the config; › rounded brings them back.
 - [ ] **Live edit:** set `bubble_corners = "square"` in the file and save: "Settings reloaded" and square bubbles.
 - [ ] **Narrow pane:** shrink the pane to about 40 columns: bubbles stay intact, edges as wide as the bubble.
 
@@ -113,10 +124,10 @@ Use a scratch config to keep your real one clean: `faro --mock --config /tmp/far
 - [ ] **Live edit:** with faro running, uncomment `layout = "bubbles"` and change it to `"irc"`, save: within about half a second the layout changes and the footer says "Settings reloaded". Works with your editor's normal save (vim/neovim write via a temporary file and rename; check that's picked up).
 - [ ] **Bad value:** set `layout = "bubble"` and save: the footer shows a red "Config: messages.layout: expected … keeping …" and the layout doesn't change. Fix it: "Settings reloaded".
 - [ ] **Broken file:** delete a closing quote and save: a red "Config: line N: …" and nothing changes. Fix it again.
-- [ ] **Mouse off:** palette (`Ctrl+P`) → `:` Mouse › off, or `[mouse] enabled = false`: clicks and wheel no longer reach faro, and you can select text with the mouse in kitty and in tmux (tmux's own mouse mode decides there). Mouse › on brings it back. Check the terminal is left in a sane state after quitting either way.
-- [ ] **Palette toggles keep your comments:** add a comment of your own to the file, then palette → `:` Appearance › Message layout › IRC and `:` Conversations › Allowlist mode › on: only those lines change in the file (open it), your comment is still there, and no "Settings reloaded" appears for faro's own write.
+- [ ] **Mouse off:** palette (`Ctrl+P`) → `:` Mouse (`Enter` flips it off), or `[mouse] enabled = false`: clicks and wheel no longer reach faro, and you can select text with the mouse in kitty and in tmux (tmux's own mouse mode decides there). `Enter` on Mouse again brings it back. Check the terminal is left in a sane state after quitting either way.
+- [ ] **Palette toggles keep your comments:** add a comment of your own to the file, then palette → `:` Message layout › IRC and `:` Allowlist mode (`Enter` flips it on): only those lines change in the file (open it), your comment is still there, and no "Settings reloaded" appears for faro's own write.
 - [ ] **Key binding:** add `"f2" = "palette.open"` under `[keybindings.global]`, save: `F2` opens the palette (check tmux passes F2 through). A typo in an action name shows a red notice and the rest still works.
-- [ ] **Emoji setting:** under mosh, `:` Appearance › Emoji › full / compatible / auto switch immediately (auto re-detects mosh). With `--emoji full` on the command line, the palette marks emoji as decided by `--emoji` and choosing one only saves it.
+- [ ] **Emoji setting:** under mosh, `:` Emoji › full / compatible / auto switch immediately (auto re-detects mosh). With `--emoji full` on the command line, the palette marks emoji as decided by `--emoji` and choosing one only saves it.
 - [ ] **Migration:** with a data dir from before M5 where you had switched to IRC or turned on allowlist mode, the first M5 start writes `layout = "irc"` / `allowlist = true` into the config file (uncommenting the template line), and the mode is as you left it.
 - [ ] **Symlinked config:** if your config is a symlink into a dotfiles repo, a palette toggle edits the target and the link stays a link.
 
@@ -135,11 +146,11 @@ Run `faro --mock --mock-no-faults --config /tmp/faro-test.toml` in a tmux window
 
 ## M8: themes and colours (D51)
 
-Switch with the palette (`Ctrl+P` › Themes) or `theme = "…"` in the config; colours with `:` Appearance › Colours or `[ui] colors = "…"`.
+Switch with the palette (`Ctrl+P` › Themes) or `theme = "…"` in the config; colours with `:` Colours or `[ui] colors = "…"`.
 
 - [ ] **Each theme in kitty, directly and under tmux:** `faro-dark`, `faro-dusk`, `faro-light`. Everything is readable: message text, times and ticks (muted), the selected sidebar row, the palette's selected row, menus, the "↓ N new messages" badge, both bubble colours (distinct from each other and from the background), sender names in a group. Nothing looks out of place in the light theme (e.g. a dark block left over from the dark theme).
 - [ ] **system theme:** Themes › system in a dark and in a light kitty colour scheme: faro uses the terminal's background and text colours; the selected sidebar/palette/menu row and the selected message are in reverse video; muted text is dim; bubbles have no fill (own messages on the right, others on the left). Readable in both schemes.
-- [ ] **256-colour fallback, detected:** outside tmux, `TERM=xterm-256color COLORTERM= faro --mock …`: `:` Appearance › Colours says "auto (256 colours detected)"; the theme looks close to the truecolor one (greys may be a step off), and the bubbles, selection and input box are still distinct from the background.
+- [ ] **256-colour fallback, detected:** outside tmux, `TERM=xterm-256color COLORTERM= faro --mock …`: `:` Colours says "auto (256 colours detected)"; the theme looks close to the truecolor one (greys may be a step off), and the bubbles, selection and input box are still distinct from the background.
 - [ ] **Plain tmux:** in `tmux -f /dev/null` (no `terminal-features RGB`) faro sends truecolor and tmux rounds it to 256 colours itself: it should look like the previous check, not garbled.
 - [ ] **macOS Terminal.app** (no truecolor before macOS 26): detected as 256 colours (`TERM_PROGRAM=Apple_Terminal`), and looks right.
 - [ ] **Forced depths:** Colours › truecolor in a 256-colour terminal shows what happens when the guess is overridden wrongly (garbled or approximated colours, terminal-dependent); Colours › 16 switches to the system theme whatever theme is set; Colours › auto goes back.
@@ -162,7 +173,7 @@ Columns: **direct** = faro straight in kitty; **tmux** = kitty → tmux (with th
 |---|---|---|---|---|---|---|---|---|
 | **Rendering †:** borders straight, no stray characters after scrolling, resizing and flooding (`--mock-activity 50 --mock-no-faults`) | | | | | | | | |
 | **Emoji:** emoji-heavy chats aligned; under mosh the "mosh detected" notice and compatible emoji, elsewhere full emoji | | | | | | | | |
-| **Colours †:** `:` Appearance › Colours shows the expected detection (truecolor in kitty and tmux; 256 in Terminal.app / plain SSH without tmux); each theme readable; `system` follows the terminal scheme | | | | | | | | |
+| **Colours †:** `:` Colours shows the expected detection (truecolor in kitty and tmux; 256 in Terminal.app / plain SSH without tmux); each theme readable; `system` follows the terminal scheme | | | | | | | | |
 | **Mouse:** click a conversation, a message, the input; wheel scrolls messages and the list; right-click menu; `:` Mouse › off lets the terminal select text | | | | | | | | |
 | **Clipboard (OSC 52):** select a message, `y`, paste in another app on the machine you sit at | | | | | | | | |
 | **Bell:** a message in a background conversation rings (kitty bell / tmux bell flag in the status line) | | | | | | | | |

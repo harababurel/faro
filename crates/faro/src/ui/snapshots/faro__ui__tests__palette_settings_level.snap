@@ -1,18 +1,28 @@
 ---
 source: crates/faro/src/ui/tests.rs
-expression: "snapshot(&draw(&state, 100, 20))"
+expression: "snapshot(&draw(&with_palette(\":\"), 100, 30))"
 ---
 ╭ Conversations ─────────────╮╭ Climbing 🧗 ───────────────────────────────────────────────────────╮
-│ ▾ Pinned                   ││ 17:20        Bob ▎ Alice 🌸: Anyone up for the wall on Thursday?   │
-│   Bob                      ││                  Count me in, I'll bring the spare harness         │
-│ ▾ Recent  ╭ Settings › Notifications ────────────────────────────────────────────────╮           │
-│   Climbing│ ›                                                                 ← back │           │
-│ ● Alice 🌸│──────────────────────────────────────────────────────────────────────────│           │
-│           │▌  Bell ›                                                              on │           │
-│           │   Unread count in the window title ›                                  on │────────── │
-│           ╰──────────────────────────────────────────────────────────────────────────╯ast week   │
-│                            ││                  and apparently the grades are soft, so bring your │
-│                            ││                  project shoes 🧗‍♀️🧗‍♂️ and maybe some tape for your   │
+│ ▾ Pinned                   ││                                                                    │
+│   Bob                      ││                                                                    │
+│ ▾ Recent                   ││                                                                    │
+│   Climbing╭ Settings ────────────────────────────────────────────────────────────────╮           │
+│ ● Alice 🌸│ ›                                                                 ← back │           │
+│           │──────────────────────────────────────────────────────────────────────────│────────── │
+│           │ Appearance                                                               │           │
+│           │▌  Theme ›                                                      faro-dark │           │
+│           │   Colours ›                                    auto (truecolor detected) │           │
+│           │   Emoji ›                                                           auto │────────── │
+│           │   Message layout ›                                                   IRC │hursday?   │
+│           │   Bubble corners ›                                               rounded │ss         │
+│           │ Notifications                                                            │           │
+│           │   Bell                                                                on │           │
+│           │   Unread count in the window title                                    on │           │
+│           │ Conversations                                                            │           │
+│           │   Allowlist mode                                                     off │────────── │
+│           │ Input                                                                    │ast week   │
+│           │   Mouse                                                               on │bring your │
+│           ╰──────────────────────────────────────────────────────────────────────────╯for your   │
 │                            ││                  fingers.                                          │
 │                            ││ 17:54        You On my way ✓                                       │
 │                            ││ 17:55   Alice 🌸 Running 10 min late 🙈                            │
@@ -21,4 +31,4 @@ expression: "snapshot(&draw(&state, 100, 20))"
 │                            │││ Message Climbing 🧗…                                             ││
 │                            ││╰──────────────────────────────────────────────────────────────────╯│
 ╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯
- ● connected · 1 unread                                 ↑↓ move · enter choose · ← back · esc close
+ ● connected · 1 unread                              ↑↓ move · enter flip/open · ← back · esc close

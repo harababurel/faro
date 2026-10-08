@@ -2,7 +2,8 @@
 //! lists the categories (chats, themes, settings, commands, keys); typing
 //! filters only the level shown, `Enter`/`→` opens a category, `←` (or
 //! `Backspace` on an empty query) goes back up. At the root, `@` `:` `>` `?`
-//! jump straight into chats, settings, commands and keys. A level's items are
+//! jump straight into chats, settings, commands and keys. Settings is one
+//! list under section headers that can't be selected (D57). A level's items are
 //! built from the state when it's shown; matching is synchronous
 //! (`nucleo-matcher`): a few hundred short strings take well under a
 //! millisecond.
@@ -18,7 +19,7 @@ use super::keymap::{Action, Context, Curate, Keymap};
 use super::state::{
     ConversationAction, Focus, MUTE_CHOICES, MessageLayout, Section, SidebarView, State,
 };
-use crate::theme::Theme;
+use crate::theme::{ColorDepth, Theme};
 
 /// How many recently used commands are remembered (and ranked higher).
 pub const RECENT_MAX: usize = 10;
@@ -42,24 +43,24 @@ pub enum Level {
     Chats,
     Themes,
     Settings,
-    /// A group of settings (`Settings › Notifications`).
-    Group(SettingsGroup),
-    /// One setting's values (`Settings › Notifications › Bell`).
+    /// One setting's values (`Settings › Colours`).
     Setting(Setting),
     Commands,
     /// The keybinding list.
     Keys,
 }
 
-/// Settings grouped under `Settings ›`.
+/// The sections of `Settings ›`, each under a header.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsGroup {
     Appearance,
     Notifications,
     Conversations,
+    Input,
 }
 
-/// A setting with a few values, listed as a level of its own.
+/// A setting: on/off ones flip where they are, the others list their
+/// values as a level of their own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Setting {
     Colors,
@@ -89,7 +90,6 @@ impl Level {
             Self::Chats => "Chats",
             Self::Themes => "Themes",
             Self::Settings => "Settings",
-            Self::Group(group) => group.title(),
             Self::Setting(setting) => setting.title(),
             Self::Commands => "Commands",
             Self::Keys => "Keys",
@@ -103,7 +103,7 @@ impl Level {
             Self::Settings => Some(':'),
             Self::Commands => Some('>'),
             Self::Keys => Some('?'),
-            Self::Root | Self::Themes | Self::Group(_) | Self::Setting(_) => None,
+            Self::Root | Self::Themes | Self::Setting(_) => None,
         }
     }
 
@@ -116,11 +116,34 @@ impl Level {
 }
 
 impl SettingsGroup {
+    pub const ALL: [Self; 4] = [
+        Self::Appearance,
+        Self::Notifications,
+        Self::Conversations,
+        Self::Input,
+    ];
+
     pub const fn title(self) -> &'static str {
         match self {
             Self::Appearance => "Appearance",
             Self::Notifications => "Notifications",
             Self::Conversations => "Conversations",
+            Self::Input => "Input",
+        }
+    }
+
+    /// Its settings, in order (Appearance also starts with `Theme ›`).
+    const fn settings(self) -> &'static [Setting] {
+        match self {
+            Self::Appearance => &[
+                Setting::Colors,
+                Setting::Emoji,
+                Setting::Layout,
+                Setting::BubbleCorners,
+            ],
+            Self::Notifications => &[Setting::Bell, Setting::Title],
+            Self::Conversations => &[Setting::Allowlist],
+            Self::Input => &[Setting::Mouse],
         }
     }
 }
@@ -136,6 +159,14 @@ impl Setting {
             Self::Title => "Unread count in the window title",
             Self::Allowlist => "Allowlist mode",
             Self::Mouse => "Mouse",
+        }
+    }
+
+    /// Whether it's on or off (flipped by `Enter` in the settings list).
+    pub const fn is_switch(self) -> bool {
+        match self {
+            Self::Bell | Self::Title | Self::Allowlist | Self::Mouse => true,
+            Self::Colors | Self::Emoji | Self::Layout | Self::BubbleCorners => false,
         }
     }
 }
@@ -176,6 +207,11 @@ pub enum ItemKind {
     Command(PaletteCommand),
     Conversation(ConversationId),
     Setting(SettingChoice),
+    /// An on/off setting in the settings list: choosing it flips it and the
+    /// palette stays open.
+    Switch(Setting),
+    /// A section's title; never selected, kept while a match is under it.
+    Header,
     /// A theme by name (the config's `theme`).
     Theme(String),
     /// A line of the keybinding list (for reference; choosing it closes).
@@ -219,6 +255,11 @@ impl Item {
         self.current = Some(current);
         self
     }
+
+    /// Whether it can be selected (headers can't).
+    pub fn selectable(&self) -> bool {
+        self.kind != ItemKind::Header
+    }
 }
 
 /// An item that matches, with the title's matched characters (grapheme
@@ -245,6 +286,9 @@ pub struct Palette {
     /// The theme drawn while the palette is open: the one selected at the
     /// Themes level, tried on before it's chosen (D54).
     pub preview: Option<String>,
+    /// A line above the results about the level (the colour depth at
+    /// Themes, D57).
+    pub note: Option<String>,
     matcher: Matcher,
 }
 
@@ -258,6 +302,7 @@ impl Palette {
             selected: 0,
             offset: 0,
             preview: None,
+            note: None,
             matcher: Matcher::new(Config::DEFAULT),
         };
         palette.show(path, items, "", None);
@@ -341,48 +386,76 @@ impl Palette {
         );
         let typed = !pattern.atoms.is_empty();
         let mut buf = Vec::new();
-        let mut found: Vec<(u32, usize, Vec<u32>)> = Vec::new();
-        for (i, item) in self.items.iter().enumerate() {
+        let mut found: Vec<(Option<u32>, Vec<u32>)> = Vec::with_capacity(self.items.len());
+        for item in &self.items {
             let mut highlight = Vec::new();
             let haystack = Utf32Str::new(&item.title, &mut buf);
-            let Some(score) = pattern.indices(haystack, &mut self.matcher, &mut highlight) else {
-                continue;
-            };
+            let score = pattern.indices(haystack, &mut self.matcher, &mut highlight);
             highlight.sort_unstable();
             highlight.dedup();
             let bonus = item.recent.map_or(0, |r| {
                 RECENT_BONUS * u32::try_from(RECENT_MAX.saturating_sub(r)).unwrap_or(0)
             });
-            let score = if typed { score + bonus } else { 0 };
-            found.push((score, i, highlight));
+            let score = score.map(|score| if typed { score + bonus } else { 0 });
+            found.push((score, highlight));
         }
-        // Best first; ties (and everything, when nothing is typed) in item order.
-        found.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
-        self.matches = found
-            .into_iter()
-            .map(|(_, item, highlight)| Match { item, highlight })
-            .collect();
-        self.selected = 0;
+        let (matches, best) = if self.items.iter().any(|item| !item.selectable()) {
+            grouped(&self.items, found)
+        } else {
+            ranked(found)
+        };
+        self.matches = matches;
+        self.selected = best;
         self.offset = 0;
         self.sync_preview();
     }
 
     /// Move the selection by `delta`, wrapping at the ends for single steps
     /// and stopping there for pages; keep it within `rows` of `offset`.
+    /// Headers are skipped.
     pub fn step(&mut self, delta: isize, rows: usize) {
         let len = self.matches.len();
         if len == 0 {
             return;
         }
         let last = len - 1;
-        self.selected = match (delta.unsigned_abs() == 1, delta < 0) {
-            (true, true) if self.selected == 0 => last,
-            (true, false) if self.selected == last => 0,
-            (_, true) => self.selected.saturating_sub(delta.unsigned_abs()),
-            (_, false) => self.selected.saturating_add(delta.unsigned_abs()).min(last),
+        let single = |from: usize, up: bool| match (up, from) {
+            (true, 0) => last,
+            (true, i) => i - 1,
+            (false, i) if i == last => 0,
+            (false, i) => i + 1,
         };
+        let up = delta < 0;
+        if delta.unsigned_abs() == 1 {
+            let mut at = single(self.selected, up);
+            for _ in 0..len {
+                if self.selectable(at) {
+                    break;
+                }
+                at = single(at, up);
+            }
+            self.selected = at;
+        } else {
+            let target = if up {
+                self.selected.saturating_sub(delta.unsigned_abs())
+            } else {
+                self.selected.saturating_add(delta.unsigned_abs()).min(last)
+            };
+            // The nearest item that can be selected, onwards first.
+            let onwards = (target..=last).find(|i| self.selectable(*i));
+            let back = (0..target).rev().find(|i| self.selectable(*i));
+            self.selected = onwards.or(back).unwrap_or(self.selected);
+        }
         self.reveal(rows);
         self.sync_preview();
+    }
+
+    /// Whether the result at `index` can be selected.
+    pub fn selectable(&self, index: usize) -> bool {
+        self.matches
+            .get(index)
+            .and_then(|m| self.items.get(m.item))
+            .is_some_and(Item::selectable)
     }
 
     /// Scroll so the selection is among the `rows` shown.
@@ -396,6 +469,55 @@ impl Palette {
     }
 }
 
+/// Matches best first (ties in item order), and the best one's index.
+fn ranked(found: Vec<(Option<u32>, Vec<u32>)>) -> (Vec<Match>, usize) {
+    let mut found: Vec<(u32, usize, Vec<u32>)> = found
+        .into_iter()
+        .enumerate()
+        .filter_map(|(item, (score, highlight))| Some((score?, item, highlight)))
+        .collect();
+    found.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    let matches = found
+        .into_iter()
+        .map(|(_, item, highlight)| Match { item, highlight })
+        .collect();
+    (matches, 0)
+}
+
+/// Matches in item order under their headers: an item matches by its own
+/// title or its header's (typing `notif` lists the notification settings),
+/// and a header is kept only above a match. The best match is selected.
+fn grouped(items: &[Item], found: Vec<(Option<u32>, Vec<u32>)>) -> (Vec<Match>, usize) {
+    let mut matches = Vec::new();
+    let mut best: Option<(u32, usize)> = None;
+    // The header above, its score and highlight, and whether it's shown.
+    let mut header: Option<(usize, Option<u32>, Vec<u32>, bool)> = None;
+    for (i, ((score, highlight), item)) in found.into_iter().zip(items).enumerate() {
+        if !item.selectable() {
+            header = Some((i, score, highlight, false));
+            continue;
+        }
+        let under = header.as_ref().and_then(|(_, score, _, _)| *score);
+        let Some(score) = score.max(under) else {
+            continue;
+        };
+        if let Some((index, _, highlight, shown)) = header.as_mut()
+            && !*shown
+        {
+            *shown = true;
+            matches.push(Match {
+                item: *index,
+                highlight: std::mem::take(highlight),
+            });
+        }
+        if best.is_none_or(|(top, _)| score > top) {
+            best = Some((score, matches.len()));
+        }
+        matches.push(Match { item: i, highlight });
+    }
+    (matches, best.map_or(0, |(_, index)| index))
+}
+
 /// The items of `level`, in the order shown when nothing is typed.
 pub fn items(state: &State, level: Level, recent: &[PaletteCommand]) -> Vec<Item> {
     match level {
@@ -403,7 +525,6 @@ pub fn items(state: &State, level: Level, recent: &[PaletteCommand]) -> Vec<Item
         Level::Chats => conversations(state),
         Level::Themes => themes(state),
         Level::Settings => settings(state),
-        Level::Group(group) => group_settings(state, group),
         Level::Setting(setting) => setting_values(state, setting),
         Level::Commands => commands_by_recency(state, recent),
         Level::Keys => keybindings(&state.keymap),
@@ -421,7 +542,6 @@ fn categories(state: &State) -> Vec<Item> {
                 Level::Root
                 | Level::Chats
                 | Level::Settings
-                | Level::Group(_)
                 | Level::Setting(_)
                 | Level::Commands
                 | Level::Keys => level.prefix().map(String::from).unwrap_or_default(),
@@ -549,48 +669,61 @@ fn themes(state: &State) -> Vec<Item> {
         .collect()
 }
 
-/// `Settings ›`: the groups, then settings that stand alone.
+/// `Settings ›`: every setting under its section's header, its current
+/// value on the right.
 fn settings(state: &State) -> Vec<Item> {
-    let mut items: Vec<Item> = [
-        SettingsGroup::Appearance,
-        SettingsGroup::Notifications,
-        SettingsGroup::Conversations,
-    ]
-    .into_iter()
-    .map(|group| Item::new(ItemKind::Level(Level::Group(group)), group.title()))
-    .collect();
-    items.push(setting_item(state, Setting::Mouse));
-    items
-}
-
-/// A group's settings, each with its current value on the right.
-fn group_settings(state: &State, group: SettingsGroup) -> Vec<Item> {
-    let settings: &[Setting] = match group {
-        SettingsGroup::Appearance => &[
-            Setting::Colors,
-            Setting::Emoji,
-            Setting::Layout,
-            Setting::BubbleCorners,
-        ],
-        SettingsGroup::Notifications => &[Setting::Bell, Setting::Title],
-        SettingsGroup::Conversations => &[Setting::Allowlist],
-    };
     let mut items = Vec::new();
-    if group == SettingsGroup::Appearance {
-        items.push(Item::new(ItemKind::Level(Level::Themes), "Theme").detail(current_theme(state)));
+    for group in SettingsGroup::ALL {
+        items.push(Item::new(ItemKind::Header, group.title()));
+        if group == SettingsGroup::Appearance {
+            items.push(
+                Item::new(ItemKind::Level(Level::Themes), "Theme").detail(current_theme(state)),
+            );
+        }
+        items.extend(group.settings().iter().map(|s| setting_item(state, *s)));
     }
-    items.extend(settings.iter().map(|s| setting_item(state, *s)));
     items
 }
 
-/// The item that opens `setting`'s values, showing the current one.
+/// The row for `setting`, showing its current value: flipped by `Enter`
+/// if it's on/off, else opening its values.
 fn setting_item(state: &State, setting: Setting) -> Item {
     let value = values(state, setting)
         .into_iter()
         .find(|(_, _, current)| *current)
         .map(|(_, title, _)| title)
         .unwrap_or_default();
-    Item::new(ItemKind::Level(Level::Setting(setting)), setting.title()).detail(value)
+    let kind = if setting.is_switch() {
+        ItemKind::Switch(setting)
+    } else {
+        ItemKind::Level(Level::Setting(setting))
+    };
+    Item::new(kind, setting.title()).detail(value)
+}
+
+/// The value an on/off `setting` changes to: the one not in use.
+pub fn flipped(state: &State, setting: Setting) -> Option<SettingChoice> {
+    values(state, setting)
+        .into_iter()
+        .find(|(_, _, current)| !*current)
+        .map(|(choice, _, _)| choice)
+}
+
+/// A line about `level` shown above its results: at Themes, how the
+/// terminal's colours change what's drawn (D57).
+pub fn note(state: &State, level: Level) -> Option<String> {
+    if level != Level::Themes {
+        return None;
+    }
+    match state.colors() {
+        ColorDepth::Truecolor => None,
+        ColorDepth::Indexed256 => {
+            Some("256 colours: themes are approximated (truecolor: Settings › Colours)".to_owned())
+        }
+        ColorDepth::Ansi16 => Some(
+            "16 colours: the system theme is drawn; others need 256 colours or more".to_owned(),
+        ),
+    }
 }
 
 /// `setting`'s values as items, the one in use marked.

@@ -1,16 +1,17 @@
 //! The command palette (M4 task 8, D44).
 
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
-use faro_core::config::{ConfigValue, EmojiChoice, SettingEdit, key};
+use faro_core::config::{ColorChoice, ConfigValue, EmojiChoice, SettingEdit, key};
 use faro_core::store::ConversationState;
 use ratatui::layout::Rect;
 
 use super::*;
 use crate::app::keymap::Action;
-use crate::app::palette::{ItemKind, Level, PaletteCommand, Setting, SettingChoice, SettingsGroup};
+use crate::app::palette::{ItemKind, Level, PaletteCommand, Setting};
 use crate::app::state::{
     ConversationAction, EmojiMode, Focus, MessageLayout, PaletteGeometry, SidebarView,
 };
+use crate::theme::ColorDepth;
 
 fn ctrl(c: char) -> AppEvent {
     key(KeyCode::Char(c), KeyModifiers::CONTROL)
@@ -148,10 +149,7 @@ fn prefixes_jump_into_a_category() {
     assert!(kinds(&state).iter().all(|k| *k == ItemKind::Key));
     press(&mut state, KeyCode::Backspace);
     typed(&mut state, ":");
-    assert_eq!(
-        titles(&state),
-        vec!["Appearance", "Notifications", "Conversations", "Mouse"]
-    );
+    assert_eq!(titles(&state), SETTINGS_LIST.to_vec());
     // What follows the prefix is the category's query.
     press(&mut state, KeyCode::Backspace);
     press(&mut state, KeyCode::Backspace);
@@ -168,19 +166,36 @@ fn prefixes_jump_into_a_category() {
     assert!(state.palette.is_some());
 }
 
+/// `Settings ›` with nothing typed: every setting under its section.
+const SETTINGS_LIST: [&str; 13] = [
+    "Appearance",
+    "Theme",
+    "Colours",
+    "Emoji",
+    "Message layout",
+    "Bubble corners",
+    "Notifications",
+    "Bell",
+    "Unread count in the window title",
+    "Conversations",
+    "Allowlist mode",
+    "Input",
+    "Mouse",
+];
+
 #[test]
 fn moving_down_and_up_the_tree() {
     let mut state = loaded_state();
     update(&mut state, ctrl('p'));
     pick(&mut state, "sett");
-    pick(&mut state, "notif");
-    assert_eq!(breadcrumb(&state), "Settings › Notifications");
+    assert_eq!(breadcrumb(&state), "Settings");
+    typed(&mut state, "colo");
     let item = state.palette.as_ref().unwrap().selected_item().unwrap();
-    assert_eq!(item.title, "Bell");
-    assert_eq!(item.detail, "on");
-    // → opens a category too; a setting lists its values, the current one marked.
+    assert_eq!(item.title, "Colours");
+    assert_eq!(item.detail, "auto (truecolor detected)");
+    // → opens a setting too; it lists its values, the current one marked.
     press(&mut state, KeyCode::Right);
-    assert_eq!(breadcrumb(&state), "Settings › Notifications › Bell");
+    assert_eq!(breadcrumb(&state), "Settings › Colours");
     let values: Vec<(String, Option<bool>)> = {
         let palette = state.palette.as_ref().unwrap();
         palette
@@ -192,26 +207,26 @@ fn moving_down_and_up_the_tree() {
     assert_eq!(
         values,
         vec![
-            ("on".to_owned(), Some(true)),
-            ("off".to_owned(), Some(false))
+            ("auto (truecolor detected)".to_owned(), Some(true)),
+            ("truecolor".to_owned(), Some(false)),
+            ("256".to_owned(), Some(false)),
+            ("16 (system theme)".to_owned(), Some(false)),
         ]
     );
     // → on a value doesn't run it.
     press(&mut state, KeyCode::Right);
-    assert_eq!(level(&state), Level::Setting(Setting::Bell));
+    assert_eq!(level(&state), Level::Setting(Setting::Colors));
     // ← goes back, the setting selected; so does Backspace on an empty query.
     press(&mut state, KeyCode::Left);
-    assert_eq!(breadcrumb(&state), "Settings › Notifications");
-    assert_eq!(
-        selected(&state),
-        Some(ItemKind::Level(Level::Setting(Setting::Bell)))
-    );
-    press(&mut state, KeyCode::Backspace);
     assert_eq!(breadcrumb(&state), "Settings");
     assert_eq!(
         selected(&state),
-        Some(ItemKind::Level(Level::Group(SettingsGroup::Notifications)))
+        Some(ItemKind::Level(Level::Setting(Setting::Colors)))
     );
+    press(&mut state, KeyCode::Backspace);
+    assert_eq!(level(&state), Level::Root);
+    assert_eq!(selected(&state), Some(ItemKind::Level(Level::Settings)));
+    pick(&mut state, "sett");
     // With a query, ← and Backspace edit it.
     typed(&mut state, "ab");
     press(&mut state, KeyCode::Left);
@@ -228,6 +243,147 @@ fn moving_down_and_up_the_tree() {
     press(&mut state, KeyCode::Backspace);
     assert_eq!(level(&state), Level::Root);
     assert!(state.palette.is_some());
+}
+
+#[test]
+fn headers_are_skipped() {
+    let mut state = loaded_state();
+    palette_open(&mut state, ":");
+    let at = |state: &State| state.palette.as_ref().unwrap().selected;
+    // Opening starts on the first setting, under the first header.
+    assert_eq!(at(&state), 1);
+    assert_eq!(selected_title(&state), "Theme");
+    press(&mut state, KeyCode::Up);
+    assert_eq!(selected_title(&state), "Mouse", "wraps past the header");
+    press(&mut state, KeyCode::Up);
+    assert_eq!(selected_title(&state), "Allowlist mode", "skips Input");
+    press(&mut state, KeyCode::Down);
+    press(&mut state, KeyCode::Down);
+    assert_eq!(selected_title(&state), "Theme", "wraps past Appearance");
+    for _ in 0..5 {
+        press(&mut state, KeyCode::Down);
+    }
+    assert_eq!(selected_title(&state), "Bell", "skips Notifications");
+    // A page that lands on a header takes the setting below it.
+    press(&mut state, KeyCode::PageUp);
+    assert_eq!(at(&state), 1);
+    // The wheel skips them too.
+    state.geometry.palette = Some(PaletteGeometry {
+        area: Rect::new(10, 2, 60, 18),
+        list: Rect::new(11, 5, 58, 14),
+        offset: 0,
+    });
+    let wheel = AppEvent::Terminal(Event::Mouse(MouseEvent {
+        kind: MouseEventKind::ScrollUp,
+        column: 20,
+        row: 6,
+        modifiers: KeyModifiers::NONE,
+    }));
+    update(&mut state, wheel);
+    assert_eq!(selected_title(&state), "Mouse");
+}
+
+#[test]
+fn typing_keeps_the_headers_of_groups_with_matches() {
+    let mut state = loaded_state();
+    palette_open(&mut state, ":bell");
+    assert_eq!(titles(&state), vec!["Notifications", "Bell"]);
+    assert_eq!(selected_title(&state), "Bell");
+    // A section's title matches its settings.
+    update(&mut state, ctrl('u'));
+    typed(&mut state, "notif");
+    assert_eq!(
+        titles(&state),
+        vec!["Notifications", "Bell", "Unread count in the window title"]
+    );
+    update(&mut state, ctrl('u'));
+    typed(&mut state, "zzz");
+    assert_eq!(titles(&state), Vec::<String>::new());
+}
+
+#[test]
+fn on_off_settings_flip_in_place() {
+    let mut state = loaded_state();
+    palette_open(&mut state, ":bell");
+    let effects = enter(&mut state);
+    assert_eq!(effects, vec![saved(key::BELL, ConfigValue::Bool(false))]);
+    assert!(!state.config.notifications.bell);
+    // Still open, the query kept, the row showing its new value.
+    assert_eq!(state.palette.as_ref().unwrap().input.text(), "bell");
+    assert_eq!(selected(&state), Some(ItemKind::Switch(Setting::Bell)));
+    let item = state.palette.as_ref().unwrap().selected_item().unwrap();
+    assert_eq!(item.detail, "off");
+    assert_eq!(
+        state.notice.as_ref().map(|n| n.text.as_str()),
+        Some("Do not disturb: the bell is off")
+    );
+    let effects = enter(&mut state);
+    assert_eq!(effects, vec![saved(key::BELL, ConfigValue::Bool(true))]);
+    assert!(state.config.notifications.bell);
+    // → doesn't flip it (it opens nothing).
+    press(&mut state, KeyCode::End);
+    press(&mut state, KeyCode::Right);
+    assert!(state.config.notifications.bell);
+    assert_eq!(level(&state), Level::Settings);
+}
+
+#[test]
+fn the_theme_list_says_how_the_colour_depth_changes_it() {
+    let mut state = loaded_state();
+    let note = |state: &mut State| {
+        palette_open(state, "themes");
+        enter(state);
+        let note = state.palette.as_ref().unwrap().note.clone();
+        press(state, KeyCode::Esc);
+        note
+    };
+    state.env.colors = ColorDepth::Truecolor;
+    assert_eq!(note(&mut state), None);
+    state.env.colors = ColorDepth::Indexed256;
+    assert_eq!(
+        note(&mut state).as_deref(),
+        Some("256 colours: themes are approximated (truecolor: Settings › Colours)")
+    );
+    // The config's override counts, not just what was detected.
+    state.config.ui.colors = ColorChoice::Colors16;
+    assert_eq!(
+        note(&mut state).as_deref(),
+        Some("16 colours: the system theme is drawn; others need 256 colours or more")
+    );
+    // Only at Themes, however it's reached.
+    palette_open(&mut state, ":");
+    assert_eq!(state.palette.as_ref().unwrap().note, None);
+    enter(&mut state);
+    assert_eq!(breadcrumb(&state), "Settings › Themes");
+    assert!(state.palette.as_ref().unwrap().note.is_some());
+    press(&mut state, KeyCode::Left);
+    assert_eq!(state.palette.as_ref().unwrap().note, None);
+}
+
+#[test]
+fn a_theme_chosen_at_16_colours_is_saved_for_later() {
+    let mut state = loaded_state();
+    state.config.ui.colors = ColorChoice::Colors16;
+    palette_open(&mut state, "themes");
+    enter(&mut state);
+    let effects = pick(&mut state, "nord");
+    assert_eq!(state.config.theme, "nord");
+    assert_eq!(
+        effects,
+        vec![saved(key::THEME, ConfigValue::Text("nord".into()))]
+    );
+    assert_eq!(
+        state.notice.as_ref().map(|n| n.text.as_str()),
+        Some("Theme: nord (drawn as system until 256 colours or more)")
+    );
+    // Choosing system itself needs no explanation.
+    palette_open(&mut state, "themes");
+    enter(&mut state);
+    pick(&mut state, "system");
+    assert_eq!(
+        state.notice.as_ref().map(|n| n.text.as_str()),
+        Some("Theme: system")
+    );
 }
 
 #[test]
@@ -434,6 +590,13 @@ fn mouse_picks_a_result_or_closes() {
     update(&mut state, ctrl('p'));
     update(&mut state, click(20, 7));
     assert_eq!(level(&state), Level::Settings);
+    // A click on a header does nothing; on an on/off setting, flips it.
+    update(&mut state, click(20, 5));
+    assert_eq!(level(&state), Level::Settings);
+    assert_eq!(selected_title(&state), "Theme");
+    update(&mut state, click(20, 12));
+    assert_eq!(selected_title(&state), "Bell");
+    assert!(!state.config.notifications.bell);
     update(&mut state, click(2, 20));
     assert!(state.palette.is_none(), "a click outside closes");
 }
@@ -447,10 +610,9 @@ fn the_layout_switches_from_the_palette_and_is_saved() {
     let mut state = loaded_state();
     state.layout = MessageLayout::Bubbles;
     state.config.messages.layout = MessageLayout::Bubbles;
-    palette_open(&mut state, ":appear");
+    palette_open(&mut state, ":layout");
     enter(&mut state);
-    pick(&mut state, "layout");
-    assert_eq!(breadcrumb(&state), "Settings › Appearance › Message layout");
+    assert_eq!(breadcrumb(&state), "Settings › Message layout");
     typed(&mut state, "irc");
     assert_eq!(selected_title(&state), "IRC");
     let effects = enter(&mut state);
@@ -461,9 +623,7 @@ fn the_layout_switches_from_the_palette_and_is_saved() {
         vec![saved(key::LAYOUT, ConfigValue::Text("irc".into()))]
     );
 
-    palette_open(&mut state, ":appear");
-    enter(&mut state);
-    typed(&mut state, "layout");
+    palette_open(&mut state, ":layout");
     assert_eq!(
         state
             .palette
@@ -502,32 +662,26 @@ fn the_layout_switches_from_the_palette_and_is_saved() {
 fn settings_from_the_palette_apply_and_are_saved() {
     let mut state = loaded_state();
     palette_open(&mut state, ":mouse");
-    enter(&mut state);
-    typed(&mut state, "off");
-    assert_eq!(
-        selected(&state),
-        Some(ItemKind::Setting(SettingChoice::Mouse(false)))
-    );
+    assert_eq!(selected(&state), Some(ItemKind::Switch(Setting::Mouse)));
     assert_eq!(
         enter(&mut state),
         vec![saved(key::MOUSE, ConfigValue::Bool(false))]
     );
     assert!(!state.config.mouse.enabled);
+    press(&mut state, KeyCode::Esc);
 
-    palette_open(&mut state, ":conv");
-    enter(&mut state);
-    pick(&mut state, "allow");
-    let effects = pick(&mut state, "on");
+    palette_open(&mut state, ":allow");
+    let effects = enter(&mut state);
     // Climbing isn't allowed, so the next conversation opens first.
     assert_eq!(
         effects.last(),
         Some(&saved(key::ALLOWLIST, ConfigValue::Bool(true)))
     );
     assert!(state.list.allowlist);
+    press(&mut state, KeyCode::Esc);
 
-    palette_open(&mut state, ":appear");
+    palette_open(&mut state, ":emoji");
     enter(&mut state);
-    pick(&mut state, "emoji");
     let effects = pick(&mut state, "compat");
     assert_eq!(
         effects,
@@ -539,9 +693,8 @@ fn settings_from_the_palette_apply_and_are_saved() {
 
     // `--emoji` decides for this run; the choice is only saved.
     state.env.emoji.from_cli = true;
-    palette_open(&mut state, ":appear");
+    palette_open(&mut state, ":emoji");
     enter(&mut state);
-    pick(&mut state, "emoji");
     assert_eq!(
         state.palette.as_ref().unwrap().items[0].detail,
         "--emoji decides for now"
@@ -556,7 +709,7 @@ fn settings_from_the_palette_apply_and_are_saved() {
 }
 
 #[test]
-fn themes_are_a_category_and_under_appearance() {
+fn themes_are_a_category_and_a_setting() {
     let mut state = loaded_state();
     update(&mut state, ctrl('p'));
     let themes = state.palette.as_ref().unwrap().items[1].clone();
@@ -584,15 +737,18 @@ fn themes_are_a_category_and_under_appearance() {
         vec![saved(key::THEME, ConfigValue::Text("faro-dusk".into()))]
     );
 
-    palette_open(&mut state, ":appear");
-    enter(&mut state);
+    palette_open(&mut state, ":");
     let theme = state.palette.as_ref().unwrap().selected_item().unwrap();
     assert_eq!(
         (theme.title.as_str(), theme.detail.as_str()),
         ("Theme", "faro-dusk")
     );
     enter(&mut state);
-    assert_eq!(breadcrumb(&state), "Settings › Appearance › Themes");
+    assert_eq!(breadcrumb(&state), "Settings › Themes");
+    // From there too, the list starts on the theme in use and previews.
+    assert_eq!(selected_title(&state), "faro-dusk");
+    press(&mut state, KeyCode::Down);
+    assert_eq!(state.theme_name(), "faro-light");
 }
 
 #[test]

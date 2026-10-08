@@ -93,8 +93,8 @@ async fn toggling_the_layout_from_the_palette_keeps_the_file_s_comments() {
     state.layout = MessageLayout::Bubbles;
     state.config.messages.layout = MessageLayout::Bubbles;
     update(&mut state, AppEvent::Terminal(ctrl('p')));
-    // Settings › Appearance › Message layout › IRC.
-    for c in ":appear\rlayout\rirc".chars() {
+    // Settings › Message layout › IRC.
+    for c in ":layout\rirc".chars() {
         let code = if c == '\r' {
             KeyCode::Enter
         } else {

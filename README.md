@@ -34,7 +34,7 @@ faro is an unofficial, independent project. It is not affiliated with, endorsed 
 - Conversation list with pinning, muting (with durations), hiding, archiving and an allowlist mode
 - Two message layouts: **bubbles** (default, with rounded or square corners) and **IRC**-style
 - Replies, reactions, copying a message (OSC 52, works over SSH), opening links
-- A command palette (`Ctrl+P`): chats, themes, settings, commands and key bindings as categories you open and fuzzy-search
+- A command palette (`Ctrl+P`): chats, themes, settings, commands and key bindings as categories you open and fuzzy-search; every setting in one list with its current value, on/off ones flipped with `Enter`
 - Read receipts only for what you've actually seen (terminal focus + scrolled to the bottom), typing indicators
 - Terminal bell (with a do-not-disturb key, `Alt+N`) and an unread count in the window/tmux title
 - A commented config file that faro reloads while running and writes back to without losing your comments
@@ -139,7 +139,13 @@ mosh measures emoji differently from kitty and tmux, which misaligns borders. fa
 
 ## Colours
 
-faro guesses how many colours your terminal shows: truecolor when `COLORTERM` says so, inside tmux, or in terminals known to support it (kitty, Ghostty, WezTerm, iTerm2, Alacritty, foot…); otherwise 256 colours (themes are rounded to the nearest), or the `system` theme on 16-colour terminals. Override with `[ui] colors = "truecolor" | "256" | "16"` or in the palette (`:` Appearance › Colours).
+faro guesses how many colours your terminal shows: truecolor when `COLORTERM` says so, inside tmux, or in terminals known to support it (kitty, Ghostty, WezTerm, iTerm2, Alacritty, foot…); otherwise 256 colours, or 16 on the Linux console and similar. Override with `[ui] colors = "truecolor" | "256" | "16"` or in the palette (`Settings › Colours`, which also shows what was detected).
+
+- **Truecolor:** every theme exactly as designed.
+- **256 colours:** themes are **approximated**: each colour becomes the nearest of the terminal's 240 fixed colours, so subtle tints can turn grey. Solarized's dark blue background (`#002b36`), for example, becomes the neutral grey `#262626`, much as Solarized's own 256-colour fallback uses `#1c1c1c`: there's no dark blue-teal among those colours. faro keeps the background, panels, selection and bubbles apart so the layout still reads.
+- **16 colours:** the **`system` theme** is drawn, whatever theme is set, since faro can't know which 16 colours your terminal uses. You can still pick another theme; it's saved and drawn once faro runs with more colours.
+
+The palette's Themes list says which of these applies.
 
 ## Development
 

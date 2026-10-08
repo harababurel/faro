@@ -1,6 +1,8 @@
 //! The command palette (D44): a box near the top, the query on the first
 //! row, results below with matched characters highlighted and keys on the
-//! right. Drawn last, over everything.
+//! right; settings under section headers, and a note about the level
+//! (the colour depth at Themes, D57) above them. Drawn last, over
+//! everything.
 
 use faro_core::domain::ConversationId;
 use ratatui::Frame;
@@ -35,10 +37,12 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &
         return;
     }
     let box_width = screen.width.saturating_sub(4).min(MAX_WIDTH);
-    let most_rows = (usable * 3 / 5).saturating_sub(4).max(1);
+    // Borders, the query and the rule, and the note if there is one.
+    let chrome = 4 + u16::from(palette.note.is_some());
+    let most_rows = (usable * 3 / 5).saturating_sub(chrome).max(1);
     let wanted = u16::try_from(palette.matches.len().max(1)).unwrap_or(u16::MAX);
     let rows = wanted.min(most_rows);
-    let box_height = (rows + 4).min(usable);
+    let box_height = (rows + chrome).min(usable);
     let top = (usable / 6).min(usable - box_height);
     let area = Rect::new((screen.width - box_width) / 2, top, box_width, box_height);
 
@@ -68,9 +72,25 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &
             ..inner
         },
     );
+    let mut top = inner.y + 2;
+    if let Some(note) = &palette.note
+        && inner.height > 3
+    {
+        let room = usize::from(inner.width).saturating_sub(2);
+        let text = format!(" {}", truncate(&sanitize(note), room));
+        frame.render_widget(
+            Paragraph::new(Span::styled(text, theme.muted())),
+            Rect {
+                y: top,
+                height: 1,
+                ..inner
+            },
+        );
+        top += 1;
+    }
     let list = Rect {
-        y: inner.y + 2,
-        height: inner.height - 2,
+        y: top,
+        height: inner.bottom() - top,
         ..inner
     };
     let offset = visible_offset(palette, usize::from(list.height));
@@ -191,6 +211,9 @@ fn result_line(
     view: &View<'_>,
 ) -> Line<'static> {
     let theme = view.theme;
+    if item.kind == ItemKind::Header {
+        return header_line(item, found, row_width, view);
+    }
     let base = if selected {
         theme.selected().fg(theme.text)
     } else {
@@ -208,6 +231,8 @@ fn result_line(
             | ItemKind::Command(_)
             | ItemKind::Setting(_)
             | ItemKind::Theme(_)
+            | ItemKind::Switch(_)
+            | ItemKind::Header
             | ItemKind::Key,
             None,
         ) => "  ",
@@ -254,6 +279,19 @@ fn result_line(
             base.patch(theme.muted()),
         ));
     }
+    Line::from(spans)
+}
+
+/// A section's title (`Appearance`) above its items, which are indented
+/// below it; never selected.
+fn header_line(item: &Item, found: &Match, row_width: u16, view: &View<'_>) -> Line<'static> {
+    let theme = view.theme;
+    let style = theme.muted().add_modifier(Modifier::BOLD);
+    let hit = Style::new().fg(theme.primary).add_modifier(Modifier::BOLD);
+    let room = usize::from(row_width).saturating_sub(1);
+    let (title, _) = highlighted(&item.title, &found.highlight, room, style, hit);
+    let mut spans = vec![Span::raw(" ")];
+    spans.extend(title);
     Line::from(spans)
 }
 

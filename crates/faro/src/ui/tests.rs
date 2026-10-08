@@ -462,8 +462,21 @@ fn palette_keybindings() {
 
 #[test]
 fn palette_settings_level() {
+    // Every setting under its section's header, current values on the right.
+    insta::assert_snapshot!(snapshot(&draw(&with_palette(":"), 100, 30)));
+}
+
+#[test]
+fn palette_settings_filtered() {
+    // Only the sections with a match keep their header.
+    insta::assert_snapshot!(snapshot(&draw(&with_palette(":notif"), 100, 20)));
+}
+
+#[test]
+fn palette_themes_at_256_colours() {
     use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
-    let mut state = with_palette(":notif");
+    let mut state = with_palette("themes");
+    state.env.colors = crate::theme::ColorDepth::Indexed256;
     update(
         &mut state,
         AppEvent::Terminal(Event::Key(KeyEvent::new(
@@ -471,7 +484,9 @@ fn palette_settings_level() {
             KeyModifiers::NONE,
         ))),
     );
-    insta::assert_snapshot!(snapshot(&draw(&state, 100, 20)));
+    // The note sits between the rule and the list.
+    let buffer = draw(&state, 100, 20);
+    insta::assert_snapshot!(snapshot(&buffer));
 }
 
 #[test]
