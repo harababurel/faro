@@ -274,8 +274,10 @@ fn text(c: impl Choice) -> ConfigValue {
 pub static SETTINGS: &[Setting] = &[
     Setting {
         path: key::THEME,
-        help: "Colour theme: \"faro-dark\", \"faro-dusk\", \"faro-light\" or \"system\" (the \
-               terminal's own 16 colours).",
+        help: "Colour theme: \"faro-dark\", \"faro-dusk\", \"faro-light\", \"system\" (the \
+               terminal's own 16 colours), one of OpenCode's (\"tokyonight\", \"nord\", \
+               \"github-light\"…) or your own: themes/<name>.json beside this file, in \
+               OpenCode's format. Ctrl+P › Themes lists and previews them all.",
         get: |c| ConfigValue::Text(c.theme.clone()),
         set: |c, v| {
             c.theme = string(v)?;

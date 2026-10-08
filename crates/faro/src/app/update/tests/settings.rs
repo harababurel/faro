@@ -101,14 +101,14 @@ fn bad_keybindings_and_themes_are_reported_and_skipped() {
     let mut state = loaded_state();
     reload(
         &mut state,
-        "theme = \"solarized\"\n[keybindings.global]\n\"ctrl+k\" = \"no.such\"\n",
+        "theme = \"no-such-theme\"\n[keybindings.global]\n\"ctrl+k\" = \"no.such\"\n",
     );
-    assert_eq!(state.config.theme, "solarized");
+    assert_eq!(state.config.theme, "no-such-theme");
     assert_eq!(
         state.config_problems,
         vec![
             "keybindings.global: unknown action \"no.such\"".to_owned(),
-            "theme: there's no theme called \"solarized\"; using faro-dark (built in: faro-dark, faro-dusk, faro-light, system)"
+            "theme: there's no theme called \"no-such-theme\"; using faro-dark (Ctrl+P › Themes lists them)"
                 .to_owned(),
         ]
     );
@@ -215,4 +215,72 @@ fn themes_and_colours_are_chosen_in_the_palette_and_saved() {
     reload(&mut state, "theme = \"system\"\n[ui]\ncolors = \"16\"\n");
     assert_eq!(state.config.theme, "system");
     assert_eq!(state.colors(), ColorDepth::Ansi16);
+}
+
+mod theme_files {
+    use super::*;
+    use crate::theme::{Source, Theme, ThemeText};
+
+    const MINE: &str =
+        r##"{ "theme": { "background": "#101010", "text": "#e0e0e0", "primary": "#e0a040" } }"##;
+
+    fn file(name: &str, text: &str) -> ThemeText {
+        ThemeText {
+            file: name.to_owned(),
+            text: Ok(text.to_owned()),
+        }
+    }
+
+    #[test]
+    fn a_users_theme_can_be_the_configs() {
+        let mut state = State::new(ME, crate::fixtures::contacts(), vec![]);
+        state.user_themes.load(vec![file("mine.json", MINE)]);
+        let config = core::Config {
+            theme: "mine".to_owned(),
+            ..core::Config::default()
+        };
+        configure(&mut state, config, vec![]);
+        assert_eq!(state.config_problems, Vec::<String>::new());
+        let theme = Theme::find(state.theme_name(), &state.user_themes).unwrap();
+        assert_eq!(theme.source, Source::User);
+    }
+
+    #[test]
+    fn changed_files_are_used_and_their_problems_shown() {
+        let mut state = loaded_state();
+        update(
+            &mut state,
+            AppEvent::ThemesRead(vec![file("mine.json", MINE)]),
+        );
+        assert_eq!(
+            notice(&state),
+            Some((NoticeLevel::Info, "Themes reloaded".to_owned()))
+        );
+        assert_eq!(state.user_themes.generation, 1);
+        reload(&mut state, "theme = \"mine\"\n");
+        assert_eq!(state.config_problems, Vec::<String>::new());
+
+        // The file breaks: it's skipped and the theme in use is gone.
+        update(
+            &mut state,
+            AppEvent::ThemesRead(vec![file("mine.json", "{"), file("ok.json", MINE)]),
+        );
+        let (level, text) = notice(&state).unwrap();
+        assert_eq!(level, NoticeLevel::Warning);
+        assert!(
+            text.starts_with("Themes: mine.json: not valid JSON")
+                && text.ends_with("(and 1 more in the log)"),
+            "{text}"
+        );
+        assert_eq!(state.user_themes.generation, 2);
+        assert_eq!(
+            state
+                .user_themes
+                .themes
+                .iter()
+                .map(|t| t.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["ok"]
+        );
+    }
 }

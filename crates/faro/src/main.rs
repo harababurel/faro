@@ -30,6 +30,7 @@ fn main() -> anyhow::Result<()> {
     let tz = jiff::tz::TimeZone::system();
     let config_file = paths.config_file().to_owned();
     let (mut settings, mut problems) = config::load(&config_file);
+    let themes = config::load_themes(&config::themes_dir(&config_file));
 
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "faro starting");
     if !cli.mock {
@@ -77,6 +78,7 @@ fn main() -> anyhow::Result<()> {
             path: config_file,
             config: settings,
             problems,
+            themes,
         };
         let result = app::run(
             backend,

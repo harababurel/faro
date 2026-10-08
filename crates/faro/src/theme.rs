@@ -1,23 +1,51 @@
 //! Colours by meaning (DESIGN.md §10). Widgets never hard-code colours; they ask
-//! the theme for a role. The built-in themes are in `builtin.rs`. Terminals
-//! without truecolor get each colour's nearest xterm-256 colour, and those with
-//! only 16 colours get the `system` theme (`colors.rs`); both happen once, when
-//! the theme is loaded, not per frame. Theme files (OpenCode's JSON format)
-//! are v0.2 (D50).
+//! the theme for a role. faro's own themes are in `builtin.rs`; OpenCode's
+//! are bundled (`bundled.rs`) and the user's own files are read from
+//! `themes/` beside the config file (`user.rs`), both through `import.rs`
+//! (D54). Terminals without truecolor get each colour's nearest xterm-256
+//! colour, and those with only 16 colours get the `system` theme
+//! (`colors.rs`); both happen once, when the theme is loaded, not per frame.
 
 mod builtin;
+mod bundled;
 mod colors;
+mod import;
 #[cfg(test)]
 mod tests;
+mod user;
 
 use faro_core::domain::ServiceId;
 use ratatui::style::{Color, Modifier, Style};
 
 pub use self::colors::ColorDepth;
+pub use self::user::{ThemeText, UserThemes};
+
+/// Where a theme comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Source {
+    /// faro's own (`builtin.rs`).
+    Faro,
+    /// Bundled from OpenCode.
+    OpenCode,
+    /// A file in the user's `themes/` directory.
+    User,
+}
+
+impl Source {
+    /// How the palette labels it (faro's own need no label).
+    pub const fn label(self) -> Option<&'static str> {
+        match self {
+            Self::Faro => None,
+            Self::OpenCode => Some("OpenCode"),
+            Self::User => Some("your file"),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Theme {
-    pub name: &'static str,
+    pub name: String,
+    pub source: Source,
     pub background: Color,
     /// Input box, popups.
     pub background_panel: Color,
@@ -54,28 +82,35 @@ impl Default for Theme {
 }
 
 impl Theme {
-    /// The built-in themes' names (the config's `theme`), in the order the
-    /// palette lists them.
-    pub const NAMES: [&str; 4] = ["faro-dark", "faro-dusk", "faro-light", "system"];
-
-    /// The built-in theme called `name`, in full colour.
-    pub fn named(name: &str) -> Option<Self> {
-        match name {
-            "faro-dark" => Some(Self::faro_dark()),
-            "faro-dusk" => Some(Self::faro_dusk()),
-            "faro-light" => Some(Self::faro_light()),
-            "system" => Some(Self::system()),
-            _ => None,
-        }
+    /// The theme called `name`: the user's own first (except `system`),
+    /// then faro's, then OpenCode's.
+    pub fn find<'a>(name: &str, user: &'a UserThemes) -> Option<&'a Self> {
+        let own = (name != "system")
+            .then(|| user.themes.iter().find(|t| t.name == name))
+            .flatten();
+        own.or_else(|| bundled::faro().iter().find(|t| t.name == name))
+            .or_else(|| bundled::opencode().iter().find(|t| t.name == name))
     }
 
-    /// The theme called `name` (the default one if there's none: that was
-    /// reported when the config was read) for a terminal showing `depth`.
-    pub fn load(name: &str, depth: ColorDepth) -> Self {
-        let theme = Self::named(name).unwrap_or_default();
+    /// Every theme, in the order the palette lists them: faro's, the
+    /// user's, then OpenCode's dark and light ones. A user's theme hides a
+    /// built-in one of the same name.
+    pub fn all(user: &UserThemes) -> Vec<&Self> {
+        let shown = |t: &&Self| t.name == "system" || !user.themes.iter().any(|u| u.name == t.name);
+        bundled::faro()
+            .iter()
+            .filter(shown)
+            .chain(user.themes.iter())
+            .chain(bundled::opencode().iter().filter(shown))
+            .collect()
+    }
+
+    /// This theme for a terminal showing `depth` colours.
+    #[must_use]
+    pub fn for_depth(self, depth: ColorDepth) -> Self {
         match depth {
-            ColorDepth::Truecolor => theme,
-            ColorDepth::Indexed256 => theme.clone().map(colors::nearest_256).keep_apart(&theme),
+            ColorDepth::Truecolor => self,
+            ColorDepth::Indexed256 => self.clone().map(colors::nearest_256).keep_apart(&self),
             // Picking 16 colours for a palette faro can't see would guess;
             // the system theme leaves them to the terminal.
             ColorDepth::Ansi16 => Self::system(),
@@ -177,38 +212,27 @@ impl Theme {
     }
 }
 
-/// The theme in use, loaded again only when its name or the colour depth
-/// changes (the app loop asks every frame).
-#[derive(Debug)]
+/// The theme in use, loaded again only when its name, the colour depth or
+/// the user's themes change (the app loop asks every frame).
+#[derive(Debug, Default)]
 pub struct Themes {
-    depth: ColorDepth,
+    loaded: Option<(String, ColorDepth, u64)>,
     theme: Theme,
 }
 
-impl Default for Themes {
-    fn default() -> Self {
-        Self {
-            depth: ColorDepth::Truecolor,
-            theme: Theme::default(),
-        }
-    }
-}
-
 impl Themes {
-    pub fn get(&mut self, name: &str, depth: ColorDepth) -> &Theme {
-        let wanted = if Theme::NAMES.contains(&name) {
-            name
-        } else {
-            faro_core::config::DEFAULT_THEME
-        };
-        let loaded = match depth {
-            ColorDepth::Ansi16 => "system",
-            ColorDepth::Truecolor | ColorDepth::Indexed256 => wanted,
-        };
-        if self.depth != depth || self.theme.name != loaded {
+    /// The theme called `name` (the default one if there's none: that was
+    /// reported when the config or the theme files were read).
+    pub fn get(&mut self, name: &str, depth: ColorDepth, user: &UserThemes) -> &Theme {
+        let fresh = self
+            .loaded
+            .as_ref()
+            .is_some_and(|(n, d, g)| n == name && *d == depth && *g == user.generation);
+        if !fresh {
             tracing::info!(theme = name, ?depth, "loading the theme");
-            self.theme = Theme::load(name, depth);
-            self.depth = depth;
+            let theme = Theme::find(name, user).cloned().unwrap_or_default();
+            self.theme = theme.for_depth(depth);
+            self.loaded = Some((name.to_owned(), depth, user.generation));
         }
         &self.theme
     }

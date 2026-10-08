@@ -1,17 +1,21 @@
-//! Theme checks (D50): every built-in theme loads under its name, stays
+//! Theme checks (D50, D54): every theme loads under its name, faro's own stay
 //! readable (contrast between each text role and the backgrounds it's drawn
 //! on), and the colour fallbacks only use colours the terminal has.
 
 use ratatui::style::Color;
 
 use super::colors::{indexed_rgb, nearest_256};
-use super::{ColorDepth, Theme, Themes};
+use super::{ColorDepth, Theme, Themes, UserThemes, bundled};
+
+mod files;
+
+use files::MINIMAL;
 
 fn rgb_themes() -> Vec<Theme> {
-    Theme::NAMES
+    bundled::faro()
         .iter()
-        .filter_map(|name| Theme::named(name))
         .filter(|t| !t.terminal_palette)
+        .cloned()
         .collect()
 }
 
@@ -65,24 +69,8 @@ fn rgb(colour: Color) -> (u8, u8, u8) {
     }
 }
 
-/// WCAG relative luminance.
-fn luminance(colour: Color) -> f64 {
-    let (r, g, b) = rgb(colour);
-    let linear = |c: u8| {
-        let c = f64::from(c) / 255.0;
-        if c <= 0.040_45 {
-            c / 12.92
-        } else {
-            ((c + 0.055) / 1.055).powf(2.4)
-        }
-    };
-    0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
-}
-
-/// WCAG contrast ratio, 1 (same) to 21 (black on white).
 fn contrast(a: Color, b: Color) -> f64 {
-    let (la, lb) = (luminance(a), luminance(b));
-    (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
+    super::colors::contrast(rgb(a), rgb(b))
 }
 
 /// The contrast rules: (what, foreground, background, minimum ratio).
@@ -166,27 +154,45 @@ fn check_contrast(theme: &Theme, slack: f64) -> Vec<String> {
         .collect()
 }
 
+/// faro's own theme called `name`, at `depth`.
+fn load(name: &str, depth: ColorDepth) -> Theme {
+    Theme::find(name, &UserThemes::default())
+        .cloned()
+        .unwrap()
+        .for_depth(depth)
+}
+
 #[test]
-fn every_name_loads_that_theme() {
-    for name in Theme::NAMES {
-        let theme = Theme::named(name).unwrap();
-        assert_eq!(theme.name, name);
-        assert_eq!(Theme::load(name, ColorDepth::Truecolor), theme);
+fn every_theme_is_found_by_its_name() {
+    let user = UserThemes::default();
+    let all = Theme::all(&user);
+    for theme in &all {
+        assert_eq!(Theme::find(&theme.name, &user), Some(*theme));
     }
-    assert_eq!(Theme::named("nope"), None);
-    assert_eq!(Theme::load("nope", ColorDepth::Truecolor), Theme::default());
+    let mut names: Vec<&str> = all.iter().map(|t| t.name.as_str()).collect();
+    names.sort_unstable();
+    names.dedup();
+    assert_eq!(names.len(), all.len(), "two themes share a name");
+    assert_eq!(Theme::find("nope", &user), None);
     assert_eq!(Theme::default().name, faro_core::config::DEFAULT_THEME);
 }
 
 #[test]
-fn the_config_help_names_every_theme() {
+fn the_config_help_names_every_faro_theme() {
     let help = faro_core::config::setting(faro_core::config::key::THEME)
         .unwrap()
         .help;
-    for name in Theme::NAMES {
+    for theme in bundled::faro() {
         assert!(
-            help.contains(&format!("\"{name}\"")),
-            "{name} missing from {help:?}"
+            help.contains(&format!("\"{}\"", theme.name)),
+            "{} missing from {help:?}",
+            theme.name
+        );
+    }
+    for example in ["tokyonight", "nord", "github-light"] {
+        assert!(
+            Theme::find(example, &UserThemes::default()).is_some(),
+            "the help names {example}, which doesn't exist"
         );
     }
 }
@@ -205,7 +211,7 @@ fn themes_stay_readable_in_256_colours() {
     // Rounding to the palette may cost a little contrast, not much.
     let problems: Vec<String> = rgb_themes()
         .iter()
-        .map(|t| Theme::load(t.name, ColorDepth::Indexed256))
+        .map(|t| load(&t.name, ColorDepth::Indexed256))
         .flat_map(|t| check_contrast(&t, 0.9))
         .collect();
     assert_eq!(problems, Vec::<String>::new());
@@ -213,8 +219,12 @@ fn themes_stay_readable_in_256_colours() {
 
 #[test]
 fn surfaces_stay_apart_in_256_colours() {
-    for theme in rgb_themes() {
-        let t = Theme::load(theme.name, ColorDepth::Indexed256);
+    let all: Vec<Theme> = rgb_themes()
+        .into_iter()
+        .chain(bundled::opencode().iter().cloned())
+        .collect();
+    for theme in all {
+        let t = theme.clone().for_depth(ColorDepth::Indexed256);
         let pairs = [
             (
                 "background_panel",
@@ -246,14 +256,15 @@ fn surfaces_stay_apart_in_256_colours() {
 
 #[test]
 fn fallbacks_use_only_what_the_terminal_has() {
-    for name in Theme::NAMES {
-        for (role, colour) in colours(&Theme::load(name, ColorDepth::Indexed256)) {
+    for theme in Theme::all(&UserThemes::default()) {
+        let name = &theme.name;
+        for (role, colour) in colours(&theme.clone().for_depth(ColorDepth::Indexed256)) {
             assert!(
                 !matches!(colour, Color::Rgb(..)),
                 "{name} {role} is still RGB in 256 colours"
             );
         }
-        let ansi = Theme::load(name, ColorDepth::Ansi16);
+        let ansi = theme.clone().for_depth(ColorDepth::Ansi16);
         assert_eq!(ansi.name, "system");
         for (role, colour) in colours(&ansi) {
             assert!(
@@ -338,16 +349,35 @@ fn colour_depth_detection() {
 #[test]
 fn themes_are_loaded_once() {
     let mut themes = Themes::default();
-    let first = themes.get("faro-light", ColorDepth::Indexed256).clone();
-    assert_eq!(first, Theme::load("faro-light", ColorDepth::Indexed256));
-    assert_eq!(themes.get("faro-light", ColorDepth::Indexed256), &first);
+    let mut user = UserThemes::default();
+    let first = themes
+        .get("faro-light", ColorDepth::Indexed256, &user)
+        .clone();
+    assert_eq!(first, load("faro-light", ColorDepth::Indexed256));
     assert_eq!(
-        themes.get("faro-light", ColorDepth::Truecolor),
+        themes.get("faro-light", ColorDepth::Indexed256, &user),
+        &first
+    );
+    assert_eq!(
+        themes.get("faro-light", ColorDepth::Truecolor, &user),
         &Theme::faro_light()
     );
-    assert_eq!(themes.get("faro-light", ColorDepth::Ansi16).name, "system");
     assert_eq!(
-        themes.get("unknown", ColorDepth::Truecolor),
+        themes.get("faro-light", ColorDepth::Ansi16, &user).name,
+        "system"
+    );
+    assert_eq!(
+        themes.get("unknown", ColorDepth::Truecolor, &user),
         &Theme::default()
+    );
+    // The user's themes changed: looked up again.
+    let problems = user.load(vec![super::ThemeText {
+        file: "unknown.json".to_owned(),
+        text: Ok(MINIMAL.to_owned()),
+    }]);
+    assert_eq!(problems, Vec::<String>::new());
+    assert_eq!(
+        themes.get("unknown", ColorDepth::Truecolor, &user).name,
+        "unknown"
     );
 }

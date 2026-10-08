@@ -232,3 +232,45 @@ async fn changes_to_the_file_are_read_after_a_pause() {
     let again = tokio::time::timeout(DEBOUNCE * 3, events.recv()).await;
     assert!(again.is_err(), "no second reload: {again:?}");
 }
+
+#[tokio::test]
+async fn theme_files_are_read_at_startup_and_after_changes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config = tmp.path().join("faro").join("config.toml");
+    let dir = themes_dir(&config);
+    assert_eq!(dir, tmp.path().join("faro").join("themes"));
+    // Startup creates the directory, private.
+    assert_eq!(load_themes(&dir), vec![]);
+    assert_eq!(mode(&dir), 0o700);
+    std::fs::write(dir.join("mine.json"), "{}").unwrap();
+    std::fs::write(dir.join("notes.txt"), "not a theme").unwrap();
+    let read = load_themes(&dir);
+    assert_eq!(
+        read,
+        vec![ThemeText {
+            file: "mine.json".to_owned(),
+            text: Ok("{}".to_owned())
+        }]
+    );
+
+    let (results, mut events) = mpsc::unbounded_channel();
+    let _watch = watch_themes(&dir, results).unwrap();
+    tokio::fs::write(dir.join("other.json"), "{ }")
+        .await
+        .unwrap();
+    let event = tokio::time::timeout(Duration::from_secs(10), events.recv())
+        .await
+        .expect("a reload within 10 s");
+    let Some(AppEvent::ThemesRead(mut files)) = event else {
+        panic!("expected ThemesRead, got {event:?}");
+    };
+    files.sort_by(|a, b| a.file.cmp(&b.file));
+    let names: Vec<&str> = files.iter().map(|f| f.file.as_str()).collect();
+    assert_eq!(names, vec!["mine.json", "other.json"]);
+    // Files that aren't themes don't count.
+    tokio::fs::write(dir.join("notes.txt"), "still not")
+        .await
+        .unwrap();
+    let again = tokio::time::timeout(DEBOUNCE * 3, events.recv()).await;
+    assert!(again.is_err(), "no reload: {again:?}");
+}

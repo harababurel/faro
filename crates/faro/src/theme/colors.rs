@@ -99,7 +99,7 @@ pub fn indexed_rgb(index: u8) -> Option<(u8, u8, u8)> {
 
 /// How different two colours look: the "redmean" weighted distance, a cheap
 /// approximation of perceived difference that beats plain RGB distance.
-fn distance(a: (u8, u8, u8), b: (u8, u8, u8)) -> i32 {
+pub fn distance(a: Rgb, b: Rgb) -> i32 {
     let (r1, g1, b1) = (i32::from(a.0), i32::from(a.1), i32::from(a.2));
     let (r2, g2, b2) = (i32::from(b.0), i32::from(b.1), i32::from(b.2));
     let mean = i32::midpoint(r1, r2);
@@ -133,4 +133,36 @@ pub fn nearest_256_except(colour: Color, taken: &[Color]) -> Color {
         }
     }
     best.map_or(colour, |(_, index)| Color::Indexed(index))
+}
+
+/// A colour as red, green and blue.
+pub type Rgb = (u8, u8, u8);
+
+/// WCAG relative luminance, 0 (black) to 1 (white).
+pub fn luminance((r, g, b): Rgb) -> f64 {
+    let linear = |c: u8| {
+        let c = f64::from(c) / 255.0;
+        if c <= 0.040_45 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
+}
+
+/// WCAG contrast ratio, 1 (same) to 21 (black on white).
+pub fn contrast(a: Rgb, b: Rgb) -> f64 {
+    let (la, lb) = (luminance(a), luminance(b));
+    (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
+}
+
+/// `permille`/1000 of the way from `from` to `to`.
+pub fn blend(from: Rgb, to: Rgb, permille: u16) -> Rgb {
+    let t = u32::from(permille.min(1000));
+    let mix = |a: u8, b: u8| {
+        let value = (u32::from(a) * (1000 - t) + u32::from(b) * t + 500) / 1000;
+        u8::try_from(value).unwrap_or(u8::MAX)
+    };
+    (mix(from.0, to.0), mix(from.1, to.1), mix(from.2, to.2))
 }

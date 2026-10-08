@@ -73,6 +73,7 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
             vec![]
         }
         AppEvent::ConfigRead(read) => settings::on_config_read(state, read),
+        AppEvent::ThemesRead(files) => settings::on_themes_read(state, files),
         AppEvent::SettingNotSaved(error) => {
             state.notice = Some(Notice::error(format!("Couldn't save the setting: {error}")));
             vec![]

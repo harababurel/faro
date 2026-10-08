@@ -239,6 +239,9 @@ pub struct Palette {
     pub selected: usize,
     /// First result shown (the renderer keeps `selected` in view).
     pub offset: usize,
+    /// The theme drawn while the palette is open: the one selected at the
+    /// Themes level, tried on before it's chosen (D54).
+    pub preview: Option<String>,
     matcher: Matcher,
 }
 
@@ -251,6 +254,7 @@ impl Palette {
             matches: Vec::new(),
             selected: 0,
             offset: 0,
+            preview: None,
             matcher: Matcher::new(Config::DEFAULT),
         };
         palette.show(path, items, "", None);
@@ -309,6 +313,15 @@ impl Palette {
         if let Some(index) = found {
             self.selected = index;
         }
+        self.sync_preview();
+    }
+
+    /// At the Themes level, preview the selected theme; elsewhere, none.
+    fn sync_preview(&mut self) {
+        self.preview = match self.selected_item().map(|item| &item.kind) {
+            Some(ItemKind::Theme(name)) if self.level() == Level::Themes => Some(name.clone()),
+            Some(_) | None => None,
+        };
     }
 
     pub fn selected_item(&self) -> Option<&Item> {
@@ -348,6 +361,7 @@ impl Palette {
             .collect();
         self.selected = 0;
         self.offset = 0;
+        self.sync_preview();
     }
 
     /// Move the selection by `delta`, wrapping at the ends for single steps
@@ -365,6 +379,7 @@ impl Palette {
             (_, false) => self.selected.saturating_add(delta.unsigned_abs()).min(last),
         };
         self.reveal(rows);
+        self.sync_preview();
     }
 
     /// Scroll so the selection is among the `rows` shown.
@@ -510,21 +525,24 @@ fn commands(state: &State) -> Vec<Item> {
 
 /// The theme in use (an unknown name was reported when the config was read
 /// and the default is drawn).
-fn current_theme(state: &State) -> &str {
-    let configured = state.config.theme.as_str();
-    if Theme::NAMES.contains(&configured) {
-        configured
-    } else {
-        faro_core::config::DEFAULT_THEME
-    }
+pub fn current_theme(state: &State) -> &str {
+    Theme::find(&state.config.theme, &state.user_themes)
+        .map_or(faro_core::config::DEFAULT_THEME, |theme| {
+            theme.name.as_str()
+        })
 }
 
-/// Every theme, the one in use marked.
+/// Every theme, the one in use marked and where it comes from on the right.
 fn themes(state: &State) -> Vec<Item> {
     let current = current_theme(state);
-    Theme::NAMES
-        .iter()
-        .map(|name| Item::new(ItemKind::Theme((*name).to_owned()), *name).current(*name == current))
+    Theme::all(&state.user_themes)
+        .into_iter()
+        .map(|theme| {
+            let name = theme.name.as_str();
+            Item::new(ItemKind::Theme(name.to_owned()), name)
+                .current(name == current)
+                .detail(theme.source.label().unwrap_or_default())
+        })
         .collect()
 }
 

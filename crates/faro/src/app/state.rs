@@ -17,7 +17,7 @@ use tokio::time::Instant;
 use super::input::Input;
 use super::keymap::Keymap;
 use super::palette::{Palette, PaletteCommand};
-use crate::theme::ColorDepth;
+use crate::theme::{ColorDepth, UserThemes};
 
 /// Signal clients stop showing a typing indicator after this long without an update.
 pub const TYPING_TIMEOUT: Duration = Duration::from_secs(15);
@@ -85,6 +85,8 @@ pub struct State {
     /// What was wrong with the config file last time, so the same problems
     /// aren't reported again on every reload.
     pub config_problems: Vec<String>,
+    /// The user's theme files (D54), as last read.
+    pub user_themes: UserThemes,
     /// When the terminal bell last rang (`BELL_INTERVAL`, D49).
     pub last_bell: Option<Instant>,
     /// Ctrl+C was pressed once; a second press quits.
@@ -481,6 +483,7 @@ impl State {
             last_sent_at: Timestamp::from_millis(0),
             config: Config::default(),
             config_problems: Vec::new(),
+            user_themes: UserThemes::default(),
             last_bell: None,
             quit_armed: false,
             quit: false,
@@ -607,6 +610,15 @@ impl State {
             return phone.expose().to_owned();
         }
         id.uuid().simple().to_string().chars().take(8).collect()
+    }
+
+    /// The theme to draw with: the one being previewed in the palette
+    /// (D54), else the config's.
+    pub fn theme_name(&self) -> &str {
+        self.palette
+            .as_ref()
+            .and_then(|p| p.preview.as_deref())
+            .unwrap_or(&self.config.theme)
     }
 
     /// The colours to draw with: the config's `ui.colors`, or what was

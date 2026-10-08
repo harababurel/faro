@@ -7,6 +7,7 @@ use faro_core::store::{ConversationState, ConversationSummary};
 
 use super::commands::Command;
 use super::state::Geometry;
+use crate::theme::ThemeText;
 
 #[derive(Debug)]
 pub enum AppEvent {
@@ -50,6 +51,9 @@ pub enum AppEvent {
     ConfigRead(Result<String, String>),
     /// Writing a setting to the config file failed; the text is safe to show.
     SettingNotSaved(String),
+    /// A file in the user's `themes/` directory changed; every theme file,
+    /// read again (D54).
+    ThemesRead(Vec<ThemeText>),
     /// A frame was drawn; this is where things ended up.
     Drawn(Geometry),
     /// A store operation failed; the text is safe to show (no message content).

@@ -78,6 +78,7 @@ pub async fn run<B: Backend + 'static>(
         path: config_path,
         config: settings,
         mut problems,
+        themes: theme_files,
     } = startup;
     let mut terminate = signal(SignalKind::terminate()).context("listening for SIGTERM")?;
     let mut hangup = signal(SignalKind::hangup()).context("listening for SIGHUP")?;
@@ -87,7 +88,7 @@ pub async fn run<B: Backend + 'static>(
     let (config_writer, config_task) =
         config::spawn_writer(config_path.clone(), results_tx.clone());
     // Hot reload (D48); without it, faro still works with what it read.
-    let watch = config::try_watch(&config_path, results_tx.clone(), &mut problems);
+    let watch = config::try_watch(&config_path, &results_tx, &mut problems);
     let router = Router {
         commands,
         effects,
@@ -101,6 +102,12 @@ pub async fn run<B: Backend + 'static>(
     state.env.emoji = emoji;
     state.env.colors = ColorDepth::detect(|var| std::env::var(var).ok());
     tracing::info!(colors = ?state.env.colors, "colour depth detected");
+    // Before the config: its theme may be one of them.
+    for problem in state.user_themes.load(theme_files) {
+        problems.push(faro_core::config::Problem::warning(format!(
+            "themes/{problem}"
+        )));
+    }
     dispatch(update::configure(&mut state, settings, problems));
     let mut tui = Tui::enter(state.config.mouse.enabled).context("setting up the terminal")?;
     let mut input = EventStream::new();
@@ -228,7 +235,7 @@ fn draw(
     tz: &jiff::tz::TimeZone,
 ) -> anyhow::Result<state::Geometry> {
     // Unknown names were reported when the config was read.
-    let theme = themes.get(&state.config.theme, state.colors());
+    let theme = themes.get(state.theme_name(), state.colors(), &state.user_themes);
     let view = View {
         theme,
         tz,
@@ -268,6 +275,7 @@ fn affects_view(event: &AppEvent) -> bool {
         | AppEvent::OpenFailed(_)
         | AppEvent::TerminalChecked { .. }
         | AppEvent::ConfigRead(_)
+        | AppEvent::ThemesRead(_)
         | AppEvent::SettingNotSaved(_)
         | AppEvent::StoreFailed(_)
         | AppEvent::Tick

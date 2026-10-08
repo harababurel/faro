@@ -170,26 +170,31 @@ fn screens() -> Vec<State> {
 
 #[test]
 fn the_colour_fallbacks_draw_only_colours_the_terminal_has() {
-    use crate::theme::ColorDepth;
+    use crate::theme::{ColorDepth, UserThemes};
     use ratatui::style::Color;
-    for name in Theme::NAMES {
-        let indexed = Theme::load(name, ColorDepth::Indexed256);
-        let system = Theme::load(name, ColorDepth::Ansi16);
-        for state in screens() {
-            let buffer = draw_with(&state, 100, 30, &indexed);
+    let screens = screens();
+    for theme in Theme::all(&UserThemes::default()) {
+        let name = &theme.name;
+        let indexed = theme.clone().for_depth(ColorDepth::Indexed256);
+        for state in &screens {
+            let buffer = draw_with(state, 100, 30, &indexed);
             for cell in &buffer.content {
                 for colour in [cell.fg, cell.bg] {
                     assert!(!matches!(colour, Color::Rgb(..)), "{name}: {colour:?}");
                 }
             }
-            let buffer = draw_with(&state, 100, 30, &system);
-            for cell in &buffer.content {
-                for colour in [cell.fg, cell.bg] {
-                    assert!(
-                        !matches!(colour, Color::Rgb(..) | Color::Indexed(_)),
-                        "{name} in 16 colours: {colour:?}"
-                    );
-                }
+        }
+    }
+    // Every theme is the system theme in 16 colours.
+    let system = Theme::default().for_depth(ColorDepth::Ansi16);
+    for state in &screens {
+        let buffer = draw_with(state, 100, 30, &system);
+        for cell in &buffer.content {
+            for colour in [cell.fg, cell.bg] {
+                assert!(
+                    !matches!(colour, Color::Rgb(..) | Color::Indexed(_)),
+                    "16 colours: {colour:?}"
+                );
             }
         }
     }
@@ -482,6 +487,21 @@ fn palette_settings_level() {
             KeyModifiers::NONE,
         ))),
     );
+    insta::assert_snapshot!(snapshot(&draw(&state, 100, 20)));
+}
+
+#[test]
+fn palette_themes() {
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    let mut state = with_palette("themes");
+    for code in [KeyCode::Enter, KeyCode::Up] {
+        update(
+            &mut state,
+            AppEvent::Terminal(Event::Key(KeyEvent::new(code, KeyModifiers::NONE))),
+        );
+    }
+    // Up from the first theme wraps to the last one: previewed.
+    assert_eq!(state.theme_name(), "zenburn-light");
     insta::assert_snapshot!(snapshot(&draw(&state, 100, 20)));
 }
 

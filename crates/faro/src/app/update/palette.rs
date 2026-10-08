@@ -27,7 +27,17 @@ pub fn open(state: &mut State, level: Level) {
         vec![Level::Root, level]
     };
     let items = palette::items(state, level, &state.recent_commands);
-    state.palette = Some(Palette::new(path, items));
+    let mut palette = Palette::new(path, items);
+    if let Some(current) = current_item(state, level) {
+        palette.select(&current);
+    }
+    state.palette = Some(palette);
+}
+
+/// The item to start on at `level`: at Themes, the theme in use, so
+/// opening it doesn't preview another one.
+fn current_item(state: &State, level: Level) -> Option<ItemKind> {
+    (level == Level::Themes).then(|| ItemKind::Theme(palette::current_theme(state).to_owned()))
 }
 
 pub fn on_key(state: &mut State, key: PaletteKey) -> Vec<Effect> {
@@ -96,10 +106,11 @@ fn jump_by_prefix(state: &mut State) {
 /// Show `level` under the current one, with `query` typed.
 fn enter(state: &mut State, level: Level, query: &str) {
     let items = palette::items(state, level, &state.recent_commands);
+    let current = current_item(state, level);
     if let Some(palette) = state.palette.as_mut() {
         let mut path = palette.path.clone();
         path.push(level);
-        palette.show(path, items, query, None);
+        palette.show(path, items, query, current.as_ref());
     }
 }
 

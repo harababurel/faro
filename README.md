@@ -38,7 +38,7 @@ faro is an unofficial, independent project. It is not affiliated with, endorsed 
 - Read receipts only for what you've actually seen (terminal focus + scrolled to the bottom), typing indicators
 - Terminal bell (with a do-not-disturb key, `Alt+N`) and an unread count in the window/tmux title
 - A commented config file that faro reloads while running and writes back to without losing your comments
-- Themes: `faro-dark`, `faro-dusk`, `faro-light`, and `system` (your terminal's own 16 colours); automatic 256-colour fallback
+- Themes: `faro-dark`, `faro-dusk`, `faro-light`, `system` (your terminal's own 16 colours), OpenCode's 33 themes (dark and light), and your own theme files; previewed live as you move through them; automatic 256-colour fallback
 - Never blocks: the UI keeps up while messages flood in
 
 ## Install from source
@@ -108,10 +108,17 @@ On first run faro writes `~/.config/faro/config.toml` (or `$XDG_CONFIG_HOME/faro
 | What | Where |
 |---|---|
 | Config | `~/.config/faro/config.toml` (`--config`) |
+| Your themes | `themes/*.json` beside the config file |
 | Data (database, later Signal keys) | `~/.local/share/faro/` (`--data-dir`) |
 | Log | `<data dir>/logs/faro.log`; level via `FARO_LOG`, e.g. `FARO_LOG=debug` |
 
 The same paths are used on macOS. Files are created readable only by you. faro never logs message bodies or phone numbers.
+
+## Themes
+
+`Ctrl+P` › Themes lists every theme; moving through the list previews each one, `Enter` keeps it (and writes `theme = "…"` to the config), `Esc` puts the old one back. faro ships its own themes and [OpenCode](https://github.com/anomalyco/opencode)'s (`tokyonight`, `catppuccin`, `gruvbox`, `nord`, `dracula`…, each with a `-light` variant where it has one).
+
+Your own themes go in `~/.config/faro/themes/` as JSON files in [OpenCode's theme format](https://opencode.ai/docs/themes/); the file name is the theme's name. faro needs `background`, `text` and `primary`; it also uses `backgroundPanel`, `backgroundElement`, `textMuted`, `secondary`, `accent`, `border`, `borderActive`, `success`, `warning`, `error` and `info`, and works out the rest (message bubbles, sender colours). Save a file and faro picks it up at once; a broken one is named in the footer. A file named after a built-in theme replaces it, so copying [`nord.json`](crates/faro/themes/opencode/nord.json) is a quick way to tweak it.
 
 ## tmux
 
@@ -154,4 +161,4 @@ The last three must pass before every commit; CI runs them on Linux and macOS.
 
 ## License
 
-[AGPL-3.0](LICENSE)
+[AGPL-3.0](LICENSE). The bundled OpenCode themes are MIT-licensed; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

@@ -37,6 +37,7 @@ The owner wants correctness and efficiency rules enforced by tools wherever poss
 - [x] ratatui never sends a wide character's hidden cell (`emoji::tests::hidden_cells_are_never_sent`, M4.5, D47)
 - [x] The config template, parser and write-back can't drift: every setting is one `SETTINGS` entry; tests check the template parses to the defaults with no problems, every setting appears in it with its default, uncommenting every setting and key binding changes nothing, and the palette's setting paths exist (`faro_core::config::tests`, `config::tests`, M5, D48)
 - [x] Themes stay readable and complete: every built-in theme loads under its name and is listed in the config help; WCAG contrast ratios are checked for text (≥ 7), muted text (≥ 3.5) and coloured text (≥ 3) on every background they're drawn on (incl. both bubbles and the selection), also after the 256-colour mapping (within 10%); the 256/16-colour fallbacks draw no RGB (resp. no indexed) colour on any screen; surfaces stay distinct in 256 colours (`theme::tests`, `ui::tests::the_colour_fallbacks_draw_only_colours_the_terminal_has`, M8, D51)
+- [x] Imported themes stay usable: all 33 bundled OpenCode themes import; derived colours (unread, sender names, own bubbles) meet their contrast rules, coloured and muted text meets the 3:1 floor, sender colours are distinct, surfaces stay apart in 256 colours and every theme's fallbacks draw only colours the terminal has; user theme files are named, layered and reported (`theme::tests::files`, D54)
 
 ## M0: Scaffolding
 
@@ -125,7 +126,7 @@ The owner's main complaint after trying the prototype: misaligned borders and st
 **Tasks**
 1. Config schema (serde) with defaults; generate commented default file on first run (DESIGN.md §9).
 2. Load with error reporting (toast/footer message); keep last good config on error.
-3. Hot reload with `notify` (debounced) for config and theme files. (Theme files: M8, with the themes themselves.)
+3. Hot reload with `notify` (debounced) for config and theme files. (Theme files came later, with D54.)
 4. Write-back API using `toml_edit` that changes one key and preserves comments (used by the settings UI in v0.2, and by palette toggles now, e.g. layout switch).
 5. Apply: keybindings, messages layout/density/timestamps, mouse on/off, notifications, theme, reduce_motion.
 
@@ -172,7 +173,9 @@ The owner's main complaint after trying the prototype: misaligned borders and st
 
 ## v0.2 (after v0.1; details to be planned then)
 
-Drag-resizable sidebars with hover highlight; right-click context menus; settings UI in the palette writing back to TOML; OpenCode theme compatibility + theme picker with live preview; OSC 9/99/777 desktop notifications with privacy levels; edit/delete for everyone; attachments (send/receive/open); emoji picker with `:shortcode:` search and width fallback; packaging (cargo-dist binaries, Homebrew tap, AUR `faro-bin`/`faro-git`, `.deb`, Nix flake).
+Drag-resizable sidebars with hover highlight; right-click context menus; settings UI in the palette writing back to TOML; ~~OpenCode theme compatibility + theme picker with live preview~~ (done early, D54); OSC 9/99/777 desktop notifications with privacy levels; edit/delete for everyone; attachments (send/receive/open); emoji picker with `:shortcode:` search and width fallback; packaging (cargo-dist binaries, Homebrew tap, AUR `faro-bin`/`faro-git`, `.deb`, Nix flake).
+
+Pulled forward on 2026-10-08 at the owner's request: the palette as a tree (D52), do not disturb (D53), and OpenCode's themes bundled, user theme files with hot reload and the live-preview theme picker (D54).
 
 ## Later (backlog: do not lose)
 

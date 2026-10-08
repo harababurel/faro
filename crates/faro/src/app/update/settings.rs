@@ -9,7 +9,7 @@ use crate::app::event::Effect;
 use crate::app::keymap::Keymap;
 use crate::app::palette::SettingChoice;
 use crate::app::state::{EmojiMode, MessageLayout, Notice, State};
-use crate::theme::Theme;
+use crate::theme::{Theme, ThemeText};
 
 /// At startup: the config `main` read, with its problems. The emoji mode
 /// was already decided by `main` (it looks for mosh before the first frame).
@@ -41,14 +41,7 @@ fn apply(
     startup: bool,
 ) -> Vec<Effect> {
     let keymap = keymap(&config, &mut problems);
-    if Theme::named(&config.theme).is_none() {
-        problems.push(Problem::warning(format!(
-            "theme: there's no theme called \"{}\"; using {} (built in: {})",
-            config.theme,
-            config::DEFAULT_THEME,
-            Theme::NAMES.join(", ")
-        )));
-    }
+    problems.extend(unknown_theme(state, &config.theme));
     let changed = config != state.config;
     let old = std::mem::replace(&mut state.config, config);
     let mut effects = Vec::new();
@@ -66,6 +59,35 @@ fn apply(
     }
     report(state, &problems, changed && !startup);
     effects
+}
+
+/// A warning if there's no theme called `name` (the default is drawn).
+fn unknown_theme(state: &State, name: &str) -> Option<Problem> {
+    Theme::find(name, &state.user_themes).is_none().then(|| {
+        Problem::warning(format!(
+            "theme: there's no theme called \"{name}\"; using {} (Ctrl+P › Themes lists them)",
+            config::DEFAULT_THEME,
+        ))
+    })
+}
+
+/// The user's theme files were read again (one changed): use them, and
+/// say what's wrong with any that can't be used.
+pub fn on_themes_read(state: &mut State, files: Vec<ThemeText>) -> Vec<Effect> {
+    let mut problems = state.user_themes.load(files);
+    for problem in &problems {
+        tracing::warn!(%problem, "theme file");
+    }
+    problems.extend(unknown_theme(state, &state.config.theme).map(|p| p.text));
+    state.notice = Some(match problems.split_first() {
+        None => Notice::info("Themes reloaded"),
+        Some((first, [])) => Notice::warning(format!("Themes: {first}")),
+        Some((first, more)) => Notice::warning(format!(
+            "Themes: {first} (and {} more in the log)",
+            more.len()
+        )),
+    });
+    vec![]
 }
 
 /// The default key map with the config's bindings applied; bad ones are

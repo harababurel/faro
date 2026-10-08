@@ -86,6 +86,13 @@ const PALETTE_LEVEL_HINTS: &[(&str, &str)] = &[
     ("←", "back"),
     ("esc", "close"),
 ];
+/// Moving through themes tries each on (D54); esc puts the old one back.
+const THEME_HINTS: &[(&str, &str)] = &[
+    ("↑↓", "preview"),
+    ("enter", "use it"),
+    ("←", "back"),
+    ("esc", "cancel"),
+];
 const MENU_HINTS: &[(&str, &str)] = &[("↑↓", "choose"), ("enter", "do it"), ("esc", "close")];
 const MUTE_HINTS: &[(&str, &str)] = &[
     ("↑↓", "choose"),
@@ -164,10 +171,15 @@ fn hints(state: &State, geometry: &Geometry) -> Vec<(String, &'static str)> {
             .collect()
     };
     if let Some(palette) = &state.palette {
-        return fixed(if palette.level() == Level::Root {
-            PALETTE_HINTS
-        } else {
-            PALETTE_LEVEL_HINTS
+        return fixed(match palette.level() {
+            Level::Root => PALETTE_HINTS,
+            Level::Themes => THEME_HINTS,
+            Level::Chats
+            | Level::Settings
+            | Level::Group(_)
+            | Level::Setting(_)
+            | Level::Commands
+            | Level::Keys => PALETTE_LEVEL_HINTS,
         });
     }
     if let Some(popup) = &state.popup {

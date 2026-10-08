@@ -118,7 +118,16 @@ Switch with the palette (`Ctrl+P` › Themes) or `theme = "…"` in the config; 
 - [ ] **Plain tmux:** in `tmux -f /dev/null` (no `terminal-features RGB`) faro sends truecolor and tmux rounds it to 256 colours itself: it should look like the previous check, not garbled.
 - [ ] **macOS Terminal.app** (no truecolor before macOS 26): detected as 256 colours (`TERM_PROGRAM=Apple_Terminal`), and looks right.
 - [ ] **Forced depths:** Colours › truecolor in a 256-colour terminal shows what happens when the guess is overridden wrongly (garbled or approximated colours, terminal-dependent); Colours › 16 switches to the system theme whatever theme is set; Colours › auto goes back.
-- [ ] **Live:** editing `theme` in the config file while faro runs switches the theme within about half a second; a misspelt name shows a warning listing the built-in themes and keeps `faro-dark`.
+- [ ] **Live:** editing `theme` in the config file while faro runs switches the theme within about half a second; a misspelt name shows a warning pointing to `Ctrl+P › Themes` and keeps `faro-dark`.
+
+## Themes: OpenCode's, your own, live preview (D54)
+
+- [ ] **Preview:** `Ctrl+P` › Themes starts on the theme in use (marked `●`). `↓`/`↑` and the wheel redraw the whole UI (sidebar, messages, bubbles, footer, the palette itself) in the selected theme at once; typing `nord` previews the best match. `Esc` puts the configured theme back; so do `←` / `Backspace` (up to the root) and a click outside. `Enter` keeps it: a notice says `Theme: …`, the config file gets `theme = "…"`, and reopening Themes starts on it. Footer while there: `↑↓ preview · enter use it · ← back · esc cancel`.
+- [ ] **OpenCode themes in kitty, directly and under tmux:** spot-check `tokyonight`, `catppuccin`, `gruvbox`, `nord`, `dracula`, `solarized`, `github-light`, `catppuccin-light`, `lucent-orng` (transparent upstream: drawn on black here) and `vesper-light`. Each should look like itself (compare with OpenCode if it's at hand) and stay usable: text, times (muted), the selected row, the palette, unread badges, both bubbles distinct from each other and from the background, sender names in a group chat distinguishable. Note any theme that looks wrong.
+- [ ] **256 colours:** a few of those with `[ui] colors = "256"`: close to truecolor; bubbles, selection and the input box still distinct.
+- [ ] **Your own theme:** copy `crates/faro/themes/opencode/nord.json` to `~/.config/faro/themes/mynord.json` while faro runs: a notice says "Themes reloaded" and `mynord` (and `mynord-light`) appear under Themes, labelled "your file". Choose it, then change its `background` in the file and save: the background changes within about half a second, without touching the palette.
+- [ ] **A broken theme file:** save `~/.config/faro/themes/broken.json` with `{`: a warning names the file and says what's wrong; the other themes still work. Restart faro: the same warning shows at startup. Remove the file.
+- [ ] **Replacing a built-in theme:** a file named `nord.json` in the themes directory replaces OpenCode's `nord` (one `nord` listed, labelled "your file"); one named `system.json` is refused with a warning.
 
 ## M8: terminal matrix (D50; run after M7 against the real backend, and once now with the mock)
 

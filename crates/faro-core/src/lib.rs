@@ -7,6 +7,7 @@ pub mod domain;
 pub mod mock;
 pub mod paths;
 pub mod store;
+pub mod theme_file;
 
 #[cfg(test)]
 mod architecture {

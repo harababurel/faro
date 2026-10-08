@@ -563,11 +563,19 @@ fn themes_are_a_category_and_under_appearance() {
     assert_eq!(themes.detail, "faro-dark", "the theme in use");
     pick(&mut state, "themes");
     assert_eq!(breadcrumb(&state), "Themes");
+    // faro's own first, then OpenCode's (dark, then light), labelled.
+    let titles = titles(&state);
     assert_eq!(
-        titles(&state),
-        vec!["faro-dark", "faro-dusk", "faro-light", "system"]
+        titles[..5],
+        ["faro-dark", "faro-dusk", "faro-light", "system", "aura"]
     );
-    assert_eq!(state.palette.as_ref().unwrap().items[0].current, Some(true));
+    assert!(titles.contains(&"github-light".to_owned()));
+    let items = &state.palette.as_ref().unwrap().items;
+    assert_eq!(items[0].current, Some(true));
+    assert_eq!(
+        (items[0].detail.as_str(), items[4].detail.as_str()),
+        ("", "OpenCode")
+    );
     let effects = pick(&mut state, "dusk");
     assert!(state.palette.is_none());
     assert_eq!(state.config.theme, "faro-dusk");
@@ -585,4 +593,46 @@ fn themes_are_a_category_and_under_appearance() {
     );
     enter(&mut state);
     assert_eq!(breadcrumb(&state), "Settings › Appearance › Themes");
+}
+
+#[test]
+fn moving_through_themes_previews_them() {
+    let mut state = loaded_state();
+    palette_open(&mut state, "themes");
+    enter(&mut state);
+    // Opening the list starts on the theme in use: nothing changes yet.
+    assert_eq!(selected_title(&state), "faro-dark");
+    assert_eq!(state.theme_name(), "faro-dark");
+    press(&mut state, KeyCode::Down);
+    assert_eq!(state.theme_name(), "faro-dusk", "previewed");
+    assert_eq!(state.config.theme, "faro-dark", "not chosen yet");
+    typed(&mut state, "nord");
+    assert_eq!(state.theme_name(), "nord", "the best match is previewed");
+    // Esc puts the theme in use back, unsaved.
+    press(&mut state, KeyCode::Esc);
+    assert!(state.palette.is_none());
+    assert_eq!(state.theme_name(), "faro-dark");
+
+    // Going back up stops the preview too.
+    palette_open(&mut state, "themes");
+    enter(&mut state);
+    press(&mut state, KeyCode::Down);
+    update(&mut state, ctrl('u'));
+    press(&mut state, KeyCode::Backspace);
+    assert_eq!(level(&state), Level::Root);
+    assert_eq!(state.theme_name(), "faro-dark");
+
+    // Enter keeps it and saves it.
+    pick(&mut state, "themes");
+    let effects = pick(&mut state, "tokyonight");
+    assert_eq!(state.config.theme, "tokyonight");
+    assert_eq!(state.theme_name(), "tokyonight");
+    assert_eq!(
+        effects,
+        vec![saved(key::THEME, ConfigValue::Text("tokyonight".into()))]
+    );
+    // Opening the list again starts on it.
+    palette_open(&mut state, "themes");
+    enter(&mut state);
+    assert_eq!(selected_title(&state), "tokyonight");
 }

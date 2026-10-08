@@ -16,6 +16,7 @@ use tokio::task::JoinHandle;
 
 use crate::app::event::AppEvent;
 use crate::app::keymap;
+use crate::theme::ThemeText;
 
 /// Changes in a burst (an editor saving in steps) are read once, this long
 /// after the last one.
@@ -33,6 +34,8 @@ pub struct Startup {
     pub path: PathBuf,
     pub config: Config,
     pub problems: Vec<Problem>,
+    /// The user's theme files (D54).
+    pub themes: Vec<ThemeText>,
 }
 
 /// The file written on first run: every setting and default key binding,
@@ -94,6 +97,67 @@ fn create(path: &Path) -> io::Result<()> {
 
 fn parent(path: &Path) -> Option<&Path> {
     path.parent().filter(|p| !p.as_os_str().is_empty())
+}
+
+/// Where the user's theme files are: `themes/` beside the config file.
+pub fn themes_dir(config: &Path) -> PathBuf {
+    parent(config).unwrap_or(Path::new(".")).join("themes")
+}
+
+/// Whether `path` is a theme file's (by name; it may be gone already).
+fn is_theme_file(path: &Path) -> bool {
+    path.extension().is_some_and(|e| e == "json")
+}
+
+/// Read the theme files at startup, first creating the (empty, `0700`)
+/// directory so it's there to put them in. A directory that can't be read
+/// means no user themes, not a failure.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "startup, before the UI: reads the theme files"
+)]
+pub fn load_themes(dir: &Path) -> Vec<ThemeText> {
+    if let Err(error) = paths::create_private_dir_all(dir) {
+        tracing::warn!(%error, dir = %dir.display(), "couldn't create the themes directory");
+    }
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) => {
+            tracing::warn!(%error, dir = %dir.display(), "couldn't read the themes directory");
+            return Vec::new();
+        }
+    };
+    entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| is_theme_file(path))
+        .map(|path| theme_text(&path, std::fs::read_to_string(&path)))
+        .collect()
+}
+
+/// Read the theme files again, after one changed.
+async fn read_themes(dir: &Path) -> Vec<ThemeText> {
+    let mut themes = Vec::new();
+    let Ok(mut entries) = tokio::fs::read_dir(dir).await else {
+        return themes;
+    };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        if is_theme_file(&path) {
+            themes.push(theme_text(&path, tokio::fs::read_to_string(&path).await));
+        }
+    }
+    themes
+}
+
+fn theme_text(path: &Path, read: io::Result<String>) -> ThemeText {
+    ThemeText {
+        file: path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        text: read.map_err(|e| format!("couldn't read it: {e}")),
+    }
 }
 
 /// Move preferences the database held before M5 into the config file, once:
@@ -212,24 +276,34 @@ pub fn spawn_writer(
     (edits, task)
 }
 
-/// Start watching, or explain in `problems` why changes won't apply.
+/// Start watching the config file and the theme files, or explain in
+/// `problems` why changes won't apply.
 pub fn try_watch(
     path: &Path,
-    results: mpsc::UnboundedSender<AppEvent>,
+    results: &mpsc::UnboundedSender<AppEvent>,
     problems: &mut Vec<Problem>,
-) -> Option<Watch> {
-    watch(path, results)
-        .inspect_err(|error| {
-            tracing::warn!(%error, "not watching the config file");
-            problems.push(Problem::warning(format!(
-                "changes to {} won't apply until restart: {error}",
-                path.display()
-            )));
-        })
-        .ok()
+) -> Vec<Watch> {
+    let themes = themes_dir(path);
+    [
+        (watch(path, results.clone()), path),
+        (watch_themes(&themes, results.clone()), themes.as_path()),
+    ]
+    .into_iter()
+    .filter_map(|(watch, watched)| {
+        watch
+            .inspect_err(|error| {
+                tracing::warn!(%error, watched = %watched.display(), "not watching");
+                problems.push(Problem::warning(format!(
+                    "changes to {} won't apply until restart: {error}",
+                    watched.display()
+                )));
+            })
+            .ok()
+    })
+    .collect()
 }
 
-/// Watching the config file; stops when dropped.
+/// Watching the config file or the themes; stops when dropped.
 pub struct Watch {
     _watcher: notify::RecommendedWatcher,
     task: JoinHandle<()>,
@@ -241,12 +315,13 @@ impl Drop for Watch {
     }
 }
 
-/// Watch the config file and send its text as `AppEvent::ConfigRead` after
-/// each burst of changes. Watches the directory, so editors that save by
-/// replacing the file are seen too.
-pub fn watch(path: &Path, results: mpsc::UnboundedSender<AppEvent>) -> notify::Result<Watch> {
+/// Watch `dir` (not recursively); `changed` picks the paths that matter.
+/// Each burst of changes sends one ping.
+fn watch_dir(
+    dir: &Path,
+    changed: impl Fn(&Path) -> bool + Send + 'static,
+) -> notify::Result<(notify::RecommendedWatcher, mpsc::UnboundedReceiver<()>)> {
     let (ping, pings) = mpsc::unbounded_channel();
-    let name = path.file_name().map(ToOwned::to_owned);
     let mut watcher =
         notify::recommended_watcher(move |event: notify::Result<notify::Event>| match event {
             // Not `Access`: reading the file (as the reload does) would
@@ -258,19 +333,66 @@ pub fn watch(path: &Path, results: mpsc::UnboundedSender<AppEvent>) -> notify::R
                         | EventKind::Create(_)
                         | EventKind::Modify(_)
                         | EventKind::Remove(_)
-                ) && event.paths.iter().any(|p| p.file_name() == name.as_deref()) =>
+                ) && event.paths.iter().any(|p| changed(p)) =>
             {
                 // Runs on notify's thread; never blocks.
                 let _ = ping.send(());
             }
             Ok(_) => {}
-            Err(error) => tracing::warn!(%error, "config file watcher"),
+            Err(error) => tracing::warn!(%error, "file watcher"),
         })?;
-    watcher.watch(
-        parent(path).unwrap_or(Path::new(".")),
-        RecursiveMode::NonRecursive,
-    )?;
+    watcher.watch(dir, RecursiveMode::NonRecursive)?;
+    Ok((watcher, debounce(pings)))
+}
+
+/// One ping per burst: sent once nothing has changed for `DEBOUNCE`.
+fn debounce(mut changes: mpsc::UnboundedReceiver<()>) -> mpsc::UnboundedReceiver<()> {
+    let (quiet, settled) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        while changes.recv().await.is_some() {
+            loop {
+                match tokio::time::timeout(DEBOUNCE, changes.recv()).await {
+                    Ok(Some(())) => {}
+                    Ok(None) => return,
+                    Err(_quiet) => break,
+                }
+            }
+            if quiet.send(()).is_err() {
+                return;
+            }
+        }
+    });
+    settled
+}
+
+/// Watch the config file and send its text as `AppEvent::ConfigRead` after
+/// each burst of changes. Watches the directory, so editors that save by
+/// replacing the file are seen too.
+pub fn watch(path: &Path, results: mpsc::UnboundedSender<AppEvent>) -> notify::Result<Watch> {
+    let name = path.file_name().map(ToOwned::to_owned);
+    let (watcher, pings) = watch_dir(parent(path).unwrap_or(Path::new(".")), move |p| {
+        p.file_name() == name.as_deref()
+    })?;
     let task = tokio::spawn(reload(path.to_owned(), pings, results));
+    Ok(Watch {
+        _watcher: watcher,
+        task,
+    })
+}
+
+/// Watch the theme files and send them all as `AppEvent::ThemesRead` after
+/// each burst of changes to any of them.
+pub fn watch_themes(dir: &Path, results: mpsc::UnboundedSender<AppEvent>) -> notify::Result<Watch> {
+    let (watcher, mut pings) = watch_dir(dir, is_theme_file)?;
+    let dir = dir.to_owned();
+    let task = tokio::spawn(async move {
+        while pings.recv().await.is_some() {
+            let themes = read_themes(&dir).await;
+            if results.send(AppEvent::ThemesRead(themes)).is_err() {
+                return;
+            }
+        }
+    });
     Ok(Watch {
         _watcher: watcher,
         task,
@@ -283,13 +405,6 @@ async fn reload(
     results: mpsc::UnboundedSender<AppEvent>,
 ) {
     while changes.recv().await.is_some() {
-        loop {
-            match tokio::time::timeout(DEBOUNCE, changes.recv()).await {
-                Ok(Some(())) => {}
-                Ok(None) => return,
-                Err(_quiet) => break,
-            }
-        }
         let read = match tokio::fs::read_to_string(&path).await {
             Ok(text) => Ok(text),
             Err(error) if error.kind() == io::ErrorKind::NotFound => {

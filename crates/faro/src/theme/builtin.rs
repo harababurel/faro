@@ -4,13 +4,14 @@
 
 use ratatui::style::Color;
 
-use super::Theme;
+use super::{Source, Theme};
 
 impl Theme {
     /// faro's own dark theme: warm lighthouse amber on near-black.
-    pub const fn faro_dark() -> Self {
+    pub fn faro_dark() -> Self {
         Self {
-            name: "faro-dark",
+            name: "faro-dark".to_owned(),
+            source: Source::Faro,
             background: Color::Rgb(0x10, 0x12, 0x16),
             background_panel: Color::Rgb(0x1a, 0x1d, 0x23),
             background_element: Color::Rgb(0x26, 0x2a, 0x33),
@@ -42,9 +43,10 @@ impl Theme {
     }
 
     /// A cooler dark theme: sea-glass teal and lamp yellow on blue slate.
-    pub const fn faro_dusk() -> Self {
+    pub fn faro_dusk() -> Self {
         Self {
-            name: "faro-dusk",
+            name: "faro-dusk".to_owned(),
+            source: Source::Faro,
             background: Color::Rgb(0x16, 0x1b, 0x26),
             background_panel: Color::Rgb(0x1d, 0x23, 0x31),
             background_element: Color::Rgb(0x2a, 0x32, 0x43),
@@ -76,9 +78,10 @@ impl Theme {
     }
 
     /// A light theme: ink and deep amber on warm paper.
-    pub const fn faro_light() -> Self {
+    pub fn faro_light() -> Self {
         Self {
-            name: "faro-light",
+            name: "faro-light".to_owned(),
+            source: Source::Faro,
             background: Color::Rgb(0xf7, 0xf4, 0xee),
             background_panel: Color::Rgb(0xef, 0xeb, 0xe3),
             background_element: Color::Rgb(0xe2, 0xdd, 0xd2),
@@ -113,9 +116,10 @@ impl Theme {
     /// 16 ANSI colours, so faro follows the terminal's palette (light or
     /// dark). Bubbles have no fill here: no ANSI colour is sure to differ
     /// from the background while keeping the text readable.
-    pub const fn system() -> Self {
+    pub fn system() -> Self {
         Self {
-            name: "system",
+            name: "system".to_owned(),
+            source: Source::Faro,
             background: Color::Reset,
             background_panel: Color::Reset,
             background_element: Color::DarkGray,
