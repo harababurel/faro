@@ -30,7 +30,7 @@ pub async fn link(data_dir: &Path, device_name: Option<String>) -> anyhow::Resul
         faro_presage::default_device_name(host.to_str())
     });
     let linked = faro_presage::link(store, name.clone(), |url| {
-        let qr = qr_code(url.as_str()).unwrap_or_default();
+        let qr = qr_code(url.as_str(), qr_colors()).unwrap_or_default();
         say(&format!(
             "\nOn your phone, open Signal › Settings › Linked devices › Link new device, \
              and scan this code:\n\n{qr}\nThe device will be called \"{name}\". Waiting…\n"
@@ -114,25 +114,35 @@ fn say(text: &str) {
     let _ = std::io::stdout().flush();
 }
 
+/// Exact black and white where the terminal shows RGB: themes may redefine
+/// every palette entry (base16 themes make colour 16 orange), which phones
+/// can't read. Elsewhere the basic ANSI black and bright white.
+fn qr_colors() -> &'static str {
+    use crate::theme::ColorDepth;
+    match ColorDepth::detect(|name| std::env::var(name).ok()) {
+        ColorDepth::Truecolor => "\x1b[38;2;255;255;255;48;2;0;0;0m",
+        ColorDepth::Indexed256 | ColorDepth::Ansi16 => "\x1b[97;40m",
+    }
+}
+
 /// A QR code drawn with half blocks, two modules per character cell, dark
-/// on light whatever the terminal's colours (phones don't read inverted
-/// codes reliably), with the standard 4-module quiet zone.
-fn qr_code(data: &str) -> Option<String> {
+/// on light (phones don't read inverted codes reliably), with the standard
+/// 4-module quiet zone. `colors` sets light foreground and dark background.
+fn qr_code(data: &str, colors: &str) -> Option<String> {
     const QUIET: usize = 4;
     let code = qrcode::QrCode::new(data.as_bytes()).ok()?;
     let width = code.width();
-    let colors = code.to_colors();
+    let modules = code.to_colors();
     let dark = |x: usize, y: usize| -> bool {
         let (Some(x), Some(y)) = (x.checked_sub(QUIET), y.checked_sub(QUIET)) else {
             return false;
         };
-        x < width && y < width && colors.get(y * width + x) == Some(&qrcode::Color::Dark)
+        x < width && y < width && modules.get(y * width + x) == Some(&qrcode::Color::Dark)
     };
     let side = width + 2 * QUIET;
     let mut out = String::new();
     for y in (0..side).step_by(2) {
-        // Fixed white on fixed black (256-colour cube), so themes can't change it.
-        out.push_str("\x1b[38;5;231;48;5;16m");
+        out.push_str(colors);
         for x in 0..side {
             out.push(match (dark(x, y), dark(x, y + 1)) {
                 (false, false) => '█',
@@ -152,10 +162,11 @@ mod tests {
 
     #[test]
     fn qr_code_is_square_with_a_quiet_zone() {
-        let qr = qr_code("sgnl://linkdevice?uuid=abc&pub_key=def").unwrap();
+        let colors = "\x1b[38;2;255;255;255;48;2;0;0;0m";
+        let qr = qr_code("sgnl://linkdevice?uuid=abc&pub_key=def", colors).unwrap();
         let rows: Vec<&str> = qr.lines().collect();
         let cells = |row: &str| {
-            row.trim_start_matches("\x1b[38;5;231;48;5;16m")
+            row.trim_start_matches(colors)
                 .trim_end_matches("\x1b[0m")
                 .chars()
                 .count()
