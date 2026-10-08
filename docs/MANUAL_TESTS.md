@@ -249,6 +249,24 @@ Use a separate data dir for the test account, e.g. `--data-dir ~/.local/share/fa
   - Send a photo, a sticker, and a document from a phone to faro: the photo and sticker download into `<data dir>/attachments/` (`0600`) and render inline; the document downloads on `d` and saves with `s`.
   - Send an image and a document from faro (with and without a caption): both arrive on the phone with their filename, content type, dimensions, and caption intact.
 
+## M10: voice notes and transcription (D80–D82)
+
+- [ ] **Mock voice notes & waveform:** run `faro --mock --data-dir /tmp/faro-m10` and open "Climbing 🧗" (or "Family"): voice note messages auto-download (`· downloading…` briefly) and render as `▶ 0:04 ▁▃▆█▅▂▃▁… · 64 KB` in both bubbles and IRC layouts (`Settings › Message layout`).
+- [ ] **Local playback and live progress (`x` / `v`):**
+  - When running locally (not over SSH or mosh), select a downloaded voice note (`↑` or click) and press `x` (or `v`, or `Enter` › *Play*): audio plays through the system player (`afplay` on macOS, `mpv`/`ffplay`/`pw-play`/`paplay`/`aplay` on Linux, or `[voice] player` in `config.toml`).
+  - While playing, the row shows `■ 0:01 / 0:04 … · playing`, advancing every second and colouring the played portion of the 16-bar waveform in the theme's accent colour.
+  - Pressing `x` (or `Enter` › *Stop*) stops playback immediately; starting another voice note stops the first.
+- [ ] **SSH and mosh playback guard:** over SSH (`SSH_CONNECTION` / `SSH_TTY`) or mosh, pressing `x` on a voice note does not play audio on the remote host; instead it shows a warning notice pointing to `s` (*Save to Downloads*) and *Copy path* (OSC 52), and the message menu omits *Play*.
+- [ ] **Opt-in local Whisper transcription (`[voice] transcribe = "local"`):**
+  - Set `transcribe = "local"` and `transcribe_model = "/path/to/ggml-base.bin"` under `[voice]` in `config.toml` (or via `Ctrl+P` › `:` › *Voice note transcription* › `local`, or with a custom wrapper script in `transcribe_command`).
+  - Select a voice note and press `t` (or `Enter` › *Transcribe*): the row shows `· transcribing…` (and `❝ transcribing…` beneath it) without blocking the UI, then renders `❝ <text> [local]` underneath. Restart faro: the transcript is persisted in SQLite and still shown.
+  - Press `y` (*Copy*) or `r` (*Reply*) on a transcribed voice note: the transcript is included in the copied text and reply quote.
+- [ ] **Opt-in remote Whisper transcription, consent popup & per-conversation permission (`[voice] transcribe = "remote"`):**
+  - Put `transcribe_api_key = "sk-..."` under `[voice]` in `config.toml`: faro rejects it with a footer warning that API keys must come from `$FARO_TRANSCRIBE_API_KEY`, `$OPENAI_API_KEY`, or the OS keychain (`security` on macOS, `secret-tool` on Linux).
+  - Choose `Ctrl+P` › `:` › *Voice note transcription* › `remote`: a modal consent popup explains that remote transcription sends people's voice recordings to `<transcribe_url>/audio/transcriptions` and requires enabling per conversation. `Esc` cancels and leaves transcription as it was; `Enter` on *I understand — enable remote transcription* records consent and sets `transcribe = "remote"`.
+  - In a conversation where remote transcription has not yet been allowed, press `t` on a voice note: faro asks for confirmation (or toggle *Allow remote voice transcription* from the conversation menu `Space` or `Ctrl+P` › `>`). Once allowed for that chat, `t` (and incoming voice notes ≤ `transcribe_max_secs`) transcribe in the background and show `❝ <text> [remote]`. Disallowing it in the conversation menu stops sending that chat's voice notes.
+- [ ] **Real Signal account:** send a voice note from a phone to faro: it arrives with `voice_note = true`, auto-downloads into `<data dir>/attachments/` (`0600`), extracts its duration and 16-bar waveform (via `ffmpeg` for AAC/M4A or Opus), plays locally with `x`, and transcribes when `t` is pressed.
+
 ## M8: terminal matrix (D50; run after M7 against the real backend, and once now with the mock)
 
 Columns: **direct** = faro straight in kitty; **tmux** = kitty → tmux (with the README's tmux settings); **SSH** = kitty → ssh → tmux on the other machine; **mosh** = kitty → mosh → tmux. Mark each cell ✓, ✗ (add a note below) or – (not applicable). Also try one other terminal per OS (WezTerm/Ghostty/Alacritty/foot on Linux, iTerm2 and Terminal.app on macOS) for the rows marked †.
