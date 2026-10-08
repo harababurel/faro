@@ -7,8 +7,8 @@ use std::time::Duration;
 use faro_core::backend::BackendEvent;
 use faro_core::config::{BubbleStyle, ColorChoice, Config};
 use faro_core::domain::{
-    ConnectionState, Contact, ConversationId, Direction, Group, GroupId, Message, MessageRef,
-    Quote, ServiceId, Timestamp,
+    BodyPart, ConnectionState, Contact, ConversationId, Direction, Group, GroupId, Message,
+    MessageRef, Quote, ServiceId, Timestamp, mention_parts,
 };
 use faro_core::store::{ConversationSummary, NotifyLevel};
 use ratatui::layout::Rect;
@@ -622,12 +622,33 @@ impl State {
     /// Whether new messages in `summary` ring the bell and count in the
     /// window title (D49): it's in the main list (not archived, hidden or
     /// left out by allowlist mode), not muted, and notifies for every
-    /// message. "Mentions only" notifies for nothing until the Signal backend
-    /// maps mentions (M7).
+    /// message. "Mentions only" conversations ring for mentions of this
+    /// account ([`State::rings_for`], D72) but don't count: the unread count
+    /// doesn't know which messages mention us.
     pub fn notifies(&self, summary: &ConversationSummary, now: Timestamp) -> bool {
-        self.section(summary).view() == SidebarView::Chats
-            && !summary.state.muted_at(now)
-            && summary.state.notify == NotifyLevel::All
+        self.listens(summary, now) && summary.state.notify == NotifyLevel::All
+    }
+
+    /// Whether `message`, new and unseen in `summary`, rings the bell: when
+    /// the conversation [`notifies`](State::notifies), or is "Mentions only"
+    /// and the message mentions this account (D72). A mute silences mentions
+    /// too.
+    pub fn rings_for(
+        &self,
+        summary: &ConversationSummary,
+        message: &Message,
+        now: Timestamp,
+    ) -> bool {
+        self.listens(summary, now)
+            && match summary.state.notify {
+                NotifyLevel::All => true,
+                NotifyLevel::Mentions => message.mentions_person(self.me),
+            }
+    }
+
+    /// In the main list and not muted: something in it may notify.
+    fn listens(&self, summary: &ConversationSummary, now: Timestamp) -> bool {
+        self.section(summary).view() == SidebarView::Chats && !summary.state.muted_at(now)
     }
 
     /// Name to show for a conversation: for a person, `person_name`; else
@@ -654,6 +675,28 @@ impl State {
                 .get(&group)
                 .map_or_else(|| "Unnamed group".to_owned(), |g| g.title.clone()),
         }
+    }
+
+    /// A message's text as people read it: mentions written as `@Name`
+    /// (D72). For copying and quoting; drawing styles the names too
+    /// (`ui::messages::content`).
+    pub fn readable_body(&self, message: &Message) -> Option<String> {
+        let body = message.body.as_ref()?;
+        let parts = mention_parts(body.expose(), &message.mentions);
+        Some(
+            parts
+                .into_iter()
+                .map(|part| match part {
+                    BodyPart::Text(text) => text.to_owned(),
+                    BodyPart::Mention(who) => self.mention_name(who),
+                })
+                .collect(),
+        )
+    }
+
+    /// How a mention of `who` reads: `@` and their name ("@You" for us).
+    pub fn mention_name(&self, who: ServiceId) -> String {
+        format!("@{}", self.person_name(who))
     }
 
     /// Name to show for a message's sender.

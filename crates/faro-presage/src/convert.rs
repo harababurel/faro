@@ -3,20 +3,21 @@
 
 use faro_core::backend::{BackendEvent, OutgoingEdit, OutgoingMessage};
 use faro_core::domain::{
-    AttachmentId, AttachmentRef, ConversationId, DeliveryStatus, Direction, GroupId, Message,
-    MessageBody, MessageRef, Quote, ServiceId, Timestamp, TypingState,
+    AttachmentId, AttachmentRef, ConversationId, DeliveryStatus, Direction, GroupId, Mention,
+    Message, MessageBody, MessageRef, Quote, ServiceId, Timestamp, TypingState,
 };
 use presage::libsignal_service::content::{Content, ContentBody};
 use presage::libsignal_service::protocol::{Aci, Pni, ServiceId as SignalId};
 use presage::libsignal_service::zkgroup::groups::{GroupMasterKey, GroupSecretParams};
 use presage::proto::attachment_pointer::AttachmentIdentifier;
+use presage::proto::body_range::AssociatedValue;
 use presage::proto::data_message::{self, Delete};
 use presage::proto::receipt_message;
 use presage::proto::sync_message::{self, Sent};
 use presage::proto::typing_message;
 use presage::proto::{
-    AttachmentPointer, DataMessage, EditMessage, GroupContextV2, ReceiptMessage, SyncMessage,
-    TypingMessage,
+    AttachmentPointer, BodyRange, DataMessage, EditMessage, GroupContextV2, ReceiptMessage,
+    SyncMessage, TypingMessage,
 };
 use uuid::Uuid;
 
@@ -202,6 +203,11 @@ fn data_message(data: &DataMessage, author: &Author, fallback_sent_at: u64) -> V
         sent_at: Timestamp::from_millis(data.timestamp.unwrap_or(fallback_sent_at)),
         direction: author.direction,
         body,
+        mentions: data
+            .body
+            .as_deref()
+            .map(|text| mentions(text, &data.body_ranges))
+            .unwrap_or_default(),
         quote: data.quote.as_ref().and_then(quote),
         attachments,
         reactions: vec![],
@@ -217,6 +223,42 @@ fn author(text: Option<&str>, binary: Option<&[u8]>) -> Option<ServiceId> {
             .and_then(|b| Uuid::from_slice(b).ok())
             .map(ServiceId::Aci)
     })
+}
+
+/// The people a body mentions (D72), with Signal's UTF-16 offsets turned
+/// into byte offsets of `body`. Text styles (bold, spoilers…) are left out.
+fn mentions(body: &str, ranges: &[BodyRange]) -> Vec<Mention> {
+    ranges
+        .iter()
+        .filter_map(|range| {
+            let who = match range.associated_value.as_ref()? {
+                AssociatedValue::MentionAci(aci) => author(Some(aci), None)?,
+                AssociatedValue::MentionAciBinary(aci) => author(None, Some(aci))?,
+                AssociatedValue::Style(_) => return None,
+            };
+            let start = usize::try_from(range.start?).ok()?;
+            let end = start.checked_add(usize::try_from(range.length?).ok()?)?;
+            let (start, end) = (byte_offset(body, start)?, byte_offset(body, end)?);
+            Some(Mention {
+                who,
+                start,
+                len: end.checked_sub(start)?,
+            })
+        })
+        .collect()
+}
+
+/// Where the `utf16`th UTF-16 code unit of `text` starts, in bytes; `None`
+/// past the end or inside a character.
+fn byte_offset(text: &str, utf16: usize) -> Option<usize> {
+    let mut units = 0;
+    for (at, c) in text.char_indices() {
+        if units == utf16 {
+            return Some(at);
+        }
+        units += c.len_utf16();
+    }
+    (units == utf16).then_some(text.len())
 }
 
 fn quote(quote: &data_message::Quote) -> Option<Quote> {
@@ -278,6 +320,7 @@ fn edited(edit: &EditMessage, sender: ServiceId, direct: ConversationId) -> Opti
             sent_at: Timestamp::from_millis(edit.target_sent_timestamp?),
         },
         body: MessageBody::new(data.body.as_deref().unwrap_or("")),
+        mentions: mentions(data.body.as_deref().unwrap_or(""), &data.body_ranges),
         edited_at: Timestamp::from_millis(data.timestamp?),
     })
 }

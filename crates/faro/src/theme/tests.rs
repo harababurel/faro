@@ -128,6 +128,13 @@ fn rules(t: &Theme) -> Vec<(String, Color, Color, f64)> {
         t.unread,
         3.0,
     ));
+    // Mentions (D72) are accent text, in bubbles too.
+    for (name, bg) in [
+        ("bubble_own", t.bubble_own),
+        ("bubble_other", t.bubble_other),
+    ] {
+        rules.push((format!("accent on {name}"), t.accent, bg, 3.0));
+    }
     rules.push((
         "border_active on background".to_owned(),
         t.border_active,

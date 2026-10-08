@@ -96,6 +96,7 @@ pub fn text(conversation: ConversationId, sender: ServiceId, at: u64, body: &str
             Direction::Incoming
         },
         body: Some(MessageBody::new(body)),
+        mentions: vec![],
         quote: None,
         attachments: vec![],
         reactions: vec![],

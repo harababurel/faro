@@ -1,7 +1,8 @@
 //! Notifications (M6, D49): when the bell rings, and what the unread total
 //! (the window title's count) includes.
 
-use faro_core::store::ConversationState;
+use faro_core::domain::{Mention, ServiceId};
+use faro_core::store::{ConversationState, NotifyLevel};
 
 use super::*;
 use crate::app::state::BELL_INTERVAL;
@@ -264,4 +265,35 @@ fn reloading_the_file_with_the_bell_off_is_do_not_disturb_too() {
     );
     assert!(!state.config.notifications.bell);
     assert_eq!(bells(&incoming(&mut state, alice(), 1)), 0);
+}
+
+fn mentioning(state: &mut State, who: ServiceId, at: u64) -> Vec<Effect> {
+    let mut message = text(climbing(), ALICE, fixtures::NOW_MS + at, "\u{FFFC} ping");
+    message.mentions = vec![Mention {
+        who,
+        start: 0,
+        len: '\u{FFFC}'.len_utf8(),
+    }];
+    update(state, AppEvent::Backend(BackendEvent::Message(message)))
+}
+
+#[test]
+fn mentions_only_rings_for_mentions_of_us_unless_muted() {
+    let mut state = loaded_state();
+    edit_state(&mut state, climbing(), |s| s.notify = NotifyLevel::Mentions);
+    update(&mut state, AppEvent::Terminal(Event::FocusLost));
+    let total = state.unread_total(wall_clock());
+
+    assert_eq!(bells(&mentioning(&mut state, BOB, 1)), 0, "someone else");
+    assert_eq!(bells(&mentioning(&mut state, ME, 2)), 1, "us");
+    // Counted as unread, but not in the title's total (D72).
+    assert_eq!(state.summary(climbing()).unwrap().unread, 2);
+    assert_eq!(state.unread_total(wall_clock()), total);
+
+    // A mute silences mentions too.
+    state.last_bell = None;
+    edit_state(&mut state, climbing(), |s| {
+        s.muted_until = Some(ConversationState::MUTED_FOREVER);
+    });
+    assert_eq!(bells(&mentioning(&mut state, ME, 3)), 0);
 }

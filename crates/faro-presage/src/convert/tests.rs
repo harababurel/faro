@@ -202,9 +202,60 @@ fn deletions_and_edits_target_the_senders_message() {
             conversation: ConversationId::Direct(ALICE),
             target,
             body: MessageBody::new("fixed"),
+            mentions: vec![],
             edited_at: Timestamp::from_millis(2000),
         }
     );
+}
+
+#[test]
+fn mentions_point_at_their_placeholder_in_bytes() {
+    let mention = |start, length, value| BodyRange {
+        start: Some(start),
+        length: Some(length),
+        associated_value: Some(value),
+    };
+    // "🧗" is two UTF-16 units but four bytes; "é" one unit, two bytes.
+    let mut data = text_from_alice("🧗 é \u{FFFC}, \u{FFFC}!", 1000);
+    data.body_ranges = vec![
+        mention(5, 1, AssociatedValue::MentionAci(ME.to_string())),
+        mention(
+            8,
+            1,
+            AssociatedValue::MentionAciBinary(ALICE.uuid().as_bytes().to_vec()),
+        ),
+        // Styles aren't mentions; ranges past the end or inside the
+        // climber's surrogate pair are dropped.
+        mention(0, 2, AssociatedValue::Style(1)),
+        mention(30, 1, AssociatedValue::MentionAci(ME.to_string())),
+        mention(1, 1, AssociatedValue::MentionAci(ME.to_string())),
+    ];
+    let BackendEvent::Message(message) = only(events(&from(ALICE, data), ME)) else {
+        panic!("expected a message");
+    };
+    let body = message.body.as_ref().map_or("", MessageBody::expose);
+    assert_eq!(
+        message.mentions,
+        vec![
+            Mention {
+                who: ME,
+                start: 8,
+                len: 3
+            },
+            Mention {
+                who: ALICE,
+                start: 13,
+                len: 3
+            },
+        ]
+    );
+    for mention in &message.mentions {
+        assert_eq!(
+            body.get(mention.start..mention.start + mention.len),
+            Some("\u{FFFC}")
+        );
+    }
+    assert!(message.mentions_person(ME));
 }
 
 #[test]

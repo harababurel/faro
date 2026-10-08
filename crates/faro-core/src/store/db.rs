@@ -15,7 +15,7 @@ use super::{ConversationState, ConversationSummary, NotifyLevel, Result, StoreEr
 use crate::backend::BackendEvent;
 use crate::domain::{
     AttachmentId, AttachmentRef, Contact, ConversationId, DeliveryStatus, Direction, Group,
-    Message, MessageBody, MessageRef, PhoneNumber, Quote, Reaction, ServiceId, Timestamp,
+    Mention, Message, MessageBody, MessageRef, PhoneNumber, Quote, Reaction, ServiceId, Timestamp,
 };
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!();
@@ -56,9 +56,10 @@ impl Db {
             BackendEvent::Edited {
                 target,
                 body,
+                mentions,
                 edited_at,
                 ..
-            } => self.edit(target, &body, edited_at).await,
+            } => self.edit(target, &body, &mentions, edited_at).await,
             BackendEvent::Deleted { target, .. } => self.delete(target).await,
             BackendEvent::ReadElsewhere(messages) => {
                 self.read_elsewhere(&messages).await.map(|_| ())
@@ -239,6 +240,7 @@ impl Db {
         for attachment in &message.attachments {
             insert_attachment(&mut tx, id, attachment).await?;
         }
+        insert_mentions(&mut tx, id, &message.mentions).await?;
         let unread = i64::from(message.direction == Direction::Incoming && !message.deleted);
         sqlx::query(
             "UPDATE conversations
@@ -305,25 +307,37 @@ impl Db {
         Ok(())
     }
 
-    /// Edits can arrive out of order; only a newer edit replaces the text.
+    /// Edits can arrive out of order; only a newer edit replaces the text
+    /// (and its mentions).
     async fn edit(
         &mut self,
         target: MessageRef,
         body: &MessageBody,
+        mentions: &[Mention],
         edited_at: Timestamp,
     ) -> Result<()> {
         let edited_at = timestamp_to_db(edited_at)?;
-        sqlx::query(
+        let mut tx = self.conn.begin().await?;
+        let updated: Option<(i64,)> = sqlx::query_as(
             "UPDATE messages SET body = ?1, edited_at = ?2
              WHERE sender = ?3 AND sent_at = ?4 AND deleted = 0
-               AND (edited_at IS NULL OR edited_at < ?2)",
+               AND (edited_at IS NULL OR edited_at < ?2)
+             RETURNING id",
         )
         .bind(body.expose())
         .bind(edited_at)
         .bind(target.sender.to_string())
         .bind(timestamp_to_db(target.sent_at)?)
-        .execute(&mut self.conn)
+        .fetch_optional(&mut *tx)
         .await?;
+        if let Some((id,)) = updated {
+            sqlx::query("DELETE FROM mentions WHERE message_id = ?1")
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+            insert_mentions(&mut tx, id, mentions).await?;
+        }
+        tx.commit().await?;
         Ok(())
     }
 
@@ -342,6 +356,7 @@ impl Db {
         for table in [
             "DELETE FROM reactions WHERE message_id = ?1",
             "DELETE FROM attachments WHERE message_id = ?1",
+            "DELETE FROM mentions WHERE message_id = ?1",
         ] {
             sqlx::query(table).bind(id).execute(&mut *tx).await?;
         }
@@ -484,6 +499,7 @@ impl Db {
                 sent_at: timestamp_from_db(sent_at, "sent_at")?,
                 direction: direction_from_db(&direction, status.as_deref())?,
                 body: body.map(MessageBody::new),
+                mentions: vec![],
                 quote,
                 attachments: vec![],
                 reactions: vec![],
@@ -549,6 +565,29 @@ impl Db {
                     content_type,
                     file_name,
                     size,
+                });
+            }
+        }
+
+        let mentions: Vec<(i64, i64, i64, String)> = sqlx::query_as(
+            "SELECT n.message_id, n.start, n.length, n.service_id
+             FROM mentions n JOIN messages m ON m.id = n.message_id
+             WHERE m.conversation_id = ?1 AND m.id BETWEEN ?2 AND ?3
+             ORDER BY n.message_id, n.start",
+        )
+        .bind(key)
+        .bind(low)
+        .bind(high)
+        .fetch_all(&mut self.conn)
+        .await?;
+        for (id, start, len, who) in mentions {
+            if let Some(message) = index.get(&id).and_then(|&i| messages.get_mut(i)) {
+                let offset =
+                    |n: i64| usize::try_from(n).map_err(|_| StoreError::Corrupt("mention"));
+                message.mentions.push(Mention {
+                    who: service_id_from_db(&who, "mention")?,
+                    start: offset(start)?,
+                    len: offset(len)?,
                 });
             }
         }
@@ -736,6 +775,27 @@ async fn insert_reaction(
     .bind(emoji)
     .execute(conn)
     .await?;
+    Ok(())
+}
+
+async fn insert_mentions(
+    conn: &mut SqliteConnection,
+    message: i64,
+    mentions: &[Mention],
+) -> Result<()> {
+    for mention in mentions {
+        let offset = |n: usize| i64::try_from(n).map_err(|_| StoreError::OutOfRange("mention"));
+        sqlx::query(
+            "INSERT INTO mentions (message_id, start, length, service_id) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT (message_id, start) DO NOTHING",
+        )
+        .bind(message)
+        .bind(offset(mention.start)?)
+        .bind(offset(mention.len)?)
+        .bind(mention.who.to_string())
+        .execute(&mut *conn)
+        .await?;
+    }
     Ok(())
 }
 

@@ -454,7 +454,7 @@ fn on_message(state: &mut State, message: &Message, effects: &mut Vec<Effect>) {
         }
     }
     if incoming && !seen {
-        effects.extend(notify::on_unseen_message(state, id));
+        effects.extend(notify::on_unseen_message(state, message));
     }
     sort_conversations(&mut state.conversations);
     if is_open {

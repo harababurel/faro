@@ -11,8 +11,8 @@ use uuid::Uuid;
 use super::*;
 use crate::backend::{Backend as _, BackendEvent};
 use crate::domain::{
-    AttachmentId, AttachmentRef, ConnectionState, DeliveryStatus, Direction, GroupId, Quote,
-    Reaction, ServiceId,
+    AttachmentId, AttachmentRef, ConnectionState, DeliveryStatus, Direction, GroupId, Mention,
+    Quote, Reaction, ServiceId,
 };
 use crate::mock::{MockBackend, MockConfig};
 
@@ -44,6 +44,7 @@ fn incoming(conversation: ConversationId, sender: u128, sent_at: u64, body: &str
         sent_at: ts(sent_at),
         direction: Direction::Incoming,
         body: Some(MessageBody::new(body)),
+        mentions: vec![],
         quote: None,
         attachments: vec![],
         reactions: vec![],
@@ -280,6 +281,7 @@ async fn only_newer_edits_win_and_deletes_drop_content() {
         conversation: direct(ALICE),
         target: message.reference(),
         body: MessageBody::new(body),
+        mentions: vec![],
         edited_at: ts(at),
     };
     store.apply(edit("typo fixed", 300)).await.unwrap();
@@ -309,6 +311,45 @@ async fn only_newer_edits_win_and_deletes_drop_content() {
     assert!(stored.deleted);
     assert_eq!(stored.body, None);
     assert_eq!(stored.reactions, vec![]);
+}
+
+#[tokio::test]
+async fn mentions_are_kept_replaced_by_edits_and_dropped_on_delete() {
+    let mention = |who, start| Mention {
+        who: aci(who),
+        start,
+        len: 3,
+    };
+    let mut message = incoming(group(), ALICE, 100, "\u{FFFC} and \u{FFFC}");
+    message.mentions = vec![mention(ME, 0), mention(BOB, 8)];
+    let store = store_with(std::slice::from_ref(&message)).await;
+    let stored = only_message(&store, group()).await;
+    assert_eq!(stored.mentions, message.mentions);
+
+    let edit = |body: &str, mentions, at| BackendEvent::Edited {
+        conversation: group(),
+        target: message.reference(),
+        body: MessageBody::new(body),
+        mentions,
+        edited_at: ts(at),
+    };
+    store
+        .apply(edit("hi \u{FFFC}", vec![mention(BOB, 3)], 300))
+        .await
+        .unwrap();
+    // Older than the applied edit: changes nothing, mentions included.
+    store.apply(edit("old", vec![], 200)).await.unwrap();
+    let stored = only_message(&store, group()).await;
+    assert_eq!(stored.mentions, vec![mention(BOB, 3)]);
+
+    store
+        .apply(BackendEvent::Deleted {
+            conversation: group(),
+            target: message.reference(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(only_message(&store, group()).await.mentions, vec![]);
 }
 
 #[tokio::test]

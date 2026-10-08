@@ -41,6 +41,7 @@ pub fn send(state: &mut State) -> Vec<Effect> {
         sent_at,
         direction: Direction::Outgoing(DeliveryStatus::Sending),
         body: Some(body.clone()),
+        mentions: vec![],
         quote: quote.clone(),
         attachments: vec![],
         reactions: vec![],

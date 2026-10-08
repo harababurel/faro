@@ -84,8 +84,8 @@ pub struct ConversationState {
 pub enum NotifyLevel {
     #[default]
     All,
-    /// Only messages that mention us. Mentions aren't modelled until the
-    /// Signal backend (M7), so for now nothing notifies.
+    /// Only messages that mention us (D72). They ring the bell but don't
+    /// count in the window title.
     Mentions,
 }
 

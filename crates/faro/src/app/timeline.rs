@@ -32,6 +32,7 @@ pub fn apply(messages: &mut Vec<Message>, event: &BackendEvent) {
         BackendEvent::Edited {
             target,
             body,
+            mentions,
             edited_at,
             ..
         } => {
@@ -40,6 +41,7 @@ pub fn apply(messages: &mut Vec<Message>, event: &BackendEvent) {
                 && m.edited_at.is_none_or(|at| at < *edited_at)
             {
                 m.body = Some(body.clone());
+                m.mentions.clone_from(mentions);
                 m.edited_at = Some(*edited_at);
             }
         }
@@ -112,6 +114,7 @@ mod tests {
             sent_at: Timestamp::from_millis(at),
             direction,
             body: Some(MessageBody::new("hi")),
+            mentions: vec![],
             quote: None,
             attachments: vec![],
             reactions: vec![],
@@ -171,6 +174,7 @@ mod tests {
             conversation: theirs.conversation,
             target: theirs.reference(),
             body: MessageBody::new(body),
+            mentions: vec![],
             edited_at: Timestamp::from_millis(at),
         };
         apply(&mut messages, &edit("new", 50));

@@ -43,6 +43,7 @@ fn message(conversation: ConversationId, sender: ServiceId) -> BackendEvent {
         sent_at: Timestamp::from_millis(1),
         direction: Direction::Incoming,
         body: Some(MessageBody::new("hi")),
+        mentions: Vec::new(),
         quote: None,
         attachments: Vec::new(),
         reactions: Vec::new(),

@@ -2,7 +2,9 @@
 //! D40): reply, react, copy, open links, retry a failed send.
 
 use faro_core::backend::{BackendError, BackendEvent, OutgoingMessage};
-use faro_core::domain::{ConversationId, DeliveryStatus, Direction, Message, MessageRef, Quote};
+use faro_core::domain::{
+    ConversationId, DeliveryStatus, Direction, Message, MessageBody, MessageRef, Quote,
+};
 
 use super::{curation, on_backend};
 use crate::app::commands::Command;
@@ -244,9 +246,10 @@ fn reply(state: &mut State, target: MessageRef) {
     let Some(message) = find(state, target).filter(|m| !m.deleted) else {
         return;
     };
+    // Mentions as `@Name`: the quote goes out without them (D72).
     let quote = Quote {
         target,
-        preview: message.body.clone(),
+        preview: state.readable_body(message).map(MessageBody::new),
     };
     if let Some(open) = state.open.as_mut() {
         open.reply_to = Some(quote);
@@ -330,8 +333,7 @@ pub fn on_react_result(
 fn copy(state: &mut State, target: MessageRef) -> Vec<Effect> {
     let text = find(state, target)
         .filter(|m| !m.deleted)
-        .and_then(|m| m.body.as_ref())
-        .map(|b| b.expose().to_owned());
+        .and_then(|m| state.readable_body(m));
     if let Some(text) = text {
         state.notice = Some(Notice::info("Copied to the clipboard"));
         vec![Effect::Copy(text)]

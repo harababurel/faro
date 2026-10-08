@@ -1105,3 +1105,73 @@ fn only_the_big_logo_asks_for_more_frames() {
     assert_eq!(at(Some(1.0)), at(Some(1.0)));
     assert_eq!(at(None), at(Some(super::logo::STILL)));
 }
+
+/// Climbing with a new message from Alice that mentions Bob and us (D72).
+fn mentions_state(layout: MessageLayout) -> State {
+    let mut state = loaded_state();
+    state.layout = layout;
+    let mut message = fixtures::text(
+        climbing(),
+        ALICE,
+        NOW_MS + 1,
+        "\u{FFFC} \u{FFFC} the wall is free, coming?",
+    );
+    let at = |who, start| faro_core::domain::Mention {
+        who,
+        start,
+        len: '\u{FFFC}'.len_utf8(),
+    };
+    message.mentions = vec![at(fixtures::BOB, 0), at(ME, 4)];
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::Message(message)),
+    );
+    state
+}
+
+#[test]
+fn mentions_in_irc() {
+    let state = mentions_state(MessageLayout::Irc);
+    insta::assert_snapshot!(snapshot(&draw(&state, 100, 20)));
+}
+
+#[test]
+fn mentions_in_bubbles() {
+    let state = mentions_state(MessageLayout::Bubbles);
+    insta::assert_snapshot!(snapshot(&draw(&state, 100, 20)));
+}
+
+#[test]
+fn mentions_are_names_in_the_accent_colour_and_ours_stand_out() {
+    use ratatui::style::Modifier;
+    let theme = Theme::default();
+    for layout in [MessageLayout::Irc, MessageLayout::Bubbles] {
+        let state = mentions_state(layout);
+        let buffer = draw(&state, 100, 20);
+        let text = snapshot(&buffer);
+        assert!(!text.contains('\u{FFFC}'), "no placeholder left");
+        let find = |needle: &str| {
+            let (row, line) = text
+                .lines()
+                .enumerate()
+                .find(|(_, l)| l.contains(needle))
+                .unwrap_or_else(|| panic!("{needle:?} not on screen"));
+            let col = line
+                .find(needle)
+                .map(|byte| unicode_width::UnicodeWidthStr::width(&line[..byte]));
+            let cell = (
+                u16::try_from(col.unwrap()).unwrap(),
+                u16::try_from(row).unwrap(),
+            );
+            buffer[cell].clone()
+        };
+        let bob = find(&state.mention_name(fixtures::BOB));
+        assert_eq!(bob.fg, theme.accent, "{layout:?}");
+        assert!(bob.modifier.contains(Modifier::BOLD));
+        assert!(!bob.modifier.contains(Modifier::REVERSED));
+        let us = find("@You");
+        assert_eq!(us.fg, theme.accent, "{layout:?}");
+        assert!(us.modifier.contains(Modifier::REVERSED));
+        assert!(!find("the wall").modifier.contains(Modifier::BOLD));
+    }
+}

@@ -1,6 +1,6 @@
 use super::BackendError;
 use crate::domain::{
-    ConnectionState, Contact, ConversationId, DeliveryStatus, Group, Message, MessageBody,
+    ConnectionState, Contact, ConversationId, DeliveryStatus, Group, Mention, Message, MessageBody,
     MessageRef, ServiceId, Timestamp, TypingState,
 };
 
@@ -32,6 +32,8 @@ pub enum BackendEvent {
         conversation: ConversationId,
         target: MessageRef,
         body: MessageBody,
+        /// Replace the message's mentions (D72).
+        mentions: Vec<Mention>,
         edited_at: Timestamp,
     },
 

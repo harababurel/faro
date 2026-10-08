@@ -5,14 +5,16 @@
 
 use std::collections::BTreeMap;
 
-use faro_core::domain::{DeliveryStatus, Direction, Message, MessageRef, Timestamp};
+use faro_core::domain::{
+    BodyPart, DeliveryStatus, Direction, Message, MessageRef, Timestamp, mention_parts,
+};
 use jiff::civil::Date;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
 use super::View;
 use super::bubbles;
-use super::text::{one_line, pad_left, sanitize, truncate, width, wrap};
+use super::text::{one_line, pad_left, sanitize, truncate, width, wrap_pieces};
 use crate::app::state::{Anchor, MessageLayout, OpenConversation, State};
 
 /// Consecutive messages from one sender within this window share one name.
@@ -362,9 +364,7 @@ pub(super) fn content(
             theme.muted().add_modifier(Modifier::ITALIC),
         )]);
     } else if let Some(text) = &message.body {
-        for line in wrap(text.expose(), max) {
-            body.push(vec![Span::styled(line, Style::new().fg(theme.text))]);
-        }
+        body.extend(text_lines(state, message, text.expose(), max, view));
     }
     for attachment in &message.attachments {
         let name = attachment.file_name.as_deref().map_or_else(
@@ -382,6 +382,40 @@ pub(super) fn content(
         body.push(vec![Span::styled("(empty message)", theme.muted())]);
     }
     body
+}
+
+/// A message's text wrapped to `max` cells, mentions drawn as `@Name` in
+/// the accent colour, and mentions of this account reversed (D72).
+fn text_lines(
+    state: &State,
+    message: &Message,
+    text: &str,
+    max: usize,
+    view: &View<'_>,
+) -> Vec<Vec<Span<'static>>> {
+    let theme = view.theme;
+    let plain = Style::new().fg(theme.text);
+    let mention = Style::new().fg(theme.accent).add_modifier(Modifier::BOLD);
+    let names: Vec<(String, Style)> = mention_parts(text, &message.mentions)
+        .into_iter()
+        .map(|part| match part {
+            BodyPart::Text(text) => (text.to_owned(), plain),
+            BodyPart::Mention(who) if who == state.me => (
+                state.mention_name(who),
+                mention.add_modifier(Modifier::REVERSED),
+            ),
+            BodyPart::Mention(who) => (state.mention_name(who), mention),
+        })
+        .collect();
+    let pieces: Vec<(&str, Style)> = names.iter().map(|(t, s)| (t.as_str(), *s)).collect();
+    wrap_pieces(&pieces, max)
+        .into_iter()
+        .map(|line| {
+            line.into_iter()
+                .map(|(text, style)| Span::styled(text, style))
+                .collect()
+        })
+        .collect()
 }
 
 /// `(edited)` and the delivery status of own messages.

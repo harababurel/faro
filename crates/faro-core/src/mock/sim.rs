@@ -14,8 +14,8 @@ use super::world::{REACTIONS, TEXTS, World};
 use super::{MockConfig, MockEpoch};
 use crate::backend::{BackendError, BackendEvent, OutgoingMessage, Result};
 use crate::domain::{
-    ConnectionState, Contact, ConversationId, DeliveryStatus, Direction, Message, MessageBody,
-    MessageRef, Quote, ServiceId, Timestamp, TypingState,
+    ConnectionState, Contact, ConversationId, DeliveryStatus, Direction, Mention, Message,
+    MessageBody, MessageRef, Quote, ServiceId, Timestamp, TypingState,
 };
 
 /// Milliseconds since the mock started.
@@ -29,6 +29,8 @@ const BACKLOG_SPAN: Millis = 3 * 24 * 60 * 60 * 1000;
 const RECENT_CAP: usize = 64;
 /// Message refs remembered to keep `(sender, sent_at)` unique.
 const ISSUED_CAP: usize = 256;
+/// How often a group message mentions someone.
+const MENTION_PERCENT: u32 = 15;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Activity {
@@ -477,6 +479,7 @@ impl Sim {
             conversation,
             target,
             body: self.text(),
+            mentions: vec![],
             edited_at: self.wall_clock_at(now),
         };
         self.emit(now, edited);
@@ -623,18 +626,49 @@ impl Sim {
         direction: Direction,
         quote: Option<Quote>,
     ) -> Message {
+        let text = self.text();
+        let (body, mentions) = match self.mentioned(conversation, sender) {
+            Some(who) => (
+                MessageBody::new(format!("\u{FFFC} {}", text.expose())),
+                vec![Mention {
+                    who,
+                    start: 0,
+                    len: '\u{FFFC}'.len_utf8(),
+                }],
+            ),
+            None => (text, vec![]),
+        };
         Message {
             conversation,
             sender,
             sent_at,
             direction,
-            body: Some(self.text()),
+            body: Some(body),
+            mentions,
             quote,
             attachments: vec![],
             reactions: vec![],
             edited_at: None,
             deleted: false,
         }
+    }
+
+    /// Now and then, someone in a group to mention (D72); this account half
+    /// the time, so mentions-only notifications can be tried.
+    fn mentioned(&mut self, conversation: ConversationId, sender: ServiceId) -> Option<ServiceId> {
+        if !matches!(conversation, ConversationId::Group(_)) || !self.chance(MENTION_PERCENT) {
+            return None;
+        }
+        let me = self.world.me();
+        if sender != me && self.chance(50) {
+            return Some(me);
+        }
+        let others: Vec<ServiceId> = self
+            .others_in(conversation)
+            .into_iter()
+            .filter(|s| *s != sender)
+            .collect();
+        self.rng.choice(others)
     }
 
     fn text(&mut self) -> MessageBody {
@@ -724,6 +758,9 @@ mod tests {
         ));
         assert!(has(
             |e| matches!(e, BackendEvent::Message(m) if m.quote.is_some())
+        ));
+        assert!(has(
+            |e| matches!(e, BackendEvent::Message(m) if !m.mentions.is_empty())
         ));
         assert!(has(|e| matches!(e, BackendEvent::Reaction { .. })));
         assert!(has(|e| matches!(e, BackendEvent::Typing { .. })));

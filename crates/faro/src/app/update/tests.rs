@@ -139,6 +139,7 @@ fn events_during_loading_are_replayed_on_the_loaded_page() {
             conversation: climbing(),
             target: last.reference(),
             body: MessageBody::new("edited while loading"),
+            mentions: vec![],
             edited_at: Timestamp::from_millis(last.sent_at.as_millis() + 2),
         }),
     );
@@ -988,6 +989,27 @@ fn copy_puts_the_text_on_the_clipboard_and_the_notice_expires() {
     state.notice.as_mut().unwrap().until = Some(Instant::now());
     update(&mut state, AppEvent::Tick);
     assert_eq!(state.notice, None);
+}
+
+#[test]
+fn copies_and_replies_write_mentions_as_names() {
+    let mut state = loaded_state();
+    let mut message = text(climbing(), BOB, fixtures::NOW_MS, "hi \u{FFFC}!");
+    message.mentions = vec![faro_core::domain::Mention {
+        who: ALICE,
+        start: 3,
+        len: '\u{FFFC}'.len_utf8(),
+    }];
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::Message(message)),
+    );
+    update(&mut state, key(KeyCode::Up, KeyModifiers::NONE));
+    let readable = format!("hi {}!", state.mention_name(ALICE));
+    assert_eq!(press(&mut state, 'y'), vec![Effect::Copy(readable.clone())]);
+    press(&mut state, 'r');
+    let quote = state.open.as_ref().unwrap().reply_to.clone().unwrap();
+    assert_eq!(quote.preview, Some(MessageBody::new(readable)));
 }
 
 #[test]
