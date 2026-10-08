@@ -698,3 +698,36 @@ Refines the DESIGN.md §5.1 sketch:
 
 - The sticker's `AttachmentPointer` (WebP) becomes an ordinary attachment without a file name, so it downloads, caches and draws like a photo. It is at most 8 rows tall. Animated stickers show their first frame.
 - The body stays `[sticker] 😀`, so copying, reply quotes, notifications and terminals without images still say what it was.
+
+### D80. Voice notes: identification, pure-Rust WAV analysis (`ffmpeg` fallback), auto-download, and waveform row — Judgement (2026-10-08, M10)
+
+- **Identification:** Signal marks voice notes with `AttachmentPointerFlags::VoiceMessage` (`flags & 1 != 0`), mapped by `faro-presage::convert::attachment` onto `AttachmentRef::voice_note: bool`. When the flag is absent (for example in replayed or local files), an `audio/*` attachment with no file name or a `voice-*` / `signal-voice*` file name is also treated as a voice note (`AttachmentRef::is_voice_note()`).
+- **Auto-download:** With `[media] auto_download` set to `"images"` (default) or `"all"`, voice notes up to 25 MB (`AUTO_DOWNLOAD_LIMIT`) download automatically in the open conversation alongside images (`AttachmentRef::auto_downloads`). Voice notes are small (typically tens of KB) and need their local file before playback, waveform analysis or transcription can run.
+- **Duration and waveform (`faro-core::audio` + `ffmpeg` fallback):**
+  - A pure-Rust RIFF/WAVE reader (`faro-core::audio:: inspect_wav`) parses 8/16/24/32-bit PCM and 32-bit float WAV files directly with no extra crates, returning `duration_secs: Option<u32>` and a 16-bar RMS waveform (`Vec<u8>`, values `0..=7`).
+  - For compressed audio from phones (AAC/M4A, Ogg Opus), the download worker falls back to `ffmpeg -v error -i <path> -ac 1 -ar 8000 -f s16le -` (capped at 10 minutes of samples) to compute the exact duration and 16 RMS bars in one pass; if `ffmpeg` is absent, it tries `ffprobe` for the duration and derives a deterministic 16-bar envelope from the attachment bytes so the row stays informative everywhere.
+  - Stored in SQLite (migration `0007_voice_notes.sql`: `voice_note`, `duration_secs`, `waveform`, `transcript`, `transcript_source` on `attachments`; `remote_transcription` on `conversation_state`).
+- **Row layout (`ui/messages.rs`):**
+  - Voice notes render as their own row in both `Bubbles` and `Irc` layouts instead of `📎 name · size`: `▶ 0:14 ▂▄▆█▅▃▂▆█▄▃▁▃▅▄▂ · 42 KB` when idle, or `■ 0:05 / 0:14 ▂▄▆█▅▃▂▆█▄▃▁▃▅▄▂ · playing` while playing (played bars in `accent`, unplayed bars muted). Every glyph (`▶`, `■`, `▁▂▃▄▅▆▇█`, `·`) is 1 cell wide across kitty, tmux and mosh (`EmojiMode::Compatible`).
+
+### D81. Playback through an external player, SSH/mosh guard, and progress ticks — Judgement (2026-10-08, M10)
+
+- **External player (`[voice] player = "auto"`):** faro spawns an OS player off the UI thread (`tokio::process::Command` with `kill_on_drop(true)`) rather than linking an audio output library. `"auto"` tries `afplay` on macOS and `mpv --no-video --really-quiet`, `ffplay -nodisp -autoexit -loglevel quiet`, `pw-play`, `paplay`, `aplay -q` on Linux/Unix; a custom command string in `[voice] player` is split on whitespace with the file path passed as the final argument.
+- **Single active player:** `app.rs` owns the child process (`PlayingProcess`). Pressing `x` (or `v` on a voice note) starts playback or stops it if that note is already playing; starting another note, closing the conversation or quitting kills the previous player. A 1 s timer (`AppEvent::PlaybackTick`) advances the elapsed counter and waveform highlight until the child exits (`AppEvent::PlaybackFinished`).
+- **SSH and mosh guard:** when `State::env.over_ssh` or `State::env.mosh` is true, `Play` refuses to run a player on the remote machine and puts up a notice pointing to `s` (*Save to Downloads*) and *Copy path* (OSC 52). The message menu omits *Play* over SSH/mosh for the same reason *Open* is omitted for files (D76).
+
+### D82. Opt-in Whisper transcription: local CLI or remote OpenAI-compatible API, explicit consent, and per-conversation permission — Judgement (2026-10-08, M10)
+
+- **Opt-in (`[voice] transcribe = "off" | "local" | "remote"`, default `"off"`):**
+  - Transcription is off by default. Users can trigger it manually on a selected voice note (`t` in the message pane, *Transcribe* in the message menu or palette) or automatically for downloaded voice notes in the open conversation up to `[voice] transcribe_max_secs = 300` (5 minutes; manual `t` ignores the duration cap).
+  - Jobs run in the background (`Command::Transcribe` → `AppEvent::Transcribed`), separate from attachment downloads, while the note shows `· transcribing…`.
+- **Local backend (`transcribe = "local"`):**
+  - Runs `[voice] transcribe_command` (default `"whisper-cli"`, also trying `whisper-cpp` and `whisper`) with `[voice] transcribe_model` (path to a GGML `.bin` model, `~` expanded) and optional `[voice] transcribe_language` (`"auto"` or an ISO-639-1 code). If the command string contains `{file}` or `transcribe_model` is empty, faro passes the audio path directly to the command so custom wrapper scripts work without flags; otherwise it converts non-WAV audio to a `0600` 16 kHz mono WAV temp file via `ffmpeg` if needed and invokes `<cmd> -m <model> [-l <lang>] -nt -np -f <path>`.
+- **Remote backend (`transcribe = "remote"`):**
+  - Posts `multipart/form-data` (`file`, `model`, optional `language`, `response_format=json`) to `<transcribe_url>/audio/transcriptions` (default `https://api.openai.com/v1`, model `whisper-1`). Runs `curl` with `--config -` over stdin so the `Authorization: Bearer <key>` header never appears in process arguments (`ps` / `/proc`).
+  - **API key:** never read from `config.toml`. Resolved from `$FARO_TRANSCRIBE_API_KEY`, else `$OPENAI_API_KEY`, else the OS keychain (`security find-generic-password -s faro-transcribe -w` on macOS, `secret-tool lookup service faro-transcribe` on Linux). Setting `transcribe_api_key` or `api_key` in `config.toml` produces a config warning explaining where to put the key.
+- **Remote consent and per-conversation permission:**
+  - **Explicit consent (`Popup::ConfirmRemoteTranscription`):** turning on `transcribe = "remote"` or running a remote transcription before consenting opens a confirmation popup naming `transcribe_url` and explaining that voice audio from allowed chats is sent to that endpoint. Confirming persists `voice.remote_consent = "true"` in `app_state`.
+  - **Per-conversation flag (`ConversationState::remote_transcription`):** remote transcription is disallowed by default for every conversation (`RemoteTranscription::Disallowed`). It is toggled per conversation from the conversation menu, the palette, or by confirming manual `t` on a voice note in that chat (which offers to allow remote transcription for the conversation). Local transcription never leaves the machine and needs neither remote consent nor the per-conversation flag.
+  - **Display and storage:** transcripts are saved in `attachments.transcript` + `attachments.transcript_source` (`local` / `remote`) so each note is transcribed once. They render directly below the voice note row as `❝ <text> [local]` or `❝ <text> [remote]`, and `State::readable_body` includes the transcript so `y` (*Copy*) and `r` (*Reply*) work on transcribed voice notes.
+

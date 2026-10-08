@@ -308,6 +308,32 @@ Keys in the message pane: `d` download, `v` view (for an image, else open locall
 - **Overlays and frame safety:** while a popup or the palette is open, kitty, sixel and iTerm2 images are drawn as their placeholders and half-blocks keep drawing. This has two reasons. The terminal-side image would otherwise show through or leave holes. And kitty's one-time image upload rides on the image's first cell, which an overlay drawn in the same frame would erase. The image viewer is itself a popup and draws its image last. The "more below" badge clips images above it. `emoji::finish` skips image cells. `tools/frames` gets an `images` scenario (half-blocks) for the D55 replay.
 - **Stickers (D79)** are images too: the sticker's pointer becomes an attachment (`image/webp`, no file name), drawn at most 8 rows tall. The body stays `[sticker] 😀` for copying, replies and terminals without images.
 
+### 7.10 Voice notes and transcription (M10, D80–D82)
+
+**Identification, download and audio metadata (D80).**
+- Signal sets `AttachmentPointerFlags::VoiceMessage` (`flags & 1 != 0`) on voice notes, mapped by `faro-presage::convert::attachment` onto `AttachmentRef::voice_note: bool`. When the flag is absent, an `audio/*` attachment with no file name or a `voice-*` / `signal-voice*` file name is also treated as a voice note (`AttachmentRef::is_voice_note()`).
+- With `[media] auto_download` set to `"images"` (default) or `"all"`, voice notes up to 25 MB download automatically in the open conversation alongside images.
+- When a voice note is downloaded, faro computes `duration_secs: Option<u32>` and a 16-bar RMS waveform (`Vec<u8>`, values `0..=7`) off the UI thread before emitting `AppEvent::Fetched`:
+  - `faro-core::audio::inspect_wav` reads RIFF/WAVE PCM/float files directly in pure Rust.
+  - For compressed formats (AAC/M4A, Ogg Opus), the worker invokes `ffmpeg -v error -i <path> -ac 1 -ar 8000 -f s16le -` (capped at 10 minutes) or falls back to `ffprobe` + a deterministic 16-bar envelope.
+- Migration `0007_voice_notes.sql` adds `voice_note`, `duration_secs`, `waveform`, `transcript` and `transcript_source` to `attachments`, and `remote_transcription` to `conversation_state`.
+
+**Row and playback (D80, D81).**
+- In both `Bubbles` and `Irc` layouts, a voice note renders as its own row:
+  - Idle: `▶ 0:14 ▂▄▆█▅▃▂▆█▄▃▁▃▅▄▂ · 42 KB` (plus `· downloading…`, `· not downloaded (d)`, `· transcribing…`, etc. when applicable).
+  - Playing: `■ 0:05 / 0:14 ▂▄▆█▅▃▂▆█▄▃▁▃▅▄▂ · playing`, with played waveform bars in `accent` and remaining bars muted.
+- Pressing `x` (or `v` when the attachment is a voice note) plays or stops the selected voice note through an external player (`[voice] player = "auto"`: `afplay` on macOS; `mpv --no-video --really-quiet`, `ffplay -nodisp -autoexit -loglevel quiet`, `pw-play`, `paplay`, `aplay -q` on Linux/Unix, or a custom command). At most one player child runs at a time; a 1 s timer (`AppEvent::PlaybackTick`) advances progress until the child exits (`AppEvent::PlaybackFinished`).
+- **Over SSH or mosh (`State::env.over_ssh || State::env.mosh`):** sound would play on the remote host, so `Play` refuses with a notice pointing to `s` (*Save to Downloads*) and *Copy path* (OSC 52), and the message menu omits *Play*.
+
+**Opt-in Whisper transcription (D82).**
+- Controlled by `[voice] transcribe = "off" | "local" | "remote"` (default `"off"`). Users can transcribe a selected voice note manually (`t` in the message pane, *Transcribe* in the message menu or palette) or automatically for downloaded voice notes in the open conversation up to `[voice] transcribe_max_secs = 300` (5 minutes).
+- **Local (`"local"`):** runs `[voice] transcribe_command` (default `"whisper-cli"`, also trying `whisper-cpp` and `whisper`) with `[voice] transcribe_model` (GGML `.bin` path) and optional `[voice] transcribe_language` (`"auto"` or ISO-639-1 code). Custom commands without a model path or containing `{file}` receive the audio path directly.
+- **Remote (`"remote"`):** posts `multipart/form-data` to `<transcribe_url>/audio/transcriptions` (default `https://api.openai.com/v1`, model `[voice] transcribe_model = "whisper-1"`) via `curl --config -` so the bearer key is passed over stdin, never on the command line. The API key is read from `$FARO_TRANSCRIBE_API_KEY`, `$OPENAI_API_KEY`, or the OS keychain (`security` on macOS, `secret-tool` on Linux), and rejected with a warning if placed in `config.toml`.
+- **Consent and per-conversation permission:**
+  - Turning on `transcribe = "remote"` or running a remote transcription before consenting opens `Popup::ConfirmRemoteTranscription` naming `transcribe_url`; accepting records `voice.remote_consent = "true"` in `app_state`.
+  - Remote transcription is also opt-in per conversation (`ConversationState::remote_transcription`, default `Disallowed`, toggled in the conversation menu, palette, or when confirming `t` on a voice note). Local transcription runs locally and needs neither remote consent nor the per-conversation flag.
+- **Display:** transcripts are stored in `attachments.transcript` + `attachments.transcript_source` (`local` / `remote`), rendered below the voice note row as `❝ <text> [local]` or `❝ <text> [remote]`, and included in `State::readable_body` for *Copy* (`y`) and *Reply* (`r`).
+
 ## 8. Notifications
 
 | Method | Works over SSH | Notes |
@@ -352,6 +378,15 @@ Sketch:
 [media]
 # inline_images = "auto"   # "auto" | "halfblocks" | "off" (D78)
 # auto_download = "images" # "images" | "all" | "off" (D75)
+
+[voice]
+# player = "auto"                       # "auto" | command (D81)
+# transcribe = "off"                    # "off" | "local" | "remote" (D82)
+# transcribe_command = "whisper-cli"    # local Whisper binary or wrapper script
+# transcribe_model = ""                 # local GGML .bin path, or remote model ("whisper-1")
+# transcribe_url = "https://api.openai.com/v1"
+# transcribe_language = "auto"          # "auto" or ISO-639-1 ("en", "ro", …)
+# transcribe_max_secs = 300             # max duration auto-transcribed (seconds)
 
 [mouse]
 # enabled = true
