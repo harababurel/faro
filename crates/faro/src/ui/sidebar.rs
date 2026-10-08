@@ -6,6 +6,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Paragraph};
 
+use faro_core::domain::ConversationId;
 use faro_core::store::{ConversationSummary, NotifyLevel};
 
 use super::View;
@@ -105,6 +106,7 @@ impl Row {
 /// something is pinned), then a row into the archive. Archive: a row back,
 /// then archived, hidden and not-allowed conversations under headers.
 fn rows(state: &State, view: &View<'_>, width: usize) -> Vec<Row> {
+    let highlighted = state.highlighted();
     let theme = view.theme;
     let listed: Vec<&ConversationSummary> = state.visible_conversations().collect();
     let archive = state.list.view == SidebarView::Archive;
@@ -124,7 +126,7 @@ fn rows(state: &State, view: &View<'_>, width: usize) -> Vec<Row> {
             current = Some(section);
             rows.push(Row::label(section_label(section), theme.muted()));
         }
-        rows.push(row(state, view, summary, width));
+        rows.push(row(state, view, summary, highlighted, width));
     }
     if listed.is_empty() {
         let note = match (archive, state.list.allowlist) {
@@ -159,9 +161,17 @@ fn section_label(section: Section) -> &'static str {
     }
 }
 
-fn row(state: &State, view: &View<'_>, summary: &ConversationSummary, width: usize) -> Row {
+fn row(
+    state: &State,
+    view: &View<'_>,
+    summary: &ConversationSummary,
+    highlighted: Option<ConversationId>,
+    width: usize,
+) -> Row {
     let theme = view.theme;
-    let selected = state.open.as_ref().is_some_and(|o| o.id == summary.id);
+    let selected = highlighted == Some(summary.id);
+    // With nothing open the highlight is only a cursor (D60): no open style.
+    let open = selected && state.open.is_some();
     let unread = summary.unread > 0;
     let typing = !state.typists(summary.id).is_empty();
     // Muted or mentions only: drawn quietly, as it won't notify (D49).
@@ -197,7 +207,7 @@ fn row(state: &State, view: &View<'_>, summary: &ConversationSummary, width: usi
     if unread && !muted {
         name_style = name_style.add_modifier(Modifier::BOLD);
     }
-    if selected {
+    if open {
         name_style = name_style
             .fg(theme.primary)
             .remove_modifier(Modifier::DIM)

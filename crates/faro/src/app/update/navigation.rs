@@ -34,8 +34,8 @@ pub fn on_action(state: &mut State, action: Action) -> Vec<Effect> {
         Action::ToggleRightSidebar => state.panels.right = !state.panels.right,
         Action::FocusNext => cycle_focus(state, 1),
         Action::FocusPrevious => cycle_focus(state, -1),
-        Action::FocusInput => state.focus = Focus::Input,
-        Action::Escape => escape(state),
+        Action::FocusInput => return focus_input(state),
+        Action::Escape => return escape(state),
         Action::PageUp => scroll(state, page(state)),
         Action::PageDown => scroll(state, -page(state)),
         Action::Send => return super::sending::send(state),
@@ -68,19 +68,37 @@ pub fn on_action(state: &mut State, action: Action) -> Vec<Effect> {
     vec![]
 }
 
-/// Esc: cancel a reply being written; otherwise dismiss the notice and go
-/// back to the input.
-fn escape(state: &mut State) {
-    let replying =
-        state.focus == Focus::Input && state.open.as_ref().is_some_and(|o| o.reply_to.is_some());
-    if replying {
-        if let Some(open) = state.open.as_mut() {
-            open.reply_to = None;
-        }
-    } else {
+/// Esc, one step at a time (D60): cancel a reply being written; else
+/// dismiss the notice and go back to the input; else close the open
+/// conversation (its draft kept), leaving the list highlighting it.
+fn escape(state: &mut State) -> Vec<Effect> {
+    let Some(open) = state.open.as_mut() else {
+        state.notice = None;
+        return vec![];
+    };
+    if state.focus == Focus::Input && open.reply_to.is_some() {
+        open.reply_to = None;
+        return vec![];
+    }
+    if state.notice.is_some() || state.focus != Focus::Input {
         state.notice = None;
         state.focus = Focus::Input;
+        return vec![];
     }
+    curation::close(state)
+}
+
+/// `Enter` in the list: with nothing open, open the highlighted
+/// conversation (D60); either way, write in it.
+fn focus_input(state: &mut State) -> Vec<Effect> {
+    let effects = match (state.open.is_none(), state.highlighted()) {
+        (true, Some(id)) => open_conversation(state, id),
+        (true | false, _) => vec![],
+    };
+    if state.open.is_some() {
+        state.focus = Focus::Input;
+    }
+    effects
 }
 
 /// Whether the text changed.
@@ -191,9 +209,26 @@ fn interrupt(state: &mut State) -> Vec<Effect> {
     vec![]
 }
 
-/// Move `step` places in the sidebar order (saturating at either end).
+/// Move `step` places in the sidebar order (saturating at either end): the
+/// open conversation switches; with nothing open, only the highlight moves
+/// and nothing is read (D60).
 fn step_conversation(state: &mut State, step: isize) -> Vec<Effect> {
     let ids: Vec<ConversationId> = state.visible_conversations().map(|c| c.id).collect();
+    if state.open.is_none() {
+        let current = state
+            .highlighted()
+            .and_then(|h| ids.iter().position(|id| *id == h));
+        let next = current.map_or(0, |i| {
+            i.saturating_add_signed(step)
+                .min(ids.len().saturating_sub(1))
+        });
+        state.list.cursor = ids.get(next).copied();
+        state.sidebar.reveal = true;
+        if state.panels.left {
+            state.focus = Focus::Conversations;
+        }
+        return vec![];
+    }
     let current = state
         .open
         .as_ref()

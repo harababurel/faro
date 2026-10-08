@@ -28,7 +28,7 @@ fn open_id(state: &State) -> Option<ConversationId> {
 }
 
 #[test]
-fn startup_opens_the_remembered_conversation() {
+fn startup_opens_nothing_and_highlights_the_remembered_conversation() {
     let mut state = State::new(ME, fixtures::contacts(), fixtures::groups());
     assert!(state.loading);
     let effects = update(
@@ -38,6 +38,15 @@ fn startup_opens_the_remembered_conversation() {
             last_open: Some(climbing()),
         },
     );
+    // Nothing is opened, so nothing is read (D60).
+    assert_eq!(effects, vec![]);
+    assert!(!state.loading);
+    assert_eq!(open_id(&state), None);
+    assert_eq!(state.highlighted(), Some(climbing()));
+    assert_eq!(state.focus, Focus::Conversations);
+    assert_eq!(state.summary(climbing()).map(|s| s.unread), Some(2));
+    // Enter opens it and reads it.
+    let effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(
         effects,
         vec![
@@ -46,8 +55,8 @@ fn startup_opens_the_remembered_conversation() {
             Effect::MarkRead(climbing()),
         ]
     );
-    assert!(!state.loading);
     assert_eq!(open_id(&state), Some(climbing()));
+    assert_eq!(state.focus, Focus::Input);
     assert_eq!(state.summary(climbing()).map(|s| s.unread), Some(0));
     // Pinned first, then by activity.
     let order: Vec<_> = state.visible_conversations().map(|c| c.id).collect();
@@ -55,7 +64,7 @@ fn startup_opens_the_remembered_conversation() {
 }
 
 #[test]
-fn startup_falls_back_to_the_first_conversation() {
+fn startup_highlights_the_first_conversation_without_a_remembered_one() {
     let mut state = State::new(ME, vec![], vec![]);
     update(
         &mut state,
@@ -64,11 +73,12 @@ fn startup_falls_back_to_the_first_conversation() {
             last_open: None,
         },
     );
-    assert_eq!(open_id(&state), Some(bob()));
+    assert_eq!(open_id(&state), None);
+    assert_eq!(state.highlighted(), Some(bob()));
 }
 
 #[test]
-fn first_message_opens_a_conversation_on_a_fresh_start() {
+fn a_first_message_on_a_fresh_start_opens_nothing() {
     let mut state = State::new(ME, fixtures::contacts(), vec![]);
     // Contacts exist but have no messages yet, so nothing is visible.
     let mut empty = fixtures::summary(alice(), "Alice", 0, 0);
@@ -87,15 +97,15 @@ fn first_message_opens_a_conversation_on_a_fresh_start() {
         &mut state,
         AppEvent::Backend(BackendEvent::Message(first.clone())),
     );
-    assert_eq!(open_id(&state), Some(alice()));
+    // It's listed, highlighted and unread; it doesn't open by itself (D60).
+    assert_eq!(open_id(&state), None);
+    assert_eq!(state.highlighted(), Some(alice()));
+    assert_eq!(state.summary(alice()).map(|s| s.unread), Some(1));
     assert_eq!(
         effects,
         vec![
             Effect::Persist(Box::new(BackendEvent::Message(first))),
             Effect::Bell,
-            Effect::LoadMessages(alice()),
-            Effect::RememberOpen(alice()),
-            Effect::MarkRead(alice()),
         ]
     );
 }
@@ -110,6 +120,7 @@ fn events_during_loading_are_replayed_on_the_loaded_page() {
             last_open: Some(climbing()),
         },
     );
+    update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
     let history = climbing_history();
     let last = history.last().cloned().unwrap();
     let new = text(
@@ -629,6 +640,7 @@ fn drafts_are_saved_after_a_pause_and_on_quit_and_restored() {
             last_open: Some(alice()),
         },
     );
+    update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
     let input = &state.open.as_ref().unwrap().input;
     assert_eq!((input.text(), input.cursor()), ("unfinished", 10));
 }

@@ -21,4 +21,4 @@ expression: "snapshot(&draw(&state, 100, 20))"
 │                            │││ ok                                                               ││
 │                            ││╰──────────────────────────────────────────────────────────────────╯│
 ╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯
- ● connected · 1 unread                enter send · alt+j/k conversations · tab focus · pgup scroll
+ ● connected · 1 unread    enter send · alt+j/k conversations · esc close · tab focus · pgup scroll

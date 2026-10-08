@@ -25,6 +25,7 @@ const INPUT_HINTS: Hints = &[
         &[Action::NextConversation, Action::PreviousConversation],
         "conversations",
     ),
+    (&[Action::Escape], "close"),
     (&[Action::FocusNext], "focus"),
     (&[Action::PageUp], "scroll"),
     (&[Action::ToggleLeftSidebar], "sidebar"),
@@ -205,10 +206,17 @@ fn hints(state: &State, geometry: &Geometry) -> Vec<(String, &'static str)> {
     } else {
         (Focus::Input, INPUT_HINTS)
     };
-    // An action with no key (unbound in the config) has no hint.
+    // An action with no key (unbound in the config) has no hint. With
+    // nothing open, `Enter` in the list opens the highlighted one (D60).
     hints
         .iter()
-        .filter_map(|&(actions, label)| Some((state.keymap.hint(actions, focus)?, label)))
+        .filter_map(|&(actions, label)| {
+            let label = match (actions, state.open.is_none()) {
+                ([Action::FocusInput], true) => "open",
+                _ => label,
+            };
+            Some((state.keymap.hint(actions, focus)?, label))
+        })
         .collect()
 }
 

@@ -132,6 +132,7 @@ fn opening_a_conversation_receipts_its_unread_messages() {
             last_open: Some(climbing()),
         },
     );
+    update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
     let effects = update(
         &mut state,
         AppEvent::MessagesLoaded {

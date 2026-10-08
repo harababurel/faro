@@ -1,5 +1,6 @@
 //! Test fixtures: a small cast and a conversation with every kind of message.
 
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use faro_core::backend::BackendEvent;
 use faro_core::domain::{
     AttachmentId, AttachmentRef, Contact, ConversationId, DeliveryStatus, Direction, Group,
@@ -164,8 +165,9 @@ pub fn climbing_history() -> Vec<Message> {
     vec![plan, yes, reply, edited, deleted, photo, long, sent, late]
 }
 
-/// A state as after startup: conversations loaded, Climbing open with its
-/// history (2 unread when opened).
+/// A state as after startup and `Enter` on the highlighted conversation:
+/// conversations loaded, Climbing (the last one open) open with its history
+/// (2 unread when opened).
 pub fn loaded_state() -> State {
     let mut state = State::new(ME, contacts(), groups());
     // The older snapshots and tests were written for IRC (D45).
@@ -177,6 +179,14 @@ pub fn loaded_state() -> State {
             conversations: summaries(),
             last_open: Some(climbing()),
         },
+    );
+    // Nothing opens by itself (D60): the list highlights Climbing.
+    update(
+        &mut state,
+        AppEvent::Terminal(Event::Key(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        ))),
     );
     update(
         &mut state,

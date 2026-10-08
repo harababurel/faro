@@ -265,16 +265,18 @@ fn on_loaded(
     sort_conversations(&mut conversations);
     state.conversations = conversations;
     state.loading = false;
-    let first = state.visible_conversations().next().map(|c| c.id);
+    // Nothing opens by itself (D60): the list highlights where the user
+    // was, in the list it's in (it may be archived), and has the focus.
     let remembered = last_open.filter(|id| state.summary(*id).is_some());
-    let Some(id) = remembered.or(first) else {
-        return vec![];
-    };
-    // Show the list the conversation is in (it may be archived).
-    if let Some(summary) = state.summary(id) {
+    if let Some(summary) = remembered.and_then(|id| state.summary(id)) {
         state.list.view = state.section(summary).view();
     }
-    open_conversation(state, id)
+    state.list.cursor = remembered;
+    state.sidebar.reveal = true;
+    if state.open.is_none() && state.panels.left {
+        state.focus = Focus::Conversations;
+    }
+    vec![]
 }
 
 fn on_messages_loaded(
@@ -418,12 +420,6 @@ fn on_message(state: &mut State, message: &Message, effects: &mut Vec<Effect>) {
         effects.extend(notify::on_unseen_message(state, id));
     }
     sort_conversations(&mut state.conversations);
-    if state.open.is_none() && !state.loading {
-        // First run: the list was empty at startup, so open where things happen.
-        // `Persist` goes first, so the loaded page includes this message.
-        effects.extend(open_conversation(state, id));
-        return;
-    }
     if is_open {
         apply_to_open(state, Some(id), &BackendEvent::Message(message.clone()));
         if let Some(open) = state.open.as_mut()

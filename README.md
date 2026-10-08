@@ -96,7 +96,7 @@ Press `F1` (or `?` outside the input box) for the full list, or search it in the
 | `Alt+N` | Do not disturb: turn the bell off (the footer says `bell off`) or back on |
 | In the list | `j`/`k` move, `Space` menu, `p` pin, `m` mute, `@` mentions only, `h` hide, `a` archive, `l` allow, `L` allowlist mode, `A` archive view |
 | `Ctrl+L` | Redraw the screen |
-| `Esc` | Back, dismiss |
+| `Esc` | Back, dismiss; then close the open chat (nothing is read while no chat is open) |
 | `Ctrl+Q` (or `Ctrl+C` twice) | Quit |
 
 The input box has readline-style editing (`Ctrl+A`/`E`/`U`/`K`/`W`, `Alt+B`/`F`/`D`).

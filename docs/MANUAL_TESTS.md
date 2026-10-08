@@ -118,6 +118,14 @@ Run `faro --mock --config /tmp/faro-test.toml` (bubbles is the default layout). 
 - [ ] **Old setting:** a config with `bubble_corners = "square"` (from D56) draws bars and the footer says to write `bubble_style = "bar"`.
 - [ ] **Narrow pane:** shrink the pane to about 40 columns: bubbles stay intact in both styles, edges as wide as the bubble.
 
+## No chat open (D60)
+
+- [ ] **Startup:** faro starts with no conversation open: the message pane shows the logo (D61), the list has the focus and highlights the chat you had open last (a plain highlight, the name not in the accent colour). Its unread count is unchanged.
+- [ ] **Browsing doesn't read:** `j`/`k` (and `Alt+J/K` from anywhere) move the highlight; nothing opens, unread counts stay. `m`, `p`, `h`, `Space` act on the highlighted chat. `Enter` or a click opens it; only then does its unread count clear.
+- [ ] **Esc steps back:** in a chat, write a draft, press `r` on a message to reply, then `Esc` repeatedly: the reply bar goes, then (from the list or messages) focus returns to the input, then the chat closes and the logo comes back with the list focused on that chat. Reopen it: the draft is there. The footer shows `esc close` while writing.
+- [ ] **Incoming while closed:** with nothing open, new messages (the mock sends them) raise unread counts and ring the bell (if on); nothing opens by itself, and the other phone (M7) shows them unread.
+- [ ] **Hidden list:** hide the list (`Alt+S`), then `Esc` out of the chat: the list comes back, focused.
+
 ## Setting previews (D59)
 
 - [ ] **Bubble style:** `Ctrl+P`, `:bubble`, `Enter`: the list opens on the style in use and nothing changes. `↓`/`↑` redraw the bubbles behind the palette in each style straight away; `Esc` puts the old style back and the config file is unchanged; `Enter` keeps the selected one, closes the palette and writes `bubble_style`.

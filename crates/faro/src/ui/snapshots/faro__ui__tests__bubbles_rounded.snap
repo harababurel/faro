@@ -35,4 +35,4 @@ expression: "snapshot(&draw(&rounded(bubbles_state()), 100, 34))"
 │                            │││ See you there                                                    ││
 │                            ││╰──────────────────────────────────────────────────────────────────╯│
 ╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯
- ● connected · 1 unread                enter send · alt+j/k conversations · tab focus · pgup scroll
+ ● connected · 1 unread    enter send · alt+j/k conversations · esc close · tab focus · pgup scroll

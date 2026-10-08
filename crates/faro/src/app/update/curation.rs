@@ -20,9 +20,7 @@ use crate::app::state::{
 /// highlight, as long as it's listed in the current view.
 pub fn on_curate(state: &mut State, curate: Curate) -> Vec<Effect> {
     let target = state
-        .open
-        .as_ref()
-        .map(|o| o.id)
+        .highlighted()
         .filter(|id| state.visible_conversations().any(|c| c.id == *id));
     match (curate, target) {
         (Curate::SwitchView, _) => {
@@ -382,15 +380,16 @@ fn follow(state: &mut State, target: ConversationId, before: &[ConversationId]) 
     }
 }
 
-/// Close the open conversation (nothing left to show).
-fn close(state: &mut State) -> Vec<Effect> {
+/// Close the open conversation (`Esc`, or nothing left to show): its draft
+/// is saved and the list, shown and focused, highlights it (D60).
+pub fn close(state: &mut State) -> Vec<Effect> {
     let mut effects = super::presence::stop_typing(state);
     effects.extend(save_draft(state));
-    state.open = None;
+    state.list.cursor = state.open.take().map(|o| o.id);
     state.popup = None;
-    if state.focus == Focus::Messages {
-        state.focus = Focus::Input;
-    }
+    state.panels.left = true;
+    state.sidebar.reveal = true;
+    state.focus = Focus::Conversations;
     effects
 }
 

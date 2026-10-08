@@ -332,6 +332,10 @@ pub struct ConversationList {
     pub view: SidebarView,
     /// Allowlist mode: only allowed (and pinned) conversations are in `Chats`.
     pub allowlist: bool,
+    /// The row highlighted while no conversation is open (D60): moved
+    /// without opening anything, so nothing is read. See
+    /// `State::highlighted`.
+    pub cursor: Option<ConversationId>,
 }
 
 /// Where a conversation is listed, in display order (D41).
@@ -488,6 +492,7 @@ impl State {
             list: ConversationList {
                 view: SidebarView::Chats,
                 allowlist: false,
+                cursor: None,
             },
             geometry: Geometry::default(),
             notice: None,
@@ -633,6 +638,23 @@ impl State {
             return phone.expose().to_owned();
         }
         id.uuid().simple().to_string().chars().take(8).collect()
+    }
+
+    /// The conversation the sidebar highlights (and curation keys act on):
+    /// the open one, else the cursor if it's listed, else the first listed
+    /// (D60).
+    pub fn highlighted(&self) -> Option<ConversationId> {
+        if let Some(open) = &self.open {
+            return Some(open.id);
+        }
+        let mut first = None;
+        for summary in self.visible_conversations() {
+            if Some(summary.id) == self.list.cursor {
+                return Some(summary.id);
+            }
+            first = first.or(Some(summary.id));
+        }
+        first
     }
 
     /// The theme to draw with: the one being previewed in the palette

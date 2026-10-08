@@ -166,6 +166,7 @@ fn hiding_the_last_conversation_closes_it() {
             last_open: None,
         },
     );
+    update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
     typed(&mut state, "draft");
     let effects = sidebar_key(&mut state, 'h');
     assert_eq!(open_id(&state), None);
@@ -240,7 +241,8 @@ fn startup_restores_allowlist_mode_and_the_archive_view() {
         },
     );
     assert!(state.list.allowlist);
-    assert_eq!(open_id(&state), Some(climbing()));
+    assert_eq!(open_id(&state), None);
+    assert_eq!(state.highlighted(), Some(climbing()));
     assert_eq!(state.list.view, SidebarView::Archive);
 }
 
@@ -379,4 +381,83 @@ fn empty_conversations_show_when_pinned_or_allowed() {
     assert!(!listed(&state).contains(&ConversationId::Direct(CAROL)));
     state.list.allowlist = true;
     assert!(listed(&state).contains(&ConversationId::Direct(CAROL)));
+}
+
+fn esc(state: &mut State) -> Vec<Effect> {
+    update(state, key(KeyCode::Esc, KeyModifiers::NONE))
+}
+
+#[test]
+fn esc_steps_back_then_closes_the_conversation() {
+    let mut state = loaded_state();
+    typed(&mut state, "half a thought");
+    // A notice goes first.
+    state.notice = Some(crate::app::state::Notice::warning("hello"));
+    assert_eq!(esc(&mut state), vec![]);
+    assert_eq!(state.notice, None);
+    assert_eq!(open_id(&state), Some(climbing()));
+    // From the list (or the messages), back to the input.
+    state.focus = Focus::Conversations;
+    assert_eq!(esc(&mut state), vec![]);
+    assert_eq!(state.focus, Focus::Input);
+    assert_eq!(open_id(&state), Some(climbing()));
+    // Then it closes, keeping the draft; the list highlights it (D60).
+    state.panels.left = false;
+    let effects = esc(&mut state);
+    assert_eq!(open_id(&state), None);
+    assert_eq!(state.focus, Focus::Conversations);
+    assert!(state.panels.left, "the list is shown");
+    assert_eq!(state.highlighted(), Some(climbing()));
+    let draft = effects.iter().find_map(|e| {
+        let Effect::SaveConversationState(id, s) = e else {
+            return None;
+        };
+        (*id == climbing()).then(|| s.draft.clone()).flatten()
+    });
+    assert_eq!(draft, Some(MessageBody::new("half a thought")));
+    // Nothing more to close.
+    assert_eq!(esc(&mut state), vec![]);
+    // Opening it again brings the draft back.
+    update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(
+        state.open.as_ref().map(|o| o.input.text().to_owned()),
+        Some("half a thought".to_owned())
+    );
+}
+
+#[test]
+fn with_nothing_open_the_list_moves_without_reading() {
+    let mut state = loaded_state();
+    while state.open.is_some() {
+        esc(&mut state);
+    }
+    assert_eq!(listed(&state), vec![bob(), climbing(), alice()]);
+    // A message to the conversation just closed stays unread.
+    let unread = |state: &State, id| state.summary(id).map(|s| s.unread);
+    let before = unread(&state, climbing());
+    let new = text(climbing(), BOB, fixtures::NOW_MS + 60_000, "psst");
+    update(&mut state, AppEvent::Backend(BackendEvent::Message(new)));
+    assert_eq!(open_id(&state), None);
+    assert_eq!(unread(&state, climbing()), before.map(|n| n + 1));
+    // j/k and Alt+J/K move the highlight; nothing opens or is read.
+    assert_eq!(sidebar_key(&mut state, 'j'), vec![]);
+    assert_eq!(state.highlighted(), Some(alice()));
+    sidebar_key(&mut state, 'k');
+    sidebar_key(&mut state, 'k');
+    assert_eq!(state.highlighted(), Some(bob()), "stops at the top");
+    state.focus = Focus::Input;
+    let alt_j = update(&mut state, key(KeyCode::Char('j'), KeyModifiers::ALT));
+    assert_eq!(alt_j, vec![]);
+    assert_eq!(state.highlighted(), Some(climbing()));
+    assert_eq!(state.focus, Focus::Conversations);
+    assert_eq!(open_id(&state), None);
+    // Curation keys act on the highlighted conversation.
+    sidebar_key(&mut state, 'm');
+    assert!(matches!(state.popup, Some(Popup::Mute { target, .. }) if target == climbing()));
+    state.popup = None;
+    // Enter opens it, and only then is it read.
+    let effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(open_id(&state), Some(climbing()));
+    assert!(effects.contains(&Effect::MarkRead(climbing())));
+    assert_eq!(unread(&state, climbing()), Some(0));
 }
