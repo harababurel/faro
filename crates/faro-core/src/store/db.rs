@@ -569,6 +569,35 @@ impl Db {
         Ok(())
     }
 
+    /// Everyone the user gave a nickname (D65).
+    pub(super) async fn nicknames(&mut self) -> Result<HashMap<ServiceId, String>> {
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT service_id, nickname FROM recipients WHERE nickname IS NOT NULL",
+        )
+        .fetch_all(&mut self.conn)
+        .await?;
+        rows.into_iter()
+            .map(|(id, nickname)| Ok((service_id_from_db(&id, "recipients.service_id")?, nickname)))
+            .collect()
+    }
+
+    /// Give someone a nickname, or take it away (`None`).
+    pub(super) async fn set_nickname(
+        &mut self,
+        id: ServiceId,
+        nickname: Option<&str>,
+    ) -> Result<()> {
+        let mut tx = self.conn.begin().await?;
+        ensure_recipient(&mut tx, id).await?;
+        sqlx::query("UPDATE recipients SET nickname = ?1 WHERE service_id = ?2")
+            .bind(nickname)
+            .bind(id.to_string())
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub(super) async fn stats(&mut self) -> Result<StoreStats> {
         let (conversations, messages): (i64, i64) = sqlx::query_as(
             "SELECT (SELECT count(*) FROM conversations), (SELECT count(*) FROM messages)",

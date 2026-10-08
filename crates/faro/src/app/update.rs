@@ -264,6 +264,7 @@ fn on_loaded(
 ) -> Vec<Effect> {
     sort_conversations(&mut conversations);
     state.conversations = conversations;
+    state.recount_names();
     state.loading = false;
     // Nothing opens by itself (D60): the list highlights where the user
     // was, in the list it's in (it may be archived), and has the focus.
@@ -361,6 +362,7 @@ fn on_backend(state: &mut State, event: BackendEvent) -> Vec<Effect> {
                 summary.title = title;
                 summary.phone = phone;
             }
+            state.recount_names();
         }
         BackendEvent::GroupUpdated(group) => {
             let id = ConversationId::Group(group.id);

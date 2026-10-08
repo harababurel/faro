@@ -87,6 +87,8 @@ const PALETTE_LEVEL_HINTS: &[(&str, &str)] = &[
     ("←", "back"),
     ("esc", "close"),
 ];
+/// Typing a nickname: the query is the name (D65).
+const NICKNAME_HINTS: &[(&str, &str)] = &[("enter", "save"), ("esc", "cancel")];
 /// On/off settings flip in place; the others open their values (D57).
 const SETTINGS_HINTS: &[(&str, &str)] = &[
     ("↑↓", "move"),
@@ -185,7 +187,10 @@ fn hints(state: &State, geometry: &Geometry) -> Vec<(String, &'static str)> {
             Level::Themes => PREVIEW_HINTS,
             Level::Setting(setting) if setting.previews() => PREVIEW_HINTS,
             Level::Settings => SETTINGS_HINTS,
-            Level::Chats | Level::Setting(_) | Level::Commands | Level::Keys => PALETTE_LEVEL_HINTS,
+            Level::Nickname(_) => NICKNAME_HINTS,
+            Level::Chats | Level::Setting(_) | Level::Commands | Level::Keys | Level::People => {
+                PALETTE_LEVEL_HINTS
+            }
         });
     }
     if let Some(popup) = &state.popup {

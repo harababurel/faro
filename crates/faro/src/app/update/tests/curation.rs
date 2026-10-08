@@ -31,6 +31,7 @@ fn saved(effects: &[Effect], id: ConversationId) -> Option<ConversationState> {
         | Effect::Persist(_)
         | Effect::MarkRead(_)
         | Effect::RememberOpen(_)
+        | Effect::SaveNickname(..)
         | Effect::SaveSetting(_)
         | Effect::Backend(_)
         | Effect::Copy(_)

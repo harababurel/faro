@@ -1,7 +1,7 @@
 //! Everything the UI shows. Changed only by the reducer (`update.rs`); read by the
 //! views (`ui/`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use faro_core::backend::BackendEvent;
@@ -49,6 +49,11 @@ pub struct State {
     pub me: ServiceId,
     pub contacts: HashMap<ServiceId, Contact>,
     pub groups: HashMap<GroupId, Group>,
+    /// Names the user gave people, shown instead of theirs (D65).
+    pub nicknames: HashMap<ServiceId, String>,
+    /// Names (lowercased) that more than one person goes by; those people
+    /// get a short tag after their name (D65). Kept by `recount_names`.
+    pub names_clash: HashSet<String>,
     /// Every known conversation, in display order (see `sort_conversations`).
     pub conversations: Vec<ConversationSummary>,
     /// The conversation list hasn't arrived from the store yet.
@@ -253,6 +258,8 @@ pub enum ConversationAction {
     Disallow,
     /// Turn allowlist mode on (`true`) or off.
     AllowlistMode(bool),
+    /// Give the person in a direct chat a nickname (D65).
+    Nickname,
 }
 
 impl ConversationAction {
@@ -275,6 +282,7 @@ impl ConversationAction {
             Self::Disallow => ("Remove from allowlist", "l"),
             Self::AllowlistMode(true) => ("Turn allowlist mode on", "L"),
             Self::AllowlistMode(false) => ("Turn allowlist mode off", "L"),
+            Self::Nickname => ("Set a nickname…", ""),
         }
     }
 }
@@ -472,10 +480,12 @@ pub enum NoticeLevel {
 
 impl State {
     pub fn new(me: ServiceId, contacts: Vec<Contact>, groups: Vec<Group>) -> Self {
-        Self {
+        let mut state = Self {
             me,
             contacts: contacts.into_iter().map(|c| (c.service_id, c)).collect(),
             groups: groups.into_iter().map(|g| (g.id, g)).collect(),
+            nicknames: HashMap::new(),
+            names_clash: HashSet::new(),
             conversations: Vec::new(),
             loading: true,
             open: None,
@@ -517,7 +527,16 @@ impl State {
             last_bell: None,
             quit_armed: false,
             quit: false,
-        }
+        };
+        state.recount_names();
+        state
+    }
+
+    /// With the nicknames the user gave people (D65).
+    pub fn with_nicknames(mut self, nicknames: HashMap<ServiceId, String>) -> Self {
+        self.nicknames = nicknames;
+        self.recount_names();
+        self
     }
 
     /// Conversations listed in the sidebar's current view, in display order
@@ -598,9 +617,14 @@ impl State {
             && summary.state.notify == NotifyLevel::All
     }
 
-    /// Name to show for a conversation: known title, then phone number, then a
-    /// short form of the ID.
+    /// Name to show for a conversation: for a person, `person_name`; else
+    /// the known title, then phone number, then a short form of the ID.
     pub fn conversation_title(&self, id: ConversationId) -> String {
+        if let ConversationId::Direct(peer) = id
+            && peer != self.me
+        {
+            return self.person_name(peer);
+        }
         let summary = self.summary(id);
         if let Some(title) = summary.and_then(|s| s.title.as_deref()) {
             return title.to_owned();
@@ -610,7 +634,7 @@ impl State {
                 if let Some(phone) = summary.and_then(|s| s.phone.as_ref()) {
                     return phone.expose().to_owned();
                 }
-                self.person_name(peer)
+                short_id(peer, 8)
             }
             ConversationId::Group(group) => self
                 .groups
@@ -627,19 +651,69 @@ impl State {
         self.person_name(message.sender)
     }
 
-    /// "You", contact name, phone number, or the first characters of the ID.
+    /// "You"; else their name (`base_name`), with a short tag from their ID
+    /// if someone else goes by the same name (D65); else the first
+    /// characters of their ID.
     pub fn person_name(&self, id: ServiceId) -> String {
         if id == self.me {
             return "You".to_owned();
         }
+        match self.base_name(id) {
+            Some(name) if self.names_clash.contains(&name.to_lowercase()) => {
+                format!("{name} · {}", short_id(id, 4))
+            }
+            Some(name) => name,
+            None => short_id(id, 8),
+        }
+    }
+
+    /// A person's name before clashes are told apart: their nickname (D65),
+    /// else their address-book or profile name, else their phone number.
+    pub fn base_name(&self, id: ServiceId) -> Option<String> {
+        if let Some(nickname) = self.nicknames.get(&id) {
+            return Some(nickname.clone());
+        }
         let contact = self.contacts.get(&id);
         if let Some(name) = contact.and_then(Contact::display_name) {
-            return name.to_owned();
+            return Some(name.to_owned());
         }
-        if let Some(phone) = contact.and_then(|c| c.phone.as_ref()) {
-            return phone.expose().to_owned();
+        let summary = self.summary(ConversationId::Direct(id));
+        summary.and_then(|s| s.title.clone()).or_else(|| {
+            contact
+                .and_then(|c| c.phone.as_ref())
+                .or_else(|| summary.and_then(|s| s.phone.as_ref()))
+                .map(|p| p.expose().to_owned())
+        })
+    }
+
+    /// Everyone faro knows (contacts and people with a direct chat), but
+    /// not this account.
+    pub fn people(&self) -> Vec<ServiceId> {
+        let mut people: Vec<ServiceId> = self.contacts.keys().copied().collect();
+        people.extend(self.conversations.iter().filter_map(|c| match c.id {
+            ConversationId::Direct(peer) => Some(peer),
+            ConversationId::Group(_) => None,
+        }));
+        people.sort();
+        people.dedup();
+        people.retain(|id| *id != self.me);
+        people
+    }
+
+    /// Find the names more than one person goes by again. Call after
+    /// contacts, conversations or nicknames change.
+    pub fn recount_names(&mut self) {
+        let mut seen = HashSet::new();
+        let mut clash = HashSet::new();
+        for id in self.people() {
+            if let Some(name) = self.base_name(id) {
+                let key = name.to_lowercase();
+                if !seen.insert(key.clone()) {
+                    clash.insert(key);
+                }
+            }
         }
-        id.uuid().simple().to_string().chars().take(8).collect()
+        self.names_clash = clash;
     }
 
     /// The conversation the sidebar highlights (and curation keys act on):
@@ -768,4 +842,10 @@ pub fn sort_conversations(conversations: &mut [ConversationSummary]) {
             .cmp(&key(b))
             .then_with(|| a.id.to_string().cmp(&b.id.to_string()))
     });
+}
+
+/// The first `len` hex digits of someone's ID: who they are when faro knows
+/// no name, or which one when names clash (D65).
+fn short_id(id: ServiceId, len: usize) -> String {
+    id.uuid().simple().to_string().chars().take(len).collect()
 }

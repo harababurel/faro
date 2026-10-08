@@ -1,5 +1,6 @@
 //! The app core (D22): the event loop that feeds the reducer and draws the UI.
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use anyhow::Context as _;
@@ -40,6 +41,8 @@ pub struct Directory {
     pub me: ServiceId,
     pub contacts: Vec<Contact>,
     pub groups: Vec<Group>,
+    /// Names the user gave people (D65), from the store.
+    pub nicknames: HashMap<ServiceId, String>,
 }
 
 /// Read the account, contacts and groups from the backend (local data, no
@@ -77,10 +80,12 @@ pub async fn load_directory<B: Backend>(backend: &B, store: &Store) -> anyhow::R
         }
         Err(error) => tracing::warn!(%error, "reading what the backend kept failed"),
     }
+    let nicknames = store.nicknames().await?;
     Ok(Directory {
         me: account.service_id,
         contacts,
         groups,
+        nicknames,
     })
 }
 
@@ -118,7 +123,8 @@ pub async fn run<B: Backend + 'static>(
     };
     let dispatch = |list: Vec<Effect>| router.dispatch(list);
 
-    let mut state = State::new(directory.me, directory.contacts, directory.groups);
+    let mut state = State::new(directory.me, directory.contacts, directory.groups)
+        .with_nicknames(directory.nicknames);
     sense_terminal(&mut state, detected);
     // Before the config: its theme may be one of them.
     for problem in state.user_themes.load(theme_files) {
@@ -251,6 +257,7 @@ impl Router {
                 | Effect::Persist(_)
                 | Effect::MarkRead(_)
                 | Effect::SaveConversationState(..)
+                | Effect::SaveNickname(..)
                 | Effect::RememberOpen(_)) => self.effects.send(store).is_ok(),
             };
             if !delivered {

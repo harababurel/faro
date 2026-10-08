@@ -126,11 +126,10 @@ fn prefixes_jump_into_a_category() {
     palette_open(&mut state, ">");
     assert_eq!(level(&state), Level::Commands);
     assert_eq!(state.palette.as_ref().unwrap().input.text(), "");
-    assert!(
-        kinds(&state)
-            .iter()
-            .all(|k| matches!(k, ItemKind::Command(_)))
-    );
+    assert!(kinds(&state).iter().all(|k| matches!(
+        k,
+        ItemKind::Command(_) | ItemKind::Level(Level::People | Level::Nickname(_))
+    )));
     // Backspace on an empty query goes back up.
     press(&mut state, KeyCode::Backspace);
     assert_eq!(level(&state), Level::Root);

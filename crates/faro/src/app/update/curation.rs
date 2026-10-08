@@ -105,6 +105,11 @@ pub fn menu(state: &mut State, target: ConversationId) {
         ConversationAction::Allow
     });
     items.push(ConversationAction::AllowlistMode(!state.list.allowlist));
+    if let ConversationId::Direct(peer) = target
+        && peer != state.me
+    {
+        items.push(ConversationAction::Nickname);
+    }
     state.popup = Some(Popup::Conversation {
         target,
         items,
@@ -243,6 +248,14 @@ pub fn perform(
         ConversationAction::MoveUp => move_pin(state, target, true),
         ConversationAction::MoveDown => move_pin(state, target, false),
         ConversationAction::AllowlistMode(on) => set_allowlist_mode(state, on),
+        ConversationAction::Nickname => {
+            if let ConversationId::Direct(peer) = target
+                && peer != state.me
+            {
+                super::palette::open_nickname(state, peer);
+            }
+            vec![]
+        }
         ConversationAction::Pin => {
             let next = state
                 .conversations

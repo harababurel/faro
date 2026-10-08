@@ -1112,6 +1112,7 @@ fn clicking_a_message_selects_it_and_right_click_opens_the_menu() {
 mod curation;
 mod notify;
 mod palette;
+mod people;
 mod presence;
 mod settings;
 mod terminal;

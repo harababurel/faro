@@ -1,14 +1,14 @@
 //! The command palette's keys, mouse and commands (D44; tree, D52).
 
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
-use faro_core::domain::ConversationId;
+use faro_core::domain::{ConversationId, ServiceId};
 use ratatui::layout::Position;
 
 use super::{curation, navigation, open_conversation, settings};
 use crate::app::event::Effect;
 use crate::app::keymap::{Edit, PaletteKey};
 use crate::app::palette::{self, ItemKind, Level, Palette, PaletteCommand, RECENT_MAX, Setting};
-use crate::app::state::{Focus, State};
+use crate::app::state::{Focus, Notice, State};
 
 /// Result rows shown on the last frame (a guess before the first one).
 fn rows(state: &State) -> usize {
@@ -32,6 +32,19 @@ pub fn open(state: &mut State, level: Level) {
     if let Some(current) = current {
         palette.select(&current);
     }
+    palette.note = palette::note(state, level);
+    state.palette = Some(palette);
+}
+
+/// Open the palette typing a nickname for `id`, starting from the one there
+/// is (D65).
+pub fn open_nickname(state: &mut State, id: ServiceId) {
+    state.popup = None;
+    let level = Level::Nickname(id);
+    let items = palette::items(state, level, &state.recent_commands);
+    let query = state.nicknames.get(&id).cloned().unwrap_or_default();
+    let mut palette = Palette::new(vec![Level::Root], Vec::new());
+    palette.show(palette::nickname_path(id), items, &query, None);
     palette.note = palette::note(state, level);
     state.palette = Some(palette);
 }
@@ -188,12 +201,29 @@ fn choose(state: &mut State) -> Vec<Effect> {
         return vec![];
     };
     if let ItemKind::Level(level) = kind {
-        enter(state, level, "");
+        // Typing a nickname starts from the one there is.
+        let query = match level {
+            Level::Nickname(id) => state.nicknames.get(&id).cloned().unwrap_or_default(),
+            Level::Root
+            | Level::Chats
+            | Level::Themes
+            | Level::Settings
+            | Level::Setting(_)
+            | Level::Commands
+            | Level::Keys
+            | Level::People => String::new(),
+        };
+        enter(state, level, &query);
         return vec![];
     }
     if let ItemKind::Switch(setting) = kind {
         return flip(state, setting);
     }
+    let typed = state
+        .palette
+        .as_ref()
+        .map(|p| p.input.text().trim().to_owned())
+        .unwrap_or_default();
     state.palette = None;
     match kind {
         ItemKind::Conversation(id) => show_conversation(state, id),
@@ -203,8 +233,34 @@ fn choose(state: &mut State) -> Vec<Effect> {
             remember(state, command);
             run(state, command)
         }
+        ItemKind::SetNickname(id) => set_nickname(state, id, Some(typed)),
+        ItemKind::ClearNickname(id) => set_nickname(state, id, None),
         ItemKind::Key | ItemKind::Level(_) | ItemKind::Switch(_) | ItemKind::Header => vec![],
     }
+}
+
+/// Give `id` a nickname shown only in faro, or take it away (`None` or an
+/// empty name) (D65).
+pub fn set_nickname(state: &mut State, id: ServiceId, nickname: Option<String>) -> Vec<Effect> {
+    let nickname = nickname.filter(|name| !name.is_empty());
+    let before = state.person_name(id);
+    match &nickname {
+        Some(name) => {
+            state.nicknames.insert(id, name.clone());
+        }
+        None => {
+            if state.nicknames.remove(&id).is_none() {
+                return vec![];
+            }
+        }
+    }
+    state.recount_names();
+    let after = state.person_name(id);
+    state.notice = Some(match &nickname {
+        Some(_) => Notice::info(format!("{before} is now {after} (only in faro)")),
+        None => Notice::info(format!("Nickname removed: {before} is {after} again")),
+    });
+    vec![Effect::SaveNickname(id, nickname)]
 }
 
 /// Flip an on/off setting from the list: applied and saved, the palette

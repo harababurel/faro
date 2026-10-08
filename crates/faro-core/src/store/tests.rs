@@ -466,3 +466,29 @@ async fn restart_keeps_mock_history() {
     assert_eq!(store.messages(busiest, None, 100).await.unwrap(), history);
     store.close().await.unwrap();
 }
+
+#[tokio::test]
+async fn nicknames_are_kept_apart_from_contact_updates() {
+    let store = Store::open_in_memory().await.unwrap();
+    assert_eq!(store.nicknames().await.unwrap(), HashMap::new());
+    store
+        .set_nickname(aci(ALICE), Some("Ali".to_owned()))
+        .await
+        .unwrap();
+    // A later contact update (new profile name) keeps the nickname.
+    store
+        .upsert_contacts(vec![Contact {
+            service_id: aci(ALICE),
+            name: None,
+            profile_name: Some("Alice".to_owned()),
+            phone: None,
+        }])
+        .await
+        .unwrap();
+    assert_eq!(
+        store.nicknames().await.unwrap(),
+        HashMap::from([(aci(ALICE), "Ali".to_owned())])
+    );
+    store.set_nickname(aci(ALICE), None).await.unwrap();
+    assert_eq!(store.nicknames().await.unwrap(), HashMap::new());
+}

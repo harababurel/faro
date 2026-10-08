@@ -9,7 +9,7 @@
 //! millisecond.
 
 use faro_core::config::{BubbleStyle, Choice as _, ColorChoice, EmojiChoice};
-use faro_core::domain::ConversationId;
+use faro_core::domain::{ConversationId, ServiceId};
 use faro_core::store::NotifyLevel;
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher, Utf32Str};
@@ -48,6 +48,10 @@ pub enum Level {
     Commands,
     /// The keybinding list.
     Keys,
+    /// Everyone faro knows, to give one a nickname (D65).
+    People,
+    /// Typing a nickname for someone: the query is the name (D65).
+    Nickname(ServiceId),
 }
 
 /// The sections of `Settings ›`, each under a header.
@@ -94,6 +98,8 @@ impl Level {
             Self::Setting(setting) => setting.title(),
             Self::Commands => "Commands",
             Self::Keys => "Keys",
+            Self::People => "Nicknames",
+            Self::Nickname(_) => "Nickname",
         }
     }
 
@@ -104,7 +110,7 @@ impl Level {
             Self::Settings => Some(':'),
             Self::Commands => Some('>'),
             Self::Keys => Some('?'),
-            Self::Root | Self::Themes | Self::Setting(_) => None,
+            Self::Root | Self::Themes | Self::Setting(_) | Self::People | Self::Nickname(_) => None,
         }
     }
 
@@ -244,6 +250,11 @@ pub enum ItemKind {
     Theme(String),
     /// A line of the keybinding list (for reference; choosing it closes).
     Key,
+    /// Give this person the typed name as a nickname (an empty query
+    /// removes it) (D65).
+    SetNickname(ServiceId),
+    /// Take this person's nickname away.
+    ClearNickname(ServiceId),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -429,6 +440,19 @@ impl Palette {
 
     /// Match the query again; back to the best result.
     pub fn refilter(&mut self) {
+        // Typing a nickname: the query is the name, every item stays.
+        if let Level::Nickname(_) = self.level() {
+            self.matches = (0..self.items.len())
+                .map(|item| Match {
+                    item,
+                    highlight: Vec::new(),
+                })
+                .collect();
+            self.selected = 0;
+            self.offset = 0;
+            self.sync_preview();
+            return;
+        }
         let pattern = Pattern::parse(
             self.input.text().trim(),
             CaseMatching::Smart,
@@ -578,7 +602,44 @@ pub fn items(state: &State, level: Level, recent: &[PaletteCommand]) -> Vec<Item
         Level::Setting(setting) => setting_values(state, setting),
         Level::Commands => commands_by_recency(state, recent),
         Level::Keys => keybindings(&state.keymap),
+        Level::People => people(state),
+        Level::Nickname(id) => nickname_actions(state, id),
     }
+}
+
+/// Everyone faro knows, by name, to give one a nickname (D65).
+fn people(state: &State) -> Vec<Item> {
+    let mut items: Vec<Item> = state
+        .people()
+        .into_iter()
+        .map(|id| {
+            let detail = if state.nicknames.contains_key(&id) {
+                "nickname"
+            } else {
+                ""
+            };
+            Item::new(ItemKind::Level(Level::Nickname(id)), state.person_name(id)).detail(detail)
+        })
+        .collect();
+    items.sort_by_cached_key(|item| item.title.to_lowercase());
+    items
+}
+
+/// At `Nickname`: save what's typed, or remove the nickname there is.
+fn nickname_actions(state: &State, id: ServiceId) -> Vec<Item> {
+    let mut items = vec![Item::new(ItemKind::SetNickname(id), "Save as nickname").detail("enter")];
+    if state.nicknames.contains_key(&id) {
+        items.push(Item::new(
+            ItemKind::ClearNickname(id),
+            "Remove the nickname",
+        ));
+    }
+    items
+}
+
+/// The palette path that types a nickname for `id`.
+pub fn nickname_path(id: ServiceId) -> Vec<Level> {
+    vec![Level::Root, Level::People, Level::Nickname(id)]
 }
 
 /// The root: one item per category, with its prefix (or, for themes, the
@@ -594,7 +655,9 @@ fn categories(state: &State) -> Vec<Item> {
                 | Level::Settings
                 | Level::Setting(_)
                 | Level::Commands
-                | Level::Keys => level.prefix().map(String::from).unwrap_or_default(),
+                | Level::Keys
+                | Level::People
+                | Level::Nickname(_) => level.prefix().map(String::from).unwrap_or_default(),
             };
             Item::new(ItemKind::Level(level), level.title()).detail(detail)
         })
@@ -663,6 +726,7 @@ fn commands(state: &State) -> Vec<Item> {
             None,
         ));
     }
+    items.push(Item::new(ItemKind::Level(Level::People), "Set a nickname…"));
     items.push(global(
         Action::ToggleLeftSidebar,
         if state.panels.left {
@@ -757,6 +821,16 @@ pub fn flipped(state: &State, setting: Setting) -> Option<SettingChoice> {
 /// A line about `level` shown above its results: at Themes, how the
 /// terminal's colours change what's drawn (D57).
 pub fn note(state: &State, level: Level) -> Option<String> {
+    if let Level::Nickname(id) = level {
+        let theirs = state
+            .contacts
+            .get(&id)
+            .and_then(faro_core::domain::Contact::display_name)
+            .map_or_else(String::new, |name| format!(" (their name: {name})"));
+        return Some(format!(
+            "Type a nickname{theirs}; only faro shows it. Empty removes it."
+        ));
+    }
     if level != Level::Themes {
         return None;
     }
@@ -939,6 +1013,14 @@ fn open_conversation_commands(state: &State) -> Vec<Item> {
         )
     });
     let name = state.conversation_title(summary.id);
+    if let ConversationId::Direct(peer) = summary.id
+        && peer != state.me
+    {
+        items.push(Item::new(
+            ItemKind::Level(Level::Nickname(peer)),
+            "Set a nickname…",
+        ));
+    }
     for item in &mut items {
         item.path = Some(name.clone());
     }

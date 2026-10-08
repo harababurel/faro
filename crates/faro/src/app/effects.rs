@@ -97,6 +97,10 @@ async fn execute(store: &Store, effect: Effect) -> Result<Option<AppEvent>, Stor
                 .await?;
             None
         }
+        Effect::SaveNickname(id, nickname) => {
+            store.set_nickname(id, nickname).await?;
+            None
+        }
         Effect::Backend(_)
         | Effect::Copy(_)
         | Effect::OpenUrl(_)

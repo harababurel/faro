@@ -233,7 +233,9 @@ fn result_line(
             | ItemKind::Theme(_)
             | ItemKind::Switch(_)
             | ItemKind::Header
-            | ItemKind::Key,
+            | ItemKind::Key
+            | ItemKind::SetNickname(_)
+            | ItemKind::ClearNickname(_),
             None,
         ) => "  ",
     };

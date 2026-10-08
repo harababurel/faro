@@ -2,7 +2,7 @@
 
 use faro_core::backend::{BackendError, BackendEvent};
 use faro_core::config::SettingEdit;
-use faro_core::domain::{ConversationId, Message, MessageRef, Timestamp};
+use faro_core::domain::{ConversationId, Message, MessageRef, ServiceId, Timestamp};
 use faro_core::store::{ConversationState, ConversationSummary};
 
 use super::commands::Command;
@@ -83,6 +83,8 @@ pub enum Effect {
     SaveConversationState(ConversationId, Box<ConversationState>),
     /// Reopen this conversation on the next start.
     RememberOpen(ConversationId),
+    /// Store someone's nickname, or remove it (`None`) (D65).
+    SaveNickname(ServiceId, Option<String>),
     /// Write a setting to the config file (D48); routed to the config writer.
     SaveSetting(SettingEdit),
     /// Ask the backend to do something; routed to the command task.

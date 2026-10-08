@@ -7,6 +7,7 @@
 //! Applying the same backend event twice is harmless: duplicates are ignored,
 //! receipts never regress and only newer edits win.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr as _;
 
@@ -15,7 +16,8 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::backend::BackendEvent;
 use crate::domain::{
-    Contact, ConversationId, Group, Message, MessageBody, MessageRef, PhoneNumber, Timestamp,
+    Contact, ConversationId, Group, Message, MessageBody, MessageRef, PhoneNumber, ServiceId,
+    Timestamp,
 };
 use crate::paths;
 
@@ -150,6 +152,8 @@ enum Request {
     AppState(String, Reply<Option<String>>),
     SetAppState(String, String, Reply<()>),
     RemoveAppState(String, Reply<()>),
+    Nicknames(Reply<HashMap<ServiceId, String>>),
+    SetNickname(ServiceId, Option<String>, Reply<()>),
     Stats(Reply<StoreStats>),
     Close(Reply<()>),
 }
@@ -270,6 +274,17 @@ impl Store {
         self.call(Request::Stats).await
     }
 
+    /// Everyone the user gave a nickname (D65).
+    pub async fn nicknames(&self) -> Result<HashMap<ServiceId, String>> {
+        self.call(Request::Nicknames).await
+    }
+
+    /// Give someone a nickname, or take it away (`None`).
+    pub async fn set_nickname(&self, id: ServiceId, nickname: Option<String>) -> Result<()> {
+        self.call(|reply| Request::SetNickname(id, nickname, reply))
+            .await
+    }
+
     /// Stop the store task and close the database cleanly (checkpointing the WAL).
     /// Other handles get [`StoreError::Closed`] afterwards.
     pub async fn close(self) -> Result<()> {
@@ -346,6 +361,12 @@ async fn handle(db: &mut Db, request: Request) -> Option<Reply<()>> {
         }
         Request::Stats(reply) => {
             let _ = reply.send(db.stats().await);
+        }
+        Request::Nicknames(reply) => {
+            let _ = reply.send(db.nicknames().await);
+        }
+        Request::SetNickname(id, nickname, reply) => {
+            let _ = reply.send(db.set_nickname(id, nickname.as_deref()).await);
         }
         Request::Close(reply) => return Some(reply),
     }
