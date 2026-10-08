@@ -194,6 +194,12 @@ Switch with the palette (`Ctrl+P` › Themes) or `theme = "…"` in the config; 
 - [ ] **A broken theme file:** save `~/.config/faro/themes/broken.json` with `{`: a warning names the file and says what's wrong; the other themes still work. Restart faro: the same warning shows at startup. Remove the file.
 - [ ] **Replacing a built-in theme:** a file named `nord.json` in the themes directory replaces OpenCode's `nord` (one `nord` listed, labelled "your file"); one named `system.json` is refused with a warning.
 
+## Allowlist guard (D62)
+
+- [ ] `faro --mock --allowlist <file>` with a missing file, or with `people = ["someone"]`: faro exits at once with an error naming the file and the problem.
+- [ ] With an empty list (`people = []` and `groups = []`): no conversations show up while the mock is active. The log says `allowlist guard on … people=0 groups=0` and counts dropped events, never names or text.
+- [ ] With a real account (M7): a message from someone off the list never appears. Sending to an allowed chat works.
+
 ## M8: terminal matrix (D50; run after M7 against the real backend, and once now with the mock)
 
 Columns: **direct** = faro straight in kitty; **tmux** = kitty → tmux (with the README's tmux settings); **SSH** = kitty → ssh → tmux on the other machine; **mosh** = kitty → mosh → tmux. Mark each cell ✓, ✗ (add a note below) or – (not applicable). Also try one other terminal per OS (WezTerm/Ghostty/Alacritty/foot on Linux, iTerm2 and Terminal.app on macOS) for the rows marked †.

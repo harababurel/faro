@@ -37,6 +37,11 @@ pub enum BackendError {
     /// The backend doesn't support this action; the UI should have hidden it.
     #[error("not supported by this backend: {0:?}")]
     Unsupported(Capability),
+
+    /// The allowlist guard (`--allowlist`, D62) blocked an action towards a
+    /// conversation that isn't listed.
+    #[error("blocked: not on the allowlist")]
+    NotAllowed,
 }
 
 impl BackendError {
@@ -48,7 +53,8 @@ impl BackendError {
             | Self::Protocol(_)
             | Self::Storage(_)
             | Self::NotFound
-            | Self::Unsupported(_) => false,
+            | Self::Unsupported(_)
+            | Self::NotAllowed => false,
         }
     }
 }

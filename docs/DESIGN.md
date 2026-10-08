@@ -126,6 +126,7 @@ pub trait Backend {                       // no Send bound: futures may be !Send
 ```
 
 - **Events** (`BackendEvent`: connection state, messages incl. sync, delivery updates, reactions, edits, deletes, typing, contact/group updates, unsolicited errors) come over a bounded `tokio::sync::mpsc` channel. Each backend's constructor returns `(backend, BackendEvents)`; the trait has no `events()` method.
+- **As built (D62): the allowlist guard.** `faro-core::guard::Guarded<B>` wraps any backend when `--allowlist FILE` is given. Sends, reactions, edits, deletions and typing to conversations off the list fail with `BackendError::NotAllowed`. Receipts go only to allowed senders. Incoming events, contacts and groups off the list are dropped before the app sees them. A missing or bad file stops faro. The presage backend requires it while testing with a real account.
 - **Linking** is not in the trait: it happens before a backend exists and is backend-specific. Designed in M7.
 - **Capabilities** are optional features only (`Edit`, `DeleteForEveryone`, `Attachments`). Text, replies, receipts, typing and reactions are required of every backend.
 

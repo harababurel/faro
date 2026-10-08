@@ -58,6 +58,13 @@ pub struct Cli {
     /// finds mosh. Overrides `[ui] emoji` in the config file (default: auto).
     #[arg(long, env = "FARO_EMOJI", value_enum)]
     pub emoji: Option<EmojiChoice>,
+
+    /// Talk only to the people and groups in this file (D62): sending to
+    /// anyone else is refused, and their messages, contacts and groups are
+    /// dropped before they're shown or stored. For testing with a real
+    /// account. faro won't start if the file can't be read.
+    #[arg(long, env = "FARO_ALLOWLIST", value_name = "FILE")]
+    pub allowlist: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]

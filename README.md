@@ -78,6 +78,7 @@ cargo run --release -- --mock --data-dir /tmp/faro-try --config /tmp/faro-try/co
 | `--mock-activity MS` | `FARO_MOCK_ACTIVITY` | Mean time between mock events (default 4000; small values flood the UI) |
 | `--mock-no-faults` | `FARO_MOCK_NO_FAULTS` | No scripted outages or send failures |
 | `--emoji auto\|full\|compatible` | `FARO_EMOJI` | How to draw emoji (see [mosh](#mosh)); overrides the config |
+| `--allowlist FILE` | `FARO_ALLOWLIST` | Talk only to the people and groups in FILE; drop everything else (for testing with a real account) |
 
 ## Keys
 

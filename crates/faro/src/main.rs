@@ -11,6 +11,8 @@ mod ui;
 
 use anyhow::Context as _;
 use clap::Parser as _;
+use faro_core::backend::{Backend, BackendEvents};
+use faro_core::guard::{self, Allowlist};
 use faro_core::mock::{MockBackend, MockConfig};
 use faro_core::paths::Paths;
 use faro_core::store::Store;
@@ -32,6 +34,17 @@ fn main() -> anyhow::Result<()> {
     let config_file = paths.config_file().to_owned();
     let (mut settings, mut problems) = config::load(&config_file);
     let themes = config::load_themes(&config::themes_dir(&config_file));
+    // Never fall back to talking to everyone: a bad file stops faro.
+    let allowlist = match &cli.allowlist {
+        Some(path) => {
+            let text = std::fs::read_to_string(path)
+                .with_context(|| format!("reading the allowlist {}", path.display()))?;
+            let list = Allowlist::parse(&text)
+                .with_context(|| format!("reading the allowlist {}", path.display()))?;
+            Some(list)
+        }
+        None => None,
+    };
 
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "faro starting");
     if !cli.mock {
@@ -72,8 +85,6 @@ fn main() -> anyhow::Result<()> {
             );
         }
         problems.extend(config::migrate(&store, &config_file, &mut settings).await);
-        let (backend, events) = MockBackend::new(&mock);
-        let directory = app::load_directory(&backend, &store).await?;
         let detected = terminal_setting(cli.emoji.map(Into::into), &settings).await;
         let startup = config::Startup {
             path: config_file,
@@ -81,20 +92,40 @@ fn main() -> anyhow::Result<()> {
             problems,
             themes,
         };
-        let result = app::run(
-            backend,
-            events,
-            store.clone(),
-            directory,
-            tz,
-            detected,
-            startup,
-        )
-        .await;
+        let (backend, events) = MockBackend::new(&mock);
+        let result = match allowlist {
+            Some(list) => {
+                let (backend, events) = guard::guard(backend, events, list);
+                serve(backend, events, &store, tz, detected, startup).await
+            }
+            None => serve(backend, events, &store, tz, detected, startup).await,
+        };
         store.close().await.context("closing the database")?;
         tracing::info!("faro exiting");
         result
     })
+}
+
+/// Load the directory and run the app on `backend`.
+async fn serve<B: Backend + 'static>(
+    backend: B,
+    events: BackendEvents,
+    store: &Store,
+    tz: jiff::tz::TimeZone,
+    detected: app::state::Detected,
+    startup: config::Startup,
+) -> anyhow::Result<()> {
+    let directory = app::load_directory(&backend, store).await?;
+    app::run(
+        backend,
+        events,
+        store.clone(),
+        directory,
+        tz,
+        detected,
+        startup,
+    )
+    .await
 }
 
 /// What the terminal checks decide at startup: the emoji mode, as chosen

@@ -4,6 +4,7 @@
 pub mod backend;
 pub mod config;
 pub mod domain;
+pub mod guard;
 pub mod mock;
 pub mod paths;
 pub mod store;
