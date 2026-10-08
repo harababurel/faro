@@ -13,7 +13,7 @@ pub use ids::{
 };
 pub use message::{
     AttachmentId, AttachmentRef, AttachmentStatus, BodyPart, DeliveryStatus, Direction, Mention,
-    Message, Quote, Reaction, mention_parts,
+    Message, Quote, Reaction, format_byte_size, mention_parts,
 };
 pub use people::{Contact, Group};
 pub use presence::{ConnectionState, TypingState};

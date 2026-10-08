@@ -3,7 +3,7 @@
 
 use std::ffi::OsString;
 use std::io::Write as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use crossterm::clipboard::CopyToClipboard;
@@ -11,7 +11,9 @@ use faro_core::paths;
 use tokio::sync::mpsc;
 
 use super::event::AppEvent;
-use super::state::{BlockGlyphs, GraphicsSupport};
+use super::state::{
+    BlockGlyphs, FileEntry, GraphicsSupport, MAX_ATTACHMENT_SIZE, StagedAttachment,
+};
 
 /// Copy with OSC 52: the terminal (even over SSH, and through tmux with
 /// `set-clipboard on`) puts the text on the local clipboard.
@@ -90,6 +92,248 @@ pub fn save_to_downloads(
         .and_then(|r| r);
         let _ = results.send(AppEvent::SavedToDownloads(outcome));
     });
+}
+
+/// Split a palette file query into `(dir_prefix_with_trailing_slash, file_prefix)`.
+/// For example, `"~/Downloads/rep"` splits into `("~/Downloads/", "rep")`, and
+/// `"~/"` splits into `("~/", "")`.
+pub fn split_file_query(query: &str) -> (&str, &str) {
+    match query.rfind('/') {
+        Some(idx) => (&query[..=idx], &query[idx + 1..]),
+        None => ("", query),
+    }
+}
+
+/// Expand a leading `~` or `~/` using `HOME`.
+pub fn expand_tilde(raw: &str) -> PathBuf {
+    if raw == "~"
+        && let Some(home) = std::env::var_os("HOME")
+    {
+        return PathBuf::from(home);
+    }
+    if let Some(rest) = raw.strip_prefix("~/")
+        && let Some(home) = std::env::var_os("HOME")
+    {
+        return PathBuf::from(home).join(rest);
+    }
+    PathBuf::from(raw)
+}
+
+/// If `raw` is a single-line path-like paste (after stripping surrounding quotes,
+/// `file://`, and backslash escapes), return the expanded candidate `PathBuf` (D77).
+pub fn candidate_paste_path(raw: &str) -> Option<PathBuf> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.contains('\n') || trimmed.contains('\r') {
+        return None;
+    }
+    let unquoted = trimmed
+        .strip_prefix('\'')
+        .and_then(|s| s.strip_suffix('\''))
+        .or_else(|| trimmed.strip_prefix('"').and_then(|s| s.strip_suffix('"')))
+        .unwrap_or(trimmed);
+    let stripped = if let Some(rest) = unquoted.strip_prefix("file://localhost/") {
+        format!("/{rest}")
+    } else if let Some(rest) = unquoted.strip_prefix("file:///") {
+        format!("/{rest}")
+    } else if unquoted == "~"
+        || unquoted.starts_with('/')
+        || unquoted.starts_with("~/")
+        || unquoted.starts_with("./")
+        || unquoted.starts_with("../")
+    {
+        unquoted.to_owned()
+    } else {
+        return None;
+    };
+    let mut unescaped = String::with_capacity(stripped.len());
+    let mut chars = stripped.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '\\'
+            && let Some(next) = chars.next()
+        {
+            unescaped.push(next);
+        } else {
+            unescaped.push(ch);
+        }
+    }
+    Some(expand_tilde(&unescaped))
+}
+
+/// Read directory entries for the palette's `Level::AttachFile` off the UI thread (D77).
+pub fn list_files(query: String, results: mpsc::UnboundedSender<AppEvent>) {
+    tokio::spawn(async move {
+        let q = query.clone();
+        let entries = tokio::task::spawn_blocking(move || list_files_blocking(&q))
+            .await
+            .unwrap_or_default();
+        let _ = results.send(AppEvent::FilesListed { query, entries });
+    });
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "directory listing runs inside spawn_blocking off the UI thread"
+)]
+fn list_files_blocking(query: &str) -> Vec<FileEntry> {
+    let (dir_prefix, file_prefix) = split_file_query(query);
+    let dir_path = if dir_prefix.is_empty() {
+        PathBuf::from(".")
+    } else {
+        expand_tilde(dir_prefix)
+    };
+    let show_dotfiles = file_prefix.starts_with('.');
+    let Ok(read_dir) = std::fs::read_dir(&dir_path) else {
+        return Vec::new();
+    };
+    let mut entries = Vec::new();
+    for entry in read_dir.flatten() {
+        let file_name = entry.file_name();
+        let name = file_name.to_string_lossy().into_owned();
+        if name.starts_with('.') && !show_dotfiles {
+            continue;
+        }
+        let path = entry.path();
+        let Ok(meta) = std::fs::metadata(&path) else {
+            continue;
+        };
+        let is_dir = meta.is_dir();
+        if !is_dir && !meta.is_file() {
+            continue;
+        }
+        let dir_query = if dir_prefix.is_empty() {
+            format!("{name}/")
+        } else {
+            format!("{dir_prefix}{name}/")
+        };
+        entries.push(FileEntry {
+            name,
+            path,
+            dir_query,
+            is_dir,
+            size: if is_dir { 0 } else { meta.len() },
+        });
+    }
+    entries.sort_by(|a, b| {
+        b.is_dir
+            .cmp(&a.is_dir)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    entries
+}
+
+/// Inspect and stage a file for sending off the UI thread (D77).
+pub fn stage_file(path: PathBuf, results: mpsc::UnboundedSender<AppEvent>) {
+    tokio::spawn(async move {
+        let outcome = tokio::task::spawn_blocking(move || stage_file_blocking(path))
+            .await
+            .map_err(|e| e.to_string())
+            .and_then(|r| r);
+        let _ = results.send(AppEvent::FileStaged(outcome));
+    });
+}
+
+/// Check a pasted candidate path off the UI thread: if it is a regular file on
+/// disk, stage it (or report >100 MB error); otherwise paste the raw text (D77).
+pub fn check_paste(raw: String, path: PathBuf, results: mpsc::UnboundedSender<AppEvent>) {
+    tokio::spawn(async move {
+        let checked = tokio::task::spawn_blocking(move || check_paste_blocking(path))
+            .await
+            .ok()
+            .flatten();
+        let event = match checked {
+            Some(Ok(staged)) => AppEvent::PasteChecked {
+                raw,
+                staged: Some(staged),
+            },
+            Some(Err(err)) => AppEvent::FileStaged(Err(err)),
+            None => AppEvent::PasteChecked { raw, staged: None },
+        };
+        let _ = results.send(event);
+    });
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "paste path check runs inside spawn_blocking off the UI thread"
+)]
+fn check_paste_blocking(path: PathBuf) -> Option<Result<StagedAttachment, String>> {
+    let meta = std::fs::metadata(&path).ok()?;
+    if !meta.is_file() {
+        return None;
+    }
+    Some(stage_file_blocking(path))
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "file metadata and image dimension probing run inside spawn_blocking"
+)]
+fn stage_file_blocking(path: PathBuf) -> Result<StagedAttachment, String> {
+    let meta = std::fs::metadata(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    if !meta.is_file() {
+        return Err(format!("not a regular file: {}", path.display()));
+    }
+    let size = meta.len();
+    if size > MAX_ATTACHMENT_SIZE {
+        return Err(format!(
+            "file exceeds 100 MB limit ({})",
+            faro_core::domain::format_byte_size(size)
+        ));
+    }
+    let name = path.file_name().map_or_else(
+        || "attachment".to_owned(),
+        |n| n.to_string_lossy().into_owned(),
+    );
+    let content_type = guess_content_type(&path);
+    let (width, height) = if content_type.starts_with("image/") {
+        image::ImageReader::open(&path)
+            .and_then(image::ImageReader::with_guessed_format)
+            .ok()
+            .and_then(|r| r.into_dimensions().ok())
+            .map_or((None, None), |(w, h)| (Some(w), Some(h)))
+    } else {
+        (None, None)
+    };
+    Ok(StagedAttachment {
+        path,
+        name,
+        content_type,
+        size,
+        width,
+        height,
+    })
+}
+
+fn guess_content_type(path: &Path) -> String {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase);
+    let mime = match ext.as_deref() {
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("png") => "image/png",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("bmp") => "image/bmp",
+        Some("svg") => "image/svg+xml",
+        Some("pdf") => "application/pdf",
+        Some("txt" | "md" | "rst") => "text/plain",
+        Some("json") => "application/json",
+        Some("csv") => "text/csv",
+        Some("mp3") => "audio/mpeg",
+        Some("ogg") => "audio/ogg",
+        Some("wav") => "audio/wav",
+        Some("m4a") => "audio/mp4",
+        Some("mp4") => "video/mp4",
+        Some("webm") => "video/webm",
+        Some("mov") => "video/quicktime",
+        Some("zip") => "application/zip",
+        Some("tar") => "application/x-tar",
+        Some("gz" | "tgz") => "application/gzip",
+        _ => "application/octet-stream",
+    };
+    mime.to_owned()
 }
 
 /// Whether faro runs in an SSH session (as far as the environment says; a
@@ -360,5 +604,31 @@ mod mosh_tests {
             graphics_of_clients(&[], false),
             GraphicsSupport::HalfblocksOnly
         );
+    }
+
+    #[test]
+    fn splits_file_query_into_directory_and_prefix() {
+        assert_eq!(split_file_query("~/"), ("~/", ""));
+        assert_eq!(split_file_query("~/Downloads/rep"), ("~/Downloads/", "rep"));
+        assert_eq!(split_file_query("/tmp/.secret"), ("/tmp/", ".secret"));
+        assert_eq!(split_file_query("report.pdf"), ("", "report.pdf"));
+    }
+
+    #[test]
+    fn parses_candidate_paste_paths() {
+        assert_eq!(
+            candidate_paste_path("  '/tmp/my\\ file.png' \n"),
+            Some(PathBuf::from("/tmp/my file.png"))
+        );
+        assert_eq!(
+            candidate_paste_path("file:///tmp/photo.jpg"),
+            Some(PathBuf::from("/tmp/photo.jpg"))
+        );
+        assert_eq!(
+            candidate_paste_path("./notes.txt"),
+            Some(PathBuf::from("./notes.txt"))
+        );
+        assert_eq!(candidate_paste_path("hello world"), None);
+        assert_eq!(candidate_paste_path("/tmp/a\n/tmp/b"), None);
     }
 }

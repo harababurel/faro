@@ -2,6 +2,7 @@
 //! views (`ui/`).
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use faro_core::backend::BackendEvent;
@@ -38,6 +39,8 @@ pub const REACTIONS: [&str; 6] = ["❤️", "👍", "👎", "😂", "😮", "�
 pub const MAX_DOWNLOADS_IN_FLIGHT: usize = 3;
 /// Auto-download size ceiling: 25 MB (D75). Larger files wait for `d`.
 pub const AUTO_DOWNLOAD_LIMIT: u64 = 25 * 1024 * 1024;
+/// Maximum size of an outgoing attachment: 100 MB, Signal's limit (D77).
+pub const MAX_ATTACHMENT_SIZE: u64 = 100 * 1024 * 1024;
 /// The mute picker's choices: label and length (`None`: until unmuted).
 pub const MUTE_CHOICES: [(&str, Option<Duration>); 5] = [
     ("1 hour", Some(Duration::from_hours(1))),
@@ -54,6 +57,28 @@ pub struct DownloadJob {
     pub message: MessageRef,
     pub index: usize,
     pub attachment: AttachmentRef,
+}
+
+/// A local file attached to the next message in the open conversation (D77).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StagedAttachment {
+    pub path: PathBuf,
+    pub name: String,
+    pub content_type: String,
+    pub size: u64,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+}
+
+/// One entry in a folder listed for the palette's file picker (D77).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileEntry {
+    pub name: String,
+    pub path: PathBuf,
+    /// What query string entering this folder should set in the palette.
+    pub dir_query: String,
+    pub is_dir: bool,
+    pub size: u64,
 }
 
 #[derive(Debug)]
@@ -105,6 +130,8 @@ pub struct State {
     pub config_problems: Vec<String>,
     /// The user's theme files (D54), as last read.
     pub user_themes: UserThemes,
+    /// Directory where downloaded and outgoing attachments are stored (D75, D77).
+    pub attachments_dir: PathBuf,
     /// Attachments currently downloading (`<= MAX_DOWNLOADS_IN_FLIGHT`, D75).
     pub downloading: HashSet<(MessageRef, usize)>,
     /// Attachments waiting for a download slot (D75).
@@ -150,6 +177,8 @@ pub struct OpenConversation {
     pub selected: Option<Selection>,
     /// The next message sent replies to this.
     pub reply_to: Option<Quote>,
+    /// Local file attached to the next message sent here (D77).
+    pub staged_attachment: Option<StagedAttachment>,
     /// Incoming messages not yet marked read: receipts wait until they've been
     /// seen (`State::seeing_open`, D42).
     pub unreceipted: Vec<MessageRef>,
@@ -588,6 +617,7 @@ impl State {
             config: Config::default(),
             config_problems: Vec::new(),
             user_themes: UserThemes::default(),
+            attachments_dir: PathBuf::from("attachments"),
             downloading: HashSet::new(),
             download_queue: VecDeque::new(),
             save_when_downloaded: HashSet::new(),

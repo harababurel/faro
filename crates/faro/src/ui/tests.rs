@@ -1330,3 +1330,23 @@ fn image_viewer_popup_draws_over_the_screen() {
     // Both the message pane and the popup request their respective box sizes.
     assert!(geometry.images_wanted.iter().any(|k| k.path == path));
 }
+
+#[test]
+fn staged_attachment_bar_renders_above_the_input() {
+    use crate::app::state::StagedAttachment;
+    use std::path::PathBuf;
+
+    let mut state = loaded_state();
+    state.open.as_mut().unwrap().staged_attachment = Some(StagedAttachment {
+        path: PathBuf::from("/tmp/report.pdf"),
+        name: "report.pdf".into(),
+        content_type: "application/pdf".into(),
+        size: 2048,
+        width: None,
+        height: None,
+    });
+    let text = snapshot(&draw(&state, 100, 24));
+    assert!(text.contains("📎 report.pdf · 2.0 KB"), "{text}");
+    assert!(text.contains("esc remove"), "{text}");
+    assert_drawable(&compatible(state), 100, 24);
+}

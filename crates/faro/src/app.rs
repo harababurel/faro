@@ -93,12 +93,22 @@ pub async fn load_directory<B: Backend>(backend: &B, store: &Store) -> anyhow::R
     })
 }
 
-/// The state before anything else is known: who we are and who we know.
-fn initial_state(directory: Directory) -> State {
+/// The state before anything else is known: who we are, who we know, and what
+/// the terminal and user themes look like.
+fn initial_state(directory: Directory, detected: state::Detected, startup: &mut Startup) -> State {
     let mut state = State::new(directory.me, directory.contacts, directory.groups)
         .with_nicknames(directory.nicknames);
     if directory.unguarded {
         state.guard = state::Guard::Off;
+    }
+    state.attachments_dir.clone_from(&startup.attachments_dir);
+    sense_terminal(&mut state, detected);
+    for problem in state.user_themes.load(std::mem::take(&mut startup.themes)) {
+        startup
+            .problems
+            .push(faro_core::config::Problem::warning(format!(
+                "themes/{problem}"
+            )));
     }
     state
 }
@@ -112,24 +122,22 @@ pub async fn run<B: Backend + 'static>(
     directory: Directory,
     tz: jiff::tz::TimeZone,
     detected: state::Detected,
-    startup: Startup,
+    mut startup: Startup,
 ) -> anyhow::Result<()> {
-    let Startup {
-        path: config_path,
-        attachments_dir,
-        config: settings,
-        mut problems,
-        themes: theme_files,
-    } = startup;
     let mut terminate = signal(SignalKind::terminate()).context("listening for SIGTERM")?;
     let mut hangup = signal(SignalKind::hangup()).context("listening for SIGHUP")?;
     let (results_tx, mut results) = mpsc::unbounded_channel();
     let (effects, worker) = effects::spawn(store, results_tx.clone());
-    let (commands, command_task) = commands::spawn(backend, attachments_dir, results_tx.clone());
+    let (commands, command_task) = commands::spawn(
+        backend,
+        directory.me,
+        startup.attachments_dir.clone(),
+        results_tx.clone(),
+    );
     let (config_writer, config_task) =
-        config::spawn_writer(config_path.clone(), results_tx.clone());
+        config::spawn_writer(startup.path.clone(), results_tx.clone());
     // Hot reload (D48); without it, faro still works with what it read.
-    let watch = config::try_watch(&config_path, &results_tx, &mut problems);
+    let watch = config::try_watch(&startup.path, &results_tx, &mut startup.problems);
     let router = Router {
         commands,
         effects,
@@ -138,14 +146,12 @@ pub async fn run<B: Backend + 'static>(
     };
     let dispatch = |list: Vec<Effect>| router.dispatch(list);
 
-    let mut state = initial_state(directory);
-    sense_terminal(&mut state, detected);
-    for problem in state.user_themes.load(theme_files) {
-        problems.push(faro_core::config::Problem::warning(format!(
-            "themes/{problem}"
-        )));
-    }
-    dispatch(update::configure(&mut state, settings, problems));
+    let mut state = initial_state(directory, detected, &mut startup);
+    dispatch(update::configure(
+        &mut state,
+        startup.config,
+        startup.problems,
+    ));
     let mut tui = Tui::enter(state.config.mouse.enabled).context("setting up the terminal")?;
     let mut images =
         images::Images::detect(state.config.media.inline_images, state.env.graphics).await;
@@ -290,6 +296,18 @@ impl Router {
                     );
                     true
                 }
+                Effect::ListFiles(query) => {
+                    system::list_files(query, self.results.clone());
+                    true
+                }
+                Effect::StageFile(path) => {
+                    system::stage_file(path, self.results.clone());
+                    true
+                }
+                Effect::CheckPaste { raw, path } => {
+                    system::check_paste(raw, path, self.results.clone());
+                    true
+                }
                 Effect::CheckTerminal => {
                     system::check_terminal(self.results.clone());
                     true
@@ -396,6 +414,9 @@ fn affects_view(event: &AppEvent) -> bool {
         | AppEvent::ReactResult { .. }
         | AppEvent::Fetched { .. }
         | AppEvent::SavedToDownloads(_)
+        | AppEvent::FilesListed { .. }
+        | AppEvent::FileStaged(_)
+        | AppEvent::PasteChecked { .. }
         | AppEvent::ImageDecoded(_)
         | AppEvent::OpenFailed(_)
         | AppEvent::TerminalChecked { .. }

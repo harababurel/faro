@@ -52,7 +52,8 @@ pub fn render(
 
     let input_width = usize::from(inner.width.saturating_sub(4));
     let input_layout = layout_input(&open.input, input_width);
-    let reply_rows = u16::from(open.reply_to.is_some());
+    let reply_rows =
+        u16::from(open.reply_to.is_some()) + u16::from(open.staged_attachment.is_some());
     let input_height = u16::try_from(input_layout.lines.len().clamp(1, INPUT_MAX_LINES))
         .unwrap_or(1)
         + 2
@@ -294,6 +295,29 @@ fn render_input(
             Span::styled(
                 truncate(&text, room).into_owned(),
                 theme.muted().add_modifier(Modifier::ITALIC),
+            ),
+            Span::styled(hint, theme.muted()),
+        ]);
+        frame.render_widget(Paragraph::new(line), Rect { height: 1, ..inner });
+        inner.y += 1;
+        inner.height = inner.height.saturating_sub(1);
+    }
+
+    if let Some(staged) = &open.staged_attachment {
+        let icon = if state.env.emoji.mode == crate::app::state::EmojiMode::Compatible {
+            "[file]"
+        } else {
+            "📎"
+        };
+        let name = sanitize(&staged.name);
+        let size = faro_core::domain::format_byte_size(staged.size);
+        let text = format!("{icon} {name} · {size}");
+        let hint = "  esc remove";
+        let room = usize::from(inner.width).saturating_sub(hint.width());
+        let line = Line::from(vec![
+            Span::styled(
+                truncate(&text, room).into_owned(),
+                Style::new().fg(theme.accent),
             ),
             Span::styled(hint, theme.muted()),
         ]);

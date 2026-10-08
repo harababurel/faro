@@ -1385,6 +1385,121 @@ fn attachment_keys_download_view_open_and_save() {
     );
 }
 
+#[test]
+fn staging_sending_and_pasting_attachments() {
+    use crate::app::state::StagedAttachment;
+    use faro_core::backend::OutgoingAttachment;
+    use faro_core::domain::AttachmentStatus;
+    use std::path::PathBuf;
+
+    let mut state = loaded_state();
+    state.attachments_dir = PathBuf::from("/tmp/faro-test/attachments");
+
+    // Staging an oversized file shows an error notice without staging.
+    update(
+        &mut state,
+        AppEvent::FileStaged(Err("file exceeds 100 MB limit (120.0 MB)".into())),
+    );
+    assert!(
+        state
+            .notice
+            .as_ref()
+            .is_some_and(|n| n.text.contains("exceeds 100 MB limit"))
+    );
+    assert!(state.open.as_ref().unwrap().staged_attachment.is_none());
+
+    // Staging a valid file attaches it to the open conversation and focuses Input.
+    let staged = StagedAttachment {
+        path: PathBuf::from("/home/user/Downloads/photo.png"),
+        name: "photo.png".into(),
+        content_type: "image/png".into(),
+        size: 16_384,
+        width: Some(800),
+        height: Some(600),
+    };
+    update(&mut state, AppEvent::FileStaged(Ok(staged.clone())));
+    assert_eq!(
+        state.open.as_ref().unwrap().staged_attachment,
+        Some(staged.clone())
+    );
+    assert_eq!(state.focus, Focus::Input);
+
+    // Esc in Input removes the staged attachment before closing the conversation.
+    update(&mut state, key(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(state.open.as_ref().unwrap().staged_attachment.is_none());
+    assert!(state.open.is_some());
+
+    // Pasting a single path checks it off-thread; if it's a file, it stages it.
+    let effects = update(
+        &mut state,
+        AppEvent::Terminal(Event::Paste("'/home/user/Downloads/photo.png'\n".into())),
+    );
+    assert_eq!(
+        effects,
+        vec![Effect::CheckPaste {
+            raw: "'/home/user/Downloads/photo.png'\n".into(),
+            path: PathBuf::from("/home/user/Downloads/photo.png"),
+        }]
+    );
+    assert_eq!(state.open.as_ref().unwrap().input.text(), "");
+
+    // When PasteChecked reports None (not a regular file), the raw text is inserted.
+    update(
+        &mut state,
+        AppEvent::PasteChecked {
+            raw: "/not/a/real/file".into(),
+            staged: None,
+        },
+    );
+    assert_eq!(
+        state.open.as_ref().unwrap().input.text(),
+        "/not/a/real/file"
+    );
+    state.open.as_mut().unwrap().input = crate::app::input::Input::default();
+
+    // When PasteChecked reports Some(staged), the file is staged and input stays empty.
+    update(
+        &mut state,
+        AppEvent::PasteChecked {
+            raw: "/home/user/Downloads/photo.png".into(),
+            staged: Some(staged.clone()),
+        },
+    );
+    assert_eq!(
+        state.open.as_ref().unwrap().staged_attachment,
+        Some(staged.clone())
+    );
+    assert_eq!(state.open.as_ref().unwrap().input.text(), "");
+
+    // Sending with no text sends the attachment with body = None on the local echo.
+    let effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(state.open.as_ref().unwrap().staged_attachment.is_none());
+    let last_msg = state.open.as_ref().unwrap().messages.last().unwrap();
+    assert_eq!(last_msg.body, None);
+    assert_eq!(last_msg.attachments.len(), 1);
+    assert_eq!(
+        last_msg.attachments[0].file_name.as_deref(),
+        Some("photo.png")
+    );
+    assert!(matches!(
+        &last_msg.attachments[0].status,
+        AttachmentStatus::Downloaded(p) if p.starts_with("/tmp/faro-test/attachments")
+    ));
+    assert!(effects.iter().any(|e| matches!(
+        e,
+        Effect::Backend(Command::Send { message, .. })
+            if message.body.expose().is_empty()
+                && message.attachments == vec![OutgoingAttachment {
+                    path: PathBuf::from("/home/user/Downloads/photo.png"),
+                    content_type: "image/png".into(),
+                    file_name: Some("photo.png".into()),
+                    size: 16_384,
+                    width: Some(800),
+                    height: Some(600),
+                }]
+    )));
+}
+
 mod curation;
 mod notify;
 mod palette;

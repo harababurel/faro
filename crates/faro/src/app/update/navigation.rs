@@ -71,14 +71,18 @@ pub fn on_action(state: &mut State, action: Action) -> Vec<Effect> {
     vec![]
 }
 
-/// Esc, one step at a time (D60): cancel a reply being written; else
-/// dismiss the notice and go back to the input; else close the open
-/// conversation (its draft kept), leaving the list highlighting it.
+/// Esc, one step at a time (D60, D77): remove a staged attachment; else cancel a
+/// reply being written; else dismiss the notice and go back to the input; else
+/// close the open conversation (its draft kept), leaving the list highlighting it.
 fn escape(state: &mut State) -> Vec<Effect> {
     let Some(open) = state.open.as_mut() else {
         state.notice = None;
         return vec![];
     };
+    if state.focus == Focus::Input && open.staged_attachment.is_some() {
+        open.staged_attachment = None;
+        return vec![];
+    }
     if state.focus == Focus::Input && open.reply_to.is_some() {
         open.reply_to = None;
         return vec![];
@@ -190,8 +194,24 @@ pub fn edit_input(input: &mut Input, edit: Edit) -> bool {
     changes_text && input.text().len() != before
 }
 
-/// Pasted text (bracketed paste) goes into the input as typed, newlines kept.
-pub fn paste(state: &mut State, text: &str) {
+/// Pasted text (bracketed paste): if it looks like a single path and a conversation
+/// is open, check off-thread whether it is a regular file on disk (D77); otherwise
+/// insert it into the input as typed, newlines kept.
+pub fn paste(state: &mut State, text: &str) -> Vec<Effect> {
+    state.focus = Focus::Input;
+    if state.open.is_some()
+        && let Some(path) = crate::app::system::candidate_paste_path(text)
+    {
+        return vec![Effect::CheckPaste {
+            raw: text.to_owned(),
+            path,
+        }];
+    }
+    insert_pasted_text(state, text);
+    super::presence::on_edited(state)
+}
+
+pub fn insert_pasted_text(state: &mut State, text: &str) {
     state.focus = Focus::Input;
     if let Some(open) = state.open.as_mut() {
         open.input.insert_str(text);

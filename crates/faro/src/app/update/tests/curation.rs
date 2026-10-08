@@ -40,6 +40,9 @@ fn saved(effects: &[Effect], id: ConversationId) -> Option<ConversationState> {
         | Effect::OpenUrl(_)
         | Effect::OpenFile(_)
         | Effect::SaveToDownloads { .. }
+        | Effect::ListFiles(_)
+        | Effect::StageFile(_)
+        | Effect::CheckPaste { .. }
         | Effect::CheckTerminal
         | Effect::Bell => None,
     })

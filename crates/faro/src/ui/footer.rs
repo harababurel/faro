@@ -195,9 +195,12 @@ fn hints(state: &State, geometry: &Geometry) -> Vec<(String, &'static str)> {
             Level::Setting(setting) if setting.previews() => PREVIEW_HINTS,
             Level::Settings => SETTINGS_HINTS,
             Level::Nickname(_) => NICKNAME_HINTS,
-            Level::Chats | Level::Setting(_) | Level::Commands | Level::Keys | Level::People => {
-                PALETTE_LEVEL_HINTS
-            }
+            Level::Chats
+            | Level::Setting(_)
+            | Level::Commands
+            | Level::Keys
+            | Level::People
+            | Level::AttachFile => PALETTE_LEVEL_HINTS,
         });
     }
     if let Some(popup) = &state.popup {

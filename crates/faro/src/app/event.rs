@@ -51,6 +51,19 @@ pub enum AppEvent {
     },
     /// Copying a downloaded attachment to `~/Downloads/` finished (D75).
     SavedToDownloads(Result<PathBuf, String>),
+    /// Directory entries read for the palette's file picker (`Level::AttachFile`, D77).
+    FilesListed {
+        query: String,
+        entries: Vec<super::state::FileEntry>,
+    },
+    /// A file chosen in the palette was inspected and staged (D77).
+    FileStaged(Result<super::state::StagedAttachment, String>),
+    /// A pasted path candidate was checked on disk (D77). `None` means it is
+    /// not a regular file, so `raw` should be pasted as text.
+    PasteChecked {
+        raw: String,
+        staged: Option<super::state::StagedAttachment>,
+    },
     /// An inline image finished decoding and slicing off the UI thread (D79).
     ImageDecoded(super::images::DecodedImage),
     /// Opening a link or attachment failed; the text is safe to show.
@@ -127,6 +140,18 @@ pub enum Effect {
         source: PathBuf,
         file_name: Option<String>,
         content_type: String,
+    },
+    /// List a directory for the palette's file picker (`Level::AttachFile`, D77).
+    /// Answered with `AppEvent::FilesListed`.
+    ListFiles(String),
+    /// Inspect and stage a local file to send in the open conversation (D77).
+    /// Answered with `AppEvent::FileStaged`.
+    StageFile(PathBuf),
+    /// Check off the UI thread whether a single-line pasted path names a
+    /// regular file (D77). Answered with `AppEvent::PasteChecked`.
+    CheckPaste {
+        raw: String,
+        path: PathBuf,
     },
     /// Look at the terminal (mosh, kitty); answered with
     /// `AppEvent::TerminalChecked` (D47, D58).

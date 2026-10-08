@@ -68,7 +68,7 @@ pub fn on_key(state: &mut State, key: PaletteKey) -> Vec<Effect> {
     let at_end = palette.input.cursor() == palette.input.text().len();
     let opens_level = matches!(
         palette.selected_item().map(|item| &item.kind),
-        Some(ItemKind::Level(_))
+        Some(ItemKind::Level(_) | ItemKind::EnterDir(_))
     );
     match key {
         PaletteKey::Previous => palette.step(-1, rows),
@@ -79,7 +79,21 @@ pub fn on_key(state: &mut State, key: PaletteKey) -> Vec<Effect> {
         PaletteKey::Edit(Edit::DeleteBackward) if palette.input.is_empty() => up(state),
         PaletteKey::Edit(Edit::Right) if at_end && opens_level => return choose(state),
         PaletteKey::Edit(edit) => {
+            let (old_dir, old_file) = crate::app::system::split_file_query(palette.input.text());
+            let (old_dir, old_dot) = (old_dir.to_owned(), old_file.starts_with('.'));
             if navigation::edit_input(&mut palette.input, edit) {
+                if palette.level() == Level::AttachFile {
+                    let (new_dir, new_file) =
+                        crate::app::system::split_file_query(palette.input.text());
+                    if new_dir != old_dir || new_file.starts_with('.') != old_dot {
+                        let query = palette.input.text().to_owned();
+                        palette.items.clear();
+                        palette.refilter();
+                        return vec![Effect::ListFiles(query)];
+                    }
+                    palette.refilter();
+                    return vec![];
+                }
                 palette.refilter();
                 jump_by_prefix(state);
             }
@@ -91,16 +105,47 @@ pub fn on_key(state: &mut State, key: PaletteKey) -> Vec<Effect> {
 }
 
 /// Pasted text goes into the query, on one line.
-pub fn paste(state: &mut State, text: &str) {
+pub fn paste(state: &mut State, text: &str) -> Vec<Effect> {
     if let Some(palette) = state.palette.as_mut() {
+        let (old_dir, old_file) = crate::app::system::split_file_query(palette.input.text());
+        let (old_dir, old_dot) = (old_dir.to_owned(), old_file.starts_with('.'));
         let line: String = text
             .chars()
             .map(|c| if c.is_control() { ' ' } else { c })
             .collect();
         palette.input.insert_str(&line);
+        if palette.level() == Level::AttachFile {
+            let (new_dir, new_file) = crate::app::system::split_file_query(palette.input.text());
+            let effects = if new_dir != old_dir || new_file.starts_with('.') != old_dot {
+                palette.items.clear();
+                vec![Effect::ListFiles(palette.input.text().to_owned())]
+            } else {
+                vec![]
+            };
+            palette.refilter();
+            return effects;
+        }
         palette.refilter();
         jump_by_prefix(state);
     }
+    vec![]
+}
+
+/// Populate `Level::AttachFile` when off-thread directory listing finishes (D77).
+pub fn on_files_listed(state: &mut State, query: &str, entries: &[crate::app::state::FileEntry]) {
+    let Some(palette) = state.palette.as_mut() else {
+        return;
+    };
+    if palette.level() != Level::AttachFile {
+        return;
+    }
+    let (cur_dir, cur_file) = crate::app::system::split_file_query(palette.input.text());
+    let (listed_dir, listed_file) = crate::app::system::split_file_query(query);
+    if cur_dir != listed_dir || cur_file.starts_with('.') != listed_file.starts_with('.') {
+        return;
+    }
+    palette.items = palette::file_items(entries);
+    palette.refilter();
 }
 
 /// At the root, a query starting with `@` `:` `>` `?` moves into that
@@ -201,9 +246,10 @@ fn choose(state: &mut State) -> Vec<Effect> {
         return vec![];
     };
     if let ItemKind::Level(level) = kind {
-        // Typing a nickname starts from the one there is.
+        // Typing a nickname starts from the one there is; AttachFile starts at ~/.
         let query = match level {
             Level::Nickname(id) => state.nicknames.get(&id).cloned().unwrap_or_default(),
+            Level::AttachFile => "~/".to_owned(),
             Level::Root
             | Level::Chats
             | Level::Themes
@@ -214,7 +260,18 @@ fn choose(state: &mut State) -> Vec<Effect> {
             | Level::People => String::new(),
         };
         enter(state, level, &query);
+        if level == Level::AttachFile {
+            return vec![Effect::ListFiles(query)];
+        }
         return vec![];
+    }
+    if let ItemKind::EnterDir(dir_query) = kind {
+        if let Some(palette) = state.palette.as_mut() {
+            palette.input = crate::app::input::Input::new(&dir_query);
+            palette.items.clear();
+            palette.refilter();
+        }
+        return vec![Effect::ListFiles(dir_query)];
     }
     if let ItemKind::Switch(setting) = kind {
         return flip(state, setting);
@@ -235,7 +292,12 @@ fn choose(state: &mut State) -> Vec<Effect> {
         }
         ItemKind::SetNickname(id) => set_nickname(state, id, Some(typed)),
         ItemKind::ClearNickname(id) => set_nickname(state, id, None),
-        ItemKind::Key | ItemKind::Level(_) | ItemKind::Switch(_) | ItemKind::Header => vec![],
+        ItemKind::AttachFile(path) => vec![Effect::StageFile(path)],
+        ItemKind::Key
+        | ItemKind::Level(_)
+        | ItemKind::EnterDir(_)
+        | ItemKind::Switch(_)
+        | ItemKind::Header => vec![],
     }
 }
 

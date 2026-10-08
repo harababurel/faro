@@ -8,6 +8,8 @@
 //! (`nucleo-matcher`): a few hundred short strings take well under a
 //! millisecond.
 
+use std::path::PathBuf;
+
 use faro_core::config::{
     AutoDownload, BubbleStyle, Choice as _, ColorChoice, EmojiChoice, InlineImages,
 };
@@ -19,7 +21,7 @@ use nucleo_matcher::{Config, Matcher, Utf32Str};
 use super::input::Input;
 use super::keymap::{Action, Context, Curate, Keymap};
 use super::state::{
-    ConversationAction, Focus, MUTE_CHOICES, MessageLayout, Section, SidebarView, State,
+    ConversationAction, FileEntry, Focus, MUTE_CHOICES, MessageLayout, Section, SidebarView, State,
 };
 use crate::theme::{ColorDepth, Theme};
 
@@ -54,6 +56,8 @@ pub enum Level {
     People,
     /// Typing a nickname for someone: the query is the name (D65).
     Nickname(ServiceId),
+    /// Browsing a directory to attach a file to the open conversation (D77).
+    AttachFile,
 }
 
 /// The sections of `Settings ›`, each under a header.
@@ -105,6 +109,7 @@ impl Level {
             Self::Keys => "Keys",
             Self::People => "Nicknames",
             Self::Nickname(_) => "Nickname",
+            Self::AttachFile => "Send a file",
         }
     }
 
@@ -115,7 +120,12 @@ impl Level {
             Self::Settings => Some(':'),
             Self::Commands => Some('>'),
             Self::Keys => Some('?'),
-            Self::Root | Self::Themes | Self::Setting(_) | Self::People | Self::Nickname(_) => None,
+            Self::Root
+            | Self::Themes
+            | Self::Setting(_)
+            | Self::People
+            | Self::Nickname(_)
+            | Self::AttachFile => None,
         }
     }
 
@@ -276,6 +286,10 @@ pub enum ItemKind {
     SetNickname(ServiceId),
     /// Take this person's nickname away.
     ClearNickname(ServiceId),
+    /// Enter a subdirectory in `Level::AttachFile` by setting the query to this path.
+    EnterDir(String),
+    /// Stage a file for sending from `Level::AttachFile` (D77).
+    AttachFile(PathBuf),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -474,11 +488,12 @@ impl Palette {
             self.sync_preview();
             return;
         }
-        let pattern = Pattern::parse(
-            self.input.text().trim(),
-            CaseMatching::Smart,
-            Normalization::Smart,
-        );
+        let filter_text = if self.level() == Level::AttachFile {
+            super::system::split_file_query(self.input.text()).1.trim()
+        } else {
+            self.input.text().trim()
+        };
+        let pattern = Pattern::parse(filter_text, CaseMatching::Smart, Normalization::Smart);
         let typed = !pattern.atoms.is_empty();
         let mut buf = Vec::new();
         let mut found: Vec<(Option<u32>, Vec<u32>)> = Vec::with_capacity(self.items.len());
@@ -625,7 +640,27 @@ pub fn items(state: &State, level: Level, recent: &[PaletteCommand]) -> Vec<Item
         Level::Keys => keybindings(&state.keymap),
         Level::People => people(state),
         Level::Nickname(id) => nickname_actions(state, id),
+        Level::AttachFile => Vec::new(),
     }
+}
+
+/// Directory entries in `Level::AttachFile` as palette items (folders first, then files).
+pub fn file_items(entries: &[FileEntry]) -> Vec<Item> {
+    entries
+        .iter()
+        .map(|entry| {
+            if entry.is_dir {
+                Item::new(
+                    ItemKind::EnterDir(entry.dir_query.clone()),
+                    format!("{}/", entry.name),
+                )
+                .detail("folder")
+            } else {
+                Item::new(ItemKind::AttachFile(entry.path.clone()), entry.name.clone())
+                    .detail(faro_core::domain::format_byte_size(entry.size))
+            }
+        })
+        .collect()
 }
 
 /// Everyone faro knows, by name, to give one a nickname (D65).
@@ -678,7 +713,8 @@ fn categories(state: &State) -> Vec<Item> {
                 | Level::Commands
                 | Level::Keys
                 | Level::People
-                | Level::Nickname(_) => level.prefix().map(String::from).unwrap_or_default(),
+                | Level::Nickname(_)
+                | Level::AttachFile => level.prefix().map(String::from).unwrap_or_default(),
             };
             Item::new(ItemKind::Level(level), level.title()).detail(detail)
         })
@@ -852,6 +888,12 @@ pub fn note(state: &State, level: Level) -> Option<String> {
             "Type a nickname{theirs}; only faro shows it. Empty removes it."
         ));
     }
+    if level == Level::AttachFile {
+        return Some(
+            "Type a path; enter or → opens a folder, enter on a file attaches it (≤ 100 MB)."
+                .to_owned(),
+        );
+    }
     if level != Level::Themes {
         return None;
     }
@@ -994,7 +1036,10 @@ fn open_conversation_commands(state: &State) -> Vec<Item> {
     let item = |action, title: &str, curate| {
         command(PaletteCommand::Conversation(action), title, key(curate))
     };
-    let mut items = Vec::new();
+    let mut items = vec![Item::new(
+        ItemKind::Level(Level::AttachFile),
+        "Send a file…",
+    )];
     if current.pinned.is_some() {
         items.push(item(ConversationAction::Unpin, "Unpin", Curate::Pin));
         let pins = state

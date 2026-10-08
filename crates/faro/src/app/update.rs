@@ -73,6 +73,15 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
             selection::on_saved_to_downloads(state, result);
             vec![]
         }
+        AppEvent::FilesListed { query, entries } => {
+            palette::on_files_listed(state, &query, &entries);
+            vec![]
+        }
+        AppEvent::FileStaged(result) => {
+            sending::on_file_staged(state, result);
+            vec![]
+        }
+        AppEvent::PasteChecked { raw, staged } => sending::on_paste_checked(state, &raw, staged),
         AppEvent::ImageDecoded(_) => vec![],
         AppEvent::TerminalChecked(terminal) => {
             terminal_checked(state, terminal);
@@ -139,14 +148,10 @@ fn on_terminal(state: &mut State, event: &Event) -> Vec<Effect> {
         }
         Event::Mouse(mouse) if state.palette.is_some() => palette::on_mouse(state, *mouse),
         Event::Mouse(mouse) => navigation::on_mouse(state, *mouse),
-        Event::Paste(text) if state.palette.is_some() => {
-            palette::paste(state, text);
-            vec![]
-        }
+        Event::Paste(text) if state.palette.is_some() => palette::paste(state, text),
         Event::Paste(text) => {
             state.popup = None;
-            navigation::paste(state, text);
-            presence::on_edited(state)
+            navigation::paste(state, text)
         }
         // A tmux client may have attached from somewhere else (D47).
         Event::FocusGained | Event::Resize(_, _) => check_terminal(state),
@@ -263,6 +268,7 @@ fn open_conversation(state: &mut State, id: ConversationId) -> Vec<Effect> {
         unseen: 0,
         selected: None,
         reply_to: None,
+        staged_attachment: None,
         unreceipted: Vec::new(),
         typing_sent: None,
     });

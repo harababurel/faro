@@ -238,6 +238,25 @@ pub enum AttachmentStatus {
     Failed,
 }
 
+/// Format a byte count for display (`512 B`, `12.1 KB`, `5.0 MB`).
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "sizes are shown to one decimal; precision beyond 2^52 bytes doesn't matter"
+)]
+pub fn format_byte_size(bytes: u64) -> String {
+    const UNITS: [&str; 4] = ["KB", "MB", "GB", "TB"];
+    if bytes < 1024 {
+        return format!("{bytes} B");
+    }
+    let mut size = bytes as f64 / 1024.0;
+    let mut unit = 0;
+    while size >= 1024.0 && unit + 1 < UNITS.len() {
+        size /= 1024.0;
+        unit += 1;
+    }
+    format!("{size:.1} {}", UNITS.get(unit).copied().unwrap_or("TB"))
+}
+
 #[cfg(test)]
 mod tests {
     use uuid::Uuid;

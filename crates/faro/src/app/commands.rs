@@ -10,7 +10,9 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use faro_core::backend::{Backend, BackendError, OutgoingMessage, ReactionChange};
-use faro_core::domain::{AttachmentRef, AttachmentStatus, ConversationId, MessageRef, TypingState};
+use faro_core::domain::{
+    AttachmentRef, AttachmentStatus, ConversationId, MessageRef, ServiceId, Timestamp, TypingState,
+};
 use faro_core::paths;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -76,16 +78,18 @@ impl Drop for InFlight {
 /// the reducer must never wait.
 pub fn spawn<B: Backend + 'static>(
     backend: B,
+    me: ServiceId,
     attachments_dir: PathBuf,
     results: mpsc::UnboundedSender<AppEvent>,
 ) -> (mpsc::UnboundedSender<Command>, JoinHandle<()>) {
     let (commands, queue) = mpsc::unbounded_channel();
-    let task = tokio::task::spawn_local(run(Rc::new(backend), attachments_dir, queue, results));
+    let task = tokio::task::spawn_local(run(Rc::new(backend), me, attachments_dir, queue, results));
     (commands, task)
 }
 
 async fn run<B: Backend + 'static>(
     backend: Rc<B>,
+    me: ServiceId,
     attachments_dir: PathBuf,
     mut queue: mpsc::UnboundedReceiver<Command>,
     results: mpsc::UnboundedSender<AppEvent>,
@@ -116,7 +120,7 @@ async fn run<B: Backend + 'static>(
             }));
             continue;
         }
-        let Some(event) = execute(backend.as_ref(), command).await else {
+        let Some(event) = execute(backend.as_ref(), me, &attachments_dir, command).await else {
             continue;
         };
         if results.send(event).is_err() {
@@ -167,14 +171,24 @@ async fn fetch<B: Backend>(
     Ok(attachment)
 }
 
-async fn execute<B: Backend>(backend: &B, command: Command) -> Option<AppEvent> {
+async fn execute<B: Backend>(
+    backend: &B,
+    me: ServiceId,
+    attachments_dir: &Path,
+    command: Command,
+) -> Option<AppEvent> {
     let event = match command {
         Command::Send {
             conversation,
-            message,
+            mut message,
         } => {
             let sent_at = message.sent_at;
-            let result = backend.send(conversation, message).await;
+            let copy_result =
+                copy_outgoing_attachments(me, attachments_dir, sent_at, &mut message).await;
+            let result = match copy_result {
+                Ok(()) => backend.send(conversation, message).await,
+                Err(error) => Err(error),
+            };
             if let Err(error) = &result {
                 tracing::warn!(%error, %conversation, "sending failed");
             }
@@ -215,4 +229,49 @@ async fn execute<B: Backend>(backend: &B, command: Command) -> Option<AppEvent> 
         }
     };
     Some(event)
+}
+
+async fn copy_outgoing_attachments(
+    me: ServiceId,
+    attachments_dir: &Path,
+    sent_at: Timestamp,
+    message: &mut OutgoingMessage,
+) -> Result<(), BackendError> {
+    if message.attachments.is_empty() {
+        return Ok(());
+    }
+    let msg_ref = MessageRef {
+        sender: me,
+        sent_at,
+    };
+    for (index, att) in message.attachments.iter_mut().enumerate() {
+        let name = paths::attachment_file_name(
+            msg_ref,
+            index,
+            att.file_name.as_deref(),
+            &att.content_type,
+        );
+        let dest = attachments_dir.join(name);
+        if att.path == dest {
+            continue;
+        }
+        let src = att.path.clone();
+        let target = dest.clone();
+        tokio::task::spawn_blocking(move || copy_attachment_file(&src, &target))
+            .await
+            .map_err(|e| BackendError::Storage(format!("attachment copy task: {e}")))??;
+        att.path = dest;
+    }
+    Ok(())
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "copying an outgoing attachment into faro's attachments/ runs inside spawn_blocking"
+)]
+fn copy_attachment_file(src: &Path, dest: &Path) -> Result<(), BackendError> {
+    let bytes = std::fs::read(src)
+        .map_err(|e| BackendError::Storage(format!("reading {}: {e}", src.display())))?;
+    paths::write_private_atomic(dest, &bytes)
+        .map_err(|e| BackendError::Storage(format!("writing {}: {e}", dest.display())))
 }

@@ -228,6 +228,8 @@ fn result_line(
         (ItemKind::Conversation(ConversationId::Direct(_)), None) => "@ ",
         (
             ItemKind::Level(_)
+            | ItemKind::EnterDir(_)
+            | ItemKind::AttachFile(_)
             | ItemKind::Command(_)
             | ItemKind::Setting(_)
             | ItemKind::Theme(_)
@@ -239,7 +241,7 @@ fn result_line(
             None,
         ) => "  ",
     };
-    let opens = matches!(item.kind, ItemKind::Level(_));
+    let opens = matches!(item.kind, ItemKind::Level(_) | ItemKind::EnterDir(_));
     let suffix = if opens { width(OPENS) } else { 0 };
     let detail = sanitize(&item.detail).into_owned();
     let detail_width = if detail.is_empty() {

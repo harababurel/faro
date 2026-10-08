@@ -128,7 +128,8 @@ fn prefixes_jump_into_a_category() {
     assert_eq!(state.palette.as_ref().unwrap().input.text(), "");
     assert!(kinds(&state).iter().all(|k| matches!(
         k,
-        ItemKind::Command(_) | ItemKind::Level(Level::People | Level::Nickname(_))
+        ItemKind::Command(_)
+            | ItemKind::Level(Level::People | Level::Nickname(_) | Level::AttachFile)
     )));
     // Backspace on an empty query goes back up.
     press(&mut state, KeyCode::Backspace);
@@ -865,4 +866,85 @@ fn emoji_values_are_not_previewed() {
     typed(&mut state, "compatible");
     assert_eq!(selected_title(&state), "compatible");
     assert_eq!(state.palette.as_ref().unwrap().preview, None);
+}
+
+#[test]
+fn send_a_file_browses_folders_and_stages_the_chosen_file() {
+    use crate::app::state::FileEntry;
+    use std::path::PathBuf;
+
+    let mut state = loaded_state();
+    palette_open(&mut state, ">");
+    let effects = pick(&mut state, "send a file");
+    assert_eq!(level(&state), Level::AttachFile);
+    assert_eq!(state.palette.as_ref().unwrap().input.text(), "~/");
+    assert_eq!(effects, vec![Effect::ListFiles("~/".into())]);
+
+    update(
+        &mut state,
+        AppEvent::FilesListed {
+            query: "~/".into(),
+            entries: vec![
+                FileEntry {
+                    name: "Downloads".into(),
+                    path: PathBuf::from("/home/user/Downloads"),
+                    dir_query: "~/Downloads/".into(),
+                    is_dir: true,
+                    size: 0,
+                },
+                FileEntry {
+                    name: "notes.txt".into(),
+                    path: PathBuf::from("/home/user/notes.txt"),
+                    dir_query: "~/notes.txt/".into(),
+                    is_dir: false,
+                    size: 1024,
+                },
+            ],
+        },
+    );
+    assert_eq!(titles(&state), vec!["Downloads/", "notes.txt"]);
+
+    // Enter (or Right) on a folder enters it and requests its entries.
+    let effects = enter(&mut state);
+    assert_eq!(state.palette.as_ref().unwrap().input.text(), "~/Downloads/");
+    assert_eq!(effects, vec![Effect::ListFiles("~/Downloads/".into())]);
+
+    update(
+        &mut state,
+        AppEvent::FilesListed {
+            query: "~/Downloads/".into(),
+            entries: vec![
+                FileEntry {
+                    name: "photo.jpg".into(),
+                    path: PathBuf::from("/home/user/Downloads/photo.jpg"),
+                    dir_query: "~/Downloads/photo.jpg/".into(),
+                    is_dir: false,
+                    size: 4096,
+                },
+                FileEntry {
+                    name: "report.pdf".into(),
+                    path: PathBuf::from("/home/user/Downloads/report.pdf"),
+                    dir_query: "~/Downloads/report.pdf/".into(),
+                    is_dir: false,
+                    size: 2048,
+                },
+            ],
+        },
+    );
+    // Typing filters only by the filename prefix after the last '/'.
+    typed(&mut state, "rep");
+    assert_eq!(
+        state.palette.as_ref().unwrap().input.text(),
+        "~/Downloads/rep"
+    );
+    assert_eq!(titles(&state), vec!["report.pdf"]);
+
+    let effects = enter(&mut state);
+    assert!(state.palette.is_none());
+    assert_eq!(
+        effects,
+        vec![Effect::StageFile(PathBuf::from(
+            "/home/user/Downloads/report.pdf"
+        ))]
+    );
 }

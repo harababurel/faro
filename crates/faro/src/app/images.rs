@@ -421,7 +421,14 @@ pub fn box_size(
     reason = "decode_and_slice runs inside spawn_blocking off the async runtime"
 )]
 pub fn decode_and_slice(picker: &Picker, key: &ImageKey) -> Option<SlicedProtocol> {
-    let bytes = std::fs::read(&key.path).ok()?;
+    let bytes = match std::fs::read(&key.path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            std::thread::sleep(Duration::from_millis(15));
+            std::fs::read(&key.path).ok()?
+        }
+        Err(_) => return None,
+    };
     let reader = image::ImageReader::new(std::io::Cursor::new(bytes))
         .with_guessed_format()
         .ok()?;

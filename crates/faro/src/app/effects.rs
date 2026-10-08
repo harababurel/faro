@@ -118,6 +118,9 @@ async fn execute(store: &Store, effect: Effect) -> Result<Option<AppEvent>, Stor
         | Effect::OpenUrl(_)
         | Effect::OpenFile(_)
         | Effect::SaveToDownloads { .. }
+        | Effect::ListFiles(_)
+        | Effect::StageFile(_)
+        | Effect::CheckPaste { .. }
         | Effect::CheckTerminal
         | Effect::Bell
         | Effect::SaveSetting(_) => {
