@@ -373,15 +373,28 @@ fn outgoing_text_carries_quote_and_group() {
 }
 
 #[test]
-fn outgoing_reaction_removal() {
+fn outgoing_reactions_and_removals_name_the_emoji() {
     let target = MessageRef {
         sender: ALICE,
         sent_at: Timestamp::from_millis(7),
     };
-    let data = reaction(target, None, 9, None);
-    let r = data.reaction.unwrap();
-    assert_eq!(r.remove, Some(true));
-    assert_eq!(r.target_sent_timestamp, Some(7));
+    let set = reaction(target, ReactionChange::Set("👍".into()), 9, None)
+        .reaction
+        .unwrap();
+    assert_eq!(set.remove, Some(false));
+    assert_eq!(set.emoji.as_deref(), Some("👍"));
+    assert_eq!(set.target_author_aci, Some(ALICE.to_string()));
+
+    let removed = reaction(target, ReactionChange::Remove("👍".into()), 9, None)
+        .reaction
+        .unwrap();
+    assert_eq!(removed.remove, Some(true));
+    assert_eq!(
+        removed.emoji.as_deref(),
+        Some("👍"),
+        "Signal's apps need it"
+    );
+    assert_eq!(removed.target_sent_timestamp, Some(7));
 }
 
 #[test]

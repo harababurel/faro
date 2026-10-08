@@ -116,7 +116,7 @@ pub trait Backend {                       // no Send bound: futures may be !Send
     // faro picks msg.sent_at, so the MessageRef is known before sending;
     // delivery progress arrives as BackendEvent::DeliveryUpdate.
     async fn send(&self, to: ConversationId, msg: OutgoingMessage) -> Result<()>;
-    async fn react(&self, conversation: ConversationId, target: MessageRef, emoji: Option<String>) -> Result<()>; // None = remove
+    async fn react(&self, conversation: ConversationId, target: MessageRef, change: ReactionChange) -> Result<()>; // Set(emoji) | Remove(emoji), D73
     async fn edit(&self, conversation: ConversationId, target: MessageRef, edit: OutgoingEdit) -> Result<()>;
     async fn delete_for_everyone(&self, conversation: ConversationId, target: MessageRef) -> Result<()>;
     async fn mark_read(&self, messages: &[MessageRef]) -> Result<()>;

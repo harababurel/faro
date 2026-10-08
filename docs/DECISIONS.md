@@ -630,3 +630,9 @@ Refines the DESIGN.md §5.1 sketch:
 - **Notifications:** `State::rings_for(summary, message, now)`: "All" rings for every message as before; "Mentions only" rings when the message mentions this account. **A mute silences mentions too** (D49's open question): a mute is an explicit "quiet", and Signal's per-chat "mentions" override is a separate setting faro doesn't have. "Mentions only" chats still don't count in the window title or the footer total (`State::notifies` unchanged): the unread count is a number, so faro can't tell which unread messages mention us. An unread-mention badge would need per-message read state; later.
 - **Mock:** about 15 % of group messages start with a mention, of this account half the time, so "Mentions only" can be tried with `--mock`.
 - **Later:** sending mentions (completion in the input, body ranges out), mentions in quotes, text styles.
+
+### D73. Taking a reaction back names the emoji — Judgement (2026-10-08)
+
+- **Why:** faro sent a removal as `remove: true` with no emoji. Signal's Android app checks the emoji before looking at `remove` and drops a reaction message without a valid one ("Reaction text is not a valid emoji"), and the other apps always send it, so a reaction taken back in faro stayed on other people's phones.
+- **What:** `Backend::react` takes a `ReactionChange`: `Set(emoji)` or `Remove(emoji)`, the emoji being taken back (Signal's apps send the same). `convert::reaction` maps it to `emoji` plus `remove`; the mock and the guard pass it through (the guard still checks the conversation first, D62). `Command::React` carries the change; the reducer's toggle builds `Remove(previous)` when the chosen emoji is already ours, `Set` otherwise, and the local echo and the undo on failure work as before (`ReactionChange::emoji` is what's left).
+- Incoming removals were already understood with or without an emoji (a removal drops the sender's reaction whatever it names).

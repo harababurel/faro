@@ -64,12 +64,12 @@ pub trait Backend {
     /// `MessageRef { sender: me, sent_at: msg.sent_at }`.
     fn send(&self, to: ConversationId, msg: OutgoingMessage) -> impl Future<Output = Result<()>>;
 
-    /// Set (`Some`) or remove (`None`) this account's reaction to `target`.
+    /// Set or take back this account's reaction to `target`.
     fn react(
         &self,
         conversation: ConversationId,
         target: MessageRef,
-        emoji: Option<String>,
+        change: ReactionChange,
     ) -> impl Future<Output = Result<()>>;
 
     /// Replace the text of one of this account's messages.
@@ -118,6 +118,26 @@ pub struct OutgoingMessage {
     pub sent_at: Timestamp,
     pub body: MessageBody,
     pub quote: Option<Quote>,
+}
+
+/// A change to this account's reaction to a message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReactionChange {
+    /// React with this emoji, replacing any earlier reaction.
+    Set(String),
+    /// Take back the reaction with this emoji. Signal clients ignore a
+    /// removal that doesn't name the emoji it removes (D73).
+    Remove(String),
+}
+
+impl ReactionChange {
+    /// The reaction left afterwards.
+    pub fn emoji(&self) -> Option<&str> {
+        match self {
+            Self::Set(emoji) => Some(emoji),
+            Self::Remove(_) => None,
+        }
+    }
 }
 
 /// New text for an edited message; `edited_at` is the edit's own timestamp.
@@ -238,7 +258,7 @@ mod tests {
                 .await
                 .map_err(|_| BackendError::Network("event channel closed".into()))
         }
-        async fn react(&self, _: ConversationId, _: MessageRef, _: Option<String>) -> Result<()> {
+        async fn react(&self, _: ConversationId, _: MessageRef, _: ReactionChange) -> Result<()> {
             Ok(())
         }
         async fn edit(&self, _: ConversationId, _: MessageRef, _: OutgoingEdit) -> Result<()> {

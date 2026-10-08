@@ -209,7 +209,9 @@ async fn actions_towards_others_are_refused() {
     assert!(refused(guarded.send(stranger, msg.clone()).await));
     assert!(refused(guarded.send(other_group, msg.clone()).await));
     assert!(refused(
-        guarded.react(stranger, target, Some("👍".into())).await
+        guarded
+            .react(stranger, target, ReactionChange::Set("👍".into()))
+            .await
     ));
     assert!(refused(
         guarded.send_typing(other_group, TypingState::Started).await
@@ -290,7 +292,7 @@ impl Backend for Kept {
     async fn send(&self, _: ConversationId, _: OutgoingMessage) -> Result<()> {
         Ok(())
     }
-    async fn react(&self, _: ConversationId, _: MessageRef, _: Option<String>) -> Result<()> {
+    async fn react(&self, _: ConversationId, _: MessageRef, _: ReactionChange) -> Result<()> {
         Ok(())
     }
     async fn edit(&self, _: ConversationId, _: MessageRef, _: OutgoingEdit) -> Result<()> {

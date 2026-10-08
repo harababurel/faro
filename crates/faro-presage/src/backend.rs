@@ -8,7 +8,7 @@ use std::time::{Duration, SystemTime};
 
 use faro_core::backend::{
     Account, Backend, BackendError, BackendEvent, BackendEvents, Capabilities, Capability,
-    EVENT_CHANNEL_CAPACITY, OutgoingEdit, OutgoingMessage, Result,
+    EVENT_CHANNEL_CAPACITY, OutgoingEdit, OutgoingMessage, ReactionChange, Result,
 };
 use faro_core::domain::{
     AttachmentRef, ConnectionState, Contact, ConversationId, Group, GroupId, MessageRef,
@@ -400,10 +400,10 @@ impl Backend for PresageBackend {
         &self,
         conversation: ConversationId,
         target: MessageRef,
-        emoji: Option<String>,
+        change: ReactionChange,
     ) -> Result<()> {
         let now = now_millis();
-        let message = convert::reaction(target, emoji, now, self.group_of(conversation)?);
+        let message = convert::reaction(target, change, now, self.group_of(conversation)?);
         self.deliver(conversation, message, now).await
     }
 

@@ -30,7 +30,7 @@ use tokio::sync::mpsc;
 
 use crate::backend::{
     Account, Backend, BackendError, BackendEvent, BackendEvents, Capabilities,
-    EVENT_CHANNEL_CAPACITY, OutgoingEdit, OutgoingMessage, Result,
+    EVENT_CHANNEL_CAPACITY, OutgoingEdit, OutgoingMessage, ReactionChange, Result,
 };
 use crate::domain::{
     AttachmentRef, Contact, ConversationId, Group, GroupId, MessageRef, ServiceId, TypingState,
@@ -286,10 +286,10 @@ impl<B: Backend> Backend for Guarded<B> {
         &self,
         conversation: ConversationId,
         target: MessageRef,
-        emoji: Option<String>,
+        change: ReactionChange,
     ) -> Result<()> {
         self.shared.check(conversation)?;
-        self.inner.react(conversation, target, emoji).await
+        self.inner.react(conversation, target, change).await
     }
 
     async fn edit(

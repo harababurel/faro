@@ -1,7 +1,7 @@
 //! Message selection and what can be done with the selected message (M4 task 4,
 //! D40): reply, react, copy, open links, retry a failed send.
 
-use faro_core::backend::{BackendError, BackendEvent, OutgoingMessage};
+use faro_core::backend::{BackendError, BackendEvent, OutgoingMessage, ReactionChange};
 use faro_core::domain::{
     ConversationId, DeliveryStatus, Direction, Message, MessageBody, MessageRef, Quote,
 };
@@ -276,8 +276,8 @@ fn own_reaction<'a>(state: &State, message: &'a Message) -> Option<&'a str> {
         .map(|r| r.emoji.as_str())
 }
 
-/// React with `emoji`, or take the reaction back if it's already ours. Shown
-/// at once; undone if the backend fails.
+/// React with `emoji`, or take the reaction back if it's already ours (the
+/// removal names the emoji, D73). Shown at once; undone if the backend fails.
 fn react(state: &mut State, target: MessageRef, emoji: &str) -> Vec<Effect> {
     let Some(open) = state.open.as_ref() else {
         return vec![];
@@ -287,13 +287,22 @@ fn react(state: &mut State, target: MessageRef, emoji: &str) -> Vec<Effect> {
         return vec![];
     };
     let previous = own_reaction(state, message).map(str::to_owned);
-    let emoji = (previous.as_deref() != Some(emoji)).then(|| emoji.to_owned());
-    let event = reaction(state, conversation, target, emoji.clone());
+    let change = if previous.as_deref() == Some(emoji) {
+        ReactionChange::Remove(emoji.to_owned())
+    } else {
+        ReactionChange::Set(emoji.to_owned())
+    };
+    let event = reaction(
+        state,
+        conversation,
+        target,
+        change.emoji().map(str::to_owned),
+    );
     let mut effects = on_backend(state, event);
     effects.push(Effect::Backend(Command::React {
         conversation,
         target,
-        emoji,
+        change,
         previous,
     }));
     effects

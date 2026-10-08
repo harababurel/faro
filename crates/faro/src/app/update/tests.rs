@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use faro_core::backend::{BackendError, BackendEvent, OutgoingMessage};
+use faro_core::backend::{BackendError, BackendEvent, OutgoingMessage, ReactionChange};
 use faro_core::domain::{DeliveryStatus, MessageBody, Quote, Timestamp, TypingState};
 
 use super::*;
@@ -933,7 +933,7 @@ fn reactions_toggle_and_are_undone_on_failure() {
             Effect::Backend(Command::React {
                 conversation: climbing(),
                 target,
-                emoji: Some("👍".into()),
+                change: ReactionChange::Set("👍".into()),
                 previous: None,
             }),
         ]
@@ -948,7 +948,7 @@ fn reactions_toggle_and_are_undone_on_failure() {
     };
     assert_eq!(mine(&state).as_deref(), Some("👍"));
 
-    // Picking it again takes it back; the picker starts on it.
+    // Picking it again takes it back, naming it (D73); the picker starts on it.
     press(&mut state, '+');
     assert_eq!(
         state.popup,
@@ -957,8 +957,25 @@ fn reactions_toggle_and_are_undone_on_failure() {
             selected: 1
         })
     );
-    update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    let effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(mine(&state), None);
+    assert!(effects.contains(&Effect::Backend(Command::React {
+        conversation: climbing(),
+        target,
+        change: ReactionChange::Remove("👍".into()),
+        previous: Some("👍".into()),
+    })));
+
+    // Another emoji replaces ours: a plain `Set`.
+    press(&mut state, '+');
+    press(&mut state, '2');
+    press(&mut state, '+');
+    let effects = press(&mut state, '3');
+    assert!(effects.iter().any(|e| matches!(
+        e,
+        Effect::Backend(Command::React { change: ReactionChange::Set(_), previous: Some(p), .. })
+            if p == "👍"
+    )));
 
     // The backend refused: restore what was there before.
     update(

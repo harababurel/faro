@@ -1,7 +1,7 @@
 //! presage's contents ↔ faro's types. Pure functions, so the mapping is
 //! tested with hand-built contents and no network.
 
-use faro_core::backend::{BackendEvent, OutgoingEdit, OutgoingMessage};
+use faro_core::backend::{BackendEvent, OutgoingEdit, OutgoingMessage, ReactionChange};
 use faro_core::domain::{
     AttachmentId, AttachmentRef, ConversationId, DeliveryStatus, Direction, GroupId, Mention,
     Message, MessageBody, MessageRef, Quote, ServiceId, Timestamp, TypingState,
@@ -436,16 +436,22 @@ pub fn text(msg: &OutgoingMessage, group: Option<GroupContextV2>) -> DataMessage
     }
 }
 
+/// Our reaction, or its removal: a removal names the emoji it takes back, as
+/// Signal's apps send it and need it (D73).
 pub fn reaction(
     target: MessageRef,
-    emoji: Option<String>,
+    change: ReactionChange,
     sent_at: u64,
     group: Option<GroupContextV2>,
 ) -> DataMessage {
+    let (emoji, remove) = match change {
+        ReactionChange::Set(emoji) => (emoji, false),
+        ReactionChange::Remove(emoji) => (emoji, true),
+    };
     DataMessage {
         reaction: Some(data_message::Reaction {
-            remove: Some(emoji.is_none()),
-            emoji,
+            remove: Some(remove),
+            emoji: Some(emoji),
             target_author_aci: Some(target.sender.to_string()),
             target_sent_timestamp: Some(target.sent_at.as_millis()),
             ..data_message::Reaction::default()

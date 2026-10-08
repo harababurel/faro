@@ -27,7 +27,7 @@ use self::sim::{Millis, Sim, millis};
 use self::world::World;
 use crate::backend::{
     Account, Backend, BackendError, BackendEvent, BackendEvents, Capabilities, Capability,
-    EVENT_CHANNEL_CAPACITY, OutgoingEdit, OutgoingMessage, Result,
+    EVENT_CHANNEL_CAPACITY, OutgoingEdit, OutgoingMessage, ReactionChange, Result,
 };
 use crate::domain::{
     AttachmentRef, Contact, ConversationId, Group, MessageRef, Timestamp, TypingState,
@@ -224,7 +224,7 @@ impl Backend for MockBackend {
         self.shared.schedule(|sim, now| sim.sent(now, to, msg))
     }
 
-    async fn react(&self, _: ConversationId, _: MessageRef, _: Option<String>) -> Result<()> {
+    async fn react(&self, _: ConversationId, _: MessageRef, _: ReactionChange) -> Result<()> {
         self.request(|_| Ok(())).await
     }
 
