@@ -13,6 +13,7 @@ use tokio::sync::mpsc;
 use tokio::time::{Instant, sleep_until};
 
 use crate::config::{self, Startup};
+use crate::frames::FrameLog;
 use crate::theme::{ColorDepth, Themes};
 use crate::tui::Tui;
 use crate::ui::{self, View};
@@ -110,6 +111,10 @@ pub async fn run<B: Backend + 'static>(
     }
     dispatch(update::configure(&mut state, settings, problems));
     let mut tui = Tui::enter(state.config.mouse.enabled).context("setting up the terminal")?;
+    let frame_log = FrameLog::from_env().map(|(log, task)| {
+        tui.log_frames(log);
+        task
+    });
     let mut input = EventStream::new();
     dispatch(vec![Effect::LoadConversations]);
 
@@ -156,6 +161,9 @@ pub async fn run<B: Backend + 'static>(
     }
 
     drop(tui);
+    if let Some(task) = frame_log {
+        finish(task, "frame log").await;
+    }
     drop(watch);
     // A send still in flight is abandoned; the store marks it failed on the
     // next start (`Store::fail_unsent`).

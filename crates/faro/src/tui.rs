@@ -18,8 +18,14 @@ use crossterm::{cursor, execute};
 use ratatui::backend::{Backend as _, ClearType, CrosstermBackend};
 use ratatui::{Frame, Terminal};
 
+use crate::frames::FrameLog;
+
+mod backend;
+
 pub struct Tui {
-    terminal: Terminal<CrosstermBackend<Stdout>>,
+    terminal: Terminal<backend::Backend<CrosstermBackend<Stdout>>>,
+    /// Drawn frames go here when `FARO_DEBUG_FRAMES` is set (D55).
+    frames: Option<FrameLog>,
     /// Mouse capture is on (`[mouse] enabled`).
     mouse: bool,
     /// The window title we set; `None` while it's the terminal's own.
@@ -52,7 +58,8 @@ impl Tui {
                 EnableFocusChange
             )?;
             let mut tui = Self {
-                terminal: Terminal::new(CrosstermBackend::new(stdout()))?,
+                terminal: Terminal::new(backend::Backend::new(CrosstermBackend::new(stdout())))?,
+                frames: None,
                 mouse: false,
                 title: None,
             };
@@ -67,9 +74,18 @@ impl Tui {
     /// support it never show a half-drawn frame. Others ignore the sequence.
     pub fn draw(&mut self, render: impl FnOnce(&mut Frame<'_>)) -> io::Result<()> {
         execute!(stdout(), BeginSynchronizedUpdate)?;
-        let drawn = self.terminal.draw(render).map(drop);
+        let drawn = self.terminal.draw(render).map(|frame| {
+            if let Some(log) = &mut self.frames {
+                log.record(frame.buffer);
+            }
+        });
         execute!(stdout(), EndSynchronizedUpdate)?;
         drawn
+    }
+
+    /// Log every frame drawn from now on (`FARO_DEBUG_FRAMES`, D55).
+    pub fn log_frames(&mut self, log: FrameLog) {
+        self.frames = Some(log);
     }
 }
 

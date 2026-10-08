@@ -80,6 +80,15 @@ Terminal matrix (DESIGN §15): kitty, WezTerm, Ghostty, iTerm2, Alacritty, foot;
 - [ ] **Half flags:** a lone regional indicator shows as a letter (needs a real message containing one; the mock has none, so this waits for M7).
 
 
+## Emoji glitches under tmux (D55)
+
+- [ ] **Flags over ssh:** `faro --mock --emoji full` in your usual tmux, attached over plain ssh. Find the `🇷🇴 🇩🇪 🇯🇵 🏳️‍🌈 🏴‍☠️` message and scroll it up and down past the top and bottom (`PgUp`/`PgDn`, wheel) for a while, also with the sidebar's `Lukas 🇩🇪` visible: no tofu, stray characters or shifted border pipes. Detach and re-attach tmux, switch windows away and back: still clean.
+- [ ] **Flags through mosh:** the same through mosh (compatible mode, auto-detected): flags show as letters (`RO DE JP`), the rainbow and pirate flags as their parts; no trail while scrolling.
+- [ ] **Skin tones:** reactions and messages with 🫶🏽 (and 👍🏽) stay aligned. 👍🏽 keeps its tone; 🫶🏽 is drawn without one (tmux can't join that tone; expected).
+- [ ] **✌ and friends:** the mock's `❤️ ☺️ ✌️ (variation selectors)` message keeps the bubble's right edge and the border straight in tmux over ssh; through mosh it reads `❤ ☺ ☮` and is straight too.
+- [ ] **Stale mosh clients:** `tmux list-clients -t faro`. If an old mosh client is listed while you're on ssh, faro stays in compatible mode. Detach it (`tmux detach-client -t <tty>`) and focus faro: it switches back to full emoji with a notice.
+- [ ] **Directly in kitty (no tmux):** `faro --mock` in a kitty window: flags and emoji look right and the borders are straight.
+
 ## M5: configuration (D48)
 
 Use a scratch config to keep your real one clean: `faro --mock --config /tmp/faro-test.toml` (or try the real `~/.config/faro/config.toml`, which faro creates on first run).

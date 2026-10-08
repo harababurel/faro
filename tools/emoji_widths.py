@@ -47,6 +47,15 @@ SAMPLES = [
     ("family (ZWJ)", "👨\u200d👩\u200d👧\u200d👦", 2),
     ("cyclist (ZWJ)", "🚴\u200d♂\ufe0f", 2),
     ("climber (ZWJ)", "🧗\u200d♀\ufe0f", 2),
+    ("two flags in a row", "🇷🇴🇩🇪", 4),
+    ("England flag (tags)", "🏴\U000e0067\U000e0062\U000e0065\U000e006e\U000e0067\U000e007f", 2),
+    ("heart hands + skin tone", "🫶\U0001f3fd", 2),
+    ("runner + skin tone", "🏃\U0001f3fd", 2),
+    ("crossed fingers + tone", "🤞\U0001f3fd", 2),
+    ("pointing up + skin tone", "☝\U0001f3fd", 2),
+    ("coder + skin tone (ZWJ)", "🧑\U0001f3fd\u200d💻", 2),
+    ("victory hand, no VS16", "\u270c", 1),
+    ("pointing up, no VS16", "\u261d", 1),
 ]
 
 

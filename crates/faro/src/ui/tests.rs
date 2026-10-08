@@ -39,23 +39,7 @@ fn draw_with(state: &State, width: u16, height: u16, theme: &Theme) -> Buffer {
 }
 
 fn snapshot(buffer: &Buffer) -> String {
-    let width = usize::from(buffer.area.width);
-    let mut out = String::new();
-    for row in buffer.content.chunks(width) {
-        let mut skip = 0;
-        for cell in row {
-            // A wide character's second cell is blank; don't print it twice.
-            if skip > 0 {
-                skip -= 1;
-                continue;
-            }
-            let symbol = cell.symbol();
-            skip = unicode_width::UnicodeWidthStr::width(symbol).saturating_sub(1);
-            out.push_str(symbol);
-        }
-        out.push('\n');
-    }
-    out
+    crate::frames::grid(buffer)
 }
 
 fn typing_state() -> State {

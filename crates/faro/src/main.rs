@@ -3,6 +3,7 @@ mod cli;
 mod config;
 #[cfg(test)]
 mod fixtures;
+mod frames;
 mod logging;
 mod theme;
 mod tui;

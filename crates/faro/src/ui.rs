@@ -68,6 +68,12 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>) -> Geometry
     geometry
 }
 
+/// `emoji::finish` for tests outside `ui` that build buffers by hand.
+#[cfg(test)]
+pub fn finish_for_tests(buffer: &mut ratatui::buffer::Buffer) {
+    emoji::finish(buffer);
+}
+
 /// Whether `pane` has focus. Sidebar focus falls back to the input while the
 /// sidebar is hidden (the reducer catches up after the frame). Call after the
 /// sidebar has been drawn.

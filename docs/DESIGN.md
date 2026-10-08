@@ -206,6 +206,7 @@ presage keeps its own store for keys, sessions and protocol state; faro never to
 - **As built in M4 task 9 (D45):** bubbles are the default (palette: "Use the IRC layout" / "Use the bubbles layout", remembered in `app_state` until M5). Bubbles size to their text, at most 75% of the pane, with 1 cell of padding on `bubbleOwn`/`bubbleOther`; others left, own right; time, `edited` and delivery glyph at the bottom right inside the bubble; reactions under it; names above others' first bubble of a run in groups only; one blank line between bubbles. No `compact` toggle yet.
 - **Emoji:** rendered as-is. Widths are computed with grapheme clustering; a setting replaces problematic sequences (ZWJ families, flags, skin tones) with a fallback where terminals disagree. Emoji picker with `:shortcode:` fuzzy search.
 - **As built in M4.5 (D47):** `--emoji auto|full|compatible` (config setting in M5). Compatible mode drops VS16, ZWJ, keycaps, skin tones and tags from graphemes that terminals adding up code points (mosh) measure differently (❤️ → ❤, 👨‍👩‍👧‍👦 → 👨👩👧👦); auto picks it when a mosh client is attached. A lone regional indicator is drawn as its letter in every mode. Copy keeps the original text. `Ctrl+L` repaints the screen.
+- **As built after D55:** in every mode, two flags side by side get a space between them (tmux would join them into one cell), graphemes starting with a joiner or modifier or ending with a ZWJ lose those, and skin tones on bases tmux 3.6 doesn't join (🫶🏽, 🏃🏽) are dropped; emoji tmux always draws two cells wide (☝ ✌ ✍ 🖐…) always get VS16. Compatible mode also draws flags as their letters (🇷🇴 → RO), and those emoji as a near equivalent (✌ → ☮, ☝ → 👆).
 
 ### 7.4 Message selection and actions
 
@@ -331,6 +332,7 @@ Sketch:
 - **Width:** grapheme-aware width calculation (`unicode-segmentation` + `unicode-width`); test emoji-heavy content specifically under tmux.
 - **mosh** measures emoji per code point, unlike kitty and tmux ≥ 3.5: faro switches to compatible emoji when any client of its tmux session (or faro itself) runs under `mosh-server` (D47). Other panes in the same tmux (e.g. a shell) still look wrong through mosh; that's outside faro's control.
 - **Frame output:** every wide cell is sent with `ForcedWidth`, so ratatui never writes a wide character's hidden cell (D47).
+- **tmux builds emoji one code point at a time** and, when it widens a cell for a flag or VS16 emoji, leaves whatever wide character started in the next cell half-cleared. faro's backend (`tui/backend.rs`) writes a blank into that next cell first (D55). `FARO_DEBUG_FRAMES=<file>` logs every intended frame, for comparing with what a terminal shows (`tools/frames/`).
 - **Colours (D51):** truecolor is assumed inside tmux (tmux rounds RGB itself for clients without it) and in known truecolor terminals even when `COLORTERM` was lost over SSH; elsewhere 256 colours, mapped once at theme load; 16-colour terminals get the `system` theme. `[ui] colors` overrides the guess. Details in §10.
 - **Images:** not in the first release (see §14).
 
