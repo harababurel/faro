@@ -206,7 +206,7 @@ Switch with the palette (`Ctrl+P` › Themes) or `theme = "…"` in the config; 
 
 ## M7: the Signal backend (D63)
 
-- [ ] Contacts (D68), personal account: a minute after starting, `Ctrl+P` › Chats lists your Signal contacts (no restart needed); the log says "asked the phone for its contacts" and "contacts synced from the phone".
+- [ ] Contacts (D68), personal account: a minute after starting, `Ctrl+P` › Chats lists your Signal contacts (no restart needed; an iPhone answers only once Signal is opened on it); the log says "asked the phone for its contacts" and "contacts synced from the phone".
 - [ ] `--no-allowlist` (D67), on your own account: faro starts, the footer says `no allowlist`, and every chat shows up as messages arrive. Without either flag faro refuses and names both.
 
 Use a separate data dir for the test account, e.g. `--data-dir ~/.local/share/faro-test`.
