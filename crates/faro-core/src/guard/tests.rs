@@ -229,3 +229,94 @@ async fn the_directory_keeps_only_allowed_people_and_groups() {
     assert!(!contacts.contains(&outsider));
     assert!(contacts.iter().all(|id| chosen.members.contains(id)));
 }
+
+/// A backend that kept some events, and notes which conversations it was
+/// asked about.
+struct Kept {
+    events: Vec<BackendEvent>,
+    asked: std::cell::RefCell<Vec<ConversationId>>,
+}
+
+#[expect(
+    clippy::unused_async_trait_impl,
+    reason = "a stub mirrors how real backends write the trait: plain async fns"
+)]
+impl Backend for Kept {
+    fn capabilities(&self) -> Capabilities {
+        Capabilities::NONE
+    }
+    async fn whoami(&self) -> Result<Account> {
+        Ok(Account {
+            service_id: person(99),
+            phone: None,
+        })
+    }
+    async fn contacts(&self) -> Result<Vec<Contact>> {
+        Ok(vec![])
+    }
+    async fn groups(&self) -> Result<Vec<Group>> {
+        Ok(vec![])
+    }
+    async fn stored_events(&self, conversations: &[ConversationId]) -> Result<Vec<BackendEvent>> {
+        self.asked.borrow_mut().extend_from_slice(conversations);
+        Ok(self.events.clone())
+    }
+    async fn send(&self, _: ConversationId, _: OutgoingMessage) -> Result<()> {
+        Ok(())
+    }
+    async fn react(&self, _: ConversationId, _: MessageRef, _: Option<String>) -> Result<()> {
+        Ok(())
+    }
+    async fn edit(&self, _: ConversationId, _: MessageRef, _: OutgoingEdit) -> Result<()> {
+        Ok(())
+    }
+    async fn delete_for_everyone(&self, _: ConversationId, _: MessageRef) -> Result<()> {
+        Ok(())
+    }
+    async fn mark_read(&self, _: &[MessageRef]) -> Result<()> {
+        Ok(())
+    }
+    async fn send_typing(&self, _: ConversationId, _: TypingState) -> Result<()> {
+        Ok(())
+    }
+    async fn fetch_attachment(&self, _: &AttachmentRef) -> Result<PathBuf> {
+        Ok(PathBuf::new())
+    }
+}
+
+#[tokio::test]
+async fn stored_events_are_asked_and_filtered_like_live_ones() {
+    let direct = |n| ConversationId::Direct(person(n));
+    let allowed_group = ConversationId::Group(group(7));
+    let kept = Kept {
+        // A backend that answers more than it was asked must not leak it.
+        events: vec![
+            message(direct(ALLOWED), person(ALLOWED)),
+            message(direct(STRANGER), person(STRANGER)),
+            message(allowed_group, person(FRIEND)),
+            message(ConversationId::Group(group(8)), person(FRIEND)),
+        ],
+        asked: std::cell::RefCell::default(),
+    };
+    let (_, events) = mpsc::channel(1);
+    let (guarded, _events) = guard(kept, events, list());
+    let asked_for = [
+        direct(ALLOWED),
+        direct(STRANGER),
+        allowed_group,
+        ConversationId::Group(group(8)),
+    ];
+    let got = guarded.stored_events(&asked_for).await.unwrap();
+    assert_eq!(
+        got,
+        vec![
+            message(direct(ALLOWED), person(ALLOWED)),
+            message(allowed_group, person(FRIEND)),
+        ]
+    );
+    assert_eq!(
+        *guarded.inner.asked.borrow(),
+        vec![direct(ALLOWED), allowed_group],
+        "only allowed conversations are asked about"
+    );
+}

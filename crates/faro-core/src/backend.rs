@@ -47,6 +47,18 @@ pub trait Backend {
 
     fn groups(&self) -> impl Future<Output = Result<Vec<Group>>>;
 
+    /// What the backend itself kept about these conversations (messages,
+    /// reactions, edits, deletions, receipts), oldest first, so faro can
+    /// pick up anything received while it wasn't running (D64). The store
+    /// ignores what it already has. Backends that keep nothing return none.
+    fn stored_events(
+        &self,
+        conversations: &[ConversationId],
+    ) -> impl Future<Output = Result<Vec<BackendEvent>>> {
+        let _ = conversations;
+        std::future::ready(Ok(Vec::new()))
+    }
+
     /// Send a message. `Ok` means it left this device; later progress
     /// (delivered, read) arrives as [`BackendEvent::DeliveryUpdate`] for
     /// `MessageRef { sender: me, sent_at: msg.sent_at }`.

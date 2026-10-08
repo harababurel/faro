@@ -210,6 +210,9 @@ Use a separate data dir for the test account, e.g. `--data-dir ~/.local/share/fa
 - [ ] `faro --data-dir …` without `--allowlist` refuses to start.
 - [ ] With the allowlist: the group and your direct chat appear, with names. A message from the phone shows up as outgoing. Messages, replies, reactions, edits and deletions work both ways. Typing indicators and receipts (✓✓, read) show.
 - [ ] A message from anyone else never appears.
+- [ ] Caught up (D64): quit faro, send a message to the group from the phone, run `faro ids` (it reads the queue), then start faro: the message is there, unread. Restarting again doesn't duplicate it or count it twice.
+- [ ] Names (D64): group members show their Signal profile names (in the sidebar, the palette's `Chats ›` and message senders), not the start of their ID.
+- [ ] The palette's `Chats ›` lists the allowed chats even before they have messages; choosing one opens it.
 - [ ] Wi-Fi off: the footer shows the connection dropping and coming back. Messages sent meanwhile arrive after reconnecting.
 - [ ] Restarting keeps the history.
 

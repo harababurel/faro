@@ -100,6 +100,55 @@ pub fn events(content: &Content, me: ServiceId) -> Vec<BackendEvent> {
     }
 }
 
+/// What a content presage kept means to faro (D64). Like [`events`], except
+/// that presage keeps what this device sent as plain contents from us (to
+/// `metadata.destination`), and only what the store keeps is returned.
+pub fn stored(content: &Content, me: ServiceId) -> Vec<BackendEvent> {
+    let sender = service_id(&content.metadata.sender);
+    let events = if sender == me {
+        let direct = ConversationId::Direct(service_id(&content.metadata.destination));
+        match &content.body {
+            ContentBody::DataMessage(data) => data_message(
+                data,
+                &Author {
+                    sender: me,
+                    direct,
+                    direction: Direction::Outgoing(DeliveryStatus::Sent),
+                },
+                u64::try_from(content.metadata.client_timestamp.timestamp_millis()).unwrap_or(0),
+            ),
+            ContentBody::EditMessage(edit) => edited(edit, me, direct).into_iter().collect(),
+            ContentBody::SynchronizeMessage(sync) => synced(sync, me),
+            // Receipts and typing indicators we sent mean nothing to us.
+            ContentBody::ReceiptMessage(_)
+            | ContentBody::TypingMessage(_)
+            | ContentBody::NullMessage(_)
+            | ContentBody::CallMessage(_)
+            | ContentBody::DecryptionErrorMessage(_)
+            | ContentBody::StoryMessage(_) => vec![],
+        }
+    } else {
+        events(content, me)
+    };
+    events.into_iter().filter(kept).collect()
+}
+
+/// Whether the store keeps anything from this event.
+fn kept(event: &BackendEvent) -> bool {
+    match event {
+        BackendEvent::Message(_)
+        | BackendEvent::DeliveryUpdate { .. }
+        | BackendEvent::Reaction { .. }
+        | BackendEvent::Edited { .. }
+        | BackendEvent::Deleted { .. } => true,
+        BackendEvent::Connection(_)
+        | BackendEvent::Typing { .. }
+        | BackendEvent::ContactUpdated(_)
+        | BackendEvent::GroupUpdated(_)
+        | BackendEvent::Error(_) => false,
+    }
+}
+
 /// Who wrote a data message, and where it goes when it isn't a group's.
 struct Author {
     sender: ServiceId,

@@ -293,3 +293,34 @@ fn outgoing_reaction_removal() {
     assert_eq!(r.remove, Some(true));
     assert_eq!(r.target_sent_timestamp, Some(7));
 }
+
+#[test]
+fn what_this_device_sent_is_kept_as_outgoing_to_the_recipient() {
+    let mut content = from(ME, text_from_alice("sent by faro", 1000));
+    content.metadata.destination = signal_id(ALICE);
+    let BackendEvent::Message(message) = only(stored(&content, ME)) else {
+        panic!("expected a message");
+    };
+    assert_eq!(message.conversation, ConversationId::Direct(ALICE));
+    assert_eq!(message.sender, ME);
+    assert_eq!(message.direction, Direction::Outgoing(DeliveryStatus::Sent));
+}
+
+#[test]
+fn kept_contents_yield_only_what_the_store_keeps() {
+    // Receipts we sent, and typing, mean nothing to the store.
+    let receipt = ReceiptMessage {
+        r#type: Some(receipt_message::Type::Read.into()),
+        timestamp: vec![10],
+    };
+    let mut ours = from(ME, receipt.clone());
+    ours.metadata.destination = signal_id(ALICE);
+    assert_eq!(stored(&ours, ME), vec![]);
+    let typing = from(ALICE, typing(TypingState::Started, 5, None));
+    assert_eq!(stored(&typing, ME), vec![]);
+    // Receipts others sent still update our messages.
+    assert_eq!(stored(&from(ALICE, receipt), ME).len(), 1);
+    // Incoming text maps as live.
+    let content = from(ALICE, text_from_alice("hi", 1000));
+    assert_eq!(stored(&content, ME), events(&content, ME));
+}

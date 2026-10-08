@@ -17,8 +17,9 @@ use faro_core::domain::{
 use futures::StreamExt as _;
 use presage::libsignal_service::content::ContentBody;
 use presage::libsignal_service::prelude::ServiceError;
+use presage::libsignal_service::zkgroup::profiles::ProfileKey;
 use presage::model::messages::Received;
-use presage::store::ContentsStore as _;
+use presage::store::{ContentsStore as _, Thread};
 use presage_store_sqlite::SqliteStoreError;
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -258,6 +259,10 @@ impl PresageBackend {
             let Ok((key, group)) = entry else { continue };
             let id = convert::group_id(&key);
             self.groups.borrow_mut().insert(id, (key, group.revision));
+            for member in &group.members {
+                self.save_profile_key(Uuid::from(member.aci), member.profile_key)
+                    .await;
+            }
             found.push(Group {
                 id,
                 title: group.title,
@@ -269,6 +274,27 @@ impl PresageBackend {
             });
         }
         Ok(found)
+    }
+
+    /// Remember someone's profile key (a group's member list has every
+    /// member's), so their profile name can be fetched. presage itself only
+    /// learns keys from the phone's contact sync and from messages (D64).
+    async fn save_profile_key(&self, uuid: Uuid, key: ProfileKey) {
+        if ServiceId::Aci(uuid) == self.me {
+            return;
+        }
+        let mut store = self.manager.store().clone();
+        let known = store
+            .profile_key(&convert::signal_id(ServiceId::Aci(uuid)))
+            .await
+            .ok()
+            .flatten();
+        if known.is_some_and(|k| k.bytes == key.bytes) {
+            return;
+        }
+        if let Err(error) = store.upsert_profile_key(&uuid, key).await {
+            tracing::debug!(%error, "saving a profile key failed");
+        }
     }
 }
 
@@ -320,6 +346,35 @@ impl Backend for PresageBackend {
 
     async fn groups(&self) -> Result<Vec<Group>> {
         self.groups_from_store().await
+    }
+
+    /// What presage kept in these conversations' threads (it saves every
+    /// message it receives or sends), oldest first.
+    async fn stored_events(&self, conversations: &[ConversationId]) -> Result<Vec<BackendEvent>> {
+        let store = self.manager.store();
+        let mut events = Vec::new();
+        for &conversation in conversations {
+            let thread = match conversation {
+                ConversationId::Direct(peer) => Thread::Contact(convert::signal_id(peer)),
+                ConversationId::Group(group) => {
+                    let Some((key, _)) = self.groups.borrow().get(&group).copied() else {
+                        continue;
+                    };
+                    Thread::Group(key)
+                }
+            };
+            let contents = store
+                .messages(&thread, ..)
+                .await
+                .map_err(|e| BackendError::Storage(e.to_string()))?;
+            let mut contents: Vec<_> = contents.filter_map(std::result::Result::ok).collect();
+            // presage lists the newest first.
+            contents.reverse();
+            for content in &contents {
+                events.extend(convert::stored(content, self.me));
+            }
+        }
+        Ok(events)
     }
 
     async fn send(&self, to: ConversationId, msg: OutgoingMessage) -> Result<()> {
@@ -539,6 +594,11 @@ async fn announce_group(
     let Ok(Some(group)) = backend.manager.store().group(key).await else {
         return true;
     };
+    for member in &group.members {
+        backend
+            .save_profile_key(Uuid::from(member.aci), member.profile_key)
+            .await;
+    }
     backend
         .groups
         .borrow_mut()

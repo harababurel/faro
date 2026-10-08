@@ -5,7 +5,7 @@ use std::time::Duration;
 use anyhow::Context as _;
 use crossterm::event::{Event, EventStream};
 use faro_core::backend::{Backend, BackendEvents};
-use faro_core::domain::{Contact, Group, ServiceId};
+use faro_core::domain::{Contact, ConversationId, Group, ServiceId};
 use faro_core::store::Store;
 use futures_util::StreamExt as _;
 use tokio::signal::unix::{SignalKind, signal};
@@ -43,7 +43,8 @@ pub struct Directory {
 }
 
 /// Read the account, contacts and groups from the backend (local data, no
-/// network) and copy contacts and groups into the store.
+/// network), copy contacts and groups into the store, and import what the
+/// backend received while faro wasn't running (D64).
 pub async fn load_directory<B: Backend>(backend: &B, store: &Store) -> anyhow::Result<Directory> {
     let account = backend.whoami().await.context("reading the account")?;
     let contacts = backend.contacts().await.context("reading contacts")?;
@@ -57,6 +58,25 @@ pub async fn load_directory<B: Backend>(backend: &B, store: &Store) -> anyhow::R
     );
     store.upsert_contacts(contacts.clone()).await?;
     store.upsert_groups(groups.clone()).await?;
+    let known: Vec<ConversationId> = groups
+        .iter()
+        .map(|g| ConversationId::Group(g.id))
+        .chain(
+            contacts
+                .iter()
+                .map(|c| ConversationId::Direct(c.service_id)),
+        )
+        .collect();
+    match backend.stored_events(&known).await {
+        Ok(events) => {
+            let count = events.len();
+            for event in events {
+                store.apply(event).await?;
+            }
+            tracing::info!(events = count, "caught up with what the backend kept");
+        }
+        Err(error) => tracing::warn!(%error, "reading what the backend kept failed"),
+    }
     Ok(Directory {
         me: account.service_id,
         contacts,

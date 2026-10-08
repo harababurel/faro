@@ -235,6 +235,32 @@ impl<B: Backend> Backend for Guarded<B> {
             .collect())
     }
 
+    /// Only allowed conversations are asked about, and what comes back is
+    /// filtered like live events.
+    async fn stored_events(&self, conversations: &[ConversationId]) -> Result<Vec<BackendEvent>> {
+        let allowed: Vec<ConversationId> = conversations
+            .iter()
+            .copied()
+            .filter(|c| self.shared.list.allows(*c))
+            .collect();
+        if allowed.is_empty() {
+            return Ok(Vec::new());
+        }
+        let events = self.inner.stored_events(&allowed).await?;
+        let total = events.len();
+        let admitted: Vec<BackendEvent> = events
+            .into_iter()
+            .filter(|e| self.shared.admits(e))
+            .collect();
+        if admitted.len() < total {
+            tracing::debug!(
+                dropped = total - admitted.len(),
+                "allowlist: dropped stored events about someone not listed"
+            );
+        }
+        Ok(admitted)
+    }
+
     async fn send(&self, to: ConversationId, msg: OutgoingMessage) -> Result<()> {
         self.shared.check(to)?;
         self.inner.send(to, msg).await
