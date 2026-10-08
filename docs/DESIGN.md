@@ -239,6 +239,7 @@ Chosen to avoid tmux's default prefix (`Ctrl+B`) and common terminal shortcuts. 
 | `Alt+Enter` | Newline (also `Ctrl+J`; `Shift+Enter` when the kitty keyboard protocol is available) (D38) |
 | `Ctrl+A/E`, `Alt+B/F`, `Ctrl+W`, `Alt+D`, `Ctrl+U/K` | Input editing: line start/end, word left/right, delete word back/forward, delete to line start/end; arrows, `Home/End` and `Alt`/`Ctrl`+arrows too (D38) |
 | `Alt+S` / `Alt+I` | Toggle left / right sidebar |
+| `Alt+N` | Do not disturb: the bell off / on (D53) |
 | `F1` or `?` (in non-input focus) | Help: opens the palette listing all keybindings |
 | `PgUp` / `PgDn` | Scroll messages by a page, from any pane (D37) |
 | `↑↓` / `j k`, `g G` / `Home End` | In the sidebar: switch conversation, first/last (D37). In the message pane: select an older/newer message, oldest/newest loaded; `↓` past the newest goes back to the input (D40) |
@@ -269,6 +270,7 @@ Colour carries meaning (btop style): status, unread, mentions, own vs others, er
 Per-conversation overrides (mute, mentions only). **Privacy levels:** show nothing / sender only / sender + preview (default: sender only).
 
 - **As built in M6 (D49):** bell and title only; desktop notifications are v0.2. A conversation *notifies* if it's in the main list (not archived, hidden or left out by allowlist mode), not muted, and set to every message (`State::notifies`). The bell (`[notifications] bell`) rings for a new incoming message in such a conversation unless it's already in front of the user (D42), at most once every 2 s. The window title (`[notifications] title`, OSC 0, pushed/popped on the terminal's title stack) is `faro (N)` with the footer's unread total over conversations that notify. Per conversation: mute (with durations) and "mentions only" (`@`; silent until mentions are mapped in M7).
+- **Do not disturb (D53, owner's choice):** `Alt+N` (`notifications.toggle_bell`) or the palette's "Turn do not disturb on/off" flips `[notifications] bell` and writes it back, so it persists and live-reloads like any setting. While the bell is off the footer says `bell off` in the warning colour after the connection status. The title count is unaffected.
 
 ## 9. Configuration
 

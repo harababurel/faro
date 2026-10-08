@@ -491,6 +491,14 @@ fn commands(state: &State) -> Vec<Item> {
             "Show conversation info"
         },
     ));
+    items.push(global(
+        Action::ToggleBell,
+        if state.config.notifications.bell {
+            "Turn do not disturb on (bell off)"
+        } else {
+            "Turn do not disturb off (bell on)"
+        },
+    ));
     items.push(command(
         PaletteCommand::ShowKeys,
         "Show keybindings",

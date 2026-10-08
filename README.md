@@ -36,7 +36,7 @@ faro is an unofficial, independent project. It is not affiliated with, endorsed 
 - Replies, reactions, copying a message (OSC 52, works over SSH), opening links
 - A command palette (`Ctrl+P`): chats, themes, settings, commands and key bindings as categories you open and fuzzy-search
 - Read receipts only for what you've actually seen (terminal focus + scrolled to the bottom), typing indicators
-- Terminal bell and an unread count in the window/tmux title
+- Terminal bell (with a do-not-disturb key, `Alt+N`) and an unread count in the window/tmux title
 - A commented config file that faro reloads while running and writes back to without losing your comments
 - Themes: `faro-dark`, `faro-dusk`, `faro-light`, and `system` (your terminal's own 16 colours); automatic 256-colour fallback
 - Never blocks: the UI keeps up while messages flood in
@@ -93,6 +93,7 @@ Press `F1` (or `?` outside the input box) for the full list, or search it in the
 | `↑` on an empty input | Select a message: `r` reply, `+` react, `y` copy, `o` open link, `Enter` menu |
 | `PgUp` / `PgDn` | Scroll the messages |
 | `Alt+S` / `Alt+I` | Show or hide the conversation list / conversation info |
+| `Alt+N` | Do not disturb: turn the bell off (the footer says `bell off`) or back on |
 | In the list | `j`/`k` move, `Space` menu, `p` pin, `m` mute, `@` mentions only, `h` hide, `a` archive, `l` allow, `L` allowlist mode, `A` archive view |
 | `Ctrl+L` | Redraw the screen |
 | `Esc` | Back, dismiss |

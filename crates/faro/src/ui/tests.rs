@@ -517,6 +517,27 @@ fn palette_reports_its_rows_for_the_mouse() {
     assert!(geometry.list.height >= 3);
 }
 
+#[test]
+fn do_not_disturb_shows_in_the_footer() {
+    let theme = Theme::default();
+    let mut state = loaded_state();
+    let text = snapshot(&draw(&state, 100, 14));
+    assert!(!text.contains("bell off"), "{text}");
+    state.config.notifications.bell = false;
+    let buffer = draw(&state, 100, 14);
+    let text = snapshot(&buffer);
+    let footer = text.lines().last().unwrap();
+    assert!(
+        footer.starts_with(" ● connected · bell off · 1 unread"),
+        "{footer}"
+    );
+    let x = u16::try_from(unicode_width::UnicodeWidthStr::width(
+        &footer[..footer.find("bell off").unwrap()],
+    ))
+    .unwrap();
+    assert_eq!(buffer[(x, 13)].fg, theme.warning);
+}
+
 // --- Bubbles layout (M4 task 9, D45) ---
 
 fn bubbles_state() -> State {

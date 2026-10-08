@@ -62,6 +62,8 @@ pub enum Action {
     Help,
     /// `Ctrl+L`: clear the screen and draw everything again.
     Redraw,
+    /// `Alt+N`: do not disturb, i.e. the bell off (or back on), saved (D53).
+    ToggleBell,
     Palette(PaletteKey),
 }
 

@@ -14,6 +14,11 @@ pub const NAMES: &[(&str, &str, Action)] = &[
     ("app.interrupt", "Quit (press twice)", Action::Interrupt),
     ("app.back", "Back, dismiss", Action::Escape),
     (
+        "notifications.toggle_bell",
+        "Do not disturb (bell off or on)",
+        Action::ToggleBell,
+    ),
+    (
         "conversation.previous",
         "Previous conversation",
         Action::PreviousConversation,
@@ -235,6 +240,7 @@ pub const BINDINGS: &[(Context, &str, Action)] = &[
     (Global, "alt+down", Action::NextConversation),
     (Global, "alt+s", Action::ToggleLeftSidebar),
     (Global, "alt+i", Action::ToggleRightSidebar),
+    (Global, "alt+n", Action::ToggleBell),
     (Global, "tab", Action::FocusNext),
     (Global, "shift+tab", Action::FocusPrevious),
     (Global, "pgup", Action::PageUp),

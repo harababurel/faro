@@ -180,7 +180,11 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
         }
         SettingChoice::Bell(on) => {
             state.config.notifications.bell = on;
-            state.notice = Some(Notice::info(if on { "Bell on" } else { "Bell off" }));
+            state.notice = Some(Notice::info(if on {
+                "Bell on: new messages ring again"
+            } else {
+                "Do not disturb: the bell is off"
+            }));
             save(state, key::BELL)
         }
         SettingChoice::Title(on) => {
@@ -193,6 +197,12 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
             save(state, key::TITLE)
         }
     }
+}
+
+/// Do not disturb (`Alt+N`, the palette): the bell off, or back on. It's
+/// the `[notifications] bell` setting, so it's saved and survives restarts.
+pub fn toggle_bell(state: &mut State) -> Vec<Effect> {
+    choose(state, SettingChoice::Bell(!state.config.notifications.bell))
 }
 
 /// A theme chosen in the palette: drawn from the next frame and saved.

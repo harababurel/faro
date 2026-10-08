@@ -106,6 +106,8 @@ Run `faro --mock --mock-no-faults --config /tmp/faro-test.toml` in a tmux window
 - [ ] **Window title:** the tmux pane title (`tmux display -p '#{pane_title}'`, or `set -g set-titles on` to see it in kitty's title bar) reads `faro (N)` with the footer's unread count, and `faro` when everything is read. Directly in kitty, the window/tab title does the same. After quitting (and after `:` Notifications › Unread count in the window title › off, or `title = false`), your previous title is back.
 - [ ] **Mentions only:** `@` on a conversation in the sidebar (or its menu, or the palette) shows "Notifying for mentions only", dims it in the list like a muted one, and the info panel (`Alt+I`) says "Mentions only". Its messages no longer ring or count in the title. `@` again goes back to every message. (Mentions themselves arrive with the Signal backend in M7; until then "mentions only" is silent.)
 
+- [ ] **Do not disturb (D53):** `Alt+N` (check it reaches faro under tmux and, on macOS, with Option as Alt): a notice says the bell is off, the footer shows `bell off` in orange after "connected", background messages no longer ring, and the config file now has `bell = false` under `[notifications]`. `Alt+N` again: the marker goes and the bell rings again. Same from the palette (`>disturb`). Restart with the bell off: the marker is back.
+
 ## M8: themes and colours (D51)
 
 Switch with the palette (`Ctrl+P` › Themes) or `theme = "…"` in the config; colours with `:` Appearance › Colours or `[ui] colors = "…"`.

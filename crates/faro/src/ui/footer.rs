@@ -66,6 +66,10 @@ const MESSAGE_HINTS: Hints = &[
     (&[Action::OpenLink], "open link"),
     (&[Action::Escape], "back"),
 ];
+/// Shown after the connection status while the bell is off (plain text: a
+/// bell-with-a-slash emoji is drawn 1 or 2 cells wide depending on the
+/// terminal).
+const BELL_OFF: &str = "bell off";
 /// Popups and the palette have fixed keys (D43).
 const PALETTE_HINTS: &[(&str, &str)] = &[
     ("↑↓", "choose"),
@@ -115,6 +119,11 @@ pub fn render(
         Span::styled(glyph, Style::new().fg(colour)),
         Span::styled(format!(" {label}"), theme.muted()),
     ];
+    if !state.config.notifications.bell {
+        // Do not disturb (D53): say so while it lasts.
+        left.push(Span::styled(" · ", theme.muted()));
+        left.push(Span::styled(BELL_OFF, Style::new().fg(theme.warning)));
+    }
     let unread = state.unread_total(view.now_timestamp());
     if unread > 0 {
         left.push(Span::styled(" · ", theme.muted()));

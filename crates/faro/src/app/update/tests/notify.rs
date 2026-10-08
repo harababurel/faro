@@ -208,3 +208,60 @@ fn mentions_only_is_quiet_until_mentions_exist() {
     update(&mut state, AppEvent::Terminal(Event::FocusLost));
     assert_eq!(bells(&incoming(&mut state, climbing(), 2)), 1);
 }
+
+#[test]
+fn alt_n_is_do_not_disturb() {
+    use faro_core::config::{ConfigValue, SettingEdit, key};
+
+    let saved = |on| {
+        vec![Effect::SaveSetting(SettingEdit {
+            path: key::BELL,
+            value: ConfigValue::Bool(on),
+        })]
+    };
+    let mut state = loaded_state();
+    // Global: works from the input (where Alt+B/F/D edit) and elsewhere.
+    let effects = update(&mut state, key(KeyCode::Char('n'), KeyModifiers::ALT));
+    assert!(!state.config.notifications.bell);
+    assert_eq!(effects, saved(false));
+    assert_eq!(
+        state.notice.as_ref().map(|n| n.text.as_str()),
+        Some("Do not disturb: the bell is off")
+    );
+    assert_eq!(bells(&incoming(&mut state, alice(), 1)), 0);
+    // The input wasn't typed into.
+    assert_eq!(state.open.as_ref().unwrap().input.text(), "");
+
+    state.focus = crate::app::state::Focus::Conversations;
+    let effects = update(&mut state, key(KeyCode::Char('n'), KeyModifiers::ALT));
+    assert!(state.config.notifications.bell);
+    assert_eq!(effects, saved(true));
+    assert_eq!(bells(&incoming(&mut state, alice(), 2)), 1);
+}
+
+#[test]
+fn do_not_disturb_from_the_palette() {
+    let mut state = loaded_state();
+    update(&mut state, key(KeyCode::Char('p'), KeyModifiers::CONTROL));
+    typed(&mut state, ">disturb");
+    let item = state.palette.as_ref().unwrap().selected_item().unwrap();
+    assert_eq!(item.title, "Turn do not disturb on (bell off)");
+    assert_eq!(item.detail, "alt+n");
+    update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(!state.config.notifications.bell);
+    update(&mut state, key(KeyCode::Char('p'), KeyModifiers::CONTROL));
+    typed(&mut state, ">disturb");
+    let item = state.palette.as_ref().unwrap().selected_item().unwrap();
+    assert_eq!(item.title, "Turn do not disturb off (bell on)");
+}
+
+#[test]
+fn reloading_the_file_with_the_bell_off_is_do_not_disturb_too() {
+    let mut state = loaded_state();
+    update(
+        &mut state,
+        AppEvent::ConfigRead(Ok("[notifications]\nbell = false\n".to_owned())),
+    );
+    assert!(!state.config.notifications.bell);
+    assert_eq!(bells(&incoming(&mut state, alice(), 1)), 0);
+}
