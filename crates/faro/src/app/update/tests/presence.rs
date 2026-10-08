@@ -1,6 +1,6 @@
 //! What we tell others (M4 task 6, D42): typing indicators and read receipts.
 
-use faro_core::domain::{Direction, MessageRef};
+use faro_core::domain::{Direction, MessageRef, Timestamp};
 
 use super::*;
 use crate::app::state::{TYPING_PAUSE, TYPING_REFRESH};
@@ -244,4 +244,87 @@ fn messages_elsewhere_are_not_receipted() {
     );
     assert_eq!(receipts(&effects), vec![]);
     assert_eq!(state.open.as_ref().unwrap().unreceipted, vec![]);
+}
+
+#[test]
+fn reads_on_the_phone_lower_unread_counts_by_what_the_store_cleared() {
+    let mut state = loaded_state();
+    let read = MessageRef {
+        sender: ALICE,
+        sent_at: Timestamp::from_millis(fixtures::NOW_MS),
+    };
+    let effects = update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::ReadElsewhere(vec![read])),
+    );
+    // The store finds the conversations and works out the counts.
+    assert_eq!(effects, vec![Effect::ReadElsewhere(vec![read])]);
+
+    let before = state.summary(alice()).unwrap().unread;
+    let incoming = text(alice(), ALICE, fixtures::NOW_MS + 1, "and another");
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::Message(incoming)),
+    );
+    assert_eq!(state.summary(alice()).unwrap().unread, before + 1);
+    // What the store cleared comes off ours: the message that arrived
+    // meanwhile still counts, and nothing goes below zero.
+    update(
+        &mut state,
+        AppEvent::UnreadCleared(vec![(alice(), before), (bob(), 99)]),
+    );
+    assert_eq!(state.summary(alice()).unwrap().unread, 1);
+    assert_eq!(state.summary(bob()).unwrap().unread, 0);
+}
+
+#[test]
+fn reads_on_the_phone_need_no_receipts_from_faro() {
+    let mut state = loaded_state();
+    // As if it had been opened with nothing unread.
+    state.open.as_mut().unwrap().unread_marker = None;
+    focus(&mut state, false);
+    let first = text(climbing(), BOB, fixtures::NOW_MS + 1, "one");
+    let second = text(climbing(), CAROL, fixtures::NOW_MS + 2, "two");
+    let third = text(climbing(), BOB, fixtures::NOW_MS + 3, "three");
+    for message in [&first, &second, &third] {
+        update(
+            &mut state,
+            AppEvent::Backend(BackendEvent::Message(message.clone())),
+        );
+    }
+    assert_eq!(
+        state.open.as_ref().unwrap().unread_marker,
+        Some(first.reference())
+    );
+
+    // Read on the phone up to the second: the "new messages" rule above
+    // them goes, and only the third still waits for a receipt.
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::ReadElsewhere(vec![second.reference()])),
+    );
+    let open = state.open.as_ref().unwrap();
+    assert_eq!(open.unread_marker, None);
+    assert_eq!(open.unreceipted, vec![third.reference()]);
+    let effects = focus(&mut state, true);
+    assert_eq!(receipts(&effects), vec![third.reference()]);
+
+    // Messages faro doesn't show change nothing here.
+    let elsewhere = MessageRef {
+        sender: ALICE,
+        sent_at: Timestamp::from_millis(1),
+    };
+    let incoming = text(climbing(), BOB, fixtures::NOW_MS + 4, "four");
+    focus(&mut state, false);
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::Message(incoming.clone())),
+    );
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::ReadElsewhere(vec![elsewhere])),
+    );
+    let open = state.open.as_ref().unwrap();
+    assert_eq!(open.unread_marker, Some(incoming.reference()));
+    assert_eq!(open.unreceipted, vec![incoming.reference()]);
 }

@@ -353,6 +353,7 @@ mod tests {
                 | BackendEvent::Edited { .. }
                 | BackendEvent::Deleted { .. }
                 | BackendEvent::Typing { .. }
+                | BackendEvent::ReadElsewhere(_)
                 | BackendEvent::ContactUpdated(_)
                 | BackendEvent::GroupUpdated(_)
                 | BackendEvent::Error(_) => None,

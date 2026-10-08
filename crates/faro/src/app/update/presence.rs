@@ -97,6 +97,29 @@ pub fn on_history(state: &mut State, unread: &[MessageRef]) {
     }
 }
 
+/// Messages read on the phone (D70). In the open conversation, those up to
+/// the newest one read need no receipt from faro any more, and the "new
+/// messages" rule goes if it was above them: they aren't new to the user.
+/// (Unread counts are lowered when the store says by how much.)
+pub fn on_read_elsewhere(state: &mut State, read: &[MessageRef]) {
+    let Some(open) = state.open.as_mut() else {
+        return;
+    };
+    let key = |r: &MessageRef| (r.sent_at, r.sender);
+    let Some(newest) = read
+        .iter()
+        .filter(|r| open.messages.iter().any(|m| m.reference() == **r))
+        .map(key)
+        .max()
+    else {
+        return;
+    };
+    open.unreceipted.retain(|r| key(r) > newest);
+    if open.unread_marker.is_some_and(|m| key(&m) <= newest) {
+        open.unread_marker = None;
+    }
+}
+
 /// If the open conversation is being seen, everything waiting is read: send
 /// the receipts and clear the unread count (here and in the store).
 pub fn catch_up(state: &mut State) -> Vec<Effect> {

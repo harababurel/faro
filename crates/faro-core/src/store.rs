@@ -148,6 +148,7 @@ enum Request {
     },
     SetConversationState(ConversationId, Box<ConversationState>, Reply<()>),
     MarkRead(ConversationId, Reply<()>),
+    ReadElsewhere(Vec<MessageRef>, Reply<Vec<(ConversationId, u32)>>),
     FailUnsent(Reply<u64>),
     AppState(String, Reply<Option<String>>),
     SetAppState(String, String, Reply<()>),
@@ -241,6 +242,18 @@ impl Store {
 
     pub async fn mark_read(&self, conversation: ConversationId) -> Result<()> {
         self.call(|reply| Request::MarkRead(conversation, reply))
+            .await
+    }
+
+    /// Messages read on another device (D70): lower each conversation's
+    /// unread count to the incoming messages after the newest one read, and
+    /// return how much each count dropped (conversations that didn't change
+    /// are left out). Messages the store doesn't have are ignored.
+    pub async fn read_elsewhere(
+        &self,
+        messages: Vec<MessageRef>,
+    ) -> Result<Vec<(ConversationId, u32)>> {
+        self.call(|reply| Request::ReadElsewhere(messages, reply))
             .await
     }
 
@@ -346,6 +359,9 @@ async fn handle(db: &mut Db, request: Request) -> Option<Reply<()>> {
         }
         Request::MarkRead(conversation, reply) => {
             let _ = reply.send(db.mark_read(conversation).await);
+        }
+        Request::ReadElsewhere(messages, reply) => {
+            let _ = reply.send(db.read_elsewhere(&messages).await);
         }
         Request::FailUnsent(reply) => {
             let _ = reply.send(db.fail_unsent().await);

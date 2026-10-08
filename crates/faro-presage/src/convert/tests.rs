@@ -227,6 +227,45 @@ fn messages_sent_from_the_phone_are_outgoing() {
 }
 
 #[test]
+fn reads_on_the_phone_point_at_the_messages_read() {
+    let sync = SyncMessage {
+        read: vec![
+            sync_message::Read {
+                sender_aci: Some(ALICE.to_string()),
+                timestamp: Some(1000),
+                ..sync_message::Read::default()
+            },
+            sync_message::Read {
+                sender_aci_binary: Some(ALICE.uuid().as_bytes().to_vec()),
+                timestamp: Some(2000),
+                ..sync_message::Read::default()
+            },
+            // Unusable entries are skipped.
+            sync_message::Read {
+                timestamp: Some(3000),
+                ..sync_message::Read::default()
+            },
+        ],
+        ..SyncMessage::default()
+    };
+    let read = |at| MessageRef {
+        sender: ALICE,
+        sent_at: Timestamp::from_millis(at),
+    };
+    assert_eq!(
+        only(events(&from(ME, sync.clone()), ME)),
+        BackendEvent::ReadElsewhere(vec![read(1000), read(2000)])
+    );
+    // Catching up keeps them too (the store applies them).
+    assert_eq!(stored(&from(ME, sync), ME).len(), 1);
+    let nothing = SyncMessage {
+        read: vec![sync_message::Read::default()],
+        ..SyncMessage::default()
+    };
+    assert_eq!(events(&from(ME, nothing), ME), vec![]);
+}
+
+#[test]
 fn receipts_update_our_messages() {
     let receipt = ReceiptMessage {
         r#type: Some(receipt_message::Type::Read.into()),

@@ -30,6 +30,7 @@ fn saved(effects: &[Effect], id: ConversationId) -> Option<ConversationState> {
         | Effect::LoadOlder { .. }
         | Effect::Persist(_)
         | Effect::MarkRead(_)
+        | Effect::ReadElsewhere(_)
         | Effect::RememberOpen(_)
         | Effect::SaveNickname(..)
         | Effect::SaveSetting(_)

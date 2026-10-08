@@ -10,7 +10,8 @@
 //! - **In:** events about other conversations (messages, edits, deletions,
 //!   reactions, typing), other people's contact details and other groups are
 //!   dropped before they reach the app, so they're never shown or stored.
-//!   Only their number is logged, never who or what.
+//!   Read syncs from the phone keep only pointers to messages from people
+//!   faro knows (D70). Only their number is logged, never who or what.
 //!
 //! The file:
 //!
@@ -141,7 +142,22 @@ impl Shared {
                 self.learn(group);
                 self.list.groups.contains(&group.id)
             }
+            // Pointers to messages read on the phone (D70): see `admit`.
+            BackendEvent::ReadElsewhere(messages) => messages.iter().any(|m| self.knows(m.sender)),
         }
+    }
+
+    /// The event as the app may see it, if at all. Read syncs (D70) carry no
+    /// content, and the store ignores messages it doesn't have (it never
+    /// stored anyone else's), so they couldn't reveal or change anything
+    /// about others anyway; still, only pointers to messages from people
+    /// faro knows are kept, so other people's IDs never reach the app.
+    fn admit(&self, event: BackendEvent) -> Option<BackendEvent> {
+        if let BackendEvent::ReadElsewhere(mut messages) = event {
+            messages.retain(|m| self.knows(m.sender));
+            return (!messages.is_empty()).then_some(BackendEvent::ReadElsewhere(messages));
+        }
+        self.admits(&event).then_some(event)
     }
 
     fn check(&self, conversation: ConversationId) -> Result<()> {
@@ -190,7 +206,7 @@ pub fn guard<B: Backend>(
 async fn forward(mut events: BackendEvents, tx: mpsc::Sender<BackendEvent>, shared: Arc<Shared>) {
     let mut dropped: u64 = 0;
     while let Some(event) = events.recv().await {
-        if shared.admits(&event) {
+        if let Some(event) = shared.admit(event) {
             if tx.send(event).await.is_err() {
                 break;
             }
@@ -250,7 +266,7 @@ impl<B: Backend> Backend for Guarded<B> {
         let total = events.len();
         let admitted: Vec<BackendEvent> = events
             .into_iter()
-            .filter(|e| self.shared.admits(e))
+            .filter_map(|e| self.shared.admit(e))
             .collect();
         if admitted.len() < total {
             tracing::debug!(

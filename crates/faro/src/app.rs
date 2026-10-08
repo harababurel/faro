@@ -268,6 +268,7 @@ impl Router {
                 | Effect::LoadOlder { .. }
                 | Effect::Persist(_)
                 | Effect::MarkRead(_)
+                | Effect::ReadElsewhere(_)
                 | Effect::SaveConversationState(..)
                 | Effect::SaveNickname(..)
                 | Effect::RememberOpen(_)) => self.effects.send(store).is_ok(),
@@ -359,6 +360,7 @@ fn affects_view(event: &AppEvent) -> bool {
         | AppEvent::ThemesRead(_)
         | AppEvent::SettingNotSaved(_)
         | AppEvent::StoreFailed(_)
+        | AppEvent::UnreadCleared(_)
         | AppEvent::Tick
         | AppEvent::Shutdown => true,
     }

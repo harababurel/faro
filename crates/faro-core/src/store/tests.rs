@@ -142,6 +142,60 @@ async fn duplicates_are_ignored_and_only_incoming_counts_as_unread() {
 }
 
 #[tokio::test]
+async fn reads_on_the_phone_clear_what_came_before() {
+    let alice = |at| incoming(direct(ALICE), ALICE, at, "hi");
+    let in_group = |sender, at| incoming(group(), sender, at, "hey");
+    let store = store_with(&[
+        alice(100),
+        alice(200),
+        alice(300),
+        outgoing(direct(ALICE), 350, DeliveryStatus::Sent),
+        alice(400),
+        in_group(BOB, 100),
+        in_group(CAROL, 200),
+    ])
+    .await;
+    assert_eq!(summary(&store, direct(ALICE)).await.unread, 4);
+    assert_eq!(summary(&store, group()).await.unread, 2);
+
+    // Read up to 300 in Alice's chat (200 too, which changes nothing more),
+    // all of the group, and something faro never had.
+    let read = |sender, at| MessageRef {
+        sender: aci(sender),
+        sent_at: ts(at),
+    };
+    let cleared = store
+        .read_elsewhere(vec![
+            read(ALICE, 200),
+            read(ALICE, 300),
+            read(CAROL, 200),
+            read(BOB, 999),
+        ])
+        .await
+        .unwrap();
+    assert_eq!(cleared, vec![(direct(ALICE), 3), (group(), 2)]);
+    assert_eq!(summary(&store, direct(ALICE)).await.unread, 1);
+    assert_eq!(summary(&store, group()).await.unread, 0);
+
+    // Already read here: nothing more to clear, and counts never go up.
+    store.mark_read(direct(ALICE)).await.unwrap();
+    let cleared = store.read_elsewhere(vec![read(ALICE, 100)]).await.unwrap();
+    assert_eq!(cleared, vec![]);
+    assert_eq!(summary(&store, direct(ALICE)).await.unread, 0);
+
+    // Applied as an event (catching up), it does the same.
+    store
+        .apply(BackendEvent::Message(alice(500)))
+        .await
+        .unwrap();
+    store
+        .apply(BackendEvent::ReadElsewhere(vec![read(ALICE, 500)]))
+        .await
+        .unwrap();
+    assert_eq!(summary(&store, direct(ALICE)).await.unread, 0);
+}
+
+#[tokio::test]
 async fn receipts_never_regress() {
     let sent = outgoing(direct(ALICE), 100, DeliveryStatus::Sending);
     let store = store_with(std::slice::from_ref(&sent)).await;

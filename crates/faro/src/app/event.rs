@@ -57,6 +57,10 @@ pub enum AppEvent {
     Drawn(Geometry),
     /// A store operation failed; the text is safe to show (no message content).
     StoreFailed(String),
+    /// Messages read on another device lowered these conversations' unread
+    /// counts in the store by this much (D70); answers
+    /// `Effect::ReadElsewhere`.
+    UnreadCleared(Vec<(ConversationId, u32)>),
     /// A deadline from `State::next_deadline` passed.
     Tick,
     /// SIGTERM or SIGHUP (e.g. the tmux pane was closed), or the terminal went away.
@@ -79,6 +83,9 @@ pub enum Effect {
     },
     Persist(Box<BackendEvent>),
     MarkRead(ConversationId),
+    /// Apply messages read on another device to the unread counts (D70);
+    /// answered with `AppEvent::UnreadCleared` if any count dropped.
+    ReadElsewhere(Vec<MessageRef>),
     /// Store hide/archive/pin/mute/draft for a conversation.
     SaveConversationState(ConversationId, Box<ConversationState>),
     /// Reopen this conversation on the next start.

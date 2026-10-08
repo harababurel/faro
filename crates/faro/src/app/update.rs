@@ -85,6 +85,10 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
             state.notice = Some(Notice::error(format!("Storage problem: {error}")));
             vec![]
         }
+        AppEvent::UnreadCleared(cleared) => {
+            on_unread_cleared(state, &cleared);
+            vec![]
+        }
         AppEvent::Tick => {
             let now = Instant::now();
             expire_typing(state, now);
@@ -353,6 +357,10 @@ fn on_backend(state: &mut State, event: BackendEvent) -> Vec<Effect> {
             sender,
             state: typing,
         } => on_typing(state, *conversation, *sender, *typing),
+        BackendEvent::ReadElsewhere(messages) => {
+            presence::on_read_elsewhere(state, messages);
+            effects.push(Effect::ReadElsewhere(messages.clone()));
+        }
         BackendEvent::ContactUpdated(contact) => {
             let id = ConversationId::Direct(contact.service_id);
             let title = contact.display_name().map(str::to_owned);
@@ -401,7 +409,24 @@ fn persistent(event: &BackendEvent) -> bool {
         | BackendEvent::Deleted { .. }
         | BackendEvent::ContactUpdated(_)
         | BackendEvent::GroupUpdated(_) => true,
-        BackendEvent::Connection(_) | BackendEvent::Typing { .. } | BackendEvent::Error(_) => false,
+        // Read syncs are applied by their own effect, which reports what it
+        // cleared (D70).
+        BackendEvent::ReadElsewhere(_)
+        | BackendEvent::Connection(_)
+        | BackendEvent::Typing { .. }
+        | BackendEvent::Error(_) => false,
+    }
+}
+
+/// The store lowered these unread counts (messages read on the phone,
+/// D70): lower ours by as much. By how much, not to what, so messages that
+/// arrived meanwhile still count, and a conversation opened meanwhile
+/// stays at zero.
+fn on_unread_cleared(state: &mut State, cleared: &[(ConversationId, u32)]) {
+    for (id, dropped) in cleared {
+        if let Some(summary) = state.conversations.iter_mut().find(|c| c.id == *id) {
+            summary.unread = summary.unread.saturating_sub(*dropped);
+        }
     }
 }
 

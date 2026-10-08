@@ -56,6 +56,7 @@ pub fn apply(messages: &mut Vec<Message>, event: &BackendEvent) {
         }
         BackendEvent::Connection(_)
         | BackendEvent::Typing { .. }
+        | BackendEvent::ReadElsewhere(_)
         | BackendEvent::ContactUpdated(_)
         | BackendEvent::GroupUpdated(_)
         | BackendEvent::Error(_) => {}

@@ -140,7 +140,8 @@ fn kept(event: &BackendEvent) -> bool {
         | BackendEvent::DeliveryUpdate { .. }
         | BackendEvent::Reaction { .. }
         | BackendEvent::Edited { .. }
-        | BackendEvent::Deleted { .. } => true,
+        | BackendEvent::Deleted { .. }
+        | BackendEvent::ReadElsewhere(_) => true,
         BackendEvent::Connection(_)
         | BackendEvent::Typing { .. }
         | BackendEvent::ContactUpdated(_)
@@ -281,10 +282,29 @@ fn edited(edit: &EditMessage, sender: ServiceId, direct: ConversationId) -> Opti
     })
 }
 
-/// Messages this account sent from another device (the phone).
+/// What this account did on another device (the phone): messages it sent,
+/// and messages it read there (D70).
 fn synced(sync: &SyncMessage, me: ServiceId) -> Vec<BackendEvent> {
+    // `read` sits outside the `content` oneof (protobuf can't put repeated
+    // fields in one), so a sync carries either.
+    let read: Vec<MessageRef> = sync
+        .read
+        .iter()
+        .filter_map(|read| {
+            Some(MessageRef {
+                sender: author(
+                    read.sender_aci.as_deref(),
+                    read.sender_aci_binary.as_deref(),
+                )?,
+                sent_at: Timestamp::from_millis(read.timestamp?),
+            })
+        })
+        .collect();
+    if !read.is_empty() {
+        return vec![BackendEvent::ReadElsewhere(read)];
+    }
     let Some(sync_message::Content::Sent(sent)) = &sync.content else {
-        // Read syncs, contacts, keys…: handled elsewhere or not yet.
+        // Contacts, keys, viewed…: handled elsewhere or not yet.
         return vec![];
     };
     let direct = sent_to(sent).map_or(ConversationId::Direct(me), ConversationId::Direct);

@@ -91,6 +91,10 @@ async fn execute(store: &Store, effect: Effect) -> Result<Option<AppEvent>, Stor
             store.mark_read(conversation).await?;
             None
         }
+        Effect::ReadElsewhere(messages) => {
+            let cleared = store.read_elsewhere(messages).await?;
+            (!cleared.is_empty()).then_some(AppEvent::UnreadCleared(cleared))
+        }
         Effect::RememberOpen(conversation) => {
             store
                 .set_app_state(LAST_OPEN, &conversation.to_string())

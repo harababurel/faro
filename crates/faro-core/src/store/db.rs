@@ -60,12 +60,77 @@ impl Db {
                 ..
             } => self.edit(target, &body, edited_at).await,
             BackendEvent::Deleted { target, .. } => self.delete(target).await,
+            BackendEvent::ReadElsewhere(messages) => {
+                self.read_elsewhere(&messages).await.map(|_| ())
+            }
             BackendEvent::ContactUpdated(contact) => self.upsert_contacts(&[contact]).await,
             BackendEvent::GroupUpdated(group) => self.upsert_groups(&[group]).await,
             BackendEvent::Connection(_) | BackendEvent::Typing { .. } | BackendEvent::Error(_) => {
                 Ok(())
             }
         }
+    }
+
+    /// Messages read on another device (D70): in each conversation, only
+    /// incoming messages after the newest one read can still be unread, so
+    /// the count drops to at most that many. Returns how much each
+    /// conversation's count dropped (only those that did).
+    pub(super) async fn read_elsewhere(
+        &mut self,
+        messages: &[MessageRef],
+    ) -> Result<Vec<(ConversationId, u32)>> {
+        let mut tx = self.conn.begin().await?;
+        // The newest message read in each conversation, as `(sent_at, sender)`.
+        let mut newest: HashMap<String, (i64, String)> = HashMap::new();
+        for message in messages {
+            let row: Option<(String,)> = sqlx::query_as(
+                "SELECT conversation_id FROM messages WHERE sender = ?1 AND sent_at = ?2",
+            )
+            .bind(message.sender.to_string())
+            .bind(timestamp_to_db(message.sent_at)?)
+            .fetch_optional(&mut *tx)
+            .await?;
+            let Some((conversation,)) = row else {
+                tracing::debug!("read elsewhere: a message faro doesn't have");
+                continue;
+            };
+            let point = (
+                timestamp_to_db(message.sent_at)?,
+                message.sender.to_string(),
+            );
+            let entry = newest.entry(conversation).or_insert_with(|| point.clone());
+            if point > *entry {
+                *entry = point;
+            }
+        }
+        let mut cleared = Vec::new();
+        for (key, (sent_at, sender)) in newest {
+            let (unread, after): (i64, i64) = sqlx::query_as(
+                "SELECT c.unread_count,
+                        (SELECT count(*) FROM messages m
+                         WHERE m.conversation_id = c.id AND m.direction = 'incoming'
+                           AND m.deleted = 0 AND (m.sent_at, m.sender) > (?2, ?3))
+                 FROM conversations c WHERE c.id = ?1",
+            )
+            .bind(&key)
+            .bind(sent_at)
+            .bind(&sender)
+            .fetch_one(&mut *tx)
+            .await?;
+            if after >= unread {
+                continue;
+            }
+            sqlx::query("UPDATE conversations SET unread_count = ?1 WHERE id = ?2")
+                .bind(after)
+                .bind(&key)
+                .execute(&mut *tx)
+                .await?;
+            let dropped = count_from_db(unread - after, "unread_count")?;
+            cleared.push((conversation_from_key(&key)?, dropped));
+        }
+        tx.commit().await?;
+        cleared.sort();
+        Ok(cleared)
     }
 
     /// Insert or replace contacts; each gets a direct conversation (possibly empty).

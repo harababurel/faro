@@ -36,6 +36,7 @@ enum Activity {
     Reply,
     Reaction,
     SyncMessage,
+    ReadElsewhere,
     Edit,
     Delete,
     ProfileChange,
@@ -44,11 +45,12 @@ enum Activity {
 }
 
 /// Relative frequency of each scripted activity.
-const ACTIVITY_WEIGHTS: [(Activity, u32); 9] = [
+const ACTIVITY_WEIGHTS: [(Activity, u32); 10] = [
     (Activity::Message, 40),
     (Activity::Reply, 10),
     (Activity::Reaction, 15),
     (Activity::SyncMessage, 8),
+    (Activity::ReadElsewhere, 3),
     (Activity::Edit, 4),
     (Activity::Delete, 2),
     (Activity::ProfileChange, 2),
@@ -375,6 +377,7 @@ impl Sim {
                 | Activity::Reply
                 | Activity::Reaction
                 | Activity::SyncMessage
+                | Activity::ReadElsewhere
                 | Activity::Edit
                 | Activity::Delete
                 | Activity::ProfileChange => true,
@@ -394,6 +397,7 @@ impl Sim {
             Activity::Reply => self.reply(now),
             Activity::Reaction => self.react(now),
             Activity::SyncMessage => self.sync_message(now),
+            Activity::ReadElsewhere => self.read_elsewhere(now),
             Activity::Edit => self.edit(now),
             Activity::Delete => self.delete(now),
             Activity::ProfileChange => self.profile_change(now),
@@ -448,6 +452,21 @@ impl Sim {
         let target = message.reference();
         self.emit(now, BackendEvent::Message(message));
         self.schedule_receipts(now, target);
+        Some(())
+    }
+
+    /// The owner read a conversation on their phone: a read sync for its
+    /// newest incoming message (D70).
+    fn read_elsewhere(&mut self, now: Millis) -> Option<()> {
+        let me = self.world.me();
+        let (conversation, _) = self.pick_recent(|r| r.target.sender != me)?;
+        let newest = self
+            .recent
+            .iter()
+            .rev()
+            .find(|r| r.conversation == conversation && r.target.sender != me)?
+            .target;
+        self.emit(now, BackendEvent::ReadElsewhere(vec![newest]));
         Some(())
     }
 
@@ -526,6 +545,7 @@ impl Sim {
             | BackendEvent::DeliveryUpdate { .. }
             | BackendEvent::Reaction { .. }
             | BackendEvent::Typing { .. }
+            | BackendEvent::ReadElsewhere(_)
             | BackendEvent::ContactUpdated(_)
             | BackendEvent::GroupUpdated(_)
             | BackendEvent::Error(_) => {}
@@ -707,6 +727,7 @@ mod tests {
         ));
         assert!(has(|e| matches!(e, BackendEvent::Reaction { .. })));
         assert!(has(|e| matches!(e, BackendEvent::Typing { .. })));
+        assert!(has(|e| matches!(e, BackendEvent::ReadElsewhere(_))));
         assert!(has(|e| matches!(e, BackendEvent::Edited { .. })));
         assert!(has(|e| matches!(e, BackendEvent::Deleted { .. })));
         assert!(has(|e| matches!(e, BackendEvent::ContactUpdated(_))));

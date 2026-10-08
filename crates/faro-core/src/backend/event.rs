@@ -46,6 +46,13 @@ pub enum BackendEvent {
         state: TypingState,
     },
 
+    /// This account read these incoming messages on another device (a read
+    /// sync from the phone, D70). As in Signal, each one also means that
+    /// everything before it in its conversation was read. The conversation
+    /// isn't given: the store finds it from the message, and messages it
+    /// doesn't have are ignored.
+    ReadElsewhere(Vec<MessageRef>),
+
     /// A contact was added or changed (name, profile, phone).
     ContactUpdated(Contact),
 

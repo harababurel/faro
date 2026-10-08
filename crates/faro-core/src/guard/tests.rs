@@ -136,6 +136,31 @@ fn only_events_about_allowed_conversations_get_through() {
     assert!(!shared.admits(&contact(person(STRANGER))));
 }
 
+#[test]
+fn read_syncs_keep_only_messages_from_people_faro_knows() {
+    let shared = shared();
+    let read = |n| MessageRef {
+        sender: person(n),
+        sent_at: Timestamp::from_millis(1),
+    };
+    assert!(shared.admits(&group_update(group(7), vec![person(FRIEND)])));
+    assert_eq!(
+        shared.admit(BackendEvent::ReadElsewhere(vec![
+            read(ALLOWED),
+            read(STRANGER),
+            read(FRIEND),
+        ])),
+        Some(BackendEvent::ReadElsewhere(vec![
+            read(ALLOWED),
+            read(FRIEND)
+        ]))
+    );
+    assert_eq!(
+        shared.admit(BackendEvent::ReadElsewhere(vec![read(STRANGER)])),
+        None
+    );
+}
+
 #[tokio::test(start_paused = true)]
 async fn the_filter_passes_only_what_is_allowed() {
     let (backend, _) = MockBackend::new(&MockConfig::deterministic(1));
