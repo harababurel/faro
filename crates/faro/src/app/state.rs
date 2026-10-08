@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use faro_core::backend::BackendEvent;
+use faro_core::backend::{BackendEvent, Capabilities};
 use faro_core::config::{BubbleStyle, ColorChoice, Config};
 use faro_core::domain::{
     AttachmentRef, BodyPart, ConnectionState, Contact, ConversationId, Direction, Group, GroupId,
@@ -171,6 +171,8 @@ pub struct State {
     /// Off for a real account with no allowlist guard (`--no-allowlist`,
     /// D67); the footer says so.
     pub guard: Guard,
+    /// Optional backend features supported by the active backend.
+    pub capabilities: Capabilities,
 }
 
 #[derive(Debug)]
@@ -201,6 +203,15 @@ pub struct OpenConversation {
     pub selected: Option<Selection>,
     /// The next message sent replies to this.
     pub reply_to: Option<Quote>,
+    /// `sent_at` of an outgoing message currently being edited in `input`.
+    pub editing: Option<Timestamp>,
+    /// Mentions inserted via `@` autocomplete (or loaded when editing), as
+    /// `(who, person_name)`.
+    pub mentions: Vec<(ServiceId, String)>,
+    /// Highlighted candidate row in the inline `@` autocomplete popup.
+    pub mention_selected: usize,
+    /// Byte offset of an `@` token whose completion popup was dismissed with `Esc`.
+    pub mention_dismissed_at: Option<usize>,
     /// Local file attached to the next message sent here (D77).
     pub staged_attachment: Option<StagedAttachment>,
     /// Incoming messages not yet marked read: receipts wait until they've been
@@ -208,6 +219,26 @@ pub struct OpenConversation {
     pub unreceipted: Vec<MessageRef>,
     /// We told the others we're typing here.
     pub typing_sent: Option<TypingSent>,
+}
+
+impl OpenConversation {
+    /// The `@<query>` token right before the cursor (byte offset of `@` and
+    /// the query after it), if `@` starts the input or follows whitespace, has
+    /// no whitespace between `@` and the cursor, and wasn't dismissed with `Esc`.
+    pub fn active_mention_token(&self) -> Option<(usize, &str)> {
+        let before = self.input.text().get(..self.input.cursor())?;
+        let at_pos = before.rfind('@')?;
+        let preceded_by_space = at_pos == 0
+            || before
+                .get(..at_pos)
+                .and_then(|s| s.chars().next_back())
+                .is_some_and(char::is_whitespace);
+        if !preceded_by_space || self.mention_dismissed_at == Some(at_pos) {
+            return None;
+        }
+        let query = before.get(at_pos + 1..)?;
+        (!query.chars().any(char::is_whitespace)).then_some((at_pos, query))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -335,6 +366,8 @@ pub enum Popup {
         index: usize,
         selected: usize,
     },
+    /// Confirmation prompt before deleting one of our own messages for everyone.
+    ConfirmDelete { target: MessageRef },
     /// What can be done with a conversation (`Space` or right-click in the
     /// sidebar, D41).
     Conversation {
@@ -410,6 +443,8 @@ pub enum MessageAction {
     Reply,
     React,
     Copy,
+    Edit,
+    Delete,
     OpenLink(String),
     PlayVoiceNote { index: usize },
     StopVoiceNote { index: usize },
@@ -429,6 +464,8 @@ impl MessageAction {
             Self::Reply => ("Reply".to_owned(), "r"),
             Self::React => ("React…".to_owned(), "+"),
             Self::Copy => ("Copy text".to_owned(), "y"),
+            Self::Edit => ("Edit message".to_owned(), "e"),
+            Self::Delete => ("Delete for everyone".to_owned(), "D"),
             Self::OpenLink(url) => (format!("Open {url}"), "o"),
             Self::PlayVoiceNote { .. } => ("Play voice note".to_owned(), "x"),
             Self::StopVoiceNote { .. } => ("Stop voice note".to_owned(), "x"),
@@ -682,6 +719,7 @@ impl State {
             quit_armed: bool::default(),
             quit: false,
             guard: Guard::On,
+            capabilities: Capabilities::all(),
         };
         state.recount_names();
         state
@@ -842,6 +880,76 @@ impl State {
             .find_map(|a| a.transcript.as_deref())
             .filter(|t| !t.is_empty())
             .map(str::to_owned)
+    }
+
+    /// A message's text body with mentions written as `@Name`, for editing an
+    /// outgoing message in the input box.
+    pub fn editable_body(&self, message: &Message) -> String {
+        let Some(body) = message.body.as_ref() else {
+            return String::new();
+        };
+        mention_parts(body.expose(), &message.mentions)
+            .into_iter()
+            .map(|part| match part {
+                BodyPart::Text(text) => text.to_owned(),
+                BodyPart::Mention(who) => self.mention_name(who),
+            })
+            .collect()
+    }
+
+    /// Up to 5 participants in the open conversation matching the active
+    /// `@<query>` token before the input cursor.
+    pub fn mention_candidates(&self) -> Vec<(ServiceId, String)> {
+        let Some(open) = &self.open else {
+            return Vec::new();
+        };
+        let Some((_, query)) = open.active_mention_token() else {
+            return Vec::new();
+        };
+        let participants: Vec<ServiceId> = match open.id {
+            ConversationId::Direct(peer) if peer != self.me => vec![peer],
+            ConversationId::Direct(_) => Vec::new(),
+            ConversationId::Group(group_id) => self
+                .groups
+                .get(&group_id)
+                .map(|g| {
+                    g.members
+                        .iter()
+                        .copied()
+                        .filter(|&id| id != self.me)
+                        .collect()
+                })
+                .unwrap_or_default(),
+        };
+        let query_lower = query.to_lowercase();
+        let mut matches: Vec<(bool, ServiceId, String)> = participants
+            .into_iter()
+            .filter_map(|id| {
+                let name = self.person_name(id);
+                let name_lower = name.to_lowercase();
+                let base_lower = self.base_name(id).map(|b| b.to_lowercase());
+                if query_lower.is_empty() {
+                    return Some((true, id, name));
+                }
+                let prefix = name_lower.starts_with(&query_lower)
+                    || base_lower
+                        .as_ref()
+                        .is_some_and(|b| b.starts_with(&query_lower));
+                let contains = prefix
+                    || name_lower.contains(&query_lower)
+                    || base_lower
+                        .as_ref()
+                        .is_some_and(|b| b.contains(&query_lower));
+                contains.then_some((prefix, id, name))
+            })
+            .collect();
+        matches.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.2.cmp(&b.2)));
+        matches.dedup_by(|a, b| a.1 == b.1);
+        matches
+            .into_iter()
+            .take(5)
+            .map(|(_, id, name)| (id, name))
+            .collect()
     }
 
     /// How a mention of `who` reads: `@` and their name ("@You" for us).

@@ -203,6 +203,7 @@ async fn actions_towards_others_are_refused() {
     let msg = OutgoingMessage {
         sent_at: Timestamp::from_millis(2),
         body: MessageBody::new("hello"),
+        mentions: vec![],
         quote: None,
         attachments: vec![],
     };

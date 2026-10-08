@@ -46,6 +46,16 @@ impl Input {
         self.cursor += clean.len();
     }
 
+    /// Replace `range` (which must lie on char boundaries) with `replacement`
+    /// and place the cursor at the end of the inserted text.
+    pub fn replace_range(&mut self, range: std::ops::Range<usize>, replacement: &str) {
+        if self.text.get(range.clone()).is_some() {
+            let start = range.start;
+            self.text.replace_range(range, replacement);
+            self.cursor = start + replacement.len();
+        }
+    }
+
     pub fn insert(&mut self, c: char) {
         let mut buffer = [0; 4];
         self.insert_str(c.encode_utf8(&mut buffer));

@@ -1,7 +1,9 @@
 //! Acting on keys and the mouse: focus, conversation switching, scrolling and
 //! simple input editing (M4 task 1).
 
-use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{
+    KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use faro_core::domain::ConversationId;
 use ratatui::layout::Position;
 
@@ -39,11 +41,16 @@ pub fn on_action(state: &mut State, action: Action) -> Vec<Effect> {
         Action::PageUp => scroll(state, page(state)),
         Action::PageDown => scroll(state, -page(state)),
         Action::Send => return super::sending::send(state),
-        Action::Edit(Edit::Up) if state.open.as_ref().is_some_and(|o| o.input.is_empty()) => {
+        Action::Edit(Edit::Up)
+            if state
+                .open
+                .as_ref()
+                .is_some_and(|o| o.input.is_empty() && o.editing.is_none()) =>
+        {
             selection::enter(state);
         }
         Action::Edit(edit) => {
-            if apply_edit(state, edit) {
+            if apply_edit(state, edit) && state.open.as_ref().is_none_or(|o| o.editing.is_none()) {
                 return super::presence::on_edited(state);
             }
         }
@@ -55,6 +62,8 @@ pub fn on_action(state: &mut State, action: Action) -> Vec<Effect> {
         Action::Reply => return selection::on_selected(state, MessageAction::Reply),
         Action::ReactPicker => return selection::on_selected(state, MessageAction::React),
         Action::Copy => return selection::on_selected(state, MessageAction::Copy),
+        Action::EditMessage => return selection::edit_message(state),
+        Action::DeleteMessage => return selection::delete_message(state),
         Action::OpenLink => return selection::open_link(state),
         Action::PlayVoiceNote => return selection::play_voice_note(state),
         Action::TranscribeVoiceNote => return selection::transcribe_voice_note(state),
@@ -73,14 +82,92 @@ pub fn on_action(state: &mut State, action: Action) -> Vec<Effect> {
     vec![]
 }
 
-/// Esc, one step at a time (D60, D77): remove a staged attachment; else cancel a
+/// Intercepts navigation, selection and dismissal keys when the inline `@`
+/// mention autocomplete popup is active above the input bar.
+pub fn on_mention_key(state: &mut State, key: KeyEvent) -> Option<Vec<Effect>> {
+    if key.kind == KeyEventKind::Release {
+        return None;
+    }
+    let candidates = state.mention_candidates();
+    if candidates.is_empty() {
+        return None;
+    }
+    let len = candidates.len();
+    match (key.code, key.modifiers) {
+        (KeyCode::Up, KeyModifiers::NONE) | (KeyCode::Char('p' | 'P'), KeyModifiers::CONTROL) => {
+            if let Some(open) = state.open.as_mut() {
+                open.mention_selected = selection::cycle(open.mention_selected, len, false);
+            }
+            Some(vec![])
+        }
+        (KeyCode::Down, KeyModifiers::NONE) | (KeyCode::Char('n' | 'N'), KeyModifiers::CONTROL) => {
+            if let Some(open) = state.open.as_mut() {
+                open.mention_selected = selection::cycle(open.mention_selected, len, true);
+            }
+            Some(vec![])
+        }
+        (KeyCode::Tab | KeyCode::Enter, KeyModifiers::NONE) => {
+            let open = state.open.as_mut()?;
+            let idx = open.mention_selected.min(len.saturating_sub(1));
+            let (who, name) = candidates.get(idx)?.clone();
+            let (at_pos, _) = open.active_mention_token()?;
+            let cursor = open.input.cursor();
+            let replacement = format!("@{name} ");
+            open.input.replace_range(at_pos..cursor, &replacement);
+            if !open.mentions.iter().any(|(id, n)| *id == who && *n == name) {
+                open.mentions.push((who, name));
+            }
+            open.mention_selected = 0;
+            open.mention_dismissed_at = None;
+            if open.editing.is_none() {
+                open.draft_edited = Some(tokio::time::Instant::now());
+                Some(super::presence::on_edited(state))
+            } else {
+                Some(vec![])
+            }
+        }
+        (KeyCode::Esc, KeyModifiers::NONE) => {
+            if let Some(open) = state.open.as_mut() {
+                open.mention_dismissed_at = open.active_mention_token().map(|(at, _)| at);
+                open.mention_selected = 0;
+            }
+            Some(vec![])
+        }
+        _ => None,
+    }
+}
+
+/// Esc, one step at a time (D60, D77): dismiss the `@` mention popup; else cancel
+/// an in-progress message edit; else remove a staged attachment; else cancel a
 /// reply being written; else dismiss the notice and go back to the input; else
 /// close the open conversation (its draft kept), leaving the list highlighting it.
 fn escape(state: &mut State) -> Vec<Effect> {
+    if state.focus == Focus::Input && !state.mention_candidates().is_empty() {
+        if let Some(open) = state.open.as_mut() {
+            open.mention_dismissed_at = open.active_mention_token().map(|(at, _)| at);
+            open.mention_selected = 0;
+        }
+        return vec![];
+    }
     let Some(open) = state.open.as_mut() else {
         state.notice = None;
         return vec![];
     };
+    if state.focus == Focus::Input && open.editing.take().is_some() {
+        let id = open.id;
+        open.mentions.clear();
+        open.mention_selected = 0;
+        open.mention_dismissed_at = None;
+        let restored = state
+            .summary(id)
+            .and_then(|s| s.state.draft.as_ref())
+            .map(|d| Input::new(d.expose()))
+            .unwrap_or_default();
+        if let Some(open) = state.open.as_mut() {
+            open.input = restored;
+        }
+        return vec![];
+    }
     if state.focus == Focus::Input && open.staged_attachment.is_some() {
         open.staged_attachment = None;
         return vec![];
@@ -116,8 +203,14 @@ fn apply_edit(state: &mut State, edit: Edit) -> bool {
         return false;
     };
     let changed = edit_input(&mut open.input, edit);
+    if open.active_mention_token().map(|(at, _)| at) != open.mention_dismissed_at {
+        open.mention_dismissed_at = None;
+    }
     if changed {
-        open.draft_edited = Some(tokio::time::Instant::now());
+        open.mention_selected = 0;
+        if open.editing.is_none() {
+            open.draft_edited = Some(tokio::time::Instant::now());
+        }
     }
     changed
 }

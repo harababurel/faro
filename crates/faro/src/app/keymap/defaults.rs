@@ -221,6 +221,12 @@ pub const NAMES: &[(&str, &str, Action)] = &[
     ("message.reply", "Reply", Action::Reply),
     ("message.react", "React", Action::ReactPicker),
     ("message.copy", "Copy text", Action::Copy),
+    ("message.edit", "Edit message", Action::EditMessage),
+    (
+        "message.delete",
+        "Delete for everyone",
+        Action::DeleteMessage,
+    ),
     ("message.open_link", "Open link", Action::OpenLink),
     (
         "message.play",
@@ -353,6 +359,8 @@ pub const BINDINGS: &[(Context, &str, Action)] = &[
     (Messages, "r", Action::Reply),
     (Messages, "+", Action::ReactPicker),
     (Messages, "y", Action::Copy),
+    (Messages, "e", Action::EditMessage),
+    (Messages, "D", Action::DeleteMessage),
     (Messages, "o", Action::OpenLink),
     (Messages, "x", Action::PlayVoiceNote),
     (Messages, "t", Action::TranscribeVoiceNote),

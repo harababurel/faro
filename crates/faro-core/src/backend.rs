@@ -12,8 +12,8 @@ use std::path::PathBuf;
 use tokio::sync::mpsc;
 
 use crate::domain::{
-    AttachmentRef, Contact, ConversationId, Group, MessageBody, MessageRef, PhoneNumber, Quote,
-    ServiceId, Timestamp, TypingState,
+    AttachmentRef, Contact, ConversationId, Group, Mention, MessageBody, MessageRef, PhoneNumber,
+    Quote, ServiceId, Timestamp, TypingState,
 };
 pub use error::BackendError;
 pub use event::BackendEvent;
@@ -118,6 +118,7 @@ pub struct OutgoingMessage {
     pub sent_at: Timestamp,
     /// May be empty when there's an attachment (it's then the caption).
     pub body: MessageBody,
+    pub mentions: Vec<Mention>,
     pub quote: Option<Quote>,
     /// Files to upload with it (D77); sending them requires
     /// [`Capability::Attachments`].
@@ -160,6 +161,7 @@ impl ReactionChange {
 pub struct OutgoingEdit {
     pub edited_at: Timestamp,
     pub body: MessageBody,
+    pub mentions: Vec<Mention>,
 }
 
 /// An optional backend feature. Core messaging (text, replies, receipts, typing,
@@ -299,6 +301,7 @@ mod tests {
         let msg = OutgoingMessage {
             sent_at: Timestamp::from_millis(42),
             body: MessageBody::new("hello"),
+            mentions: vec![],
             quote: None,
             attachments: vec![],
         };

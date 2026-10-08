@@ -725,6 +725,7 @@ fn enter_sends_shows_and_stores_the_message() {
                 message: OutgoingMessage {
                     sent_at: sent.sent_at,
                     body: MessageBody::new(body),
+                    mentions: vec![],
                     quote: None,
                     attachments: vec![],
                 },
@@ -1101,7 +1102,9 @@ fn the_menu_lists_what_a_message_offers() {
         &vec![
             MessageAction::Reply,
             MessageAction::React,
-            MessageAction::Copy
+            MessageAction::Copy,
+            MessageAction::Edit,
+            MessageAction::Delete,
         ]
     );
     // Shortcut letters work inside the menu; Esc closes it.
@@ -1149,6 +1152,7 @@ fn failed_messages_can_be_retried_from_the_menu() {
                 message: OutgoingMessage {
                     sent_at: sent.sent_at,
                     body: MessageBody::new("lost"),
+                    mentions: vec![],
                     quote: None,
                     attachments: vec![],
                 },
@@ -1732,6 +1736,175 @@ fn voice_note_remote_consent_flow() {
             voice,
             ..
         }) if *message == target && voice.transcribe == TranscribeMode::Remote
+    )));
+}
+
+#[test]
+fn editing_own_message_updates_timeline_and_sends_edit_command() {
+    let mut state = loaded_state();
+    // Newest message is Bob's incoming message: cannot be edited.
+    update(&mut state, key(KeyCode::Up, KeyModifiers::NONE));
+    assert_eq!(press(&mut state, 'e'), vec![]);
+    assert_eq!(state.focus, Focus::Messages);
+    assert!(
+        state
+            .notice
+            .as_ref()
+            .is_some_and(|n| n.text.contains("Only your own messages"))
+    );
+
+    // Step up to our own message ("On my way") and press `e`.
+    press(&mut state, 'k');
+    let own_ref = selected_ref(&state).unwrap();
+    assert_eq!(own_ref.sender, ME);
+    press(&mut state, 'e');
+    assert_eq!(state.focus, Focus::Input);
+    assert_eq!(state.open.as_ref().unwrap().editing, Some(own_ref.sent_at));
+    assert_eq!(state.open.as_ref().unwrap().input.text(), "On my way");
+
+    // Esc cancels the edit without sending or closing the conversation.
+    update(&mut state, key(KeyCode::Esc, KeyModifiers::NONE));
+    assert_eq!(state.open.as_ref().unwrap().editing, None);
+    assert_eq!(state.open.as_ref().unwrap().input.text(), "");
+    assert!(state.open.is_some());
+
+    // Start editing again, append text, and press Enter.
+    select_last_but(&mut state, 1);
+    press(&mut state, 'e');
+    typed(&mut state, " — 5 min out");
+    let effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(state.open.as_ref().unwrap().editing, None);
+    assert_eq!(state.open.as_ref().unwrap().input.text(), "");
+    let edited = state
+        .open
+        .as_ref()
+        .unwrap()
+        .messages
+        .iter()
+        .find(|m| m.reference() == own_ref)
+        .unwrap();
+    assert_eq!(
+        edited.body.as_ref().map(MessageBody::expose),
+        Some("On my way — 5 min out")
+    );
+    assert!(edited.edited_at.is_some());
+    assert!(effects.iter().any(|e| matches!(
+        e,
+        Effect::Persist(ev) if matches!(
+            ev.as_ref(),
+            BackendEvent::Edited { conversation, target, body, .. }
+                if *conversation == climbing()
+                    && *target == own_ref
+                    && body.expose() == "On my way — 5 min out"
+        )
+    )));
+    assert!(effects.iter().any(|e| matches!(
+        e,
+        Effect::Backend(Command::Edit { conversation, target, edit })
+            if *conversation == climbing()
+                && *target == own_ref
+                && edit.body.expose() == "On my way — 5 min out"
+    )));
+}
+
+#[test]
+fn deleting_own_message_for_everyone_confirms_and_sends_delete_command() {
+    let mut state = loaded_state();
+    // Incoming message cannot be deleted for everyone.
+    update(&mut state, key(KeyCode::Up, KeyModifiers::NONE));
+    assert_eq!(
+        update(&mut state, key(KeyCode::Char('D'), KeyModifiers::SHIFT)),
+        vec![]
+    );
+    assert_eq!(state.popup, None);
+
+    // Select our own message ("On my way") and press `D`.
+    press(&mut state, 'k');
+    let own_ref = selected_ref(&state).unwrap();
+    update(&mut state, key(KeyCode::Char('D'), KeyModifiers::SHIFT));
+    assert_eq!(state.popup, Some(Popup::ConfirmDelete { target: own_ref }));
+
+    // Pressing `n` cancels without deleting.
+    assert_eq!(press(&mut state, 'n'), vec![]);
+    assert_eq!(state.popup, None);
+    let msg = state
+        .open
+        .as_ref()
+        .unwrap()
+        .messages
+        .iter()
+        .find(|m| m.reference() == own_ref)
+        .unwrap();
+    assert!(!msg.deleted);
+
+    // Pressing `D` then `y` confirms deletion.
+    update(&mut state, key(KeyCode::Char('D'), KeyModifiers::SHIFT));
+    let effects = press(&mut state, 'y');
+    assert_eq!(state.popup, None);
+    let msg = state
+        .open
+        .as_ref()
+        .unwrap()
+        .messages
+        .iter()
+        .find(|m| m.reference() == own_ref)
+        .unwrap();
+    assert!(msg.deleted);
+    assert_eq!(
+        effects,
+        vec![
+            Effect::Persist(Box::new(BackendEvent::Deleted {
+                conversation: climbing(),
+                target: own_ref,
+            })),
+            Effect::Backend(Command::DeleteForEveryone {
+                conversation: climbing(),
+                target: own_ref,
+            }),
+        ]
+    );
+}
+
+#[test]
+fn typing_at_opens_mention_autocomplete_and_sends_mentions() {
+    use faro_core::domain::Mention;
+
+    let mut state = loaded_state();
+    assert_eq!(state.mention_candidates(), vec![]);
+
+    // Type "cc @al" in the Climbing group chat: Alice matches.
+    typed(&mut state, "cc @al");
+    let candidates = state.mention_candidates();
+    assert_eq!(candidates, vec![(ALICE, "Alice 🌸".to_owned())]);
+
+    // Pressing Tab accepts the highlighted candidate and inserts "@Alice 🌸 ".
+    update(&mut state, key(KeyCode::Tab, KeyModifiers::NONE));
+    assert_eq!(state.open.as_ref().unwrap().input.text(), "cc @Alice 🌸 ");
+    assert_eq!(state.mention_candidates(), vec![]);
+
+    // Add more text and send.
+    typed(&mut state, "for beta");
+    let effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    let sent = last_message(&state);
+    assert_eq!(
+        sent.body.as_ref().map(MessageBody::expose),
+        Some("cc \u{FFFC} for beta")
+    );
+    let expected_mentions = vec![Mention {
+        who: ALICE,
+        start: 3,
+        len: '\u{FFFC}'.len_utf8(),
+    }];
+    assert_eq!(sent.mentions, expected_mentions);
+    assert_eq!(
+        state.readable_body(&sent).as_deref(),
+        Some("cc @Alice 🌸 for beta")
+    );
+    assert!(effects.iter().any(|e| matches!(
+        e,
+        Effect::Backend(Command::Send { message, .. })
+            if message.body.expose() == "cc \u{FFFC} for beta"
+                && message.mentions == expected_mentions
     )));
 }
 

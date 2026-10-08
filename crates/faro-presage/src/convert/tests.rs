@@ -351,10 +351,15 @@ fn typing_in_a_group() {
 }
 
 #[test]
-fn outgoing_text_carries_quote_and_group() {
+fn outgoing_text_carries_quote_mentions_and_group() {
     let msg = OutgoingMessage {
         sent_at: Timestamp::from_millis(42),
-        body: MessageBody::new("hello"),
+        body: MessageBody::new("🧗 \u{FFFC} hello"),
+        mentions: vec![Mention {
+            who: ALICE,
+            start: "🧗 ".len(),
+            len: '\u{FFFC}'.len_utf8(),
+        }],
         quote: Some(Quote {
             target: MessageRef {
                 sender: ALICE,
@@ -365,12 +370,38 @@ fn outgoing_text_carries_quote_and_group() {
         attachments: vec![],
     };
     let data = text(&msg, vec![], Some(group_context(&KEY, 2)));
-    assert_eq!(data.body.as_deref(), Some("hello"));
+    assert_eq!(data.body.as_deref(), Some("🧗 \u{FFFC} hello"));
     assert_eq!(data.timestamp, Some(42));
     let quote = data.quote.unwrap();
     assert_eq!(quote.id, Some(7));
     assert_eq!(quote.author_aci, Some(ALICE.to_string()));
     assert_eq!(master_key(data.group_v2.as_ref()), Some(KEY));
+    assert_eq!(
+        mentions("🧗 \u{FFFC} hello", &data.body_ranges),
+        msg.mentions
+    );
+
+    let target = MessageRef {
+        sender: ME,
+        sent_at: Timestamp::from_millis(42),
+    };
+    let outgoing_edit = OutgoingEdit {
+        edited_at: Timestamp::from_millis(50),
+        body: MessageBody::new("hi \u{FFFC}"),
+        mentions: vec![Mention {
+            who: ALICE,
+            start: 3,
+            len: '\u{FFFC}'.len_utf8(),
+        }],
+    };
+    let edited = edit(target, &outgoing_edit, Some(group_context(&KEY, 2)));
+    assert_eq!(edited.target_sent_timestamp, Some(42));
+    let edit_data = edited.data_message.unwrap();
+    assert_eq!(edit_data.body.as_deref(), Some("hi \u{FFFC}"));
+    assert_eq!(
+        mentions("hi \u{FFFC}", &edit_data.body_ranges),
+        outgoing_edit.mentions
+    );
 }
 
 #[test]

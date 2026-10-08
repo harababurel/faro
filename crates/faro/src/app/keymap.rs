@@ -50,6 +50,8 @@ pub enum Action {
     Reply,
     ReactPicker,
     Copy,
+    EditMessage,
+    DeleteMessage,
     OpenLink,
     PlayVoiceNote,
     TranscribeVoiceNote,

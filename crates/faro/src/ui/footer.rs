@@ -120,6 +120,7 @@ const REACT_HINTS: &[(&str, &str)] = &[
     ("esc", "close"),
 ];
 const IMAGE_VIEWER_HINTS: &[(&str, &str)] = &[("s", "save"), ("y", "copy path"), ("esc", "close")];
+const CONFIRM_DELETE_HINTS: &[(&str, &str)] = &[("enter/y", "delete"), ("esc/n", "cancel")];
 
 pub fn render(
     frame: &mut Frame<'_>,
@@ -208,6 +209,7 @@ fn hints(state: &State, geometry: &Geometry) -> Vec<(String, &'static str)> {
             Popup::Actions { .. }
             | Popup::Conversation { .. }
             | Popup::ConfirmRemoteTranscription { .. } => fixed(MENU_HINTS),
+            Popup::ConfirmDelete { .. } => fixed(CONFIRM_DELETE_HINTS),
             Popup::React { .. } => fixed(REACT_HINTS),
             Popup::Mute { .. } => fixed(MUTE_HINTS),
             Popup::ImageViewer { .. } => fixed(IMAGE_VIEWER_HINTS),

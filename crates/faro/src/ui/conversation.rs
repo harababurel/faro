@@ -5,7 +5,7 @@ use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Position, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Padding, Paragraph};
+use ratatui::widgets::{Block, BorderType, Clear, Padding, Paragraph};
 use unicode_segmentation::UnicodeSegmentation as _;
 use unicode_width::UnicodeWidthStr as _;
 
@@ -52,8 +52,9 @@ pub fn render(
 
     let input_width = usize::from(inner.width.saturating_sub(4));
     let input_layout = layout_input(&open.input, input_width);
-    let reply_rows =
-        u16::from(open.reply_to.is_some()) + u16::from(open.staged_attachment.is_some());
+    let reply_rows = u16::from(open.editing.is_some())
+        + u16::from(open.reply_to.is_some())
+        + u16::from(open.staged_attachment.is_some());
     let input_height = u16::try_from(input_layout.lines.len().clamp(1, INPUT_MAX_LINES))
         .unwrap_or(1)
         + 2
@@ -86,6 +87,9 @@ pub fn render(
         view,
         input_focused,
     );
+    if input_focused && state.popup.is_none() && state.palette.is_none() {
+        render_mention_popup(frame, inner, input.y, state, open, view);
+    }
 }
 
 fn render_history(
@@ -282,6 +286,22 @@ fn render_input(
     let mut inner = block.inner(area);
     frame.render_widget(block, area);
 
+    if open.editing.is_some() {
+        let text = "✎ Editing message";
+        let hint = "  esc cancel";
+        let room = usize::from(inner.width).saturating_sub(hint.width());
+        let line = Line::from(vec![
+            Span::styled(
+                truncate(text, room).into_owned(),
+                Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(hint, theme.muted()),
+        ]);
+        frame.render_widget(Paragraph::new(line), Rect { height: 1, ..inner });
+        inner.y += 1;
+        inner.height = inner.height.saturating_sub(1);
+    }
+
     if let Some(quote) = &open.reply_to {
         let who = sanitize(&state.person_name(quote.target.sender)).into_owned();
         let preview = quote
@@ -357,6 +377,88 @@ fn render_input(
     if focused {
         frame.set_cursor_position(Position::new(x, y));
     }
+}
+
+/// Inline `@` mention completion popup anchored just above the input box.
+fn render_mention_popup(
+    frame: &mut Frame<'_>,
+    pane_inner: Rect,
+    input_top_y: u16,
+    state: &State,
+    open: &OpenConversation,
+    view: &View<'_>,
+) {
+    let candidates = state.mention_candidates();
+    if candidates.is_empty() {
+        return;
+    }
+    let avail_h = input_top_y.saturating_sub(pane_inner.y);
+    if avail_h < 3 {
+        return;
+    }
+    let max_rows = usize::from(avail_h.saturating_sub(2)).min(6);
+    let visible_count = candidates.len().min(max_rows);
+    let selected = open
+        .mention_selected
+        .min(candidates.len().saturating_sub(1));
+    let offset = if selected >= visible_count {
+        selected + 1 - visible_count
+    } else {
+        0
+    };
+    let widest = candidates
+        .iter()
+        .map(|(_, name)| sanitize(name).width() + 5)
+        .max()
+        .unwrap_or(16);
+    let max_width = usize::from(pane_inner.width.saturating_sub(2));
+    let box_width = u16::try_from((widest + 2).clamp(18, max_width.max(18)))
+        .unwrap_or(24)
+        .min(pane_inner.width);
+    let box_height = u16::try_from(visible_count + 2).unwrap_or(3).min(avail_h);
+    let rect = Rect {
+        x: pane_inner.x + 1,
+        y: input_top_y.saturating_sub(box_height),
+        width: box_width,
+        height: box_height,
+    };
+    let theme = view.theme;
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(theme.border(true))
+        .style(theme.panel())
+        .title(Span::styled(
+            " @mention ",
+            Style::new().fg(theme.primary).add_modifier(Modifier::BOLD),
+        ));
+    let inner = block.inner(rect);
+    frame.render_widget(Clear, rect);
+    frame.render_widget(block, rect);
+    let row_width = usize::from(inner.width);
+    let lines: Vec<Line<'static>> = candidates
+        .iter()
+        .enumerate()
+        .skip(offset)
+        .take(visible_count)
+        .map(|(i, (_, name))| {
+            let chosen = i == selected;
+            let marker = if chosen { " › @" } else { "   @" };
+            let clean = sanitize(name);
+            let label = truncate(&clean, row_width.saturating_sub(4)).into_owned();
+            let pad = row_width.saturating_sub(4 + label.width());
+            let style = if chosen {
+                theme.selected().fg(theme.text).add_modifier(Modifier::BOLD)
+            } else {
+                Style::new().fg(theme.text)
+            };
+            Line::from(vec![
+                Span::styled(marker, style.fg(theme.primary)),
+                Span::styled(label, style),
+                Span::styled(" ".repeat(pad), style),
+            ])
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(lines), inner);
 }
 
 /// The input wrapped to the box, and where the cursor lands.

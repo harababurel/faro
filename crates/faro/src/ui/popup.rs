@@ -79,6 +79,12 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &
         Popup::ImageViewer { target, index } => {
             image_viewer(frame, state, *target, *index, geometry, view);
         }
+        Popup::ConfirmDelete { target } => {
+            let Some(anchor) = over_message(geometry, *target) else {
+                return;
+            };
+            confirm_delete(frame, anchor, view);
+        }
         Popup::ConfirmRemoteTranscription {
             conversation,
             target,
@@ -406,5 +412,26 @@ fn remote_consent(
             Span::styled(pad_left(key, key_width), style.patch(theme.muted())),
         ]));
     }
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+fn confirm_delete(frame: &mut Frame<'_>, anchor: Anchor, view: &View<'_>) {
+    let prompt = " Delete this message for everyone? ";
+    let keys = " Enter / y confirm · Esc / n cancel ";
+    let max_inner = usize::from(anchor.area.width.saturating_sub(4));
+    let inner_width = width(prompt).max(width(keys)).clamp(24, max_inner.max(24));
+    let rect = place(anchor, inner_width, 2);
+    let inner = frame_box(frame, rect, "Delete message?", view);
+    let row_width = usize::from(inner.width);
+    let lines = vec![
+        Line::from(Span::styled(
+            truncate(prompt, row_width).into_owned(),
+            Style::new().fg(view.theme.text),
+        )),
+        Line::from(Span::styled(
+            truncate(keys, row_width).into_owned(),
+            view.theme.muted(),
+        )),
+    ];
     frame.render_widget(Paragraph::new(lines), inner);
 }

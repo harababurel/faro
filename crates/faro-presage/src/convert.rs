@@ -487,6 +487,31 @@ pub fn group_context(master_key: &MasterKey, revision: u32) -> GroupContextV2 {
     }
 }
 
+/// Signal's `BodyRange`s for outgoing mentions, in UTF-16 code units.
+pub fn body_ranges(text: &str, mentions: &[Mention]) -> Vec<BodyRange> {
+    mentions
+        .iter()
+        .filter_map(|mention| {
+            let ServiceId::Aci(aci) = mention.who else {
+                return None;
+            };
+            let end = mention.start.checked_add(mention.len)?;
+            let prefix = text.get(..mention.start)?;
+            let slice = text.get(mention.start..end)?;
+            let start = u32::try_from(prefix.encode_utf16().count()).ok()?;
+            let length = u32::try_from(slice.encode_utf16().count()).ok()?;
+            if length == 0 {
+                return None;
+            }
+            Some(BodyRange {
+                start: Some(start),
+                length: Some(length),
+                associated_value: Some(AssociatedValue::MentionAci(aci.to_string())),
+            })
+        })
+        .collect()
+}
+
 pub fn text(
     msg: &OutgoingMessage,
     attachments: Vec<AttachmentPointer>,
@@ -499,6 +524,7 @@ pub fn text(
     };
     DataMessage {
         body,
+        body_ranges: body_ranges(msg.body.expose(), &msg.mentions),
         attachments,
         timestamp: Some(msg.sent_at.as_millis()),
         quote: msg.quote.as_ref().map(|q| data_message::Quote {
@@ -559,6 +585,7 @@ pub fn edit(target: MessageRef, edit: &OutgoingEdit, group: Option<GroupContextV
         target_sent_timestamp: Some(target.sent_at.as_millis()),
         data_message: Some(DataMessage {
             body: Some(edit.body.expose().to_owned()),
+            body_ranges: body_ranges(edit.body.expose(), &edit.mentions),
             timestamp: Some(edit.edited_at.as_millis()),
             group_v2: group,
             ..DataMessage::default()

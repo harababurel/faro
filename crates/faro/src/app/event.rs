@@ -44,6 +44,10 @@ pub enum AppEvent {
         previous: Option<String>,
         result: Result<(), BackendError>,
     },
+    /// The backend finished (or gave up) editing our message.
+    EditResult(Result<(), BackendError>),
+    /// The backend finished (or gave up) deleting our message for everyone.
+    DeleteResult(Result<(), BackendError>),
     /// An attachment finished downloading (or failed) (D75).
     Fetched {
         conversation: ConversationId,

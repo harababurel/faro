@@ -305,6 +305,7 @@ mod tests {
         OutgoingMessage {
             sent_at: Timestamp::from_millis(DETERMINISTIC_EPOCH.as_millis() + offset),
             body: MessageBody::new("hello"),
+            mentions: vec![],
             quote: None,
             attachments: vec![],
         }
@@ -416,6 +417,7 @@ mod tests {
         let edit = OutgoingEdit {
             edited_at: Timestamp::from_millis(2),
             body: MessageBody::new("fixed"),
+            mentions: vec![],
         };
         let conv = ConversationId::Direct(alice);
 

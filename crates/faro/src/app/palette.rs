@@ -1212,6 +1212,34 @@ fn selected_message_commands(state: &State) -> Vec<Item> {
         copy_path.path = Some("Message".to_owned());
         items.push(copy_path);
     }
+    if selected_msg
+        .is_some_and(|m| matches!(m.direction, faro_core::domain::Direction::Outgoing(_)))
+    {
+        if state
+            .capabilities
+            .supports(faro_core::backend::Capability::Edit)
+        {
+            let mut item = command(
+                PaletteCommand::Action(Action::EditMessage),
+                "Edit message",
+                state.keymap.hint(&[Action::EditMessage], Focus::Messages),
+            );
+            item.path = Some("Message".to_owned());
+            items.push(item);
+        }
+        if state
+            .capabilities
+            .supports(faro_core::backend::Capability::DeleteForEveryone)
+        {
+            let mut item = command(
+                PaletteCommand::Action(Action::DeleteMessage),
+                "Delete for everyone",
+                state.keymap.hint(&[Action::DeleteMessage], Focus::Messages),
+            );
+            item.path = Some("Message".to_owned());
+            items.push(item);
+        }
+    }
     items
 }
 

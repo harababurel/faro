@@ -9,7 +9,7 @@
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use faro_core::backend::{Backend, BackendError, OutgoingMessage, ReactionChange};
+use faro_core::backend::{Backend, BackendError, OutgoingEdit, OutgoingMessage, ReactionChange};
 use faro_core::config::{TranscribeMode, Voice};
 use faro_core::domain::{
     AttachmentRef, AttachmentStatus, ConversationId, MessageRef, ServiceId, Timestamp,
@@ -37,6 +37,17 @@ pub enum Command {
         target: MessageRef,
         change: ReactionChange,
         previous: Option<String>,
+    },
+    /// Answered with `AppEvent::EditResult`. Already applied locally.
+    Edit {
+        conversation: ConversationId,
+        target: MessageRef,
+        edit: OutgoingEdit,
+    },
+    /// Answered with `AppEvent::DeleteResult`. Already applied locally.
+    DeleteForEveryone {
+        conversation: ConversationId,
+        target: MessageRef,
     },
     /// Download an attachment and write it to `attachments/` (`0600`, D75).
     /// Answered with `AppEvent::Fetched`.
@@ -560,6 +571,27 @@ async fn execute<B: Backend>(
                 previous,
                 result,
             }
+        }
+        Command::Edit {
+            conversation,
+            target,
+            edit,
+        } => {
+            let result = backend.edit(conversation, target, edit).await;
+            if let Err(error) = &result {
+                tracing::warn!(%error, %conversation, "editing message failed");
+            }
+            AppEvent::EditResult(result)
+        }
+        Command::DeleteForEveryone {
+            conversation,
+            target,
+        } => {
+            let result = backend.delete_for_everyone(conversation, target).await;
+            if let Err(error) = &result {
+                tracing::warn!(%error, %conversation, "deleting message failed");
+            }
+            AppEvent::DeleteResult(result)
         }
         Command::Fetch { .. } | Command::Transcribe { .. } => return None,
         Command::MarkRead(messages) => {

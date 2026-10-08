@@ -4,11 +4,11 @@
 
 use std::path::PathBuf;
 
-use faro_core::backend::{BackendError, BackendEvent, OutgoingMessage, ReactionChange};
+use faro_core::backend::{BackendError, BackendEvent, Capability, OutgoingMessage, ReactionChange};
 use faro_core::config::{AutoDownload, TranscribeMode};
 use faro_core::domain::{
     AttachmentRef, AttachmentStatus, ConversationId, DeliveryStatus, Direction, Message,
-    MessageBody, MessageRef, Quote, TranscriptSource,
+    MessageBody, MessageRef, Quote, ServiceId, TranscriptSource,
 };
 use faro_core::store::RemoteTranscription;
 use tokio::time::Instant;
@@ -16,6 +16,7 @@ use tokio::time::Instant;
 use super::{curation, on_backend};
 use crate::app::commands::Command;
 use crate::app::event::Effect;
+use crate::app::input::Input;
 use crate::app::keymap::PopupKey;
 use crate::app::state::{
     AUTO_DOWNLOAD_LIMIT, DownloadJob, Focus, MAX_DOWNLOADS_IN_FLIGHT, MessageAction, Notice,
@@ -197,6 +198,14 @@ fn actions(state: &State, message: &Message) -> Vec<MessageAction> {
             }
         }
     }
+    if matches!(message.direction, Direction::Outgoing(_)) && !message.deleted {
+        if state.capabilities.supports(Capability::Edit) {
+            items.push(MessageAction::Edit);
+        }
+        if state.capabilities.supports(Capability::DeleteForEveryone) {
+            items.push(MessageAction::Delete);
+        }
+    }
     items
 }
 
@@ -222,6 +231,8 @@ fn shortcut(c: char) -> Option<fn(&MessageAction) -> bool> {
         'r' => Some(|a| *a == MessageAction::Reply),
         '+' => Some(|a| *a == MessageAction::React),
         'y' => Some(|a| *a == MessageAction::Copy),
+        'e' => Some(|a| *a == MessageAction::Edit),
+        'D' => Some(|a| *a == MessageAction::Delete),
         'o' => Some(|a| matches!(a, MessageAction::OpenLink(_))),
         'x' => Some(|a| {
             matches!(
@@ -309,6 +320,14 @@ pub fn on_popup(state: &mut State, key: PopupKey) -> Vec<Effect> {
                 vec![]
             }
         },
+        Popup::ConfirmDelete { target } => match key {
+            PopupKey::Choose | PopupKey::Char('y' | 'Y') => confirm_delete(state, target),
+            PopupKey::Close | PopupKey::Char('n' | 'N' | 'q') => vec![],
+            PopupKey::Previous | PopupKey::Next | PopupKey::Char(_) => {
+                state.popup = Some(Popup::ConfirmDelete { target });
+                vec![]
+            }
+        },
         Popup::ConfirmRemoteTranscription {
             conversation,
             target,
@@ -343,6 +362,11 @@ pub fn perform(state: &mut State, target: MessageRef, action: MessageAction) -> 
             vec![]
         }
         MessageAction::Copy => copy(state, target),
+        MessageAction::Edit => edit_target(state, target),
+        MessageAction::Delete => {
+            delete_target(state, target);
+            vec![]
+        }
         MessageAction::OpenLink(url) => open_url(state, url),
         MessageAction::PlayVoiceNote { index } => play_one_voice_note(state, target, index),
         MessageAction::StopVoiceNote { .. } => stop_voice_note(state),
@@ -372,6 +396,117 @@ pub fn on_selected(state: &mut State, action: MessageAction) -> Vec<Effect> {
         Some(target) => perform(state, target, action),
         None => vec![],
     }
+}
+
+/// `e`: start editing the selected outgoing message.
+pub fn edit_message(state: &mut State) -> Vec<Effect> {
+    let Some(message) = selected(state).filter(|m| !m.deleted) else {
+        return vec![];
+    };
+    if !matches!(message.direction, Direction::Outgoing(_)) {
+        state.notice = Some(Notice::info("Only your own messages can be edited"));
+        return vec![];
+    }
+    if !state.capabilities.supports(Capability::Edit) {
+        state.notice = Some(Notice::info("Editing is not supported by this backend"));
+        return vec![];
+    }
+    let target = message.reference();
+    edit_target(state, target)
+}
+
+fn edit_target(state: &mut State, target: MessageRef) -> Vec<Effect> {
+    if !state.capabilities.supports(Capability::Edit) {
+        return vec![];
+    }
+    let Some(message) =
+        find(state, target).filter(|m| matches!(m.direction, Direction::Outgoing(_)) && !m.deleted)
+    else {
+        return vec![];
+    };
+    let body = state.editable_body(message);
+    let existing_mentions: Vec<(ServiceId, String)> = message
+        .mentions
+        .iter()
+        .map(|m| (m.who, state.person_name(m.who)))
+        .collect();
+    let effects = super::save_draft(state);
+    if let Some(open) = state.open.as_mut() {
+        open.editing = Some(target.sent_at);
+        open.reply_to = None;
+        open.staged_attachment = None;
+        open.input = Input::new(&body);
+        open.mentions = existing_mentions;
+        open.mention_selected = 0;
+        open.mention_dismissed_at = None;
+    }
+    state.focus = Focus::Input;
+    effects
+}
+
+/// `D`: prompt to delete the selected outgoing message for everyone.
+pub fn delete_message(state: &mut State) -> Vec<Effect> {
+    let Some(message) = selected(state).filter(|m| !m.deleted) else {
+        return vec![];
+    };
+    if !matches!(message.direction, Direction::Outgoing(_)) {
+        state.notice = Some(Notice::info(
+            "Only your own messages can be deleted for everyone",
+        ));
+        return vec![];
+    }
+    if !state.capabilities.supports(Capability::DeleteForEveryone) {
+        state.notice = Some(Notice::info(
+            "Deleting messages is not supported by this backend",
+        ));
+        return vec![];
+    }
+    let target = message.reference();
+    delete_target(state, target);
+    vec![]
+}
+
+fn delete_target(state: &mut State, target: MessageRef) {
+    if !state.capabilities.supports(Capability::DeleteForEveryone) {
+        return;
+    }
+    if find(state, target)
+        .is_some_and(|m| matches!(m.direction, Direction::Outgoing(_)) && !m.deleted)
+    {
+        state.popup = Some(Popup::ConfirmDelete { target });
+    }
+}
+
+fn confirm_delete(state: &mut State, target: MessageRef) -> Vec<Effect> {
+    let Some(conversation) = state.open.as_ref().map(|o| o.id) else {
+        return vec![];
+    };
+    if !find(state, target)
+        .is_some_and(|m| matches!(m.direction, Direction::Outgoing(_)) && !m.deleted)
+    {
+        return vec![];
+    }
+    if let Some(open) = state.open.as_mut()
+        && open.editing == Some(target.sent_at)
+    {
+        open.editing = None;
+        open.input = Input::default();
+        open.mentions.clear();
+        open.mention_selected = 0;
+        open.mention_dismissed_at = None;
+    }
+    let mut effects = on_backend(
+        state,
+        BackendEvent::Deleted {
+            conversation,
+            target,
+        },
+    );
+    effects.push(Effect::Backend(Command::DeleteForEveryone {
+        conversation,
+        target,
+    }));
+    effects
 }
 
 fn reply(state: &mut State, target: MessageRef) {
@@ -563,6 +698,7 @@ fn retry(state: &mut State, target: MessageRef) -> Vec<Effect> {
     let outgoing = OutgoingMessage {
         sent_at: target.sent_at,
         body,
+        mentions: message.mentions.clone(),
         quote: message.quote.clone(),
         attachments,
     };

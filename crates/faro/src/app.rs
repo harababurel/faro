@@ -46,6 +46,7 @@ pub struct Directory {
     pub nicknames: HashMap<ServiceId, String>,
     /// A real account with no allowlist guard (D67).
     pub unguarded: bool,
+    pub capabilities: faro_core::backend::Capabilities,
 }
 
 /// Read the account, contacts and groups from the backend (local data, no
@@ -90,6 +91,7 @@ pub async fn load_directory<B: Backend>(backend: &B, store: &Store) -> anyhow::R
         groups,
         nicknames,
         unguarded: false,
+        capabilities: backend.capabilities(),
     })
 }
 
@@ -98,6 +100,7 @@ pub async fn load_directory<B: Backend>(backend: &B, store: &Store) -> anyhow::R
 fn initial_state(directory: Directory, detected: state::Detected, startup: &mut Startup) -> State {
     let mut state = State::new(directory.me, directory.contacts, directory.groups)
         .with_nicknames(directory.nicknames);
+    state.capabilities = directory.capabilities;
     if directory.unguarded {
         state.guard = state::Guard::Off;
     }
@@ -434,6 +437,8 @@ fn affects_view(event: &AppEvent) -> bool {
         | AppEvent::OlderLoaded { .. }
         | AppEvent::SendResult { .. }
         | AppEvent::ReactResult { .. }
+        | AppEvent::EditResult { .. }
+        | AppEvent::DeleteResult { .. }
         | AppEvent::Fetched { .. }
         | AppEvent::SavedToDownloads(_)
         | AppEvent::FilesListed { .. }

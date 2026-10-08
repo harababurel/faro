@@ -57,6 +57,18 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
             messages,
         } => on_older_loaded(state, conversation, messages),
         AppEvent::SendResult { sent_at, result } => sending::on_send_result(state, sent_at, result),
+        AppEvent::EditResult(result) => {
+            if let Err(error) = result {
+                state.notice = Some(Notice::error(format!("Couldn't edit message: {error}")));
+            }
+            vec![]
+        }
+        AppEvent::DeleteResult(result) => {
+            if let Err(error) = result {
+                state.notice = Some(Notice::error(format!("Couldn't delete message: {error}")));
+            }
+            vec![]
+        }
         AppEvent::ReactResult {
             conversation,
             target,
@@ -161,14 +173,22 @@ fn on_terminal(state: &mut State, event: &Event) -> Vec<Effect> {
     state.env.focused = !matches!(event, Event::FocusLost);
     let mut effects = match event {
         Event::Key(key) => {
-            let action = if state.palette.is_some() {
-                keymap::palette_action(&state.keymap, *key)
-            } else if let Some(popup) = &state.popup {
-                keymap::popup_action(*key, matches!(popup, Popup::React { .. }))
+            if state.palette.is_none()
+                && state.popup.is_none()
+                && state.focus == Focus::Input
+                && let Some(effects) = navigation::on_mention_key(state, *key)
+            {
+                effects
             } else {
-                state.keymap.lookup(*key, state.focus)
-            };
-            action.map_or_else(Vec::new, |a| navigation::on_action(state, a))
+                let action = if state.palette.is_some() {
+                    keymap::palette_action(&state.keymap, *key)
+                } else if let Some(popup) = &state.popup {
+                    keymap::popup_action(*key, matches!(popup, Popup::React { .. }))
+                } else {
+                    state.keymap.lookup(*key, state.focus)
+                };
+                action.map_or_else(Vec::new, |a| navigation::on_action(state, a))
+            }
         }
         Event::Mouse(mouse) if state.palette.is_some() => palette::on_mouse(state, *mouse),
         Event::Mouse(mouse) => navigation::on_mouse(state, *mouse),
@@ -241,11 +261,11 @@ fn quit(state: &mut State) -> Vec<Effect> {
 
 /// Copy the open conversation's input into its summary as the draft and store
 /// it, if it changed since the last save.
-fn save_draft(state: &mut State) -> Vec<Effect> {
+pub(super) fn save_draft(state: &mut State) -> Vec<Effect> {
     let Some(open) = state.open.as_mut() else {
         return vec![];
     };
-    if open.draft_edited.take().is_none() {
+    if open.editing.is_some() || open.draft_edited.take().is_none() {
         return vec![];
     }
     let id = open.id;
@@ -298,6 +318,10 @@ fn open_conversation(state: &mut State, id: ConversationId) -> Vec<Effect> {
         unseen: 0,
         selected: None,
         reply_to: None,
+        editing: None,
+        mentions: Vec::new(),
+        mention_selected: 0,
+        mention_dismissed_at: None,
         staged_attachment: None,
         unreceipted: Vec::new(),
         typing_sent: None,
