@@ -1395,3 +1395,54 @@ fn voice_note_renders_waveform_progress_and_transcript() {
     );
     assert_drawable(&compatible(state), 100, 24);
 }
+
+#[test]
+fn read_receipt_marker_uses_accent_colour_and_message_info_popup_renders() {
+    use crate::app::state::Popup;
+    use faro_core::domain::{DeliveryStatus, Timestamp};
+    use faro_core::store::RecipientReceipt;
+
+    let mut state = loaded_state();
+    let theme = Theme::default();
+    let buffer = draw_with(&state, 100, 30, &theme);
+    let text = snapshot(&buffer);
+    let (row, line) = text
+        .lines()
+        .enumerate()
+        .find(|(_, l)| l.contains("Yes! 7pm at the usual place") && l.contains("✓✓"))
+        .expect("outgoing read message with ✓✓ on screen");
+    let col = line
+        .find("✓✓")
+        .map(|byte| unicode_width::UnicodeWidthStr::width(&line[..byte]))
+        .unwrap();
+    assert_eq!(
+        buffer[(u16::try_from(col).unwrap(), u16::try_from(row).unwrap())].fg,
+        theme.accent
+    );
+
+    let target = fixtures::climbing_history().get(1).unwrap().reference();
+    state.popup = Some(Popup::MessageInfo {
+        target,
+        receipts: vec![
+            RecipientReceipt {
+                recipient: ALICE,
+                status: DeliveryStatus::Read,
+                updated_at: Timestamp::from_millis(NOW_MS - 30_000),
+            },
+            RecipientReceipt {
+                recipient: fixtures::BOB,
+                status: DeliveryStatus::Delivered,
+                updated_at: Timestamp::from_millis(NOW_MS - 45_000),
+            },
+        ],
+    });
+    let popup_text = snapshot(&draw(&state, 100, 30));
+    assert!(popup_text.contains("Message info"), "{popup_text}");
+    assert!(popup_text.contains("From: You"), "{popup_text}");
+    assert!(popup_text.contains("Status: Read ✓✓"), "{popup_text}");
+    assert!(popup_text.contains("Read by:"), "{popup_text}");
+    assert!(popup_text.contains("Alice"), "{popup_text}");
+    assert!(popup_text.contains("Delivered to:"), "{popup_text}");
+    assert!(popup_text.contains("Bob"), "{popup_text}");
+    assert_drawable(&compatible(state), 100, 30);
+}

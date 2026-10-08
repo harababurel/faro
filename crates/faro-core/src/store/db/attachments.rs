@@ -108,7 +108,6 @@ pub(super) async fn refresh(
 
 pub(super) async fn load(
     conn: &mut SqliteConnection,
-    key: &str,
     low: i64,
     high: i64,
     index: &HashMap<i64, usize>,
@@ -118,11 +117,10 @@ pub(super) async fn load(
         "SELECT a.message_id, a.backend_id, a.content_type, a.file_name, a.size,
                 a.width, a.height, a.status, a.local_path,
                 a.voice_note, a.duration_secs, a.waveform, a.transcript, a.transcript_source
-         FROM attachments a JOIN messages m ON m.id = a.message_id
-         WHERE m.conversation_id = ?1 AND m.id BETWEEN ?2 AND ?3
+         FROM attachments a
+         WHERE a.message_id BETWEEN ?1 AND ?2
          ORDER BY a.id",
     )
-    .bind(key)
     .bind(low)
     .bind(high)
     .fetch_all(conn)

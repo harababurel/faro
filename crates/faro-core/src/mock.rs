@@ -336,30 +336,35 @@ mod tests {
         };
         backend.send(alice.into(), msg).await.unwrap();
 
-        let read = BackendEvent::DeliveryUpdate {
-            message: target,
-            status: DeliveryStatus::Read,
-        };
-        let statuses: Vec<DeliveryStatus> = until(&mut events, |e| *e == read)
-            .await
-            .into_iter()
-            .filter_map(|e| match e {
-                BackendEvent::DeliveryUpdate { message, status } if message == target => {
-                    Some(status)
-                }
-                BackendEvent::Connection(_)
-                | BackendEvent::Message(_)
-                | BackendEvent::DeliveryUpdate { .. }
-                | BackendEvent::Reaction { .. }
-                | BackendEvent::Edited { .. }
-                | BackendEvent::Deleted { .. }
-                | BackendEvent::Typing { .. }
-                | BackendEvent::ReadElsewhere(_)
-                | BackendEvent::ContactUpdated(_)
-                | BackendEvent::GroupUpdated(_)
-                | BackendEvent::Error(_) => None,
-            })
-            .collect();
+        let statuses: Vec<DeliveryStatus> = until(&mut events, |e| {
+            matches!(
+                e,
+                BackendEvent::DeliveryUpdate {
+                    message,
+                    status: DeliveryStatus::Read,
+                    ..
+                } if *message == target
+            )
+        })
+        .await
+        .into_iter()
+        .filter_map(|e| match e {
+            BackendEvent::DeliveryUpdate {
+                message, status, ..
+            } if message == target => Some(status),
+            BackendEvent::Connection(_)
+            | BackendEvent::Message(_)
+            | BackendEvent::DeliveryUpdate { .. }
+            | BackendEvent::Reaction { .. }
+            | BackendEvent::Edited { .. }
+            | BackendEvent::Deleted { .. }
+            | BackendEvent::Typing { .. }
+            | BackendEvent::ReadElsewhere(_)
+            | BackendEvent::ContactUpdated(_)
+            | BackendEvent::GroupUpdated(_)
+            | BackendEvent::Error(_) => None,
+        })
+        .collect();
         assert_eq!(
             statuses,
             [

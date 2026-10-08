@@ -11,7 +11,7 @@ use faro_core::domain::{
     AttachmentRef, BodyPart, ConnectionState, Contact, ConversationId, Direction, Group, GroupId,
     Message, MessageRef, Quote, ServiceId, Timestamp, mention_parts,
 };
-use faro_core::store::{ConversationSummary, NotifyLevel};
+use faro_core::store::{ConversationSummary, NotifyLevel, RecipientReceipt};
 use ratatui::layout::Rect;
 use tokio::time::Instant;
 
@@ -325,6 +325,11 @@ pub enum Popup {
     },
     /// Pick one of `REACTIONS`.
     React { target: MessageRef, selected: usize },
+    /// Metadata and per-recipient delivery/read receipts for a message (`i`, M12).
+    MessageInfo {
+        target: MessageRef,
+        receipts: Vec<RecipientReceipt>,
+    },
     /// Larger inline preview of a downloaded image attachment (`v`, D75).
     ImageViewer { target: MessageRef, index: usize },
     /// Consent prompt before sending a voice note to a remote transcription
@@ -410,6 +415,7 @@ pub enum MessageAction {
     Reply,
     React,
     Copy,
+    Info,
     OpenLink(String),
     PlayVoiceNote { index: usize },
     StopVoiceNote { index: usize },
@@ -429,6 +435,7 @@ impl MessageAction {
             Self::Reply => ("Reply".to_owned(), "r"),
             Self::React => ("React…".to_owned(), "+"),
             Self::Copy => ("Copy text".to_owned(), "y"),
+            Self::Info => ("Message info".to_owned(), "i"),
             Self::OpenLink(url) => (format!("Open {url}"), "o"),
             Self::PlayVoiceNote { .. } => ("Play voice note".to_owned(), "x"),
             Self::StopVoiceNote { .. } => ("Stop voice note".to_owned(), "x"),

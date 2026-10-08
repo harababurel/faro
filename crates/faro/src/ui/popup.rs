@@ -9,8 +9,12 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
 
 use super::View;
+use super::messages::{to_jiff, zoned};
 use super::text::{pad_left, sanitize, truncate, width};
-use faro_core::domain::{ConversationId, MessageRef};
+use faro_core::domain::{
+    ConversationId, DeliveryStatus, Direction, MessageRef, Timestamp, format_byte_size,
+};
+use faro_core::store::RecipientReceipt;
 
 use crate::app::state::{
     Geometry, MUTE_CHOICES, MessageAction, Popup, REACTIONS, REMOTE_CONSENT_CHOICES, SidebarRow,
@@ -47,6 +51,12 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &
                 .and_then(|m| m.reactions.iter().find(|r| r.sender == state.me))
                 .map(|r| r.emoji.as_str());
             react(frame, anchor, *selected, mine, view);
+        }
+        Popup::MessageInfo { target, receipts } => {
+            let Some(anchor) = over_message(geometry, *target) else {
+                return;
+            };
+            message_info(frame, anchor, state, *target, receipts, view);
         }
         Popup::Conversation {
             target,
@@ -91,6 +101,151 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &
             remote_consent(frame, anchor, state, *conversation, *selected, view);
         }
     }
+}
+
+fn message_info(
+    frame: &mut Frame<'_>,
+    anchor: Anchor,
+    state: &State,
+    target: MessageRef,
+    receipts: &[RecipientReceipt],
+    view: &View<'_>,
+) {
+    let Some(message) = state
+        .open
+        .as_ref()
+        .and_then(|o| o.messages.iter().rfind(|m| m.reference() == target))
+    else {
+        return;
+    };
+    let theme = view.theme;
+    let rows = message_info_rows(state, message, receipts, view);
+    let widest = rows
+        .iter()
+        .map(|(k, v, _)| width(k) + width(v) + 4)
+        .max()
+        .unwrap_or(0);
+    let max_inner = usize::from(anchor.area.width.saturating_sub(4));
+    let inner_width = widest.clamp(24, max_inner.max(24));
+    let rect = place(anchor, inner_width, rows.len());
+    let inner = frame_box(frame, rect, "Message info", view);
+    let row_width = usize::from(inner.width);
+    let lines: Vec<Line<'static>> = rows
+        .into_iter()
+        .map(|(key, val, val_style)| {
+            let prefix = format!(" {key}: ");
+            let room = row_width.saturating_sub(width(&prefix) + 1);
+            let val = truncate(&val, room).into_owned();
+            Line::from(vec![
+                Span::styled(prefix, theme.muted()),
+                Span::styled(val, val_style),
+            ])
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+fn message_info_rows(
+    state: &State,
+    message: &faro_core::domain::Message,
+    receipts: &[RecipientReceipt],
+    view: &View<'_>,
+) -> Vec<(&'static str, String, Style)> {
+    let theme = view.theme;
+    let text_style = Style::new().fg(theme.text);
+    let sender = if message.sender == state.me {
+        "You".to_owned()
+    } else {
+        sanitize(&state.person_name(message.sender)).into_owned()
+    };
+    let mut rows: Vec<(&'static str, String, Style)> = vec![
+        ("From", sender, text_style.add_modifier(Modifier::BOLD)),
+        ("Sent", format_datetime(message.sent_at, view), text_style),
+    ];
+    if let Some(edited_at) = message.edited_at {
+        rows.push(("Edited", format_datetime(edited_at, view), text_style));
+    }
+    if let Direction::Outgoing(status) = message.direction {
+        let (label, style) = match status {
+            DeliveryStatus::Sending => ("Sending…", theme.muted()),
+            DeliveryStatus::Sent => ("Sent ✓", theme.muted()),
+            DeliveryStatus::Delivered => ("Delivered ✓✓", theme.muted()),
+            DeliveryStatus::Read => ("Read ✓✓", Style::new().fg(theme.accent)),
+            DeliveryStatus::Failed => ("Failed !", Style::new().fg(theme.error)),
+        };
+        rows.push(("Status", label.to_owned(), style));
+    }
+    for receipt in receipts.iter().filter(|r| r.status == DeliveryStatus::Read) {
+        let name = state.person_name(receipt.recipient);
+        let who = sanitize(&name);
+        let at = format_time(receipt.updated_at, view);
+        rows.push((
+            "Read by",
+            format!("{who} {at}"),
+            Style::new().fg(theme.accent),
+        ));
+    }
+    for receipt in receipts
+        .iter()
+        .filter(|r| r.status == DeliveryStatus::Delivered)
+    {
+        let name = state.person_name(receipt.recipient);
+        let who = sanitize(&name);
+        let at = format_time(receipt.updated_at, view);
+        rows.push(("Delivered to", format!("{who} {at}"), text_style));
+    }
+    for att in &message.attachments {
+        let name = att.file_name.as_deref().map_or_else(
+            || {
+                if att.is_voice_note() {
+                    "voice note".to_owned()
+                } else {
+                    sanitize(&att.content_type).into_owned()
+                }
+            },
+            |n| sanitize(n).into_owned(),
+        );
+        let mut meta = vec![sanitize(&att.content_type).into_owned()];
+        if let Some(size) = att.size {
+            meta.push(format_byte_size(size));
+        }
+        if let (Some(w), Some(h)) = (att.width, att.height)
+            && w > 0
+            && h > 0
+        {
+            meta.push(format!("{w}×{h}"));
+        }
+        if let Some(secs) = att.duration_secs {
+            meta.push(format!("{secs}s"));
+        }
+        rows.push((
+            "Attachment",
+            format!("{name} ({})", meta.join(" · ")),
+            text_style,
+        ));
+        if let Some(path) = att.local_path() {
+            rows.push((
+                "Path",
+                sanitize(&path.display().to_string()).into_owned(),
+                Style::new().fg(theme.secondary),
+            ));
+        }
+    }
+    rows
+}
+
+fn format_datetime(ts: Timestamp, view: &View<'_>) -> String {
+    to_jiff(ts).map_or_else(
+        || format!("{} ms", ts.as_millis()),
+        |t| zoned(t, view).strftime("%Y-%m-%d %H:%M:%S").to_string(),
+    )
+}
+
+fn format_time(ts: Timestamp, view: &View<'_>) -> String {
+    to_jiff(ts).map_or_else(
+        || format!("{} ms", ts.as_millis()),
+        |t| zoned(t, view).strftime("%H:%M:%S").to_string(),
+    )
 }
 
 fn image_viewer(

@@ -269,7 +269,12 @@ mod tests {
             };
             let status = crate::domain::DeliveryStatus::Sent;
             self.events
-                .send(BackendEvent::DeliveryUpdate { message, status })
+                .send(BackendEvent::DeliveryUpdate {
+                    message,
+                    status,
+                    by: None,
+                    updated_at: None,
+                })
                 .await
                 .map_err(|_| BackendError::Network("event channel closed".into()))
         }
@@ -327,6 +332,8 @@ mod tests {
                     sent_at: Timestamp::from_millis(42)
                 },
                 status: crate::domain::DeliveryStatus::Sent,
+                by: None,
+                updated_at: None,
             })
         );
 

@@ -52,6 +52,7 @@ pub fn on_action(state: &mut State, action: Action) -> Vec<Effect> {
         Action::SelectOldest => selection::jump(state, true),
         Action::SelectNewest => selection::jump(state, false),
         Action::MessageMenu => selection::menu(state),
+        Action::MessageInfo => return selection::on_selected(state, MessageAction::Info),
         Action::Reply => return selection::on_selected(state, MessageAction::Reply),
         Action::ReactPicker => return selection::on_selected(state, MessageAction::React),
         Action::Copy => return selection::on_selected(state, MessageAction::Copy),

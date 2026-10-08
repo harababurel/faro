@@ -47,6 +47,7 @@ pub enum Action {
     SelectNewest,
     /// What the selected message offers (`Enter`).
     MessageMenu,
+    MessageInfo,
     Reply,
     ReactPicker,
     Copy,

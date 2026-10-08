@@ -15,9 +15,13 @@ pub enum BackendEvent {
 
     /// Progress of one of this account's messages. Apply with
     /// [`DeliveryStatus::update`] so late or duplicate receipts can't regress it.
+    /// `by` and `updated_at` record who sent a delivery or read receipt and when
+    /// (`None` for local `Sending`/`Sent`/`Failed` transitions, D85).
     DeliveryUpdate {
         message: MessageRef,
         status: DeliveryStatus,
+        by: Option<ServiceId>,
+        updated_at: Option<Timestamp>,
     },
 
     /// `sender` set (`Some`) or removed (`None`) their reaction to `target`.

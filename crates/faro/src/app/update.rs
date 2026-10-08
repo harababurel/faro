@@ -56,6 +56,14 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
             conversation,
             messages,
         } => on_older_loaded(state, conversation, messages),
+        AppEvent::MessageReceiptsLoaded {
+            conversation,
+            message,
+            receipts,
+        } => {
+            selection::on_receipts_loaded(state, conversation, message, receipts);
+            vec![]
+        }
         AppEvent::SendResult { sent_at, result } => sending::on_send_result(state, sent_at, result),
         AppEvent::ReactResult {
             conversation,
@@ -400,7 +408,15 @@ fn on_backend(state: &mut State, event: BackendEvent) -> Vec<Effect> {
     match &event {
         BackendEvent::Connection(connection) => state.connection = *connection,
         BackendEvent::Message(message) => on_message(state, message, &mut effects),
-        BackendEvent::DeliveryUpdate { .. } => apply_to_open(state, None, &event),
+        BackendEvent::DeliveryUpdate {
+            message,
+            status,
+            by,
+            updated_at,
+        } => {
+            apply_to_open(state, None, &event);
+            selection::on_delivery_update(state, *message, *status, *by, *updated_at);
+        }
         BackendEvent::Reaction { conversation, .. }
         | BackendEvent::Edited { conversation, .. }
         | BackendEvent::Deleted { conversation, .. } => {

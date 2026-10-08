@@ -236,9 +236,11 @@ impl Sim {
             BackendEvent::DeliveryUpdate {
                 message: target,
                 status,
+                by: None,
+                updated_at: None,
             },
         );
-        let read_at = self.schedule_receipts(now, target);
+        let read_at = self.schedule_receipts(now, to, target);
 
         let others = self.others_in(to);
         if self.chance(60)
@@ -292,23 +294,35 @@ impl Sim {
     }
 
     /// Delivered, then read. Returns when "read" happens.
-    fn schedule_receipts(&mut self, now: Millis, message: MessageRef) -> Millis {
+    fn schedule_receipts(
+        &mut self,
+        now: Millis,
+        to: ConversationId,
+        message: MessageRef,
+    ) -> Millis {
         let delivered_at = now + self.rng.u64(300..=2_000);
         let read_at = delivered_at + self.rng.u64(1_000..=20_000);
+        let by = self.others_in(to).first().copied();
         let delivered = DeliveryStatus::Delivered;
+        let delivered_ts = self.wall_clock_at(delivered_at);
         self.emit(
             delivered_at,
             BackendEvent::DeliveryUpdate {
                 message,
                 status: delivered,
+                by,
+                updated_at: Some(delivered_ts),
             },
         );
         let read = DeliveryStatus::Read;
+        let read_ts = self.wall_clock_at(read_at);
         self.emit(
             read_at,
             BackendEvent::DeliveryUpdate {
                 message,
                 status: read,
+                by,
+                updated_at: Some(read_ts),
             },
         );
         read_at
@@ -455,7 +469,7 @@ impl Sim {
         let message = self.message(conversation, me, sent_at, direction, None);
         let target = message.reference();
         self.emit(now, BackendEvent::Message(message));
-        self.schedule_receipts(now, target);
+        self.schedule_receipts(now, conversation, target);
         Some(())
     }
 

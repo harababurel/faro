@@ -248,6 +248,8 @@ async fn receipts_never_regress() {
     let update = |status| BackendEvent::DeliveryUpdate {
         message: sent.reference(),
         status,
+        by: None,
+        updated_at: None,
     };
     store.apply(update(DeliveryStatus::Read)).await.unwrap();
     store
@@ -265,8 +267,58 @@ async fn receipts_never_regress() {
             sent_at: ts(999),
         },
         status: DeliveryStatus::Read,
+        by: None,
+        updated_at: None,
     };
     store.apply(unknown).await.unwrap();
+}
+
+#[tokio::test]
+async fn per_recipient_receipts_upsert_and_never_downgrade() {
+    let sent = outgoing(group(), 100, DeliveryStatus::Sent);
+    let target = sent.reference();
+    let store = store_with(std::slice::from_ref(&sent)).await;
+
+    let receipt = |who, status, at| BackendEvent::DeliveryUpdate {
+        message: target,
+        status,
+        by: Some(aci(who)),
+        updated_at: Some(ts(at)),
+    };
+    store
+        .apply(receipt(ALICE, DeliveryStatus::Delivered, 150))
+        .await
+        .unwrap();
+    store
+        .apply(receipt(BOB, DeliveryStatus::Read, 200))
+        .await
+        .unwrap();
+    // Late delivered receipt for Bob must not downgrade 'read' or overwrite timestamp.
+    store
+        .apply(receipt(BOB, DeliveryStatus::Delivered, 180))
+        .await
+        .unwrap();
+    // Alice reads later -> upgrades to Read and updates timestamp.
+    store
+        .apply(receipt(ALICE, DeliveryStatus::Read, 250))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        store.message_receipts(target).await.unwrap(),
+        vec![
+            RecipientReceipt {
+                recipient: aci(BOB),
+                status: DeliveryStatus::Read,
+                updated_at: ts(200),
+            },
+            RecipientReceipt {
+                recipient: aci(ALICE),
+                status: DeliveryStatus::Read,
+                updated_at: ts(250),
+            },
+        ]
+    );
 }
 
 #[tokio::test]
@@ -632,4 +684,81 @@ async fn nicknames_are_kept_apart_from_contact_updates() {
     );
     store.set_nickname(aci(ALICE), None).await.unwrap();
     assert_eq!(store.nicknames().await.unwrap(), HashMap::new());
+}
+
+#[tokio::test]
+async fn search_messages_matches_bodies_and_transcripts() {
+    let m1 = incoming(direct(ALICE), ALICE, 100, "Meet at the crag at 9am");
+    let m2 = incoming(direct(BOB), BOB, 200, "100% ready_now for the crag");
+    let mut voice = incoming(direct(ALICE), ALICE, 300, "");
+    voice.body = None;
+    voice.attachments = vec![AttachmentRef {
+        id: AttachmentId("att-voice".to_owned()),
+        content_type: "audio/aac".to_owned(),
+        file_name: None,
+        size: Some(4096),
+        width: None,
+        height: None,
+        status: crate::domain::AttachmentStatus::Remote,
+        voice_note: true,
+        duration_secs: Some(5),
+        waveform: None,
+        transcript: Some("Bring the quickdraws to the crag".to_owned()),
+        transcript_source: Some(crate::domain::TranscriptSource::Local),
+    }];
+    let deleted = incoming(direct(ALICE), ALICE, 400, "crag secret");
+
+    let store = store_with(&[m1.clone(), m2.clone(), voice.clone(), deleted.clone()]).await;
+    store
+        .set_attachment(voice.reference(), 0, voice.attachments[0].clone())
+        .await
+        .unwrap();
+    store
+        .apply(BackendEvent::Deleted {
+            conversation: direct(ALICE),
+            target: deleted.reference(),
+        })
+        .await
+        .unwrap();
+
+    // Global search for "crag" finds voice, m2, m1 newest first, skipping deleted.
+    let hits = store.search_messages(None, "CRAG", 10).await.unwrap();
+    assert_eq!(hits.len(), 3);
+    assert_eq!(hits[0].message.sent_at, ts(300));
+    assert_eq!(
+        hits[0].matched_transcript.as_deref(),
+        Some("Bring the quickdraws to the crag")
+    );
+    assert_eq!(hits[1].message.sent_at, ts(200));
+    assert_eq!(hits[1].matched_transcript, None);
+    assert_eq!(hits[2].message.sent_at, ts(100));
+
+    // Scoped search + multi-token + LIKE wildcard escaping (`100%` and `ready_now`).
+    let scoped = store
+        .search_messages(Some(direct(BOB)), "100% ready_now", 10)
+        .await
+        .unwrap();
+    assert_eq!(scoped.len(), 1);
+    assert_eq!(scoped[0].conversation, direct(BOB));
+    assert_eq!(scoped[0].message.sent_at, ts(200));
+
+    assert_eq!(
+        store.search_messages(None, "   ", 10).await.unwrap(),
+        vec![]
+    );
+}
+
+#[tokio::test]
+async fn messages_around_returns_oldest_first_window() {
+    let msgs: Vec<Message> = (1..=7)
+        .map(|i| incoming(direct(ALICE), ALICE, i * 100, &format!("m{i}")))
+        .collect();
+    let store = store_with(&msgs).await;
+
+    let window = store
+        .messages_around(direct(ALICE), ts(400), 2)
+        .await
+        .unwrap();
+    let times: Vec<u64> = window.iter().map(|m| m.sent_at.as_millis()).collect();
+    assert_eq!(times, vec![300, 400, 500, 600]);
 }
