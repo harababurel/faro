@@ -229,6 +229,26 @@ Use a separate data dir for the test account, e.g. `--data-dir ~/.local/share/fa
 - [ ] Wi-Fi off: the footer shows the connection dropping and coming back. Messages sent meanwhile arrive after reconnecting.
 - [ ] Restarting keeps the history.
 
+## M9: attachments and inline images (D75–D79)
+
+- [ ] **Mock inline images:** run `faro --mock --data-dir /tmp/faro-m9` and open "Climbing 🧗" (or "Family"): the photo attachment downloads in the background (`· downloading…` briefly) and renders inline above its `📎 crag-photo.png · …` line, both in bubbles and in IRC layout (`Settings › Message layout`). Stickers (`[sticker]`) render as compact inline WebP images (at most 8 rows tall) without a `📎` line when inline images are on.
+- [ ] **Protocols (kitty, tmux, mosh, settings):**
+  - Directly in kitty and inside tmux (with `allow-passthrough` enabled automatically for the pane): `Settings › Inline images › auto` renders crisp kitty graphics (unicode placeholders) that scroll cleanly at the top and bottom of the message pane.
+  - Through mosh, or with `Settings › Inline images › halfblocks`: images render as half-block cells (`▀`/`▄`) in truecolor (or nearest xterm-256 colours when `Settings › Colours › 256`).
+  - With `Settings › Inline images › off` or `Settings › Colours › 16`: only the `📎 name · size` line is shown, no image box.
+- [ ] **Overlays over images:** in kitty (direct or tmux), open `Ctrl+P` or a message action menu (`Enter`) so it overlaps an inline image: while the overlay is open, the image box cleanly drops to its `[image …]` placeholder with no bleed-through or garbled cells, and redraws the image as soon as the overlay closes.
+- [ ] **Image viewer popup:** select a message with a downloaded image (`↑` or click) and press `v` (or `Enter` › *View*): a full-window popup displays the image scaled to fit, with the file name and dimensions in the title and `s save · y copy path · esc close` in the footer (`o open` too when running locally). `Esc` closes it.
+- [ ] **Non-auto downloads and retry:** in the mock chat, find a PDF attachment (`route-topos.pdf · … · not downloaded (d)`), select the message and press `d` (or `Enter` › *Download*): it downloads and the status suffix disappears. With `Settings › Auto-download › off`, incoming images wait for `d` too; with `all`, PDFs download automatically as well.
+- [ ] **Open, Save to Downloads, Copy path (SSH-aware):**
+  - Select a downloaded attachment and press `s` (or `Enter` › *Save to Downloads*): the footer confirms `Saved to …/Downloads/…`; pressing `s` a second time saves `name (1).ext` without overwriting.
+  - In the message menu (`Enter`), *Copy path* copies the local path via OSC 52.
+  - When running locally, *Open* (`o` in the viewer or from the menu) opens the file in the system viewer (`open` / `xdg-open`). Over SSH, *Open* is omitted from the menu so it never opens on the remote machine.
+- [ ] **Sending a file from the palette:** in an open chat, open `Ctrl+P` › *Send a file…*: browse folders with `↑`/`↓` and `Enter`, use `Backspace` on an empty filter to go up a folder, or type `~/` to jump to your home directory. Press `Enter` on a file: the palette closes and a `📎 filename · size  esc remove` bar appears above the input box. Press `Esc` once to remove the staged file (leaving any reply bar intact), or stage it again and press `Enter` (with or without a text caption) to send. The sent message echoes immediately (and renders inline if it's an image).
+- [ ] **Sending a file by pasting a path:** drag a file into the terminal (or paste `/path/to/file.png` into the input box): instead of inserting the path text, faro stages the file in the attachment bar above the input. Pasting ordinary text or a non-existent path inserts the text as usual.
+- [ ] **Real Signal account (with `--allowlist` on the test account, or `--no-allowlist` on personal):**
+  - Send a photo, a sticker, and a document from a phone to faro: the photo and sticker download into `<data dir>/attachments/` (`0600`) and render inline; the document downloads on `d` and saves with `s`.
+  - Send an image and a document from faro (with and without a caption): both arrive on the phone with their filename, content type, dimensions, and caption intact.
+
 ## M8: terminal matrix (D50; run after M7 against the real backend, and once now with the mock)
 
 Columns: **direct** = faro straight in kitty; **tmux** = kitty → tmux (with the README's tmux settings); **SSH** = kitty → ssh → tmux on the other machine; **mosh** = kitty → mosh → tmux. Mark each cell ✓, ✗ (add a note below) or – (not applicable). Also try one other terminal per OS (WezTerm/Ghostty/Alacritty/foot on Linux, iTerm2 and Terminal.app on macOS) for the rows marked †.

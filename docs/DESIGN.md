@@ -221,7 +221,7 @@ presage keeps its own store for keys, sessions and protocol state; faro never to
 - Actions on the selected message: reply, react, copy, edit (own), delete, open link/attachment, info.
 - The same actions appear in a **context menu**, opened by right-click or `Enter` on a selected message. Every mouse action has a keyboard equivalent.
 
-**As built in M4 task 4 (D40):** selection lives in the message pane. Entering it (`↑` on an empty input, `Tab`, or a click) selects the message on the bottom row; the selected message has a tinted background and a `▌` bar in the margin, and the view scrolls to keep it visible. `r` reply (a "↳ Replying to …" bar above the input; `Esc` cancels), `+` react (picker with Signal's six default reactions; picking your current one removes it), `y` copy (OSC 52), `o` open link (copied instead over SSH; several links → a menu). `Enter` or right-click opens the action menu, which also lists each link and "Retry sending" for failed messages. Popups sit just above (or below) the message they act on. Edit, delete and info come later.
+**As built in M4 task 4 (D40) and M9 (D76):** selection lives in the message pane. Entering it (`↑` on an empty input, `Tab`, or a click) selects the message on the bottom row; the selected message has a tinted background and a `▌` bar in the margin, and the view scrolls to keep it visible. `r` reply (a "↳ Replying to …" bar above the input; `Esc` cancels), `+` react (picker with Signal's six default reactions; picking your current one removes it), `y` copy (OSC 52), `o` open link (copied instead over SSH; several links → a menu), `d` download attachment, `v` view image / open attachment, `s` save attachment to Downloads (§7.9). `Enter` or right-click opens the action menu, which also lists each link, attachment actions, and "Retry sending" for failed messages. Popups sit just above (or below) the message they act on. Edit, delete and info come later.
 
 ### 7.5 Mouse
 
@@ -240,9 +240,9 @@ Chosen to avoid tmux's default prefix (`Ctrl+B`) and common terminal shortcuts. 
 | `Alt+K` / `Alt+J` | Previous / next conversation (also `Alt+↑` / `Alt+↓`, D36) |
 | `Alt+1`…`Alt+9` | Jump to pinned conversation N (D41) |
 | `Tab` / `Shift+Tab` | Cycle focus between panes (conversations, messages, input; D37) |
-| `Esc` | Close popup / cancel the reply / clear; back to the input; then close the open conversation (D37, D60) |
+| `Esc` | Close popup / remove staged file / cancel the reply / clear; back to the input; then close the open conversation (D37, D60, D77) |
 | `↑` (empty input) | Select the newest message (focuses the message pane, D40) |
-| `r` `e` `d` `y` `+` `o` | (In selection) reply, edit, delete, copy, react, open link (`e`/`d` not built yet) |
+| `r` `y` `+` `o` `d` `v` `s` | (In selection) reply, copy, react, open link, download / view / save attachment (D40, D76) |
 | `Enter` | Send; in selection: open the message's action menu (D40) |
 | `Alt+Enter` | Newline (also `Ctrl+J`; `Shift+Enter` when the kitty keyboard protocol is available) (D38) |
 | `Ctrl+A/E`, `Alt+B/F`, `Ctrl+W`, `Alt+D`, `Ctrl+U/K` | Input editing: line start/end, word left/right, delete word back/forward, delete to line start/end; arrows, `Home/End` and `Alt`/`Ctrl`+arrows too (D38) |
@@ -439,7 +439,7 @@ Task-level breakdown and progress tracking: [PLAN.md](PLAN.md).
 - Settings UI in the palette writing back to TOML
 - OSC desktop notifications with privacy levels
 - Edit / delete for everyone
-- **Attachments and inline images (M9):** receive, open or save (SSH-aware), send; thumbnails in the message pane via kitty graphics / sixel / half-block fallback (`ratatui-image`), with tmux passthrough
+- **Attachments and inline images (M9, done, D75–D79):** receive, open or save (SSH-aware), send; thumbnails in the message pane via kitty graphics / sixel / iTerm2 / half-block fallback (`ratatui-image`), with tmux passthrough
 - **Voice notes (M10):** playback through an external player; opt-in transcription of incoming voice notes with a local Whisper model or a remote OpenAI-compatible endpoint (consent required for remote)
 - Emoji picker; emoji width fallback
 - Release binaries, Homebrew tap, AUR, `.deb`, Nix flake
@@ -466,6 +466,7 @@ Task-level breakdown and progress tracking: [PLAN.md](PLAN.md).
 | Purpose | Crate |
 |---|---|
 | TUI | `ratatui`, `crossterm` |
+| Inline images | `ratatui-image`, `image` |
 | Async | `tokio` |
 | Signal | `presage`, presage SQLite store |
 | Storage | `sqlx` (SQLite) or `rusqlite` |

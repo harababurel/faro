@@ -34,6 +34,7 @@ faro is an unofficial, independent project. It is not affiliated with, endorsed 
 - Conversation list with pinning, muting (with durations), hiding, archiving and an allowlist mode
 - Two message layouts: **bubbles** (default; rounded in kitty, with a coloured bar elsewhere: `[messages] bubble_style`) and **IRC**-style
 - Replies, reactions, copying a message (OSC 52, works over SSH), opening links
+- Attachments and inline images: images and stickers render in the message pane (kitty graphics, sixel, iTerm2 or half-block fallback) and in a full-size viewer (`v`); receive, download (`d`), save to `Downloads` (`s`) and send files from the palette or by pasting a path
 - A command palette (`Ctrl+P`): chats, themes, settings, commands and key bindings as categories you open and fuzzy-search; every setting in one list with its current value, on/off ones flipped with `Enter`
 - Read receipts only for what you've actually seen (terminal focus + scrolled to the bottom), typing indicators
 - Terminal bell (with a do-not-disturb key, `Alt+N`) and an unread count in the window/tmux title
@@ -103,7 +104,7 @@ Press `F1` (or `?` outside the input box) for the full list, or search it in the
 | `Alt+1`…`Alt+9` | Pinned conversation 1–9 |
 | `Tab` / `Shift+Tab` | Move between the conversation list, the messages and the input |
 | `Enter` | Send (`Alt+Enter`, `Shift+Enter` or `Ctrl+J`: new line) |
-| `↑` on an empty input | Select a message: `r` reply, `+` react, `y` copy, `o` open link, `Enter` menu |
+| `↑` on an empty input | Select a message: `r` reply, `+` react, `y` copy, `o` open link, `d` download, `v` view/open, `s` save, `Enter` menu |
 | `PgUp` / `PgDn` | Scroll the messages |
 | `Alt+S` / `Alt+I` | Show or hide the conversation list / conversation info |
 | `Alt+N` | Do not disturb: turn the bell off (the footer says `bell off`) or back on |
@@ -140,7 +141,7 @@ faro works in tmux as it is, but these settings make it better (in `~/.tmux.conf
 ```tmux
 set -g mouse on                        # clicks and the wheel reach faro
 set -g set-clipboard on                # copying a message (OSC 52) reaches your clipboard, even over SSH
-set -g allow-passthrough on            # for future inline images
+set -g allow-passthrough on            # for inline images (kitty, sixel, iTerm2)
 set -as terminal-features ",*:RGB"     # truecolor themes (otherwise tmux rounds colours to 256)
 set -g extended-keys on                # more distinguishable key combinations
 set -g focus-events on                 # read receipts and the bell know whether you're looking
