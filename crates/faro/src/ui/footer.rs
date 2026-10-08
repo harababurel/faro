@@ -11,6 +11,7 @@ use ratatui::widgets::Paragraph;
 use super::text::{sanitize, truncate, width};
 use super::{View, focused};
 use crate::app::keymap::{Action, Curate};
+use crate::app::palette::Level;
 use crate::app::state::{Focus, Geometry, NoticeLevel, Popup, SidebarView, State};
 
 /// Key hints for each focus, most important first; dropped from the end when
@@ -68,11 +69,18 @@ const MESSAGE_HINTS: Hints = &[
 /// Popups and the palette have fixed keys (D43).
 const PALETTE_HINTS: &[(&str, &str)] = &[
     ("↑↓", "choose"),
-    ("enter", "run"),
+    ("enter", "open"),
     ("esc", "close"),
-    (">", "commands"),
     ("@", "chats"),
+    (":", "settings"),
+    (">", "commands"),
     ("?", "keys"),
+];
+const PALETTE_LEVEL_HINTS: &[(&str, &str)] = &[
+    ("↑↓", "move"),
+    ("enter", "choose"),
+    ("←", "back"),
+    ("esc", "close"),
 ];
 const MENU_HINTS: &[(&str, &str)] = &[("↑↓", "choose"), ("enter", "do it"), ("esc", "close")];
 const MUTE_HINTS: &[(&str, &str)] = &[
@@ -146,8 +154,12 @@ fn hints(state: &State, geometry: &Geometry) -> Vec<(String, &'static str)> {
             .map(|&(key, action)| (key.to_owned(), action))
             .collect()
     };
-    if state.palette.is_some() {
-        return fixed(PALETTE_HINTS);
+    if let Some(palette) = &state.palette {
+        return fixed(if palette.level() == Level::Root {
+            PALETTE_HINTS
+        } else {
+            PALETTE_LEVEL_HINTS
+        });
     }
     if let Some(popup) = &state.popup {
         return match popup {

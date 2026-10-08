@@ -1,8 +1,11 @@
-//! The command palette (M4 task 8, D44): one fuzzy-searched list of commands
-//! and conversations (`>` commands only, `@` conversations only, `:`
-//! settings, `?` keybindings). Items are built from the state when it opens;
-//! matching is synchronous (`nucleo-matcher`): a few hundred short strings
-//! take well under a millisecond.
+//! The command palette (D44, tree since D52): a tree of levels. The root
+//! lists the categories (chats, themes, settings, commands, keys); typing
+//! filters only the level shown, `Enter`/`→` opens a category, `←` (or
+//! `Backspace` on an empty query) goes back up. At the root, `@` `:` `>` `?`
+//! jump straight into chats, settings, commands and keys. A level's items are
+//! built from the state when it's shown; matching is synchronous
+//! (`nucleo-matcher`): a few hundred short strings take well under a
+//! millisecond.
 
 use faro_core::config::{Choice as _, ColorChoice, EmojiChoice};
 use faro_core::domain::ConversationId;
@@ -31,6 +34,110 @@ pub const INACTIVE_CHOICES: [(u32, &str); 4] = [
     (365, "1 year"),
 ];
 
+/// A level of the palette's tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Level {
+    /// The categories.
+    Root,
+    Chats,
+    Themes,
+    Settings,
+    /// A group of settings (`Settings › Notifications`).
+    Group(SettingsGroup),
+    /// One setting's values (`Settings › Notifications › Bell`).
+    Setting(Setting),
+    Commands,
+    /// The keybinding list.
+    Keys,
+}
+
+/// Settings grouped under `Settings ›`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsGroup {
+    Appearance,
+    Notifications,
+    Conversations,
+}
+
+/// A setting with a few values, listed as a level of its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Setting {
+    Colors,
+    Emoji,
+    Layout,
+    Bell,
+    Title,
+    Allowlist,
+    Mouse,
+}
+
+impl Level {
+    /// The root's categories, in order.
+    pub const CATEGORIES: [Self; 5] = [
+        Self::Chats,
+        Self::Themes,
+        Self::Settings,
+        Self::Commands,
+        Self::Keys,
+    ];
+
+    /// What the breadcrumb (and the item that opens it) calls it.
+    pub const fn title(self) -> &'static str {
+        match self {
+            Self::Root => "Command palette",
+            Self::Chats => "Chats",
+            Self::Themes => "Themes",
+            Self::Settings => "Settings",
+            Self::Group(group) => group.title(),
+            Self::Setting(setting) => setting.title(),
+            Self::Commands => "Commands",
+            Self::Keys => "Keys",
+        }
+    }
+
+    /// The character that jumps here from the root.
+    pub const fn prefix(self) -> Option<char> {
+        match self {
+            Self::Chats => Some('@'),
+            Self::Settings => Some(':'),
+            Self::Commands => Some('>'),
+            Self::Keys => Some('?'),
+            Self::Root | Self::Themes | Self::Group(_) | Self::Setting(_) => None,
+        }
+    }
+
+    /// The category a character typed first at the root jumps to.
+    pub fn for_prefix(c: char) -> Option<Self> {
+        Self::CATEGORIES
+            .into_iter()
+            .find(|level| level.prefix() == Some(c))
+    }
+}
+
+impl SettingsGroup {
+    pub const fn title(self) -> &'static str {
+        match self {
+            Self::Appearance => "Appearance",
+            Self::Notifications => "Notifications",
+            Self::Conversations => "Conversations",
+        }
+    }
+}
+
+impl Setting {
+    pub const fn title(self) -> &'static str {
+        match self {
+            Self::Colors => "Colours",
+            Self::Emoji => "Emoji",
+            Self::Layout => "Message layout",
+            Self::Bell => "Bell",
+            Self::Title => "Unread count in the window title",
+            Self::Allowlist => "Allowlist mode",
+            Self::Mouse => "Mouse",
+        }
+    }
+}
+
 /// What a command item does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaletteCommand {
@@ -46,12 +153,10 @@ pub enum PaletteCommand {
     ShowKeys,
 }
 
-/// A value for a setting (`:` in the palette, D48); choosing it applies it
-/// and saves it to the config file.
+/// A value for a setting (D48); choosing it applies it and saves it to the
+/// config file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingChoice {
-    /// One of `Theme::NAMES`.
-    Theme(&'static str),
     Colors(ColorChoice),
     Layout(MessageLayout),
     Allowlist(bool),
@@ -61,11 +166,15 @@ pub enum SettingChoice {
     Title(bool),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ItemKind {
+    /// A category or sub-level: choosing it opens it.
+    Level(Level),
     Command(PaletteCommand),
     Conversation(ConversationId),
     Setting(SettingChoice),
+    /// A theme by name (the config's `theme`).
+    Theme(String),
     /// A line of the keybinding list (for reference; choosing it closes).
     Key,
 }
@@ -75,59 +184,37 @@ pub struct Item {
     pub kind: ItemKind,
     /// What's matched and shown.
     pub title: String,
-    /// Shown dim before the title (`Alice › `, `Sidebar › `); not matched.
+    /// Shown dim before the title (`Alice › `, `Everywhere › `); not matched.
     pub path: Option<String>,
-    /// Right-aligned: its key, or a note (`3 unread · archived`).
+    /// Right-aligned: its key, a note (`3 unread · archived`) or a value.
     pub detail: String,
     /// Place in the recently used commands.
     pub recent: Option<usize>,
+    /// For one of a setting's values: whether it's the one in use (drawn as
+    /// a radio button).
+    pub current: Option<bool>,
 }
 
-/// Which items the query is about, from its first character.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Mode {
-    All,
-    Commands,
-    Conversations,
-    Settings,
-    Keys,
-}
-
-impl Mode {
-    /// The mode and the pattern after the prefix.
-    pub fn of(query: &str) -> (Self, &str) {
-        let mut chars = query.chars();
-        let mode = match chars.next() {
-            Some('>') => Self::Commands,
-            Some('@') => Self::Conversations,
-            Some(':') => Self::Settings,
-            Some('?') => Self::Keys,
-            Some(_) | None => return (Self::All, query.trim()),
-        };
-        (mode, chars.as_str().trim())
-    }
-
-    fn includes(self, kind: ItemKind) -> bool {
-        matches!(
-            (self, kind),
-            (
-                Self::All,
-                ItemKind::Command(_) | ItemKind::Conversation(_) | ItemKind::Setting(_)
-            ) | (Self::Commands, ItemKind::Command(_))
-                | (Self::Conversations, ItemKind::Conversation(_))
-                | (Self::Settings, ItemKind::Setting(_))
-                | (Self::Keys, ItemKind::Key)
-        )
-    }
-
-    pub const fn title(self) -> &'static str {
-        match self {
-            Self::All => "Search",
-            Self::Commands => "Commands",
-            Self::Conversations => "Conversations",
-            Self::Settings => "Settings",
-            Self::Keys => "Keybindings",
+impl Item {
+    fn new(kind: ItemKind, title: impl Into<String>) -> Self {
+        Self {
+            kind,
+            title: title.into(),
+            path: None,
+            detail: String::new(),
+            recent: None,
+            current: None,
         }
+    }
+
+    fn detail(mut self, detail: impl Into<String>) -> Self {
+        self.detail = detail.into();
+        self
+    }
+
+    fn current(mut self, current: bool) -> Self {
+        self.current = Some(current);
+        self
     }
 }
 
@@ -141,7 +228,10 @@ pub struct Match {
 
 #[derive(Debug)]
 pub struct Palette {
+    /// From the root down to the level shown (never empty).
+    pub path: Vec<Level>,
     pub input: Input,
+    /// The level's items.
     pub items: Vec<Item>,
     /// What matches the query, best first.
     pub matches: Vec<Match>,
@@ -153,21 +243,72 @@ pub struct Palette {
 }
 
 impl Palette {
-    pub fn new(items: Vec<Item>, query: &str) -> Self {
+    pub fn new(path: Vec<Level>, items: Vec<Item>) -> Self {
         let mut palette = Self {
-            input: Input::new(query),
-            items,
+            path: Vec::new(),
+            input: Input::new(""),
+            items: Vec::new(),
             matches: Vec::new(),
             selected: 0,
             offset: 0,
             matcher: Matcher::new(Config::DEFAULT),
         };
-        palette.refilter();
+        palette.show(path, items, "", None);
         palette
     }
 
-    pub fn mode(&self) -> Mode {
-        Mode::of(self.input.text()).0
+    /// The level shown.
+    pub fn level(&self) -> Level {
+        self.path.last().copied().unwrap_or(Level::Root)
+    }
+
+    /// The palette's title: where in the tree it is (`Settings › Bell`).
+    pub fn breadcrumb(&self) -> String {
+        let below_root: Vec<&str> = self
+            .path
+            .iter()
+            .filter(|level| **level != Level::Root)
+            .map(|level| level.title())
+            .collect();
+        if below_root.is_empty() {
+            Level::Root.title().to_owned()
+        } else {
+            below_root.join(" › ")
+        }
+    }
+
+    /// Show another level with `items`, the query set to `query`, and the
+    /// item of kind `select` selected if it matches (else the best match).
+    pub fn show(
+        &mut self,
+        path: Vec<Level>,
+        items: Vec<Item>,
+        query: &str,
+        select: Option<&ItemKind>,
+    ) {
+        self.path = if path.is_empty() {
+            vec![Level::Root]
+        } else {
+            path
+        };
+        self.items = items;
+        self.input = Input::new(query);
+        self.refilter();
+        if let Some(kind) = select {
+            self.select(kind);
+        }
+    }
+
+    /// Select the item of `kind`, if it's among the matches.
+    pub fn select(&mut self, kind: &ItemKind) {
+        let found = self.matches.iter().position(|m| {
+            self.items
+                .get(m.item)
+                .is_some_and(|item| item.kind == *kind)
+        });
+        if let Some(index) = found {
+            self.selected = index;
+        }
     }
 
     pub fn selected_item(&self) -> Option<&Item> {
@@ -177,15 +318,15 @@ impl Palette {
 
     /// Match the query again; back to the best result.
     pub fn refilter(&mut self) {
-        let (mode, pattern) = Mode::of(self.input.text());
-        let pattern = Pattern::parse(pattern, CaseMatching::Smart, Normalization::Smart);
+        let pattern = Pattern::parse(
+            self.input.text().trim(),
+            CaseMatching::Smart,
+            Normalization::Smart,
+        );
         let typed = !pattern.atoms.is_empty();
         let mut buf = Vec::new();
         let mut found: Vec<(u32, usize, Vec<u32>)> = Vec::new();
         for (i, item) in self.items.iter().enumerate() {
-            if !mode.includes(item.kind) {
-                continue;
-            }
             let mut highlight = Vec::new();
             let haystack = Utf32Str::new(&item.title, &mut buf);
             let Some(score) = pattern.indices(haystack, &mut self.matcher, &mut highlight) else {
@@ -237,10 +378,43 @@ impl Palette {
     }
 }
 
-/// Everything the palette can offer right now, in the order shown when
-/// nothing is typed: recently used commands, conversations, commands,
-/// settings, then the keybinding list (`?` only).
-pub fn items(state: &State, recent: &[PaletteCommand]) -> Vec<Item> {
+/// The items of `level`, in the order shown when nothing is typed.
+pub fn items(state: &State, level: Level, recent: &[PaletteCommand]) -> Vec<Item> {
+    match level {
+        Level::Root => categories(state),
+        Level::Chats => conversations(state),
+        Level::Themes => themes(state),
+        Level::Settings => settings(state),
+        Level::Group(group) => group_settings(state, group),
+        Level::Setting(setting) => setting_values(state, setting),
+        Level::Commands => commands_by_recency(state, recent),
+        Level::Keys => keybindings(&state.keymap),
+    }
+}
+
+/// The root: one item per category, with its prefix (or, for themes, the
+/// theme in use) on the right.
+fn categories(state: &State) -> Vec<Item> {
+    Level::CATEGORIES
+        .into_iter()
+        .map(|level| {
+            let detail = match level {
+                Level::Themes => current_theme(state).to_owned(),
+                Level::Root
+                | Level::Chats
+                | Level::Settings
+                | Level::Group(_)
+                | Level::Setting(_)
+                | Level::Commands
+                | Level::Keys => level.prefix().map(String::from).unwrap_or_default(),
+            };
+            Item::new(ItemKind::Level(level), level.title()).detail(detail)
+        })
+        .collect()
+}
+
+/// Commands, the 3 most recently used first.
+fn commands_by_recency(state: &State, recent: &[PaletteCommand]) -> Vec<Item> {
     let mut commands = commands(state);
     for item in &mut commands {
         if let ItemKind::Command(command) = item.kind {
@@ -251,21 +425,12 @@ pub fn items(state: &State, recent: &[PaletteCommand]) -> Vec<Item> {
         .into_iter()
         .partition(|item| item.recent.is_some_and(|r| r < RECENT_SHOWN));
     first.sort_by_key(|item| item.recent);
-    first.extend(conversations(state));
     first.extend(rest);
-    first.extend(settings(state));
-    first.extend(keybindings(&state.keymap));
     first
 }
 
 fn command(command: PaletteCommand, title: impl Into<String>, detail: Option<String>) -> Item {
-    Item {
-        kind: ItemKind::Command(command),
-        title: title.into(),
-        path: None,
-        detail: detail.unwrap_or_default(),
-        recent: None,
-    }
+    Item::new(ItemKind::Command(command), title).detail(detail.unwrap_or_default())
 }
 
 fn commands(state: &State) -> Vec<Item> {
@@ -335,111 +500,139 @@ fn commands(state: &State) -> Vec<Item> {
     items
 }
 
-/// Every value of each setting that can be changed here; the one in use
-/// says so.
+/// The theme in use (an unknown name was reported when the config was read
+/// and the default is drawn).
+fn current_theme(state: &State) -> &str {
+    let configured = state.config.theme.as_str();
+    if Theme::NAMES.contains(&configured) {
+        configured
+    } else {
+        faro_core::config::DEFAULT_THEME
+    }
+}
+
+/// Every theme, the one in use marked.
+fn themes(state: &State) -> Vec<Item> {
+    let current = current_theme(state);
+    Theme::NAMES
+        .iter()
+        .map(|name| Item::new(ItemKind::Theme((*name).to_owned()), *name).current(*name == current))
+        .collect()
+}
+
+/// `Settings ›`: the groups, then settings that stand alone.
 fn settings(state: &State) -> Vec<Item> {
-    let on_off = |on: bool| if on { "on" } else { "off" };
-    let mut choices = look_choices(state);
-    for layout in MessageLayout::ALL.iter().copied() {
-        let name = match layout {
-            MessageLayout::Bubbles => "bubbles",
-            MessageLayout::Irc => "IRC",
-        };
-        choices.push((
-            SettingChoice::Layout(layout),
-            format!("Message layout: {name}"),
-            state.layout == layout,
-        ));
+    let mut items: Vec<Item> = [
+        SettingsGroup::Appearance,
+        SettingsGroup::Notifications,
+        SettingsGroup::Conversations,
+    ]
+    .into_iter()
+    .map(|group| Item::new(ItemKind::Level(Level::Group(group)), group.title()))
+    .collect();
+    items.push(setting_item(state, Setting::Mouse));
+    items
+}
+
+/// A group's settings, each with its current value on the right.
+fn group_settings(state: &State, group: SettingsGroup) -> Vec<Item> {
+    let settings: &[Setting] = match group {
+        SettingsGroup::Appearance => &[Setting::Colors, Setting::Emoji, Setting::Layout],
+        SettingsGroup::Notifications => &[Setting::Bell, Setting::Title],
+        SettingsGroup::Conversations => &[Setting::Allowlist],
+    };
+    let mut items = Vec::new();
+    if group == SettingsGroup::Appearance {
+        items.push(Item::new(ItemKind::Level(Level::Themes), "Theme").detail(current_theme(state)));
     }
-    for on in [true, false] {
-        choices.push((
-            SettingChoice::Allowlist(on),
-            format!("Allowlist mode: {}", on_off(on)),
-            state.list.allowlist == on,
-        ));
-    }
-    for emoji in EmojiChoice::ALL.iter().copied() {
-        choices.push((
-            SettingChoice::Emoji(emoji),
-            format!("Emoji: {}", emoji.name()),
-            state.config.ui.emoji == emoji,
-        ));
-    }
-    for on in [true, false] {
-        choices.push((
-            SettingChoice::Mouse(on),
-            format!("Mouse: {}", on_off(on)),
-            state.config.mouse.enabled == on,
-        ));
-    }
-    for on in [true, false] {
-        choices.push((
-            SettingChoice::Bell(on),
-            format!("Bell: {}", on_off(on)),
-            state.config.notifications.bell == on,
-        ));
-        choices.push((
-            SettingChoice::Title(on),
-            format!("Unread count in the window title: {}", on_off(on)),
-            state.config.notifications.title == on,
-        ));
-    }
-    let overridden = state.env.emoji.from_cli;
-    choices
+    items.extend(settings.iter().map(|s| setting_item(state, *s)));
+    items
+}
+
+/// The item that opens `setting`'s values, showing the current one.
+fn setting_item(state: &State, setting: Setting) -> Item {
+    let value = values(state, setting)
+        .into_iter()
+        .find(|(_, _, current)| *current)
+        .map(|(_, title, _)| title)
+        .unwrap_or_default();
+    Item::new(ItemKind::Level(Level::Setting(setting)), setting.title()).detail(value)
+}
+
+/// `setting`'s values as items, the one in use marked.
+fn setting_values(state: &State, setting: Setting) -> Vec<Item> {
+    let overridden = state.env.emoji.from_cli && setting == Setting::Emoji;
+    values(state, setting)
         .into_iter()
         .map(|(choice, title, current)| {
-            let note = match (
-                current,
-                overridden && matches!(choice, SettingChoice::Emoji(_)),
-            ) {
-                (true, true) => "current · --emoji decides for now",
-                (false, true) => "--emoji decides for now",
-                (true, false) => "current",
-                (false, false) => "",
-            };
-            Item {
-                kind: ItemKind::Setting(choice),
-                title,
-                path: Some("Settings".to_owned()),
-                detail: note.to_owned(),
-                recent: None,
+            let item = Item::new(ItemKind::Setting(choice), title).current(current);
+            if overridden {
+                item.detail("--emoji decides for now")
+            } else {
+                item
             }
         })
         .collect()
 }
 
-/// Theme and colour depth choices, the current ones flagged.
-fn look_choices(state: &State) -> Vec<(SettingChoice, String, bool)> {
-    let configured = &state.config.theme;
-    let current = if Theme::NAMES.contains(&configured.as_str()) {
-        configured.as_str()
-    } else {
-        faro_core::config::DEFAULT_THEME
+/// Every value of `setting`: what choosing it does, its name, and whether
+/// it's the one in use.
+fn values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)> {
+    let on_off = |make: fn(bool) -> SettingChoice, current: bool| {
+        [true, false]
+            .into_iter()
+            .map(|on| {
+                let name = if on { "on" } else { "off" };
+                (make(on), name.to_owned(), on == current)
+            })
+            .collect()
     };
-    let mut choices: Vec<(SettingChoice, String, bool)> = Theme::NAMES
-        .iter()
-        .map(|name| {
-            (
-                SettingChoice::Theme(name),
-                format!("Theme: {name}"),
-                *name == current,
-            )
-        })
-        .collect();
-    for colors in ColorChoice::ALL.iter().copied() {
-        let title = match colors {
-            ColorChoice::Auto => format!("Colours: auto ({} detected)", state.env.colors.name()),
-            ColorChoice::Truecolor => "Colours: truecolor".to_owned(),
-            ColorChoice::Colors256 => "Colours: 256".to_owned(),
-            ColorChoice::Colors16 => "Colours: 16 (system theme)".to_owned(),
-        };
-        choices.push((
-            SettingChoice::Colors(colors),
-            title,
-            state.config.ui.colors == colors,
-        ));
+    match setting {
+        Setting::Colors => ColorChoice::ALL
+            .iter()
+            .map(|colors| {
+                let title = match colors {
+                    ColorChoice::Auto => format!("auto ({} detected)", state.env.colors.name()),
+                    ColorChoice::Truecolor => "truecolor".to_owned(),
+                    ColorChoice::Colors256 => "256".to_owned(),
+                    ColorChoice::Colors16 => "16 (system theme)".to_owned(),
+                };
+                (
+                    SettingChoice::Colors(*colors),
+                    title,
+                    state.config.ui.colors == *colors,
+                )
+            })
+            .collect(),
+        Setting::Emoji => EmojiChoice::ALL
+            .iter()
+            .map(|emoji| {
+                (
+                    SettingChoice::Emoji(*emoji),
+                    emoji.name().to_owned(),
+                    state.config.ui.emoji == *emoji,
+                )
+            })
+            .collect(),
+        Setting::Layout => MessageLayout::ALL
+            .iter()
+            .map(|layout| {
+                let name = match layout {
+                    MessageLayout::Bubbles => "bubbles",
+                    MessageLayout::Irc => "IRC",
+                };
+                (
+                    SettingChoice::Layout(*layout),
+                    name.to_owned(),
+                    state.layout == *layout,
+                )
+            })
+            .collect(),
+        Setting::Bell => on_off(SettingChoice::Bell, state.config.notifications.bell),
+        Setting::Title => on_off(SettingChoice::Title, state.config.notifications.title),
+        Setting::Allowlist => on_off(SettingChoice::Allowlist, state.list.allowlist),
+        Setting::Mouse => on_off(SettingChoice::Mouse, state.config.mouse.enabled),
     }
-    choices
 }
 
 /// Curating the open conversation (the sidebar's highlight), with its name
@@ -577,13 +770,11 @@ fn conversations(state: &State) -> Vec<Item> {
             if open == Some(summary.id) {
                 notes.push("open".to_owned());
             }
-            Item {
-                kind: ItemKind::Conversation(summary.id),
-                title: state.conversation_title(summary.id),
-                path: None,
-                detail: notes.join(" · "),
-                recent: None,
-            }
+            Item::new(
+                ItemKind::Conversation(summary.id),
+                state.conversation_title(summary.id),
+            )
+            .detail(notes.join(" · "))
         })
         .collect()
 }
@@ -621,13 +812,9 @@ fn keybindings(keymap: &Keymap) -> Vec<Item> {
                         .join(", "),
                 )
             };
-            items.push(Item {
-                kind: ItemKind::Key,
-                title,
-                path: Some(path.to_owned()),
-                detail,
-                recent: None,
-            });
+            let mut item = Item::new(ItemKind::Key, title).detail(detail);
+            item.path = Some(path.to_owned());
+            items.push(item);
         }
     }
     for (title, detail) in [
@@ -635,13 +822,20 @@ fn keybindings(keymap: &Keymap) -> Vec<Item> {
         ("Choose", "enter, or the shortcut shown"),
         ("Close", "esc, q"),
     ] {
-        items.push(Item {
-            kind: ItemKind::Key,
-            title: title.to_owned(),
-            path: Some("Menus".to_owned()),
-            detail: detail.to_owned(),
-            recent: None,
-        });
+        let mut item = Item::new(ItemKind::Key, title).detail(detail);
+        item.path = Some("Menus".to_owned());
+        items.push(item);
+    }
+    let palette = [
+        ("Open a category", "enter, →"),
+        ("Run a command, apply a setting", "enter"),
+        ("Back up a level", "←, backspace"),
+        ("Jump to chats, settings, commands, keys", "@ : > ?"),
+    ];
+    for (title, detail) in palette {
+        let mut item = Item::new(ItemKind::Key, title).detail(detail);
+        item.path = Some("Palette".to_owned());
+        items.push(item);
     }
     items
 }

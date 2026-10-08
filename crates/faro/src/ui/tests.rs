@@ -463,12 +463,31 @@ fn palette_with_nothing_typed() {
 
 #[test]
 fn palette_searching() {
-    insta::assert_snapshot!(snapshot(&draw(&with_palette("mute"), 100, 20)));
+    insta::assert_snapshot!(snapshot(&draw(&with_palette(">mute"), 100, 20)));
 }
 
 #[test]
 fn palette_keybindings() {
     insta::assert_snapshot!(snapshot(&draw(&with_palette("?"), 100, 26)));
+}
+
+#[test]
+fn palette_settings_level() {
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    let mut state = with_palette(":notif");
+    update(
+        &mut state,
+        AppEvent::Terminal(Event::Key(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        ))),
+    );
+    insta::assert_snapshot!(snapshot(&draw(&state, 100, 20)));
+}
+
+#[test]
+fn palette_chats() {
+    insta::assert_snapshot!(snapshot(&draw(&with_palette("@"), 100, 20)));
 }
 
 #[test]
@@ -575,7 +594,8 @@ fn compatible_mode_draws_only_what_every_terminal_measures_alike() {
     keys(&mut picker, &[Up, Char('+'), Char('l')]);
     assert_drawable(&compatible(picker), 100, 20);
     assert_drawable(&compatible(with_palette("")), 100, 26);
-    assert_drawable(&compatible(with_palette("climb")), 100, 26);
+    assert_drawable(&compatible(with_palette("@climb")), 100, 26);
+    assert_drawable(&compatible(with_palette(">")), 100, 26);
 }
 
 #[test]

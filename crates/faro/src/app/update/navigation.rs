@@ -9,6 +9,7 @@ use super::{curation, open_conversation, palette, quit, selection};
 use crate::app::event::Effect;
 use crate::app::input::Input;
 use crate::app::keymap::{Action, Edit, WHEEL_ROWS};
+use crate::app::palette::Level;
 use crate::app::state::{Anchor, Focus, MessageAction, Notice, SidebarRow, State};
 
 pub fn on_action(state: &mut State, action: Action) -> Vec<Effect> {
@@ -58,8 +59,8 @@ pub fn on_action(state: &mut State, action: Action) -> Vec<Effect> {
         Action::Popup(key) => return selection::on_popup(state, key),
         Action::JumpToPinned(n) => return curation::jump_to_pinned(state, n),
         Action::Curate(curate) => return curation::on_curate(state, curate),
-        Action::OpenPalette => palette::open(state, ""),
-        Action::Help => palette::open(state, "?"),
+        Action::OpenPalette => palette::open(state, Level::Root),
+        Action::Help => palette::open(state, Level::Keys),
         Action::Palette(key) => return palette::on_key(state, key),
         Action::Redraw => state.env.repaint = true,
     }

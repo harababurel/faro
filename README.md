@@ -34,7 +34,7 @@ faro is an unofficial, independent project. It is not affiliated with, endorsed 
 - Conversation list with pinning, muting (with durations), hiding, archiving and an allowlist mode
 - Two message layouts: **bubbles** (default) and **IRC**-style
 - Replies, reactions, copying a message (OSC 52, works over SSH), opening links
-- A command palette (`Ctrl+P`) with fuzzy search over commands, conversations, settings and key bindings
+- A command palette (`Ctrl+P`): chats, themes, settings, commands and key bindings as categories you open and fuzzy-search
 - Read receipts only for what you've actually seen (terminal focus + scrolled to the bottom), typing indicators
 - Terminal bell and an unread count in the window/tmux title
 - A commented config file that faro reloads while running and writes back to without losing your comments
@@ -81,11 +81,11 @@ cargo run --release -- --mock --data-dir /tmp/faro-try --config /tmp/faro-try/co
 
 ## Keys
 
-Press `F1` (or `?` outside the input box) for the full list, or search it in the palette. Every key can be rebound in the config file.
+Press `F1` (or `?` outside the input box) for the full list, or search it in the palette's `Keys`. Every key can be rebound in the config file.
 
 | Key | What |
 |---|---|
-| `Ctrl+P` | Command palette (`>` commands, `@` conversations, `:` settings, `?` keys) |
+| `Ctrl+P` | Command palette: `Enter`/`→` opens a category, `←`/`Backspace` goes back; `@` chats, `:` settings, `>` commands, `?` keys jump straight in |
 | `Alt+J` / `Alt+K` (or `Alt+↓` / `Alt+↑`) | Next / previous conversation |
 | `Alt+1`…`Alt+9` | Pinned conversation 1–9 |
 | `Tab` / `Shift+Tab` | Move between the conversation list, the messages and the input |
@@ -131,7 +131,7 @@ mosh measures emoji differently from kitty and tmux, which misaligns borders. fa
 
 ## Colours
 
-faro guesses how many colours your terminal shows: truecolor when `COLORTERM` says so, inside tmux, or in terminals known to support it (kitty, Ghostty, WezTerm, iTerm2, Alacritty, foot…); otherwise 256 colours (themes are rounded to the nearest), or the `system` theme on 16-colour terminals. Override with `[ui] colors = "truecolor" | "256" | "16"` or `:colours` in the palette.
+faro guesses how many colours your terminal shows: truecolor when `COLORTERM` says so, inside tmux, or in terminals known to support it (kitty, Ghostty, WezTerm, iTerm2, Alacritty, foot…); otherwise 256 colours (themes are rounded to the nearest), or the `system` theme on 16-colour terminals. Override with `[ui] colors = "truecolor" | "256" | "16"` or in the palette (`:` Appearance › Colours).
 
 ## Development
 

@@ -6,8 +6,8 @@ expression: "snapshot(&draw(&with_palette(\"?\"), 100, 26))"
 │ ▾ Pinned                   ││                                                                    │
 │   Bob                      ││ ─────────────────────────── Yesterday ──────────────────────────── │
 │ ▾ Recent                   ││ 16:30   Alice 🌸 Anyone up for the wall on Thursday?               │
-│   Climbing╭ Keybindings ─────────────────────────────────────────────────────────────╮           │
-│ ● Alice 🌸│ › ?                                                                      │           │
+│   Climbing╭ Keys ────────────────────────────────────────────────────────────────────╮           │
+│ ● Alice 🌸│ ›                                                                 ← back │           │
 │           │──────────────────────────────────────────────────────────────────────────│────────── │
 │           │▌  Everywhere › Command palette                                    ctrl+p │hursday?   │
 │           │   Everywhere › Keybindings                                            f1 │ss         │
@@ -27,4 +27,4 @@ expression: "snapshot(&draw(&with_palette(\"?\"), 100, 26))"
 │                            │││ Message Climbing 🧗…                                             ││
 │                            ││╰──────────────────────────────────────────────────────────────────╯│
 ╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯
- ● connected · 1 unread           ↑↓ choose · enter run · esc close · > commands · @ chats · ? keys
+ ● connected · 1 unread                                 ↑↓ move · enter choose · ← back · esc close

@@ -140,11 +140,6 @@ fn apply_emoji(state: &mut State) -> Vec<Effect> {
 /// A setting chosen in the palette: applied now and saved to the file.
 pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
     match choice {
-        SettingChoice::Theme(name) => {
-            name.clone_into(&mut state.config.theme);
-            state.notice = Some(Notice::info(format!("Theme: {name}")));
-            save(state, key::THEME)
-        }
         SettingChoice::Colors(colors) => {
             state.config.ui.colors = colors;
             state.notice = Some(Notice::info(format!(
@@ -198,6 +193,13 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
             save(state, key::TITLE)
         }
     }
+}
+
+/// A theme chosen in the palette: drawn from the next frame and saved.
+pub fn choose_theme(state: &mut State, name: &str) -> Vec<Effect> {
+    name.clone_into(&mut state.config.theme);
+    state.notice = Some(Notice::info(format!("Theme: {name}")));
+    save(state, key::THEME)
 }
 
 /// Write the current value of the setting at `path` to the config file.

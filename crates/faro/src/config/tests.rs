@@ -93,13 +93,16 @@ async fn toggling_the_layout_from_the_palette_keeps_the_file_s_comments() {
     state.layout = MessageLayout::Bubbles;
     state.config.messages.layout = MessageLayout::Bubbles;
     update(&mut state, AppEvent::Terminal(ctrl('p')));
-    for c in ":irc".chars() {
+    // Settings › Appearance › Message layout › IRC.
+    for c in ":appear\rlayout\rirc".chars() {
+        let code = if c == '\r' {
+            KeyCode::Enter
+        } else {
+            KeyCode::Char(c)
+        };
         update(
             &mut state,
-            AppEvent::Terminal(Event::Key(KeyEvent::new(
-                KeyCode::Char(c),
-                KeyModifiers::NONE,
-            ))),
+            AppEvent::Terminal(Event::Key(KeyEvent::new(code, KeyModifiers::NONE))),
         );
     }
     let effects = update(

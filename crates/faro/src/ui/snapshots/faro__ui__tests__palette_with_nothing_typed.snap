@@ -6,25 +6,25 @@ expression: "snapshot(&draw(&with_palette(\"\"), 100, 26))"
 │ ▾ Pinned                   ││                                                                    │
 │   Bob                      ││ ─────────────────────────── Yesterday ──────────────────────────── │
 │ ▾ Recent                   ││ 16:30   Alice 🌸 Anyone up for the wall on Thursday?               │
-│   Climbing╭ Search ──────────────────────────────────────────────────────────────────╮           │
-│ ● Alice 🌸│ ›                                > commands  @ chats  : settings  ? keys │           │
+│   Climbing╭ Command palette ─────────────────────────────────────────────────────────╮           │
+│ ● Alice 🌸│ ›                                @ chats  : settings  > commands  ? keys │           │
 │           │──────────────────────────────────────────────────────────────────────────│────────── │
-│           │▌@ Bob                                                             pinned │hursday?   │
-│           │ # Climbing 🧗                                                       open │ss         │
-│           │ @ Alice 🌸                                                      1 unread │           │
-│           │ › Next conversation                                                alt+j │           │
-│           │ › Previous conversation                                            alt+k │           │
-│           │ › Climbing 🧗 › Pin                                                    p │           │
-│           │ › Climbing 🧗 › Mute for 1 hour                                          │────────── │
-│           │ › Climbing 🧗 › Mute for 8 hours                                         │ast week   │
-│           │ › Climbing 🧗 › Mute for 1 day                                           │bring your │
-│           │ › Climbing 🧗 › Mute for 1 week                                          │for your   │
-│           │ › Climbing 🧗 › Mute until unmuted                                       │           │
+│           │▌  Chats ›                                                              @ │hursday?   │
+│           │   Themes ›                                                     faro-dark │ss         │
+│           │   Settings ›                                                           : │           │
+│           │   Commands ›                                                           > │           │
+│           │   Keys ›                                                               ? │           │
 │           ╰──────────────────────────────────────────────────────────────────────────╯           │
+│                            ││ ────────────────────────── new messages ────────────────────────── │
+│                            ││ 17:51            Also: the new overhang section opened last week   │
+│                            ││                  and apparently the grades are soft, so bring your │
+│                            ││                  project shoes 🧗‍♀️🧗‍♂️ and maybe some tape for your   │
+│                            ││                  fingers.                                          │
+│                            ││ 17:54        You On my way ✓                                       │
 │                            ││ 17:55   Alice 🌸 Running 10 min late 🙈                            │
 │                            ││                                                                    │
 │                            ││╭──────────────────────────────────────────────────────────────────╮│
 │                            │││ Message Climbing 🧗…                                             ││
 │                            ││╰──────────────────────────────────────────────────────────────────╯│
 ╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯
- ● connected · 1 unread           ↑↓ choose · enter run · esc close · > commands · @ chats · ? keys
+ ● connected · 1 unread      ↑↓ choose · enter open · esc close · @ chats · : settings · > commands

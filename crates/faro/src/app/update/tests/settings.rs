@@ -180,7 +180,7 @@ fn a_failed_save_says_so() {
 #[test]
 fn themes_and_colours_are_chosen_in_the_palette_and_saved() {
     use crate::app::palette::SettingChoice;
-    use crate::app::update::settings::choose;
+    use crate::app::update::settings::{choose, choose_theme};
     use crate::theme::ColorDepth;
 
     let mut state = loaded_state();
@@ -190,7 +190,7 @@ fn themes_and_colours_are_chosen_in_the_palette_and_saved() {
         ColorDepth::Indexed256,
         "auto follows detection"
     );
-    let effects = choose(&mut state, SettingChoice::Theme("faro-light"));
+    let effects = choose_theme(&mut state, "faro-light");
     assert_eq!(state.config.theme, "faro-light");
     assert_eq!(
         effects,

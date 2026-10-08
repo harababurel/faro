@@ -12,13 +12,17 @@ use unicode_segmentation::UnicodeSegmentation as _;
 
 use super::View;
 use super::text::{sanitize, truncate, width};
-use crate::app::palette::{Item, ItemKind, Match, Palette};
+use crate::app::palette::{Item, ItemKind, Level, Match, Palette};
 use crate::app::state::{Geometry, PaletteGeometry, State};
 
 /// Widest the box gets.
 const MAX_WIDTH: u16 = 76;
-/// Shown on the query row while nothing is typed.
-const PREFIX_HINT: &str = "> commands  @ chats  : settings  ? keys";
+/// Shown on the query row at the root while nothing is typed.
+const PREFIX_HINT: &str = "@ chats  : settings  > commands  ? keys";
+/// Shown on the query row below the root while nothing is typed.
+const BACK_HINT: &str = "← back";
+/// After a category's title.
+const OPENS: &str = " ›";
 
 pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &mut Geometry) {
     let Some(palette) = &state.palette else {
@@ -44,7 +48,7 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &
         .border_style(theme.border(true))
         .style(theme.panel())
         .title(Span::styled(
-            format!(" {} ", palette.mode().title()),
+            format!(" {} ", sanitize(&palette.breadcrumb())),
             Style::new().fg(theme.primary).add_modifier(Modifier::BOLD),
         ));
     let inner = block.inner(area);
@@ -109,10 +113,15 @@ fn draw_query(frame: &mut Frame<'_>, area: Rect, palette: &Palette, view: &View<
             Style::new().fg(theme.text),
         ),
     ];
-    if text.is_empty() && usize::from(area.width) > width(PREFIX_HINT) + 20 {
-        let gap = usize::from(area.width) - 3 - width(PREFIX_HINT) - 1;
+    let hint = if palette.level() == Level::Root {
+        PREFIX_HINT
+    } else {
+        BACK_HINT
+    };
+    if text.is_empty() && usize::from(area.width) > width(hint) + 20 {
+        let gap = usize::from(area.width) - 3 - width(hint) - 1;
         spans.push(Span::raw(" ".repeat(gap)));
-        spans.push(Span::styled(PREFIX_HINT, theme.muted()));
+        spans.push(Span::styled(hint, theme.muted()));
     }
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
     let cursor = width(&before_cursor).saturating_sub(skip);
@@ -145,10 +154,12 @@ fn draw_results(
 ) {
     let theme = view.theme;
     if palette.matches.is_empty() {
-        frame.render_widget(
-            Paragraph::new(Span::styled("  No matches", theme.muted())),
-            area,
-        );
+        let text = if palette.level() == Level::Root {
+            "  No matches (@ chats, : settings, > commands, ? keys)"
+        } else {
+            "  No matches"
+        };
+        frame.render_widget(Paragraph::new(Span::styled(text, theme.muted())), area);
         return;
     }
     let lines: Vec<Line<'static>> = palette
@@ -171,7 +182,7 @@ fn draw_results(
     frame.render_widget(Paragraph::new(lines), area);
 }
 
-/// `▌ › path › title          detail`
+/// `▌ @ path › title ›        detail`
 fn result_line(
     item: &Item,
     found: &Match,
@@ -187,20 +198,29 @@ fn result_line(
     };
     let row_width = usize::from(row_width);
     let marker = if selected { "▌" } else { " " };
-    let glyph = match item.kind {
-        ItemKind::Command(_) => "› ",
-        ItemKind::Setting(_) => ": ",
-        ItemKind::Conversation(ConversationId::Group(_)) => "# ",
-        ItemKind::Conversation(ConversationId::Direct(_)) => "@ ",
-        ItemKind::Key => "  ",
+    let glyph = match (&item.kind, item.current) {
+        (_, Some(true)) => "● ",
+        (_, Some(false)) => "○ ",
+        (ItemKind::Conversation(ConversationId::Group(_)), None) => "# ",
+        (ItemKind::Conversation(ConversationId::Direct(_)), None) => "@ ",
+        (
+            ItemKind::Level(_)
+            | ItemKind::Command(_)
+            | ItemKind::Setting(_)
+            | ItemKind::Theme(_)
+            | ItemKind::Key,
+            None,
+        ) => "  ",
     };
+    let opens = matches!(item.kind, ItemKind::Level(_));
+    let suffix = if opens { width(OPENS) } else { 0 };
     let detail = sanitize(&item.detail).into_owned();
     let detail_width = if detail.is_empty() {
         0
     } else {
         width(&detail) + 2
     };
-    let mut room = row_width.saturating_sub(1 + width(glyph) + detail_width);
+    let mut room = row_width.saturating_sub(1 + width(glyph) + detail_width + suffix);
     let mut used = 1 + width(glyph);
     let mut spans = vec![
         Span::styled(marker, base.fg(theme.primary)),
@@ -222,6 +242,10 @@ fn result_line(
         highlighted(&item.title, &found.highlight, room, title_style, hit);
     spans.extend(title_spans);
     used += title_width;
+    if opens {
+        spans.push(Span::styled(OPENS, base.patch(theme.muted())));
+        used += suffix;
+    }
     let gap = row_width.saturating_sub(used + detail_width);
     spans.push(Span::styled(" ".repeat(gap), base));
     if !detail.is_empty() {
