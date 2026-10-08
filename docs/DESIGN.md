@@ -121,7 +121,7 @@ pub trait Backend {                       // no Send bound: futures may be !Send
     async fn delete_for_everyone(&self, conversation: ConversationId, target: MessageRef) -> Result<()>;
     async fn mark_read(&self, messages: &[MessageRef]) -> Result<()>;
     async fn send_typing(&self, to: ConversationId, state: TypingState) -> Result<()>;
-    async fn fetch_attachment(&self, attachment: &AttachmentRef) -> Result<PathBuf>;
+    async fn fetch_attachment(&self, attachment: &AttachmentRef) -> Result<Vec<u8>>; // bytes; faro writes the file (D75)
 }
 ```
 
@@ -153,11 +153,11 @@ presage keeps its own store for keys, sessions and protocol state; faro never to
 | `conversation_state` | conversation_id, **hidden**, **archived**, **pinned** (order), **muted_until**, draft text, **allowed** (allowlist, D41) |
 | `messages` | id, conversation_id, sender, sent_at (sender's timestamp), received_at, body, quote_sender, quote_sent_at, quote_preview, edited_at, deleted, direction, status (sending/sent/delivered/read/failed; outgoing only) |
 | `reactions` | message_id, sender, emoji (one per sender) |
-| `attachments` | id, message_id, backend_id, content_type, file_name, size, local_path (nullable) |
+| `attachments` | id, message_id, backend_id, content_type, file_name, size, local_path (nullable), width, height, status (remote/downloaded/failed; D75) |
 | `app_state` | key/value: sidebar widths, last open conversation, etc. |
 
 - Messages are identified Signal-style by `(sender, sent_at)` (unique); faro adds its own row ID. History is paged backwards with `(sent_at, sender)` as the cursor.
-- Planned columns not yet added (each a future migration when first used): recipient avatar path and colour seed, conversation scroll position, attachment download status.
+- Planned columns not yet added (each a future migration when first used): recipient avatar path and colour seed, conversation scroll position. (Attachment download status came with M9, migration `0006`, D75.)
 - SQLite via `sqlx` 0.9 with embedded migrations (D16), version-compatible with presage's store (D34).
 - One store task owns the only connection; the app uses a cloneable `Store` handle over a channel (D22, D34). Applying a backend event is idempotent: duplicates are ignored, receipts never regress, only newer edits win.
 - faro keeps its own history even though presage's store can also hold messages (D7).
@@ -268,6 +268,46 @@ Hide (disappears until a new message arrives, configurable), archive, pin, mute 
 
 Colour carries meaning (btop style): status, unread, mentions, own vs others, errors. Glyph graphics where they add information (e.g. activity sparkline in the info panel, connection quality). The empty message pane (no chat open) shows the animated lighthouse logo (D61); an about screen may reuse it later. A `reduce_motion` setting disables animations.
 
+### 7.9 Attachments and images (M9, D75–D79)
+
+**Receiving (D75).**
+- A backend only hands over bytes: `Backend::fetch_attachment(&AttachmentRef) -> Result<Vec<u8>>` (was a path). faro writes the file itself, so where files live and their permissions are decided in one place.
+- Files go to `<data dir>/attachments/` (`0700`), one file per attachment (`0600`), named `<sent_at>-<sender's first 8 hex>-<n>-<file name>`, with the name reduced to safe characters (or `attachment.<ext>` from the content type). Each file is written to a temporary name and renamed, so a half-written file is never seen.
+- `AttachmentId` is opaque to faro. The presage backend puts the whole `AttachmentPointer` in it (`p1:` + hex of the protobuf: CDN location, key, digest, size). presage's `get_attachment` needs all of that, and the store keeps it like any other id. Rows stored before M9 hold only the CDN id. They are refreshed when the backend replays the message (D64): a replayed message updates its attachments' ids by position.
+- `AttachmentRef` gains `width`/`height` (from the pointer, or read from the file's header after a download) and `status`: `Remote`, `Downloaded(path)` or `Failed`. Migration `0006` adds `width`, `height` and `status` (`local_path` already exists). "Downloading" is in memory only (`State::downloads`), so nothing is ever left stuck in it.
+- **When:** images download by themselves once they're in the open conversation, i.e. loaded, arrived, or reached by paging back. The limit is 25 MB each (`AUTO_DOWNLOAD_LIMIT`). Anything else (bigger images, videos, files, or everything with `[media] auto_download = "off"`) waits for the user: `d`, the message menu, or the palette. `"all"` downloads every kind up to the limit. Failures are never retried by themselves; the message shows `download failed` and `d` tries again.
+- Downloads run on the command task's side (`Command::Fetch`), several at a time (at most 3), never in the reducer or on the UI thread. A finished download is `AppEvent::Fetched`; the reducer updates the timeline and the store (`Effect::SaveAttachment`).
+- **Progress:** presage hands over the whole file at the end, so faro shows *downloading…* rather than a percentage. The same goes for uploads (the message shows `◌` until sent).
+
+**On the message (both layouts, D78).** Each attachment adds one line, `📎 name · size`, plus its state when it isn't simply downloaded: `· downloading…`, `· not downloaded (d)`, `· download failed (d)`. An image that's downloaded, or about to be, also gets an image box of its own size above that line (below). With inline images off, or for other files, there is only the line.
+
+**Open, save, copy path, view (D76).** The message menu lists, per attachment:
+- *Download* while it isn't downloaded.
+- Once it is: *Open* (`open`/`xdg-open`, local sessions only), *Save to Downloads* (`$XDG_DOWNLOAD_DIR` or `~/Downloads`, created if missing; `name (1).ext` if taken), *Copy path* (OSC 52, so it works over SSH) and, for images, *View* (a popup as big as the screen allows).
+- Over SSH (`State::env.over_ssh`) *Open* is left out, because it would open on the remote machine. *View*, *Save* and *Copy path* remain.
+
+Keys in the message pane: `d` download, `v` view (for an image, else open locally, else save), `s` save. Each acts on the selected message's first attachment; with several, a menu asks which. The palette's open-chat commands offer the same for the selected message.
+
+**Sending (D77).**
+- *Send a file…* (palette, open-chat commands) opens a path picker in the palette. The query is a path (`~` expands); the list shows that folder's entries, read off the UI thread (`Effect::ListFiles` → `AppEvent::FilesListed`), folders first; dotfiles only when the query's last part starts with `.`. `Enter` on a folder goes into it; `Enter` on a file attaches it.
+- A bracketed paste that is exactly one path (quotes, `file://` and backslash escapes removed) is checked off the UI thread (`Effect::CheckPaste`). If it names a regular file, the file is attached; otherwise the text is pasted as usual. This is what dragging a file into most terminals does. Over SSH it only works for files on the machine faro runs on.
+- **One file per message** for now. An attached file shows as a bar above the input (`📎 name · size  esc remove`), beside the reply bar. The input text becomes the caption, and `Enter` sends even with no text. Files over 100 MB (Signal's limit) are refused with a notice.
+- On send, the command task first copies the file into `attachments/` (the local echo points at the copy, so history and *Retry* don't depend on the original), then calls `Backend::send` with `OutgoingMessage::attachments`. The presage backend uploads (`upload_attachment`) and sends the pointer. The guard checks the conversation before anything is uploaded (D62).
+
+**Inline images (D78).**
+- `ratatui-image` 11 (MIT), default features off (no libchafa), with `image` decoding JPEG, PNG, GIF (first frame) and WebP. It is used through `sliced::SlicedProtocol`, which can draw an image cut off at the top or bottom of the pane, as scrolling needs.
+- **Protocol:**
+  - `[media] inline_images = "auto"` (default) asks the terminal once at startup, after entering the alternate screen and before input reading starts (`Picker::from_query_stdio`, on a blocking thread). The answer is kitty graphics (unicode placeholders, which survive tmux with passthrough), sixel, iTerm2, or half-blocks.
+  - Through mosh, or when tmux has several clients on different terminals (D58's check, extended), it falls back to half-blocks.
+  - At 16 colours there are no images; at 256 colours half-blocks are mapped to the nearest xterm colours.
+  - `"halfblocks"` never asks; `"off"` shows only the attachment line.
+  - Switching from `off` to `auto` while running gives half-blocks until the next start, because faro can't query once input reading has begun.
+  - Inside tmux, `ratatui-image` turns `allow-passthrough` on for faro's pane (`tmux set -p`), which kitty, sixel and iTerm2 need there.
+- **Size:** decided at layout time from `width`/`height` and the cell's pixel size (from the query; half-blocks assume 1:2). The image keeps its shape inside at most 40 columns (less in narrow panes) and 14 rows. Both layouts lay out the box as blank rows, so windowing, scroll anchoring and selection see ordinary rows. The renderer then draws each visible image over its rows (`Window::images`: where, how big, which file).
+- **Decoding** happens off the UI thread: the frame reports the images it lacked (`Geometry::images_wanted`); the app loop decodes and encodes them with `spawn_blocking` into `app/images.rs::Images`, a cache keyed by file and box size, which drops the least recently drawn beyond 32. Until an image is ready, its box is drawn as a placeholder (panel colour, *loading image…*). The cache is emptied when the protocol changes and on `Ctrl+L`, so kitty images are sent again after a clear or when another terminal attaches.
+- **Overlays and frame safety:** while a popup or the palette is open, kitty, sixel and iTerm2 images are drawn as their placeholders and half-blocks keep drawing. This has two reasons. The terminal-side image would otherwise show through or leave holes. And kitty's one-time image upload rides on the image's first cell, which an overlay drawn in the same frame would erase. The image viewer is itself a popup and draws its image last. The "more below" badge clips images above it. `emoji::finish` skips image cells. `tools/frames` gets an `images` scenario (half-blocks) for the D55 replay.
+- **Stickers (D79)** are images too: the sticker's pointer becomes an attachment (`image/webp`, no file name), drawn at most 8 rows tall. The body stays `[sticker] 😀` for copying, replies and terminals without images.
+
 ## 8. Notifications
 
 | Method | Works over SSH | Notes |
@@ -308,6 +348,10 @@ Sketch:
 # bell = true
 # desktop = "auto"          # "auto" | "osc" | "native" | "off"
 # privacy = "sender"        # "none" | "sender" | "preview"
+
+[media]
+# inline_images = "auto"   # "auto" | "halfblocks" | "off" (D78)
+# auto_download = "images" # "images" | "all" | "off" (D75)
 
 [mouse]
 # enabled = true
@@ -351,7 +395,7 @@ Sketch:
 - **Frame output:** every wide cell is sent with `ForcedWidth`, so ratatui never writes a wide character's hidden cell (D47).
 - **tmux builds emoji one code point at a time** and, when it widens a cell for a flag or VS16 emoji, leaves whatever wide character started in the next cell half-cleared. faro's backend (`tui/backend.rs`) writes a blank into that next cell first (D55). `FARO_DEBUG_FRAMES=<file>` logs every intended frame, for comparing with what a terminal shows (`tools/frames/`).
 - **Colours (D51):** truecolor is assumed inside tmux (tmux rounds RGB itself for clients without it) and in known truecolor terminals even when `COLORTERM` was lost over SSH; elsewhere 256 colours, mapped once at theme load; 16-colour terminals get the `system` theme. `[ui] colors` overrides the guess. Details in §10.
-- **Images:** not in the first release; inline images are M9 in v0.2 (kitty graphics, sixel, half-block fallback; tmux passthrough; half-blocks through mosh) (see §14, D69).
+- **Images (M9, D78):** kitty graphics (unicode placeholders), sixel or iTerm2 where the startup query finds them, half-blocks elsewhere; through tmux by passthrough (faro turns `allow-passthrough` on for its pane), half-blocks through mosh or when tmux clients differ; none at 16 colours. Details in §7.9.
 
 ## 12. Security and privacy
 

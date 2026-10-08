@@ -655,3 +655,46 @@ Refines the DESIGN.md §5.1 sketch:
 - **Limits:** it only happens at link time, so existing installs re-link. Media backfill is separate. The format moves with Signal's releases, and libsignal's strict validator may reject archives from newer phones.
 - **Other routes:** legacy Android `.backup` files aren't worth it. Newer on-device backups reportedly use the same format, keyed by the Account Entropy Pool presage already stores, so a later "import a backup" could reuse the parser.
 - **Decision:** not in v0.1; proposed as **M11** in v0.2, after M9 and M10. The owner can reorder it.
+
+### D75. Attachments: faro writes the files, images download by themselves up to 25 MB — Judgement (2026-10-08, M9)
+
+- **Backend boundary:** `fetch_attachment` returns the bytes, not a path (D30 amended). Backends stay free of file layout and permissions; faro writes `<data dir>/attachments/<sent_at>-<sender8>-<n>-<safe name>` (`0600`, directory `0700`) through a temporary file and a rename.
+- **Ids:** presage needs the whole `AttachmentPointer` (key and digest included) to download. The presage backend stores it in the opaque `AttachmentId` as `p1:<hex protobuf>`. This puts attachment keys in `faro.db`, which is `0600` like `presage.db`, which already holds them. Rows from before M9 (CDN id only) heal when presage's copy of the message is replayed at startup (D64): a message that's already stored takes its attachments' ids from the replay, by position.
+- **Status:** `remote` / `downloaded` (with `local_path`) / `failed` in the store (migration `0006`, plus `width`/`height`). *Downloading* is only in memory, so a crash can't leave anything stuck.
+- **Policy (owner may change):** `[media] auto_download = "images"` (default) downloads images up to 25 MB once they're loaded in the open conversation. That is what inline images need, and what Signal's own apps do by default. Everything else waits for `d` / the menu / the palette. `"all"` takes every kind up to the limit; `"off"` nothing. The 25 MB limit is a constant for now; a setting can follow if the owner wants one. Failures aren't retried automatically.
+- **Concurrency:** downloads leave the sequential command queue (a 50 MB video mustn't hold up a text message) and run as local tasks, at most 3 at once.
+- **No percentages:** presage reads the whole download before returning, and the same for uploads. A real progress bar would mean reimplementing `get_attachment` on libsignal-service's stream. Deferred.
+
+### D76. Open locally, otherwise view, save or copy the path — Judgement (2026-10-08, M9)
+
+- `open`/`xdg-open` only when faro isn't over SSH (as for links, D40). Over SSH the viewer would open on the wrong machine. *View* (inline, in a popup), *Save to Downloads* and *Copy path* (OSC 52) work everywhere.
+- **Save:** to `$XDG_DOWNLOAD_DIR` if set, else `~/Downloads` (created if missing), never overwriting (`name (1).ext`). A folder chooser was considered; the palette path picker (D77) could offer one later, but a fixed, predictable place is quicker. The destination is in the notice.
+- **Keys:** `d` download, `v` view/open, `s` save, in the message pane. They were free, and the palette and the menu list the same.
+
+### D77. Sending a file: a palette path picker or a pasted path, one file per message — Judgement (2026-10-08, M9)
+
+- **Picking:** a palette level whose query is a path, with the folder listed off the UI thread as you type, because the reducer can't touch the disk. An `/attach` input command was rejected: faro's input has no commands, and the palette is already where actions live.
+- **Pasting:** a bracketed paste of exactly one existing regular file attaches it. That is what dragging a file into kitty, iTerm2, GNOME Terminal and others produces. The check is asynchronous; until it answers, the paste is held (milliseconds).
+- **One file, caption = input text.** Several attachments per message can come later; the domain type is already a list.
+- **Copied in first:** the command task copies the file into `attachments/` before uploading. History, the local echo and *Retry* then use faro's copy even if the original moves. The cost is disk space, as in Signal Desktop.
+- **Limits and safety:** 100 MB, Signal's limit. The guard checks the conversation before the backend uploads anything (D62). The mock "uploads" with a delay and can fail like any send.
+
+### D78. Inline images with ratatui-image's sliced protocol; graphics only where every hop supports it — Judgement (2026-10-08, M9)
+
+- **Crate:** `ratatui-image` 11.1 (MIT; ratatui 0.30), `default-features = false` to avoid linking libchafa. `image` 0.25 decodes JPEG/PNG/GIF/WebP. HEIC isn't decoded (phones send JPEG to Signal). 12.0 is still a release candidate.
+- **Sliced, not stateful:** `SlicedProtocol` draws images cut at the pane's edges (kitty placeholders skip rows, sixel drops bands, iTerm2 per-row slices, half-blocks per row), which a scrolling chat needs. `StatefulImage` resizes while rendering, i.e. on the UI thread.
+- **Detection:**
+  - The query has to run before crossterm's `EventStream` owns stdin. So it runs once, at startup, on a blocking thread.
+  - faro then keeps the result only if nothing in between breaks it. mosh passes no graphics. With several tmux clients, every client gets the passthrough, so they must all be on the same kind of terminal (`#{client_termname}`, D58's check).
+  - 16 colours: off. 256: half-blocks mapped like themes (D51).
+  - Settings: `[media] inline_images = "auto" | "halfblocks" | "off"`, default `auto`.
+- **Side effect:** inside tmux, `ratatui-image` runs `tmux set -p allow-passthrough on` for faro's pane, even for half-blocks. It is harmless, scoped to the pane, and the recommended setting anyway (§11). It is documented rather than patched.
+- **Layout:** images are blank rows in the line-based layouts. Their size is a pure function of the attachment's dimensions, the cell's pixel size and the pane width (40 × 14 cells at most; stickers 8 rows). So windowing and anchors don't change, and a frame never waits for a decode. Images whose size isn't known yet (no dimensions in the pointer, not downloaded) show only their line until the download reads the header.
+- **Cache:** decoded and encoded images live in the app loop, not in `State` (they're rendering resources, not facts). They are keyed by file and box, capped at 32, emptied on protocol change and `Ctrl+L`.
+- **Overlays:** kitty, sixel and iTerm2 images give way to placeholders while a popup or the palette is open. Without that, the terminal-side image shows through or leaves holes, and kitty's upload (carried once, in the first cell) could be overwritten in the frame that carries it. Half-blocks are ordinary cells and stay.
+- **Frames (D55):** `emoji::finish` skips image cells. Half-block images go through the `tools/frames` replay like any text. The graphics protocols can't be replayed in tmux, so the owner checks them by eye (MANUAL_TESTS M9).
+
+### D79. Stickers are drawn as images — Judgement (2026-10-08, M9)
+
+- The sticker's `AttachmentPointer` (WebP) becomes an ordinary attachment without a file name, so it downloads, caches and draws like a photo. It is at most 8 rows tall. Animated stickers show their first frame.
+- The body stays `[sticker] 😀`, so copying, reply quotes, notifications and terminals without images still say what it was.
