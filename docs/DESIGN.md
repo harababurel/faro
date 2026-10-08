@@ -204,6 +204,7 @@ presage keeps its own store for keys, sessions and protocol state; faro never to
 - Unread marker line; date separators.
 - Links are detected and openable; attachments show name/size and open in the system viewer.
 - **As built in M4 task 9 (D45):** bubbles are the default (palette: "Use the IRC layout" / "Use the bubbles layout", remembered in `app_state` until M5). Bubbles size to their text, at most 75% of the pane, with 1 cell of padding on `bubbleOwn`/`bubbleOther`; others left, own right; time, `edited` and delivery glyph at the bottom right inside the bubble; reactions under it; names above others' first bubble of a run in groups only; one blank line between bubbles. No `compact` toggle yet.
+- **As built (D56):** rounded corners by default: a half-block edge above (`▗▄▄▄▖`) and below (`▝▀▀▀▘`) each bubble in its colour, and no blank line between bubbles (the two half rows make the gap). `[messages] bubble_corners = "square"` gives plain boxes with the blank line; the `system` theme is always square. A selected bubble is a plain tinted block (its edges are blanked).
 - **Emoji:** rendered as-is. Widths are computed with grapheme clustering; a setting replaces problematic sequences (ZWJ families, flags, skin tones) with a fallback where terminals disagree. Emoji picker with `:shortcode:` fuzzy search.
 - **As built in M4.5 (D47):** `--emoji auto|full|compatible` (config setting in M5). Compatible mode drops VS16, ZWJ, keycaps, skin tones and tags from graphemes that terminals adding up code points (mosh) measure differently (❤️ → ❤, 👨‍👩‍👧‍👦 → 👨👩👧👦); auto picks it when a mosh client is attached. A lone regional indicator is drawn as its letter in every mode. Copy keeps the original text. `Ctrl+L` repaints the screen.
 - **As built after D55:** in every mode, two flags side by side get a space between them (tmux would join them into one cell), graphemes starting with a joiner or modifier or ending with a ZWJ lose those, and skin tones on bases tmux 3.6 doesn't join (🫶🏽, 🏃🏽) are dropped; emoji tmux always draws two cells wide (☝ ✌ ✍ 🖐…) always get VS16. Compatible mode also draws flags as their letters (🇷🇴 → RO), and those emoji as a near equivalent (✌ → ☮, ☝ → 👆).
@@ -290,6 +291,7 @@ Sketch:
 
 [messages]
 # layout = "bubbles"        # "bubbles" | "irc"
+# bubble_corners = "rounded" # "rounded" | "square"
 # density = "comfortable"   # "comfortable" | "compact"
 # timestamps = "relative"   # "relative" | "absolute" | "off"
 

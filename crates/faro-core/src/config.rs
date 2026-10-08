@@ -73,6 +73,17 @@ impl MessageLayout {
 }
 
 choice! {
+    /// The corners of message bubbles (D56).
+    BubbleCorners {
+        /// Half-block edges above and below each bubble: ▗▄▄▖ … ▝▀▀▘.
+        #[default]
+        Rounded = "rounded",
+        /// Plain boxes.
+        Square = "square",
+    }
+}
+
+choice! {
     /// How emoji are drawn (D47): `auto` is compatible when mosh is in the way.
     EmojiChoice {
         #[default]
@@ -146,6 +157,7 @@ pub struct Conversations {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Messages {
     pub layout: MessageLayout,
+    pub bubble_corners: BubbleCorners,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -200,6 +212,7 @@ pub mod key {
     pub const COLORS: &str = "ui.colors";
     pub const ALLOWLIST: &str = "conversations.allowlist";
     pub const LAYOUT: &str = "messages.layout";
+    pub const BUBBLE_CORNERS: &str = "messages.bubble_corners";
     pub const MOUSE: &str = "mouse.enabled";
     pub const BELL: &str = "notifications.bell";
     pub const TITLE: &str = "notifications.title";
@@ -329,6 +342,16 @@ pub static SETTINGS: &[Setting] = &[
         get: |c| text(c.messages.layout),
         set: |c, v| {
             c.messages.layout = choice(v)?;
+            Ok(())
+        },
+    },
+    Setting {
+        path: key::BUBBLE_CORNERS,
+        help: "Bubble corners: \"rounded\" (half-block edges) or \"square\". The system \
+               theme always draws square ones.",
+        get: |c| text(c.messages.bubble_corners),
+        set: |c, v| {
+            c.messages.bubble_corners = choice(v)?;
             Ok(())
         },
     },

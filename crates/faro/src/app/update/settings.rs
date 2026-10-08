@@ -2,7 +2,7 @@
 //! whenever it changes, and settings changed in the app (palette `:`, the
 //! allowlist key) written back to it.
 
-use faro_core::config::{self, Config, EmojiChoice, Problem, Severity, key};
+use faro_core::config::{self, BubbleCorners, Config, EmojiChoice, Problem, Severity, key};
 
 use super::{check_terminal, curation};
 use crate::app::event::Effect;
@@ -178,6 +178,14 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
                 MessageLayout::Irc => "Using the IRC layout",
             }));
             save(state, key::LAYOUT)
+        }
+        SettingChoice::BubbleCorners(corners) => {
+            state.config.messages.bubble_corners = corners;
+            state.notice = Some(Notice::info(match corners {
+                BubbleCorners::Rounded => "Bubbles have rounded corners",
+                BubbleCorners::Square => "Bubbles have square corners",
+            }));
+            save(state, key::BUBBLE_CORNERS)
         }
         SettingChoice::Allowlist(on) => curation::set_allowlist_mode(state, on),
         SettingChoice::Emoji(emoji) => {

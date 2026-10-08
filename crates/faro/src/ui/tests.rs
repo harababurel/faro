@@ -584,6 +584,125 @@ fn bubbles_have_their_own_backgrounds_and_sides() {
     assert!(own_x > x + 20, "own bubble on the right ({own_x} vs {x})");
 }
 
+// --- Rounded bubble corners (D56) ---
+
+fn square(mut state: State) -> State {
+    state.config.messages.bubble_corners = faro_core::config::BubbleCorners::Square;
+    state
+}
+
+#[test]
+fn bubbles_with_square_corners() {
+    insta::assert_snapshot!(snapshot(&draw(&square(bubbles_state()), 100, 34)));
+}
+
+#[test]
+fn bubbles_with_square_corners_narrow() {
+    insta::assert_snapshot!(snapshot(&draw(&square(bubbles_state()), 60, 24)));
+}
+
+#[test]
+fn bubbles_very_narrow() {
+    insta::assert_snapshot!(snapshot(&draw(&bubbles_state(), 32, 18)));
+}
+
+/// The cell where `needle` starts on screen.
+fn find(buffer: &Buffer, needle: &str) -> (u16, u16) {
+    let text = snapshot(buffer);
+    let (row, line) = text
+        .lines()
+        .enumerate()
+        .find(|(_, l)| l.contains(needle))
+        .unwrap_or_else(|| panic!("{needle:?} not on screen"));
+    let byte = line.find(needle).unwrap();
+    let col = unicode_width::UnicodeWidthStr::width(&line[..byte]);
+    (u16::try_from(col).unwrap(), u16::try_from(row).unwrap())
+}
+
+#[test]
+fn rounded_bubbles_have_half_block_edges_in_their_colour() {
+    let theme = Theme::default();
+    let buffer = draw(&bubbles_state(), 100, 34);
+    // "On my way" is a one-line own bubble: its edges are just above and below.
+    let (x, y) = find(&buffer, "On my way");
+    let pane = buffer[(x, y - 1)].bg;
+    for (row, fill) in [(y - 1, "▄"), (y + 1, "▀")] {
+        let cell = &buffer[(x, row)];
+        assert_eq!(cell.symbol(), fill);
+        assert_eq!(cell.fg, theme.bubble_own);
+        assert_eq!(cell.bg, pane);
+        assert_ne!(cell.bg, theme.bubble_own);
+    }
+    // The corners sit above and below the padding cells.
+    let left = x - 1;
+    assert_eq!(buffer[(left, y - 1)].symbol(), "▗");
+    assert_eq!(buffer[(left, y + 1)].symbol(), "▝");
+    assert_eq!(buffer[(left, y)].bg, theme.bubble_own);
+    let right = (left..buffer.area.right())
+        .find(|&cx| buffer[(cx, y - 1)].symbol() == "▖")
+        .expect("top right corner");
+    assert_eq!(buffer[(right, y + 1)].symbol(), "▘");
+    assert_eq!(buffer[(right, y)].bg, theme.bubble_own);
+    assert_ne!(buffer[(right + 1, y)].bg, theme.bubble_own);
+    // Others' bubbles use their colour.
+    let (ox, oy) = find(&buffer, "Running 10 min late");
+    assert_eq!(buffer[(ox, oy - 1)].fg, theme.bubble_other);
+    assert_eq!(buffer[(ox, oy - 1)].symbol(), "▄");
+}
+
+#[test]
+fn rounded_bubbles_need_no_blank_line_between_them() {
+    let rounded = snapshot(&draw(&bubbles_state(), 100, 34));
+    let square = snapshot(&draw(&square(bubbles_state()), 100, 34));
+    // Square bubbles are separated by blank lines; rounded ones by their edges.
+    let between = |text: &str| {
+        let lines: Vec<&str> = text.lines().collect();
+        let (y, _) = lines
+            .iter()
+            .enumerate()
+            .find(|(_, l)| l.contains("On my way"))
+            .unwrap();
+        lines[y + 1].to_owned()
+    };
+    assert!(between(&rounded).contains('▀'));
+    assert!(!between(&square).contains(['▀', '▄']));
+    assert!(!square.contains(['▗', '▖', '▝', '▘']));
+}
+
+#[test]
+fn a_selected_rounded_bubble_is_a_clean_tinted_block() {
+    let theme = Theme::default();
+    let mut state = loaded_state();
+    state.layout = MessageLayout::Bubbles;
+    keys(&mut state, &[Up]);
+    let buffer = draw(&state, 100, 34);
+    let selected: Vec<u16> = (0..buffer.area.height)
+        .filter(|&y| (0..buffer.area.width).any(|x| buffer[(x, y)].symbol() == "▌"))
+        .collect();
+    assert!(
+        selected.len() >= 3,
+        "edges and text are selected: {selected:?}"
+    );
+    for y in selected {
+        for x in 0..buffer.area.width {
+            let cell = &buffer[(x, y)];
+            if cell.bg == theme.background_element {
+                assert!(
+                    !super::bubbles::EDGE_GLYPHS.contains(&cell.symbol()),
+                    "edge left at ({x}, {y})"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn the_system_theme_keeps_square_bubbles() {
+    let buffer = draw_with(&bubbles_state(), 100, 34, &Theme::system());
+    let text = snapshot(&buffer);
+    assert!(!text.contains(['▗', '▖', '▝', '▘', '▄', '▀']), "{text}");
+}
+
 // --- Emoji every terminal measures alike (M4.5, D47) ---
 
 fn compatible(mut state: State) -> State {

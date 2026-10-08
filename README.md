@@ -32,7 +32,7 @@ faro is an unofficial, independent project. It is not affiliated with, endorsed 
 ## What it does (today, with the mock)
 
 - Conversation list with pinning, muting (with durations), hiding, archiving and an allowlist mode
-- Two message layouts: **bubbles** (default) and **IRC**-style
+- Two message layouts: **bubbles** (default, with rounded or square corners) and **IRC**-style
 - Replies, reactions, copying a message (OSC 52, works over SSH), opening links
 - A command palette (`Ctrl+P`): chats, themes, settings, commands and key bindings as categories you open and fuzzy-search
 - Read receipts only for what you've actually seen (terminal focus + scrolled to the bottom), typing indicators

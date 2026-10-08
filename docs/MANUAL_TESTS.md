@@ -90,6 +90,21 @@ Terminal matrix (DESIGN §15): kitty, WezTerm, Ghostty, iTerm2, Alacritty, foot;
 - [ ] **Stale mosh clients:** `tmux list-clients -t faro`. If an old mosh client is listed while you're on ssh, faro stays in compatible mode. Detach it (`tmux detach-client -t <tty>`) and focus faro: it switches back to full emoji with a notice.
 - [ ] **Directly in kitty (no tmux):** `faro --mock` in a kitty window: flags and emoji look right and the borders are straight.
 
+## Rounded bubbles (D56)
+
+Run `faro --mock --config /tmp/faro-test.toml` (bubbles is the default layout).
+
+- [ ] **Fonts in kitty:** the half-block edges (`▗▄▄▖` above, `▝▀▀▘` below) meet the bubble's fill with no gap, seam or lighter line between them, and the corners read as rounded. Check with kitty's default font and at least two others (e.g. JetBrains Mono, Fira Code), and at a couple of font sizes.
+- [ ] **Under tmux:** the same in your usual tmux over ssh and through mosh; nothing shifts while scrolling past bubbles.
+- [ ] **Light and dark:** `faro-dark`, `faro-light` and one OpenCode theme (e.g. `nord`): the edges are in the bubble's colour on the pane background, both for your own and others' bubbles.
+- [ ] **No blank lines:** consecutive bubbles are separated by their edges alone; it still reads as separate bubbles. Say if you'd rather have a blank line back.
+- [ ] **`system` theme:** palette → `:` Appearance › Theme › system: bubbles are square with a blank line between them, as before.
+- [ ] **Selection:** select a message (`Tab` to the messages, `k`): the selected bubble is one clean tinted block (no edge glyphs left half-coloured).
+- [ ] **Reactions:** a message with reactions shows them under the bottom edge, outside the bubble.
+- [ ] **Palette:** `Ctrl+P` → `:` Appearance › Bubble corners › square: bubbles turn square at once and `bubble_corners = "square"` is written to the config; › rounded brings them back.
+- [ ] **Live edit:** set `bubble_corners = "square"` in the file and save: "Settings reloaded" and square bubbles.
+- [ ] **Narrow pane:** shrink the pane to about 40 columns: bubbles stay intact, edges as wide as the bubble.
+
 ## M5: configuration (D48)
 
 Use a scratch config to keep your real one clean: `faro --mock --config /tmp/faro-test.toml` (or try the real `~/.config/faro/config.toml`, which faro creates on first run).

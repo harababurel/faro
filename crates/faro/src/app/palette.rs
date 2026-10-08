@@ -7,7 +7,7 @@
 //! (`nucleo-matcher`): a few hundred short strings take well under a
 //! millisecond.
 
-use faro_core::config::{Choice as _, ColorChoice, EmojiChoice};
+use faro_core::config::{BubbleCorners, Choice as _, ColorChoice, EmojiChoice};
 use faro_core::domain::ConversationId;
 use faro_core::store::NotifyLevel;
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
@@ -65,6 +65,7 @@ pub enum Setting {
     Colors,
     Emoji,
     Layout,
+    BubbleCorners,
     Bell,
     Title,
     Allowlist,
@@ -130,6 +131,7 @@ impl Setting {
             Self::Colors => "Colours",
             Self::Emoji => "Emoji",
             Self::Layout => "Message layout",
+            Self::BubbleCorners => "Bubble corners",
             Self::Bell => "Bell",
             Self::Title => "Unread count in the window title",
             Self::Allowlist => "Allowlist mode",
@@ -159,6 +161,7 @@ pub enum PaletteCommand {
 pub enum SettingChoice {
     Colors(ColorChoice),
     Layout(MessageLayout),
+    BubbleCorners(BubbleCorners),
     Allowlist(bool),
     Emoji(EmojiChoice),
     Mouse(bool),
@@ -563,7 +566,12 @@ fn settings(state: &State) -> Vec<Item> {
 /// A group's settings, each with its current value on the right.
 fn group_settings(state: &State, group: SettingsGroup) -> Vec<Item> {
     let settings: &[Setting] = match group {
-        SettingsGroup::Appearance => &[Setting::Colors, Setting::Emoji, Setting::Layout],
+        SettingsGroup::Appearance => &[
+            Setting::Colors,
+            Setting::Emoji,
+            Setting::Layout,
+            Setting::BubbleCorners,
+        ],
         SettingsGroup::Notifications => &[Setting::Bell, Setting::Title],
         SettingsGroup::Conversations => &[Setting::Allowlist],
     };
@@ -651,6 +659,16 @@ fn values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)>
                     SettingChoice::Layout(*layout),
                     name.to_owned(),
                     state.layout == *layout,
+                )
+            })
+            .collect(),
+        Setting::BubbleCorners => BubbleCorners::ALL
+            .iter()
+            .map(|corners| {
+                (
+                    SettingChoice::BubbleCorners(*corners),
+                    corners.name().to_owned(),
+                    state.config.messages.bubble_corners == *corners,
                 )
             })
             .collect(),

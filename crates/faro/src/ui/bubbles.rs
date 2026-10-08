@@ -3,7 +3,15 @@
 //! groups the sender's name goes above the first bubble of a run; the time,
 //! `edited` and the delivery status sit at the bottom right of the bubble, and
 //! reactions just under it.
+//!
+//! With rounded corners (`[messages] bubble_corners`, D56) each bubble gets a
+//! half-row edge above and below, drawn with block elements in the bubble's
+//! colour on the pane's background: `▗▄▄▄▖` on top, `▝▀▀▀▘` underneath. The
+//! two half rows between bubbles make a full row of space, so there's no
+//! blank line between them. The `system` theme (no bubble fill) keeps square
+//! corners.
 
+use faro_core::config::BubbleCorners;
 use faro_core::domain::{ConversationId, Direction, Message};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
@@ -12,6 +20,7 @@ use super::View;
 use super::messages::{content, delivery, format_time, reactions};
 use super::text::{sanitize, truncate, width};
 use crate::app::state::State;
+use crate::theme::Theme;
 
 /// A bubble is at most this share of the pane, in percent…
 const MAX_SHARE: usize = 75;
@@ -19,6 +28,17 @@ const MAX_SHARE: usize = 75;
 const MIN_WIDTH: usize = 20;
 /// Cells between the text and the time when they share a line.
 const META_GAP: usize = 2;
+/// The edges of a rounded bubble: corners and fill, above and below.
+const TOP: [&str; 3] = ["▗", "▄", "▖"];
+const BOTTOM: [&str; 3] = ["▝", "▀", "▘"];
+/// Every glyph the edges use (the selection tint blanks them).
+pub(super) const EDGE_GLYPHS: [&str; 6] = [TOP[0], TOP[1], TOP[2], BOTTOM[0], BOTTOM[1], BOTTOM[2]];
+
+/// Whether bubbles are drawn with rounded edges: the setting, unless the
+/// theme leaves bubbles unfilled (`system`).
+pub(super) fn rounded(state: &State, theme: &Theme) -> bool {
+    state.config.messages.bubble_corners == BubbleCorners::Rounded && !theme.terminal_palette
+}
 
 /// Lay out `message` across a pane `pane` cells wide. `first`: it starts a
 /// run from its sender (not a continuation).
@@ -55,22 +75,30 @@ pub(super) fn render(
         view,
         max_inner,
     );
-    let bg = Style::new().bg(if own {
+    let colour = if own {
         theme.bubble_own
     } else {
         theme.bubble_other
-    });
+    };
+    let bg = Style::new().bg(colour);
     let margin = if own {
         pane.saturating_sub(inner + 2)
     } else {
         0
     };
+    let rounded = rounded(state, theme);
+    if rounded {
+        out.push(edge(margin, inner, TOP, colour));
+    }
     for spans in lines {
         let fill = inner.saturating_sub(spans_width(&spans));
         let mut line = vec![Span::raw(" ".repeat(margin)), Span::styled(" ", bg)];
         line.extend(spans.into_iter().map(|span| span.patch_style(bg)));
         line.push(Span::styled(" ".repeat(fill + 1), bg));
         out.push(Line::from(line));
+    }
+    if rounded {
+        out.push(edge(margin, inner, BOTTOM, colour));
     }
 
     if !message.reactions.is_empty() {
@@ -85,6 +113,24 @@ pub(super) fn render(
             Span::styled(text, theme.muted()),
         ]));
     }
+}
+
+/// A rounded bubble's top or bottom edge: `glyphs` are the left corner, the
+/// fill and the right corner, in the bubble's colour on the pane's.
+fn edge(
+    margin: usize,
+    inner: usize,
+    glyphs: [&str; 3],
+    colour: ratatui::style::Color,
+) -> Line<'static> {
+    let [left, fill, right] = glyphs;
+    Line::from(vec![
+        Span::raw(" ".repeat(margin)),
+        Span::styled(
+            format!("{left}{}{right}", fill.repeat(inner)),
+            Style::new().fg(colour),
+        ),
+    ])
 }
 
 /// Add the time (with `edited` and the delivery status) right-aligned on the

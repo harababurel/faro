@@ -10,7 +10,7 @@ use unicode_segmentation::UnicodeSegmentation as _;
 use unicode_width::UnicodeWidthStr as _;
 
 use super::text::{one_line, sanitize, truncate};
-use super::{View, focused, messages};
+use super::{View, bubbles, focused, messages};
 use crate::app::input::Input;
 use crate::app::state::{Focus, Geometry, OpenConversation, State};
 use faro_core::domain::MessageRef;
@@ -170,9 +170,26 @@ fn highlight(
             height: 1,
             ..area
         };
+        blank_bubble_edges(frame, line, view);
         frame.buffer_mut().set_style(line, tint);
         if let Some(cell) = frame.buffer_mut().cell_mut((line.x, line.y)) {
             cell.set_symbol("▌").set_style(bar);
+        }
+    }
+}
+
+/// The tint replaces a selected bubble's fill, so its rounded edges would
+/// float in the tinted row: blank them (edge cells are drawn on the pane's
+/// background, unlike text inside the bubble).
+fn blank_bubble_edges(frame: &mut Frame<'_>, line: Rect, view: &View<'_>) {
+    let fills = [view.theme.bubble_own, view.theme.bubble_other];
+    let buffer = frame.buffer_mut();
+    for x in line.left()..line.right() {
+        if let Some(cell) = buffer.cell_mut((x, line.y))
+            && bubbles::EDGE_GLYPHS.contains(&cell.symbol())
+            && !fills.contains(&cell.bg)
+        {
+            cell.set_symbol(" ");
         }
     }
 }
