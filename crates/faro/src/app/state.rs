@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use faro_core::backend::BackendEvent;
-use faro_core::config::{ColorChoice, Config};
+use faro_core::config::{BubbleStyle, ColorChoice, Config};
 use faro_core::domain::{
     ConnectionState, Contact, ConversationId, Direction, Group, GroupId, Message, MessageRef,
     Quote, ServiceId, Timestamp,
@@ -16,7 +16,7 @@ use tokio::time::Instant;
 
 use super::input::Input;
 use super::keymap::Keymap;
-use super::palette::{Palette, PaletteCommand};
+use super::palette::{Palette, PaletteCommand, SettingChoice};
 use crate::theme::{ColorDepth, UserThemes};
 
 /// Signal clients stop showing a typing indicator after this long without an update.
@@ -640,18 +640,45 @@ impl State {
     pub fn theme_name(&self) -> &str {
         self.palette
             .as_ref()
-            .and_then(|p| p.preview.as_deref())
+            .and_then(Palette::previewed_theme)
             .unwrap_or(&self.config.theme)
     }
 
-    /// The colours to draw with: the config's `ui.colors`, or what was
-    /// detected (D50).
-    pub const fn colors(&self) -> ColorDepth {
-        match self.config.ui.colors {
+    /// The setting value being tried on in the palette (D59).
+    fn previewed(&self) -> Option<SettingChoice> {
+        self.palette.as_ref().and_then(Palette::previewed_setting)
+    }
+
+    /// The colours to draw with: the config's `ui.colors` (or the value
+    /// being previewed, D59), or what was detected (D50).
+    pub fn colors(&self) -> ColorDepth {
+        let choice = match self.previewed() {
+            Some(SettingChoice::Colors(colors)) => colors,
+            Some(_) | None => self.config.ui.colors,
+        };
+        match choice {
             ColorChoice::Auto => self.env.colors,
             ColorChoice::Truecolor => ColorDepth::Truecolor,
             ColorChoice::Colors256 => ColorDepth::Indexed256,
             ColorChoice::Colors16 => ColorDepth::Ansi16,
+        }
+    }
+
+    /// The message layout to draw: the one being previewed (D59), else the
+    /// one in use.
+    pub fn message_layout(&self) -> MessageLayout {
+        match self.previewed() {
+            Some(SettingChoice::Layout(layout)) => layout,
+            Some(_) | None => self.layout,
+        }
+    }
+
+    /// The bubble style to draw: the one being previewed (D59), else the
+    /// config's.
+    pub fn bubble_style(&self) -> BubbleStyle {
+        match self.previewed() {
+            Some(SettingChoice::BubbleStyle(style)) => style,
+            Some(_) | None => self.config.messages.bubble_style,
         }
     }
 

@@ -65,7 +65,7 @@ pub(super) fn shape(state: &State, theme: &Theme) -> Shape {
     if theme.terminal_palette {
         return Shape::Bar;
     }
-    match state.config.messages.bubble_style {
+    match state.bubble_style() {
         BubbleStyle::Rounded => Shape::Rounded,
         BubbleStyle::Auto if state.env.glyphs == BlockGlyphs::Native => Shape::Rounded,
         BubbleStyle::Auto | BubbleStyle::Bar => Shape::Bar,

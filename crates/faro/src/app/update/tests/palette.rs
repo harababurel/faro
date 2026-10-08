@@ -1,7 +1,7 @@
 //! The command palette (M4 task 8, D44).
 
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
-use faro_core::config::{ColorChoice, ConfigValue, EmojiChoice, SettingEdit, key};
+use faro_core::config::{BubbleStyle, ColorChoice, ConfigValue, EmojiChoice, SettingEdit, key};
 use faro_core::store::ConversationState;
 use ratatui::layout::Rect;
 
@@ -650,6 +650,9 @@ fn the_layout_switches_from_the_palette_and_is_saved() {
             ("IRC".to_owned(), Some(true)),
         ]
     );
+    // It opens on the value in use (D59).
+    assert_eq!(selected_title(&state), "IRC");
+    press(&mut state, KeyCode::Up);
     let effects = enter(&mut state);
     assert_eq!(state.layout, MessageLayout::Bubbles);
     assert_eq!(
@@ -791,4 +794,72 @@ fn moving_through_themes_previews_them() {
     palette_open(&mut state, "themes");
     enter(&mut state);
     assert_eq!(selected_title(&state), "tokyonight");
+}
+
+#[test]
+fn moving_through_a_visual_setting_previews_its_values() {
+    let mut state = loaded_state();
+    assert_eq!(state.config.messages.bubble_style, BubbleStyle::Auto);
+    palette_open(&mut state, ":bubble");
+    enter(&mut state);
+    assert_eq!(breadcrumb(&state), "Settings › Bubble style");
+    // It starts on the value in use: nothing changes yet.
+    assert_eq!(selected_title(&state), "auto");
+    assert_eq!(state.bubble_style(), BubbleStyle::Auto);
+    press(&mut state, KeyCode::Down);
+    assert_eq!(state.bubble_style(), BubbleStyle::Rounded, "previewed");
+    assert_eq!(
+        state.config.messages.bubble_style,
+        BubbleStyle::Auto,
+        "not chosen yet"
+    );
+    // Esc puts the value in use back, unsaved.
+    press(&mut state, KeyCode::Esc);
+    assert_eq!(state.bubble_style(), BubbleStyle::Auto);
+    // So does going back up to the settings list.
+    palette_open(&mut state, ":bubble");
+    enter(&mut state);
+    typed(&mut state, "bar");
+    assert_eq!(state.bubble_style(), BubbleStyle::Bar);
+    update(&mut state, ctrl('u'));
+    press(&mut state, KeyCode::Backspace);
+    assert_eq!(breadcrumb(&state), "Settings");
+    assert_eq!(state.bubble_style(), BubbleStyle::Auto);
+    // Enter keeps it, saves it and closes.
+    enter(&mut state);
+    let effects = pick(&mut state, "bar");
+    assert!(state.palette.is_none());
+    assert_eq!(state.config.messages.bubble_style, BubbleStyle::Bar);
+    assert_eq!(state.bubble_style(), BubbleStyle::Bar);
+    assert_eq!(
+        effects,
+        vec![saved(key::BUBBLE_STYLE, ConfigValue::Text("bar".into()))]
+    );
+
+    // The layout and the colours preview the same way.
+    palette_open(&mut state, ":layout");
+    enter(&mut state);
+    assert_eq!(state.layout, MessageLayout::Irc, "the fixtures' layout");
+    assert_eq!(state.message_layout(), MessageLayout::Irc);
+    typed(&mut state, "bubbles");
+    assert_eq!(state.message_layout(), MessageLayout::Bubbles);
+    assert_eq!(state.layout, MessageLayout::Irc, "not chosen yet");
+    press(&mut state, KeyCode::Esc);
+    assert_eq!(state.message_layout(), MessageLayout::Irc);
+    palette_open(&mut state, ":colours");
+    enter(&mut state);
+    typed(&mut state, "16");
+    assert_eq!(state.colors(), ColorDepth::Ansi16);
+    press(&mut state, KeyCode::Esc);
+    assert_eq!(state.colors(), state.env.colors);
+}
+
+#[test]
+fn emoji_values_are_not_previewed() {
+    let mut state = loaded_state();
+    palette_open(&mut state, ":emoji");
+    enter(&mut state);
+    typed(&mut state, "compatible");
+    assert_eq!(selected_title(&state), "compatible");
+    assert_eq!(state.palette.as_ref().unwrap().preview, None);
 }

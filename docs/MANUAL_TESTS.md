@@ -118,6 +118,13 @@ Run `faro --mock --config /tmp/faro-test.toml` (bubbles is the default layout). 
 - [ ] **Old setting:** a config with `bubble_corners = "square"` (from D56) draws bars and the footer says to write `bubble_style = "bar"`.
 - [ ] **Narrow pane:** shrink the pane to about 40 columns: bubbles stay intact in both styles, edges as wide as the bubble.
 
+## Setting previews (D59)
+
+- [ ] **Bubble style:** `Ctrl+P`, `:bubble`, `Enter`: the list opens on the style in use and nothing changes. `↓`/`↑` redraw the bubbles behind the palette in each style straight away; `Esc` puts the old style back and the config file is unchanged; `Enter` keeps the selected one, closes the palette and writes `bubble_style`.
+- [ ] **Layout and colours:** the same with `:layout` (bubbles ↔ IRC behind the palette) and `:colours` (256 and 16 visibly change the colours; 16 draws `system`). `←` back to the settings list also puts the value in use back.
+- [ ] **Footer:** in those lists (and in Themes) the footer says `↑↓ preview · enter use it · ← back · esc cancel`.
+- [ ] **No flicker or leftovers:** move quickly through the values a few times: no stray characters or misaligned borders after each redraw (if any, say which setting).
+
 ## M5: configuration (D48)
 
 Use a scratch config to keep your real one clean: `faro --mock --config /tmp/faro-test.toml` (or try the real `~/.config/faro/config.toml`, which faro creates on first run).

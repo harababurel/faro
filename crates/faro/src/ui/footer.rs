@@ -93,8 +93,9 @@ const SETTINGS_HINTS: &[(&str, &str)] = &[
     ("←", "back"),
     ("esc", "close"),
 ];
-/// Moving through themes tries each on (D54); esc puts the old one back.
-const THEME_HINTS: &[(&str, &str)] = &[
+/// Moving through themes, or the values of a setting that changes how things
+/// look, tries each on (D54, D59); esc puts the old one back.
+const PREVIEW_HINTS: &[(&str, &str)] = &[
     ("↑↓", "preview"),
     ("enter", "use it"),
     ("←", "back"),
@@ -180,7 +181,8 @@ fn hints(state: &State, geometry: &Geometry) -> Vec<(String, &'static str)> {
     if let Some(palette) = &state.palette {
         return fixed(match palette.level() {
             Level::Root => PALETTE_HINTS,
-            Level::Themes => THEME_HINTS,
+            Level::Themes => PREVIEW_HINTS,
+            Level::Setting(setting) if setting.previews() => PREVIEW_HINTS,
             Level::Settings => SETTINGS_HINTS,
             Level::Chats | Level::Setting(_) | Level::Commands | Level::Keys => PALETTE_LEVEL_HINTS,
         });

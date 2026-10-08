@@ -169,6 +169,24 @@ impl Setting {
             Self::Colors | Self::Emoji | Self::Layout | Self::BubbleStyle => false,
         }
     }
+
+    /// Whether moving through its values draws each one before it's chosen
+    /// (D59): the ones that only change how things are drawn. Emoji isn't
+    /// one: switching modes repaints everything and `auto` waits for a look
+    /// at the terminal.
+    pub const fn previews(self) -> bool {
+        match self {
+            Self::Colors | Self::Layout | Self::BubbleStyle => true,
+            Self::Emoji | Self::Bell | Self::Title | Self::Allowlist | Self::Mouse => false,
+        }
+    }
+}
+
+/// What the palette tries on while it's open (D54, D59).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Preview {
+    Theme(String),
+    Setting(SettingChoice),
 }
 
 /// What a command item does.
@@ -283,9 +301,10 @@ pub struct Palette {
     pub selected: usize,
     /// First result shown (the renderer keeps `selected` in view).
     pub offset: usize,
-    /// The theme drawn while the palette is open: the one selected at the
-    /// Themes level, tried on before it's chosen (D54).
-    pub preview: Option<String>,
+    /// What's drawn while the palette is open: the theme selected at the
+    /// Themes level (D54) or the value selected at a setting that changes
+    /// how things look (D59), tried on before it's chosen.
+    pub preview: Option<Preview>,
     /// A line above the results about the level (the colour depth at
     /// Themes, D57).
     pub note: Option<String>,
@@ -364,12 +383,33 @@ impl Palette {
         self.sync_preview();
     }
 
-    /// At the Themes level, preview the selected theme; elsewhere, none.
+    /// At the Themes level, preview the selected theme; at a setting that
+    /// changes how things look, the selected value (D59); elsewhere, none.
     fn sync_preview(&mut self) {
-        self.preview = match self.selected_item().map(|item| &item.kind) {
-            Some(ItemKind::Theme(name)) if self.level() == Level::Themes => Some(name.clone()),
-            Some(_) | None => None,
+        let selected = self.selected_item().map(|item| &item.kind);
+        self.preview = match (self.level(), selected) {
+            (Level::Themes, Some(ItemKind::Theme(name))) => Some(Preview::Theme(name.clone())),
+            (Level::Setting(setting), Some(ItemKind::Setting(choice))) if setting.previews() => {
+                Some(Preview::Setting(*choice))
+            }
+            (_, Some(_) | None) => None,
         };
+    }
+
+    /// The theme being tried on.
+    pub fn previewed_theme(&self) -> Option<&str> {
+        match &self.preview {
+            Some(Preview::Theme(name)) => Some(name),
+            Some(Preview::Setting(_)) | None => None,
+        }
+    }
+
+    /// The setting value being tried on.
+    pub const fn previewed_setting(&self) -> Option<SettingChoice> {
+        match &self.preview {
+            Some(Preview::Setting(choice)) => Some(*choice),
+            Some(Preview::Theme(_)) | None => None,
+        }
     }
 
     pub fn selected_item(&self) -> Option<&Item> {

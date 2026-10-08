@@ -265,7 +265,7 @@ fn block(context: &Context<'_>, i: usize) -> Block {
                     .saturating_sub(p.sent_at.as_millis())
                     < GROUPING_MS
         });
-    let rules = match state.layout {
+    let rules = match state.message_layout() {
         MessageLayout::Irc => {
             let rules = block.len();
             render_message(state, message, !continued, columns, view, &mut block);
