@@ -2,7 +2,7 @@
 
 A terminal client for [Signal](https://signal.org), built for people who live in tmux.
 
-> **Status: pre-release.** The interface is usable against a built-in **mock backend** (fake contacts and messages). The real Signal backend (via [presage](https://github.com/whisperfish/presage)) is being tested: for now it only runs with an allowlist of who faro may talk to. See the [plan](docs/PLAN.md) for progress.
+> **Status: pre-release.** The interface is usable against a built-in **mock backend** (fake contacts and messages). The real Signal backend (via [presage](https://github.com/whisperfish/presage)) is being tested: it runs either with an allowlist of who faro may talk to, or with `--no-allowlist`. See the [plan](docs/PLAN.md) for progress.
 
 faro is an unofficial, independent project. It is not affiliated with, endorsed by, or supported by Signal Messenger LLC or the Signal Technology Foundation.
 
@@ -75,6 +75,7 @@ With a real account (while testing):
 faro link                                  # shows a QR code: scan it in Signal › Settings › Linked devices
 faro ids --username alice.42               # prints the IDs for an allowlist file
 faro --allowlist ~/faro-allowlist.toml     # faro only talks to the people and groups listed
+faro --no-allowlist                        # or: talk to everyone, like any Signal client
 ```
 
 | Flag | Environment | What |
@@ -86,7 +87,8 @@ faro --allowlist ~/faro-allowlist.toml     # faro only talks to the people and g
 | `--mock-activity MS` | `FARO_MOCK_ACTIVITY` | Mean time between mock events (default 4000; small values flood the UI) |
 | `--mock-no-faults` | `FARO_MOCK_NO_FAULTS` | No scripted outages or send failures |
 | `--emoji auto\|full\|compatible` | `FARO_EMOJI` | How to draw emoji (see [mosh](#mosh)); overrides the config |
-| `--allowlist FILE` | `FARO_ALLOWLIST` | Talk only to the people and groups in FILE; drop everything else (required with a real account while testing) |
+| `--allowlist FILE` | `FARO_ALLOWLIST` | Talk only to the people and groups in FILE; drop everything else |
+| `--no-allowlist` | | Talk to everyone (your own account); one of the two is required with a real account |
 | `faro link [--device-name NAME]` | | Link this computer to your Signal account (QR code) |
 | `faro ids [--username NAME]…` | | Print this account's, usernames' and groups' IDs for an allowlist |
 

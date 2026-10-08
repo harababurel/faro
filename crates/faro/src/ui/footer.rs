@@ -71,6 +71,8 @@ const MESSAGE_HINTS: Hints = &[
 /// bell-with-a-slash emoji is drawn 1 or 2 cells wide depending on the
 /// terminal).
 const BELL_OFF: &str = "bell off";
+/// Shown after the connection status without an allowlist (D67).
+const UNGUARDED: &str = "no allowlist";
 /// Popups and the palette have fixed keys (D43).
 const PALETTE_HINTS: &[(&str, &str)] = &[
     ("↑↓", "choose"),
@@ -137,6 +139,10 @@ pub fn render(
         Span::styled(glyph, Style::new().fg(colour)),
         Span::styled(format!(" {label}"), theme.muted()),
     ];
+    if state.guard == crate::app::state::Guard::Off {
+        left.push(Span::styled(" · ", theme.muted()));
+        left.push(Span::styled(UNGUARDED, theme.muted()));
+    }
     if !state.config.notifications.bell {
         // Do not disturb (D53): say so while it lasts.
         left.push(Span::styled(" · ", theme.muted()));

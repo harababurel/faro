@@ -560,6 +560,20 @@ fn do_not_disturb_shows_in_the_footer() {
     assert_eq!(buffer[(x, 13)].fg, theme.warning);
 }
 
+#[test]
+fn running_without_an_allowlist_shows_in_the_footer() {
+    let mut state = loaded_state();
+    let text = snapshot(&draw(&state, 100, 14));
+    assert!(!text.contains("no allowlist"), "{text}");
+    state.guard = crate::app::state::Guard::Off;
+    let text = snapshot(&draw(&state, 100, 14));
+    let footer = text.lines().last().unwrap();
+    assert!(
+        footer.starts_with(" ● connected · no allowlist · 1 unread"),
+        "{footer}"
+    );
+}
+
 // --- Bubbles layout (M4 task 9, D45) ---
 
 fn bubbles_state() -> State {

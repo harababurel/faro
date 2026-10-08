@@ -43,6 +43,8 @@ pub struct Directory {
     pub groups: Vec<Group>,
     /// Names the user gave people (D65), from the store.
     pub nicknames: HashMap<ServiceId, String>,
+    /// A real account with no allowlist guard (D67).
+    pub unguarded: bool,
 }
 
 /// Read the account, contacts and groups from the backend (local data, no
@@ -86,7 +88,18 @@ pub async fn load_directory<B: Backend>(backend: &B, store: &Store) -> anyhow::R
         contacts,
         groups,
         nicknames,
+        unguarded: false,
     })
+}
+
+/// The state before anything else is known: who we are and who we know.
+fn initial_state(directory: Directory) -> State {
+    let mut state = State::new(directory.me, directory.contacts, directory.groups)
+        .with_nicknames(directory.nicknames);
+    if directory.unguarded {
+        state.guard = state::Guard::Off;
+    }
+    state
 }
 
 /// Run the TUI until the user quits or faro is told to stop. Must run inside a
@@ -123,8 +136,7 @@ pub async fn run<B: Backend + 'static>(
     };
     let dispatch = |list: Vec<Effect>| router.dispatch(list);
 
-    let mut state = State::new(directory.me, directory.contacts, directory.groups)
-        .with_nicknames(directory.nicknames);
+    let mut state = initial_state(directory);
     sense_terminal(&mut state, detected);
     // Before the config: its theme may be one of them.
     for problem in state.user_themes.load(theme_files) {

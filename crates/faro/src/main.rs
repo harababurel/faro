@@ -64,12 +64,12 @@ fn main() -> anyhow::Result<()> {
         }
         None => {}
     }
-    // While faro is tested on a real account, the Signal backend only runs
-    // behind the allowlist guard (D62).
-    if !cli.mock && allowlist.is_none() {
+    // The Signal backend runs behind the allowlist guard (D62) unless the
+    // user says otherwise, every time (D67).
+    if !cli.mock && allowlist.is_none() && !cli.no_allowlist {
         anyhow::bail!(
-            "the Signal backend needs --allowlist FILE while faro is being tested \
-             (`faro ids` prints the IDs for it); use --mock to try faro without an account"
+            "the Signal backend needs --allowlist FILE (`faro ids` prints the IDs for it), \
+             or --no-allowlist to talk to everyone; use --mock to try faro without an account"
         );
     }
     let mock = MockConfig {
@@ -111,16 +111,20 @@ fn main() -> anyhow::Result<()> {
             match allowlist {
                 Some(list) => {
                     let (backend, events) = guard::guard(backend, events, list);
-                    serve(backend, events, &store, tz, detected, startup).await
+                    serve(backend, events, &store, tz, detected, startup, false).await
                 }
-                None => serve(backend, events, &store, tz, detected, startup).await,
+                None => serve(backend, events, &store, tz, detected, startup, false).await,
             }
         } else {
             tracing::info!("starting the Signal backend");
             let (backend, events) = signal::start(&data_dir).await?;
-            let list = allowlist.context("the Signal backend needs --allowlist")?;
-            let (backend, events) = guard::guard(backend, events, list);
-            Box::pin(serve(backend, events, &store, tz, detected, startup)).await
+            if let Some(list) = allowlist {
+                let (backend, events) = guard::guard(backend, events, list);
+                Box::pin(serve(backend, events, &store, tz, detected, startup, false)).await
+            } else {
+                tracing::warn!("no allowlist: faro talks to everyone (D67)");
+                Box::pin(serve(backend, events, &store, tz, detected, startup, true)).await
+            }
         };
         store.close().await.context("closing the database")?;
         tracing::info!("faro exiting");
@@ -136,8 +140,10 @@ async fn serve<B: Backend + 'static>(
     tz: jiff::tz::TimeZone,
     detected: app::state::Detected,
     startup: config::Startup,
+    unguarded: bool,
 ) -> anyhow::Result<()> {
-    let directory = app::load_directory(&backend, store).await?;
+    let mut directory = app::load_directory(&backend, store).await?;
+    directory.unguarded = unguarded;
     app::run(
         backend,
         events,

@@ -206,6 +206,8 @@ Switch with the palette (`Ctrl+P` › Themes) or `theme = "…"` in the config; 
 
 ## M7: the Signal backend (D63)
 
+- [ ] `--no-allowlist` (D67), on your own account: faro starts, the footer says `no allowlist`, and every chat shows up as messages arrive. Without either flag faro refuses and names both.
+
 Use a separate data dir for the test account, e.g. `--data-dir ~/.local/share/faro-test`.
 
 - [ ] `faro link --data-dir …` shows a QR code that the phone scans at once (Signal › Settings › Linked devices › Link new device). The phone lists "faro (<host>)". faro prints the account's ID.

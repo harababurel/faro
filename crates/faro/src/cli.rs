@@ -70,6 +70,12 @@ pub struct Cli {
     /// account. faro won't start if the file can't be read.
     #[arg(long, env = "FARO_ALLOWLIST", value_name = "FILE")]
     pub allowlist: Option<PathBuf>,
+
+    /// Run the Signal backend without an allowlist: faro talks to everyone,
+    /// like any Signal client (D67). For your own account; never implied,
+    /// so it has to be typed each time (no environment variable).
+    #[arg(long, conflicts_with = "allowlist")]
+    pub no_allowlist: bool,
 }
 
 /// Things to do instead of running the TUI.
@@ -165,5 +171,18 @@ mod tests {
         let cli = Cli::try_parse_from(["faro", "--emoji", "compatible"]).unwrap();
         assert_eq!(cli.emoji, Some(EmojiChoice::Compatible));
         assert!(Cli::try_parse_from(["faro", "--emoji", "fancy"]).is_err());
+    }
+
+    #[test]
+    fn no_allowlist_is_explicit_and_excludes_an_allowlist() {
+        assert!(!Cli::try_parse_from(["faro"]).unwrap().no_allowlist);
+        assert!(
+            Cli::try_parse_from(["faro", "--no-allowlist"])
+                .unwrap()
+                .no_allowlist
+        );
+        assert!(
+            Cli::try_parse_from(["faro", "--no-allowlist", "--allowlist", "/tmp/a.toml"]).is_err()
+        );
     }
 }

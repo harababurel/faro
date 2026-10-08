@@ -577,3 +577,10 @@ Refines the DESIGN.md §5.1 sketch:
 
 - `[messages] bubble_style = "mixed"` (and `Settings › Bubble style › mixed`): the bar style's `┃` on the bubble's outer side (own: right, theme primary; others: left, sender's colour), and the rounded style on the inner side (a Powerline half circle on one-line bubbles; on taller ones the edge rows' diagonal corner). On the bar's side the edge rows end square (their fill glyph), and the bar runs down the text rows only.
 - Like `rounded`, it's an explicit choice: drawn whatever the terminal (no kitty check; `auto` still picks only rounded or bar). The `system` theme still always draws bars. Selection blanks the edges as in the rounded style.
+
+### D67. `--no-allowlist` for the owner's own account — Accepted (owner, 2026-10-08)
+
+- **Why:** the owner wants to use faro day to day on their personal account (on the Mac mini), where the D62 safeguards aren't wanted.
+- `faro --no-allowlist` runs the Signal backend without the guard: faro talks to everyone, like any Signal client. It must be typed every time: no environment variable or config key, and it can't be combined with `--allowlist`. Without either flag the Signal backend still refuses to start, and the error names both.
+- faro logs a warning at startup, and the footer shows a muted `no allowlist` after the connection status.
+- The test account keeps running with `--allowlist` as before (D62); its data dir stays separate.

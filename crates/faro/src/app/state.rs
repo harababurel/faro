@@ -97,6 +97,9 @@ pub struct State {
     /// Ctrl+C was pressed once; a second press quits.
     pub quit_armed: bool,
     pub quit: bool,
+    /// Off for a real account with no allowlist guard (`--no-allowlist`,
+    /// D67); the footer says so.
+    pub guard: Guard,
 }
 
 #[derive(Debug)]
@@ -437,6 +440,15 @@ pub struct Panels {
 /// How messages are laid out (DESIGN.md §7.3, D45); a setting since M5.
 pub use faro_core::config::MessageLayout;
 
+/// Whether a real account runs behind the allowlist guard (D62, D67). The
+/// mock counts as `On`: there's nobody real to talk to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Guard {
+    #[default]
+    On,
+    Off,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Notice {
     pub text: String,
@@ -527,6 +539,7 @@ impl State {
             last_bell: None,
             quit_armed: false,
             quit: false,
+            guard: Guard::On,
         };
         state.recount_names();
         state
