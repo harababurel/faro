@@ -72,7 +72,7 @@ pub async fn run<B: Backend + 'static>(
     store: Store,
     directory: Directory,
     tz: jiff::tz::TimeZone,
-    emoji: state::EmojiSetting,
+    detected: state::Detected,
     startup: Startup,
 ) -> anyhow::Result<()> {
     let Startup {
@@ -100,7 +100,8 @@ pub async fn run<B: Backend + 'static>(
 
     let mut state = State::new(directory.me, directory.contacts, directory.groups);
     state.env.over_ssh = system::over_ssh();
-    state.env.emoji = emoji;
+    state.env.emoji = detected.emoji;
+    state.env.glyphs = detected.glyphs;
     state.env.colors = ColorDepth::detect(|var| std::env::var(var).ok());
     tracing::info!(colors = ?state.env.colors, "colour depth detected");
     // Before the config: its theme may be one of them.

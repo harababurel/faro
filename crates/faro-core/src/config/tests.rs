@@ -117,6 +117,34 @@ fn a_missing_setting_goes_back_to_its_default() {
 }
 
 #[test]
+fn the_old_bubble_corners_setting_is_still_read_with_a_warning() {
+    let parsed = parse_fresh("[messages]\nbubble_corners = \"square\"\n");
+    assert_eq!(parsed.config.messages.bubble_style, BubbleStyle::Bar);
+    assert_eq!(
+        parsed.problems,
+        vec![Problem::warning(
+            "messages.bubble_corners is now messages.bubble_style: write bubble_style = \"bar\""
+        )]
+    );
+    let parsed = parse_fresh("[messages]\nbubble_corners = \"rounded\"\n");
+    assert_eq!(parsed.config.messages.bubble_style, BubbleStyle::Rounded);
+    // The new name wins.
+    let parsed =
+        parse_fresh("[messages]\nbubble_corners = \"square\"\nbubble_style = \"rounded\"\n");
+    assert_eq!(parsed.config.messages.bubble_style, BubbleStyle::Rounded);
+    assert_eq!(
+        parsed.problems,
+        vec![Problem::warning(
+            "messages.bubble_corners is replaced by messages.bubble_style; ignored (remove it)"
+        )]
+    );
+    let parsed = parse_fresh("[messages]\nbubble_corners = \"oval\"\n");
+    assert_eq!(parsed.config.messages.bubble_style, BubbleStyle::Auto);
+    assert_eq!(parsed.problems.len(), 1);
+    assert_eq!(parsed.problems[0].severity, Severity::Error);
+}
+
+#[test]
 fn a_broken_file_keeps_the_whole_previous_config() {
     let mut previous = Config::default();
     previous.mouse.enabled = false;

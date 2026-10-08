@@ -4,6 +4,7 @@
 
 use crossterm::event::Event;
 use faro_core::backend::BackendEvent;
+use faro_core::config::BubbleStyle;
 use faro_core::domain::{
     ConversationId, Direction, Message, MessageBody, MessageRef, ServiceId, TypingState,
 };
@@ -19,6 +20,7 @@ use super::state::{
     DRAFT_SAVE_DELAY, EmojiMode, Focus, Geometry, Notice, OpenConversation, Popup, SidebarScroll,
     State, TYPING_TIMEOUT, Typist, sort_conversations,
 };
+use super::system::Terminal;
 use super::timeline;
 
 mod curation;
@@ -64,8 +66,8 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
             previous,
             result,
         } => selection::on_react_result(state, conversation, target, previous, result),
-        AppEvent::TerminalChecked { mosh } => {
-            terminal_checked(state, mosh);
+        AppEvent::TerminalChecked(terminal) => {
+            terminal_checked(state, terminal);
             vec![]
         }
         AppEvent::OpenFailed(error) => {
@@ -503,19 +505,24 @@ mod tests;
 /// Don't look for mosh more often than this (resizes come in bursts).
 const TERMINAL_RECHECK: Duration = Duration::from_secs(2);
 
-/// Look for mosh again, if the emoji mode follows it (D47).
+/// Look at the terminal again, if the emoji mode follows mosh (D47) or the
+/// bubble style follows kitty (D58).
 fn check_terminal(state: &mut State) -> Vec<Effect> {
+    let follows = state.env.emoji.auto || state.config.messages.bubble_style == BubbleStyle::Auto;
     let emoji = &mut state.env.emoji;
     let now = Instant::now();
-    if !emoji.auto || emoji.checked_at.is_some_and(|t| now - t < TERMINAL_RECHECK) {
+    if !follows || emoji.checked_at.is_some_and(|t| now - t < TERMINAL_RECHECK) {
         return vec![];
     }
     emoji.checked_at = Some(now);
     vec![Effect::CheckTerminal]
 }
 
-/// Switch the emoji mode to match, redrawing everything if it changed.
-fn terminal_checked(state: &mut State, mosh: bool) {
+/// Switch the emoji mode to match, redrawing everything if it changed, and
+/// note who draws block glyphs (the next frame picks the bubble style).
+fn terminal_checked(state: &mut State, terminal: Terminal) {
+    let Terminal { mosh, glyphs } = terminal;
+    state.env.glyphs = glyphs;
     let emoji = &mut state.env.emoji;
     let mode = if mosh {
         EmojiMode::Compatible

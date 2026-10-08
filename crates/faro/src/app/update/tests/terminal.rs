@@ -1,9 +1,19 @@
-//! Emoji mode and terminal checks (D47): mosh detection, Ctrl+L.
+//! Terminal checks: emoji mode and mosh (D47), kitty for the bubble style
+//! (D58), Ctrl+L.
 
 use crossterm::event::Event;
 
 use super::*;
-use crate::app::state::{EmojiMode, EmojiSetting};
+use crate::app::state::{BlockGlyphs, EmojiMode, EmojiSetting};
+use crate::app::system::Terminal;
+use faro_core::config::BubbleStyle;
+
+fn checked(mosh: bool) -> AppEvent {
+    AppEvent::TerminalChecked(Terminal {
+        mosh,
+        glyphs: BlockGlyphs::Font,
+    })
+}
 
 fn auto(mode: EmojiMode) -> EmojiSetting {
     EmojiSetting {
@@ -19,7 +29,7 @@ fn finding_mosh_switches_to_compatible_and_back() {
     let mut state = loaded_state();
     state.env.emoji = auto(EmojiMode::Full);
 
-    update(&mut state, AppEvent::TerminalChecked { mosh: true });
+    update(&mut state, checked(true));
     assert_eq!(state.env.emoji.mode, EmojiMode::Compatible);
     assert!(state.env.repaint);
     assert_eq!(
@@ -29,11 +39,11 @@ fn finding_mosh_switches_to_compatible_and_back() {
 
     state.env.repaint = false;
     state.notice = None;
-    update(&mut state, AppEvent::TerminalChecked { mosh: true });
+    update(&mut state, checked(true));
     assert!(!state.env.repaint, "nothing changed, nothing to repaint");
     assert!(state.notice.is_none());
 
-    update(&mut state, AppEvent::TerminalChecked { mosh: false });
+    update(&mut state, checked(false));
     assert_eq!(state.env.emoji.mode, EmojiMode::Full);
     assert!(state.env.repaint);
 }
@@ -47,7 +57,8 @@ fn a_chosen_mode_is_kept() {
         checked_at: None,
         from_cli: true,
     };
-    update(&mut state, AppEvent::TerminalChecked { mosh: true });
+    state.config.messages.bubble_style = BubbleStyle::Bar;
+    update(&mut state, checked(true));
     assert_eq!(state.env.emoji.mode, EmojiMode::Full);
     assert!(!state.env.repaint);
 
@@ -78,6 +89,30 @@ fn focus_and_resize_recheck_at_most_every_two_seconds() {
         update(&mut state, AppEvent::Terminal(Event::FocusGained)),
         vec![]
     );
+}
+
+#[test]
+fn an_auto_bubble_style_follows_kitty() {
+    let mut state = loaded_state();
+    state.env.emoji.auto = false;
+    state.config.messages.bubble_style = BubbleStyle::Auto;
+    assert_eq!(
+        update(&mut state, AppEvent::Terminal(Event::FocusGained)),
+        vec![Effect::CheckTerminal]
+    );
+    let kitty = Terminal {
+        mosh: false,
+        glyphs: BlockGlyphs::Native,
+    };
+    update(&mut state, AppEvent::TerminalChecked(kitty));
+    assert_eq!(state.env.glyphs, BlockGlyphs::Native);
+    assert_eq!(
+        state.env.emoji.mode,
+        EmojiMode::Full,
+        "emoji mode untouched"
+    );
+    update(&mut state, checked(false));
+    assert_eq!(state.env.glyphs, BlockGlyphs::Font);
 }
 
 #[test]

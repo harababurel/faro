@@ -8,7 +8,7 @@
 //! (`nucleo-matcher`): a few hundred short strings take well under a
 //! millisecond.
 
-use faro_core::config::{BubbleCorners, Choice as _, ColorChoice, EmojiChoice};
+use faro_core::config::{BubbleStyle, Choice as _, ColorChoice, EmojiChoice};
 use faro_core::domain::ConversationId;
 use faro_core::store::NotifyLevel;
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
@@ -66,7 +66,7 @@ pub enum Setting {
     Colors,
     Emoji,
     Layout,
-    BubbleCorners,
+    BubbleStyle,
     Bell,
     Title,
     Allowlist,
@@ -139,7 +139,7 @@ impl SettingsGroup {
                 Setting::Colors,
                 Setting::Emoji,
                 Setting::Layout,
-                Setting::BubbleCorners,
+                Setting::BubbleStyle,
             ],
             Self::Notifications => &[Setting::Bell, Setting::Title],
             Self::Conversations => &[Setting::Allowlist],
@@ -154,7 +154,7 @@ impl Setting {
             Self::Colors => "Colours",
             Self::Emoji => "Emoji",
             Self::Layout => "Message layout",
-            Self::BubbleCorners => "Bubble corners",
+            Self::BubbleStyle => "Bubble style",
             Self::Bell => "Bell",
             Self::Title => "Unread count in the window title",
             Self::Allowlist => "Allowlist mode",
@@ -166,7 +166,7 @@ impl Setting {
     pub const fn is_switch(self) -> bool {
         match self {
             Self::Bell | Self::Title | Self::Allowlist | Self::Mouse => true,
-            Self::Colors | Self::Emoji | Self::Layout | Self::BubbleCorners => false,
+            Self::Colors | Self::Emoji | Self::Layout | Self::BubbleStyle => false,
         }
     }
 }
@@ -192,7 +192,7 @@ pub enum PaletteCommand {
 pub enum SettingChoice {
     Colors(ColorChoice),
     Layout(MessageLayout),
-    BubbleCorners(BubbleCorners),
+    BubbleStyle(BubbleStyle),
     Allowlist(bool),
     Emoji(EmojiChoice),
     Mouse(bool),
@@ -795,13 +795,18 @@ fn values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)>
                 )
             })
             .collect(),
-        Setting::BubbleCorners => BubbleCorners::ALL
+        Setting::BubbleStyle => BubbleStyle::ALL
             .iter()
-            .map(|corners| {
+            .map(|style| {
+                let name = match style {
+                    BubbleStyle::Auto => "auto",
+                    BubbleStyle::Rounded => "rounded",
+                    BubbleStyle::Bar => "bar",
+                };
                 (
-                    SettingChoice::BubbleCorners(*corners),
-                    corners.name().to_owned(),
-                    state.config.messages.bubble_corners == *corners,
+                    SettingChoice::BubbleStyle(*style),
+                    name.to_owned(),
+                    state.config.messages.bubble_style == *style,
                 )
             })
             .collect(),

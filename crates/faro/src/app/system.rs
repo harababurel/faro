@@ -8,6 +8,7 @@ use crossterm::clipboard::CopyToClipboard;
 use tokio::sync::mpsc;
 
 use super::event::AppEvent;
+use super::state::BlockGlyphs;
 
 /// Copy with OSC 52: the terminal (even over SSH, and through tmux with
 /// `set-clipboard on`) puts the text on the local clipboard.
@@ -65,46 +66,100 @@ pub fn over_ssh() -> bool {
         .any(|var| std::env::var_os(var).is_some())
 }
 
-/// Whether a terminal between faro and the user is mosh, which measures emoji
-/// the old way (D47). Outside tmux: whether faro itself runs under
-/// `mosh-server`. Inside tmux: whether any client attached to faro's session
-/// does (tmux can't tell us about the terminal behind it otherwise). Any
-/// failure counts as "no".
-pub async fn mosh_attached() -> bool {
+/// What faro can find out about the terminals between it and the user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Terminal {
+    /// mosh is in the way: it measures emoji the old way (D47).
+    pub mosh: bool,
+    /// Who draws block, Powerline and Legacy Computing glyphs (D58).
+    pub glyphs: BlockGlyphs,
+}
+
+/// Look at the terminals between faro and the user. Outside tmux: whether
+/// faro runs under `mosh-server`, and whether the environment says kitty.
+/// Inside tmux: the same for every client attached to faro's session (tmux
+/// can't tell us about the terminal behind it otherwise; one client is
+/// enough to break its view). Any failure counts as "no mosh" and "glyphs
+/// from the font".
+pub async fn inspect_terminal() -> Terminal {
     let check = async {
-        let table = processes(&run("ps", &["-A", "-o", "pid=,ppid=,comm="]).await?);
-        let starts: Vec<u32> = if std::env::var_os("TMUX").is_some() {
+        let table = run("ps", &["-A", "-o", "pid=,ppid=,comm="])
+            .await
+            .map(|ps| processes(&ps));
+        let mosh = |pid: u32| table.as_ref().is_some_and(|t| under_mosh(t, pid));
+        if std::env::var_os("TMUX").is_some() {
             let pane = std::env::var("TMUX_PANE").ok();
-            let mut args = vec!["list-clients", "-F", "#{client_pid}"];
+            let mut args = vec!["list-clients", "-F", "#{client_pid} #{client_termname}"];
             if let Some(pane) = pane.as_deref() {
                 args.extend(["-t", pane]);
             }
-            run("tmux", &args)
-                .await?
-                .lines()
-                .filter_map(|line| line.trim().parse().ok())
-                .collect()
+            let clients = clients(&run("tmux", &args).await.unwrap_or_default());
+            Terminal {
+                mosh: clients.iter().any(|(pid, _)| mosh(*pid)),
+                glyphs: glyphs_of_clients(&clients),
+            }
         } else {
-            vec![std::process::id()]
-        };
-        Some(starts.into_iter().any(|pid| under_mosh(&table, pid)))
+            Terminal {
+                mosh: mosh(std::process::id()),
+                glyphs: glyphs_of_environment(|var| std::env::var(var).ok()),
+            }
+        }
     };
     if let Ok(found) = tokio::time::timeout(CHECK_TIMEOUT, check).await {
-        found.unwrap_or(false)
+        found
     } else {
-        tracing::warn!("checking for mosh took too long; assuming it isn't there");
-        false
+        tracing::warn!("checking the terminal took too long; assuming no mosh and no kitty");
+        Terminal::default()
     }
 }
 
-/// Check for mosh in the background; the answer comes back as
+/// Check the terminal in the background; the answer comes back as
 /// `AppEvent::TerminalChecked`.
 pub fn check_terminal(results: mpsc::UnboundedSender<AppEvent>) {
     tokio::spawn(async move {
-        let mosh = mosh_attached().await;
+        let terminal = inspect_terminal().await;
         // The app may have quit meanwhile.
-        let _ = results.send(AppEvent::TerminalChecked { mosh });
+        let _ = results.send(AppEvent::TerminalChecked(terminal));
     });
+}
+
+/// Whether `term` (a `TERM` value) is kitty, which draws box drawing, block
+/// elements, Powerline (U+E0B0–E0BF) and Legacy Computing (U+1FB00–1FBAE)
+/// glyphs itself (kitty's `fonts.c`, `font_for_cell`), whatever the font.
+fn is_kitty(term: &str) -> bool {
+    term.contains("kitty")
+}
+
+/// Outside tmux: kitty, as far as the environment says (`TERM` is forwarded
+/// over SSH; `KITTY_WINDOW_ID` and `TERM_PROGRAM` only locally).
+fn glyphs_of_environment(var: impl Fn(&str) -> Option<String>) -> BlockGlyphs {
+    let kitty = var("TERM").is_some_and(|t| is_kitty(&t))
+        || var("TERM_PROGRAM").is_some_and(|t| t.eq_ignore_ascii_case("kitty"))
+        || var("KITTY_WINDOW_ID").is_some();
+    if kitty {
+        BlockGlyphs::Native
+    } else {
+        BlockGlyphs::Font
+    }
+}
+
+/// Inside tmux: native only if every attached client is in kitty.
+fn glyphs_of_clients(clients: &[(u32, String)]) -> BlockGlyphs {
+    if !clients.is_empty() && clients.iter().all(|(_, term)| is_kitty(term)) {
+        BlockGlyphs::Native
+    } else {
+        BlockGlyphs::Font
+    }
+}
+
+/// `tmux list-clients -F "#{client_pid} #{client_termname}"` output.
+fn clients(text: &str) -> Vec<(u32, String)> {
+    text.lines()
+        .filter_map(|line| {
+            let (pid, term) = line.trim().split_once(' ').unwrap_or((line.trim(), ""));
+            Some((pid.parse().ok()?, term.trim().to_owned()))
+        })
+        .collect()
 }
 
 const CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
@@ -185,5 +240,53 @@ mod mosh_tests {
     fn commands_with_spaces_are_kept_whole() {
         let table = processes(PS);
         assert_eq!(table.get(&102), Some(&(101, "tmux: client".to_owned())));
+    }
+
+    #[test]
+    fn kitty_is_found_in_the_environment() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |var: &str| {
+                pairs
+                    .iter()
+                    .find(|(k, _)| *k == var)
+                    .map(|(_, v)| (*v).to_owned())
+            }
+        };
+        let native = BlockGlyphs::Native;
+        assert_eq!(
+            glyphs_of_environment(env(&[("TERM", "xterm-kitty")])),
+            native
+        );
+        assert_eq!(
+            glyphs_of_environment(env(&[("KITTY_WINDOW_ID", "3")])),
+            native
+        );
+        assert_eq!(
+            glyphs_of_environment(env(&[("TERM_PROGRAM", "kitty")])),
+            native
+        );
+        let font = BlockGlyphs::Font;
+        assert_eq!(
+            glyphs_of_environment(env(&[("TERM", "xterm-256color")])),
+            font
+        );
+        assert_eq!(glyphs_of_environment(env(&[])), font);
+    }
+
+    #[test]
+    fn every_tmux_client_must_be_kitty() {
+        let kitty = clients("102 xterm-kitty\n202 xterm-kitty\n");
+        assert_eq!(
+            kitty,
+            [
+                (102, "xterm-kitty".to_owned()),
+                (202, "xterm-kitty".to_owned())
+            ]
+        );
+        assert_eq!(glyphs_of_clients(&kitty), BlockGlyphs::Native);
+        let mixed = clients("102 xterm-kitty\n202 xterm-256color\n");
+        assert_eq!(glyphs_of_clients(&mixed), BlockGlyphs::Font);
+        assert_eq!(glyphs_of_clients(&clients("102\n")), BlockGlyphs::Font);
+        assert_eq!(glyphs_of_clients(&[]), BlockGlyphs::Font);
     }
 }

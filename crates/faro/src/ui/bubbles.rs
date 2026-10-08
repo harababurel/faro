@@ -4,14 +4,22 @@
 //! `edited` and the delivery status sit at the bottom right of the bubble, and
 //! reactions just under it.
 //!
-//! With rounded corners (`[messages] bubble_corners`, D56) each bubble gets a
-//! half-row edge above and below, drawn with block elements in the bubble's
-//! colour on the pane's background: `▗▄▄▄▖` on top, `▝▀▀▀▘` underneath. The
-//! two half rows between bubbles make a full row of space, so there's no
-//! blank line between them. The `system` theme (no bubble fill) keeps square
-//! corners.
+//! Two styles (`[messages] bubble_style`, D58), both as wide as the bubble's
+//! text plus a cell on each side:
+//! - **rounded**: a one-line bubble gets Powerline half-circle caps (U+E0B6,
+//!   U+E0B4) in place of its padding cells; a taller one gets an edge row
+//!   above and below, two thirds of a row high with diagonal corners (Legacy
+//!   Computing wedges and sextants: `🭊🬹🬹🬿` … `🭥🬎🬎🭚`). Caps and edges are
+//!   drawn in the bubble's colour on the pane's background.
+//! - **bar**: a heavy bar `┃` on the bubble's outer side (left for others, in
+//!   the sender's colour; right for own messages, in the theme's primary) in
+//!   place of that side's padding cell, like OpenCode's message boxes.
+//!
+//! `auto` is rounded only where the terminal draws those glyphs itself
+//! (kitty); fonts often lack them. The `system` theme (no bubble fill)
+//! always draws bars.
 
-use faro_core::config::BubbleCorners;
+use faro_core::config::BubbleStyle;
 use faro_core::domain::{ConversationId, Direction, Message};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
@@ -19,7 +27,7 @@ use ratatui::text::{Line, Span};
 use super::View;
 use super::messages::{content, delivery, format_time, reactions};
 use super::text::{sanitize, truncate, width};
-use crate::app::state::State;
+use crate::app::state::{BlockGlyphs, State};
 use crate::theme::Theme;
 
 /// A bubble is at most this share of the pane, in percent…
@@ -28,16 +36,40 @@ const MAX_SHARE: usize = 75;
 const MIN_WIDTH: usize = 20;
 /// Cells between the text and the time when they share a line.
 const META_GAP: usize = 2;
-/// The edges of a rounded bubble: corners and fill, above and below.
-const TOP: [&str; 3] = ["▗", "▄", "▖"];
-const BOTTOM: [&str; 3] = ["▝", "▀", "▘"];
-/// Every glyph the edges use (the selection tint blanks them).
-pub(super) const EDGE_GLYPHS: [&str; 6] = [TOP[0], TOP[1], TOP[2], BOTTOM[0], BOTTOM[1], BOTTOM[2]];
+/// A one-line rounded bubble's ends: left and right half circles (Powerline).
+const CAPS: [&str; 2] = ["\u{E0B6}", "\u{E0B4}"];
+/// A taller rounded bubble's edges: corner, fill and corner, two thirds of a
+/// row high (Legacy Computing: a wedge, `BLOCK SEXTANT-3456` or `-1234`, a
+/// wedge).
+const TOP: [&str; 3] = ["\u{1FB4A}", "\u{1FB39}", "\u{1FB3F}"];
+const BOTTOM: [&str; 3] = ["\u{1FB65}", "\u{1FB0E}", "\u{1FB5A}"];
+/// Every glyph drawn on the pane's background around a rounded bubble (the
+/// selection tint blanks them).
+pub(super) const EDGE_GLYPHS: [&str; 8] = [
+    CAPS[0], CAPS[1], TOP[0], TOP[1], TOP[2], BOTTOM[0], BOTTOM[1], BOTTOM[2],
+];
+/// The bar on a bubble's outer side (OpenCode's message border).
+pub(super) const BAR: &str = "\u{2503}";
 
-/// Whether bubbles are drawn with rounded edges: the setting, unless the
-/// theme leaves bubbles unfilled (`system`).
-pub(super) fn rounded(state: &State, theme: &Theme) -> bool {
-    state.config.messages.bubble_corners == BubbleCorners::Rounded && !theme.terminal_palette
+/// How bubbles are drawn, once `auto` and the theme are decided.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Shape {
+    Rounded,
+    Bar,
+}
+
+/// The style in use: the setting (`auto`: rounded where the terminal draws
+/// the glyphs itself), and always bars for a theme that leaves bubbles
+/// unfilled (`system`).
+pub(super) fn shape(state: &State, theme: &Theme) -> Shape {
+    if theme.terminal_palette {
+        return Shape::Bar;
+    }
+    match state.config.messages.bubble_style {
+        BubbleStyle::Rounded => Shape::Rounded,
+        BubbleStyle::Auto if state.env.glyphs == BlockGlyphs::Native => Shape::Rounded,
+        BubbleStyle::Auto | BubbleStyle::Bar => Shape::Bar,
+    }
 }
 
 /// Lay out `message` across a pane `pane` cells wide. `first`: it starts a
@@ -86,18 +118,34 @@ pub(super) fn render(
     } else {
         0
     };
-    let rounded = rounded(state, theme);
-    if rounded {
+    let shape = shape(state, theme);
+    let pill = shape == Shape::Rounded && lines.len() == 1;
+    let edges = shape == Shape::Rounded && !pill;
+    let padding = Span::styled(" ", bg);
+    let (left, right) = match shape {
+        Shape::Rounded if pill => {
+            let cap = Style::new().fg(colour);
+            (Span::styled(CAPS[0], cap), Span::styled(CAPS[1], cap))
+        }
+        Shape::Rounded => (padding.clone(), padding),
+        Shape::Bar if own => (padding, Span::styled(BAR, bg.fg(theme.primary))),
+        Shape::Bar => {
+            let sender = theme.sender(message.sender).fg.unwrap_or(theme.text);
+            (Span::styled(BAR, bg.fg(sender)), padding)
+        }
+    };
+    if edges {
         out.push(edge(margin, inner, TOP, colour));
     }
     for spans in lines {
         let fill = inner.saturating_sub(spans_width(&spans));
-        let mut line = vec![Span::raw(" ".repeat(margin)), Span::styled(" ", bg)];
+        let mut line = vec![Span::raw(" ".repeat(margin)), left.clone()];
         line.extend(spans.into_iter().map(|span| span.patch_style(bg)));
-        line.push(Span::styled(" ".repeat(fill + 1), bg));
+        line.push(Span::styled(" ".repeat(fill), bg));
+        line.push(right.clone());
         out.push(Line::from(line));
     }
-    if rounded {
+    if edges {
         out.push(edge(margin, inner, BOTTOM, colour));
     }
 
@@ -115,7 +163,7 @@ pub(super) fn render(
     }
 }
 
-/// A rounded bubble's top or bottom edge: `glyphs` are the left corner, the
+/// A tall rounded bubble's top or bottom edge: `glyphs` are the left corner, the
 /// fill and the right corner, in the bubble's colour on the pane's.
 fn edge(
     margin: usize,

@@ -156,6 +156,9 @@ pub struct Environment {
     /// app loop takes it).
     pub repaint: bool,
     pub emoji: EmojiSetting,
+    /// Whether the terminal draws block, Powerline and Legacy Computing
+    /// glyphs itself (`[messages] bubble_style = "auto"`, D58).
+    pub glyphs: BlockGlyphs,
     /// The colours the terminal shows, guessed at startup (D50); the
     /// config's `ui.colors` can override it (`State::colors`).
     pub colors: ColorDepth,
@@ -173,6 +176,24 @@ pub enum EmojiMode {
     Compatible,
 }
 
+/// What the terminal checks found at startup (D47, D58).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Detected {
+    pub emoji: EmojiSetting,
+    pub glyphs: BlockGlyphs,
+}
+
+/// Who draws the glyphs rounded bubbles are made of (D58).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BlockGlyphs {
+    /// The font, which may not have them (tofu): not known to be safe.
+    #[default]
+    Font,
+    /// The terminal itself, pixel-exact (kitty), for every terminal between
+    /// faro and the user.
+    Native,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct EmojiSetting {
     pub mode: EmojiMode,
@@ -180,7 +201,8 @@ pub struct EmojiSetting {
     pub auto: bool,
     /// Chosen with `--emoji` or `FARO_EMOJI`, which beat the config file.
     pub from_cli: bool,
-    /// When the terminal was last checked for mosh.
+    /// When the terminal was last checked (for mosh and for who draws block
+    /// glyphs).
     pub checked_at: Option<Instant>,
 }
 
@@ -475,6 +497,7 @@ impl State {
                 focused: true,
                 repaint: false,
                 emoji: EmojiSetting::default(),
+                glyphs: BlockGlyphs::default(),
                 colors: ColorDepth::default(),
             },
             keymap: Keymap::default(),

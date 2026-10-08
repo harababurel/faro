@@ -74,7 +74,7 @@ Terminal matrix (DESIGN §15): kitty, WezTerm, Ghostty, iTerm2, Alacritty, foot;
 - [ ] **Headers are skipped:** `↑`/`↓` never stop on a header (and wrap from Theme to Mouse and back); `PgUp`/`PgDn` and the wheel don't either; clicking a header does nothing.
 - [ ] **Filtering:** `:bell` shows only "Notifications" and Bell; `:notif` shows both notification settings; `:zzz` says "No matches".
 - [ ] **Flip in place:** `:bell` + `Enter`: the row turns `off`, the footer says `bell off`, the palette stays open with `bell` still typed; `Enter` again turns it back on. Same with a click on Mouse (then the mouse is off, so turn it back with the keyboard). The config file changes each time.
-- [ ] **Values:** `Enter` on Colours, Emoji, Message layout or Bubble corners opens its values (`●` on the current one); choosing one applies it and closes.
+- [ ] **Values:** `Enter` on Colours, Emoji, Message layout or Bubble style opens its values (`●` on the current one); choosing one applies it and closes.
 - [ ] **Theme from Settings:** `Enter` on Theme opens the picker ("Settings › Themes") with the live preview, as from the root.
 - [ ] **256-colour note:** `env -u TMUX COLORTERM= TERM=xterm-256color faro --mock …` (outside tmux, or forced with `Settings › Colours › 256`): Themes shows a dim line "256 colours: themes are approximated (truecolor: Settings › Colours)" above the list. Preview solarized: its blue background turns grey, as the README says. At truecolor there's no note.
 - [ ] **16-colour note:** `Settings › Colours › 16`: Themes says "16 colours: the system theme is drawn; others need 256 colours or more". Choose `nord`: the notice says "Theme: nord (drawn as system until 256 colours or more)", faro stays in `system`, and `theme = "nord"` is in the file. `Settings › Colours › auto` (in kitty): nord appears.
@@ -101,20 +101,22 @@ Terminal matrix (DESIGN §15): kitty, WezTerm, Ghostty, iTerm2, Alacritty, foot;
 - [ ] **Stale mosh clients:** `tmux list-clients -t faro`. If an old mosh client is listed while you're on ssh, faro stays in compatible mode. Detach it (`tmux detach-client -t <tty>`) and focus faro: it switches back to full emoji with a notice.
 - [ ] **Directly in kitty (no tmux):** `faro --mock` in a kitty window: flags and emoji look right and the borders are straight.
 
-## Rounded bubbles (D56)
+## Bubble styles (D58)
 
-Run `faro --mock --config /tmp/faro-test.toml` (bubbles is the default layout).
+Run `faro --mock --config /tmp/faro-test.toml` (bubbles is the default layout). `Settings › Bubble style` in the palette switches between auto, rounded and bar.
 
-- [ ] **Fonts in kitty:** the half-block edges (`▗▄▄▖` above, `▝▀▀▘` below) meet the bubble's fill with no gap, seam or lighter line between them, and the corners read as rounded. Check with kitty's default font and at least two others (e.g. JetBrains Mono, Fira Code), and at a couple of font sizes.
-- [ ] **Under tmux:** the same in your usual tmux over ssh and through mosh; nothing shifts while scrolling past bubbles.
-- [ ] **Light and dark:** `faro-dark`, `faro-light` and one OpenCode theme (e.g. `nord`): the edges are in the bubble's colour on the pane background, both for your own and others' bubbles.
-- [ ] **No blank lines:** consecutive bubbles are separated by their edges alone; it still reads as separate bubbles. Say if you'd rather have a blank line back.
-- [ ] **`system` theme:** palette → `:` Theme › system: bubbles are square with a blank line between them, as before.
-- [ ] **Selection:** select a message (`Tab` to the messages, `k`): the selected bubble is one clean tinted block (no edge glyphs left half-coloured).
-- [ ] **Reactions:** a message with reactions shows them under the bottom edge, outside the bubble.
-- [ ] **Palette:** `Ctrl+P` → `:` Bubble corners › square: bubbles turn square at once and `bubble_corners = "square"` is written to the config; › rounded brings them back.
-- [ ] **Live edit:** set `bubble_corners = "square"` in the file and save: "Settings reloaded" and square bubbles.
-- [ ] **Narrow pane:** shrink the pane to about 40 columns: bubbles stay intact, edges as wide as the bubble.
+- [ ] **Rounded in kitty, directly:** with `auto`, faro in a plain kitty window draws rounded bubbles. One-line bubbles are pills: half circles at both ends that meet the fill with no seam. Taller bubbles have edges above and below, two thirds of a row high, with diagonal corners that read as rounded and meet the fill without a gap or lighter line. Check at two or three font sizes and with a couple of fonts (kitty draws these glyphs itself, so they should look the same in every font).
+- [ ] **Rounded in kitty, under tmux over ssh:** with only kitty clients attached to the session, `auto` is rounded too. Attach a second client from another terminal (or through mosh): on the next focus change, faro switches to bars; detach it and refocus: rounded again.
+- [ ] **Through mosh:** `auto` draws bars (mosh hides the terminal). With `bubble_style = "rounded"` the rounded shapes show and stay aligned while scrolling.
+- [ ] **Bars:** `bubble_style = "bar"`: others' bubbles have a heavy bar on their left edge in the sender's colour (the same as their name in groups; one colour per person in direct chats), yours a bar on their right edge in the theme's primary colour. The box keeps its fill; text starts just after the bar. Say if the text feels too close to the bar.
+- [ ] **Light and dark:** `faro-dark`, `faro-light` and one OpenCode theme (e.g. `nord`), in both styles: caps, edges and bars are visible and look intentional on the pane background.
+- [ ] **`system` theme:** Theme › system: bars whatever the style, with a blank line between bubbles.
+- [ ] **Blank lines:** consecutive bubbles are separated by a blank line in both styles; pills don't touch.
+- [ ] **Selection:** select a message (`Tab` to the messages, `k`) in both styles: the selected bubble is one clean tinted block (no caps or edge glyphs left half-coloured); in bar style the bar keeps its colour.
+- [ ] **Reactions:** reactions sit under the bubble (under the bottom edge for taller rounded ones).
+- [ ] **Palette and file:** choosing a style writes `bubble_style = "…"` to the config; editing the file applies it live ("Settings reloaded").
+- [ ] **Old setting:** a config with `bubble_corners = "square"` (from D56) draws bars and the footer says to write `bubble_style = "bar"`.
+- [ ] **Narrow pane:** shrink the pane to about 40 columns: bubbles stay intact in both styles, edges as wide as the bubble.
 
 ## M5: configuration (D48)
 

@@ -74,7 +74,7 @@ fn main() -> anyhow::Result<()> {
         problems.extend(config::migrate(&store, &config_file, &mut settings).await);
         let (backend, events) = MockBackend::new(&mock);
         let directory = app::load_directory(&backend, &store).await?;
-        let emoji = emoji_setting(cli.emoji.map(Into::into), settings.ui.emoji).await;
+        let detected = terminal_setting(cli.emoji.map(Into::into), &settings).await;
         let startup = config::Startup {
             path: config_file,
             config: settings,
@@ -87,7 +87,7 @@ fn main() -> anyhow::Result<()> {
             store.clone(),
             directory,
             tz,
-            emoji,
+            detected,
             startup,
         )
         .await;
@@ -97,34 +97,38 @@ fn main() -> anyhow::Result<()> {
     })
 }
 
-/// The emoji mode to start with: as chosen (`--emoji`/`FARO_EMOJI`, else the
-/// config file), or (`auto`) compatible if mosh is in the way (D47). `auto`
-/// keeps checking when the terminal changes.
-async fn emoji_setting(
+/// What the terminal checks decide at startup: the emoji mode, as chosen
+/// (`--emoji`/`FARO_EMOJI`, else the config file) or (`auto`) compatible if
+/// mosh is in the way (D47), and who draws block glyphs, for
+/// `bubble_style = "auto"` (D58). `auto` keeps checking when the terminal
+/// changes. The terminal is only looked at if something is `auto`.
+async fn terminal_setting(
     cli: Option<faro_core::config::EmojiChoice>,
-    config: faro_core::config::EmojiChoice,
-) -> app::state::EmojiSetting {
-    use app::state::{EmojiMode, EmojiSetting};
-    use faro_core::config::EmojiChoice;
+    config: &faro_core::config::Config,
+) -> app::state::Detected {
+    use app::state::{Detected, EmojiMode, EmojiSetting};
+    use faro_core::config::{BubbleStyle, EmojiChoice};
     let from_cli = cli.is_some();
-    let (mode, auto) = match cli.unwrap_or(config) {
-        EmojiChoice::Full => (EmojiMode::Full, false),
-        EmojiChoice::Compatible => (EmojiMode::Compatible, false),
-        EmojiChoice::Auto => {
-            let mosh = app::system::mosh_attached().await;
-            let mode = if mosh {
-                EmojiMode::Compatible
-            } else {
-                EmojiMode::Full
-            };
-            (mode, true)
-        }
+    let choice = cli.unwrap_or(config.ui.emoji);
+    let auto = choice == EmojiChoice::Auto;
+    let terminal = if auto || config.messages.bubble_style == BubbleStyle::Auto {
+        app::system::inspect_terminal().await
+    } else {
+        app::system::Terminal::default()
     };
-    tracing::info!(?mode, auto, from_cli, "emoji mode");
-    EmojiSetting {
-        mode,
-        auto,
-        from_cli,
-        checked_at: auto.then(tokio::time::Instant::now),
+    let mode = match choice {
+        EmojiChoice::Compatible => EmojiMode::Compatible,
+        EmojiChoice::Auto if terminal.mosh => EmojiMode::Compatible,
+        EmojiChoice::Auto | EmojiChoice::Full => EmojiMode::Full,
+    };
+    tracing::info!(?mode, auto, from_cli, glyphs = ?terminal.glyphs, "terminal");
+    Detected {
+        emoji: EmojiSetting {
+            mode,
+            auto,
+            from_cli,
+            checked_at: Some(tokio::time::Instant::now()),
+        },
+        glyphs: terminal.glyphs,
     }
 }

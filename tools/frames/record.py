@@ -35,6 +35,7 @@ ap.add_argument("--activity", type=int, default=300)
 ap.add_argument("--emoji", default="full")
 ap.add_argument("--seed", type=int, default=7)
 ap.add_argument("--layout", default=None)
+ap.add_argument("--bubbles", default=None, help="bubble_style: auto, rounded or bar")
 ap.add_argument("--steps", type=int, default=300)
 ap.add_argument("--binary", default=os.path.join(REPO, "target/debug/faro"))
 args = ap.parse_args()
@@ -45,9 +46,14 @@ os.makedirs(out)
 data = os.path.join(out, "data")
 os.makedirs(data)
 config = os.path.join(out, "config.toml")
+messages = []
 if args.layout:
+    messages.append(f'layout = "{args.layout}"')
+if args.bubbles:
+    messages.append(f'bubble_style = "{args.bubbles}"')
+if messages:
     with open(config, "w") as f:
-        f.write(f'[messages]\nlayout = "{args.layout}"\n')
+        f.write("[messages]\n" + "\n".join(messages) + "\n")
 
 sock = "fb-rec-" + os.path.basename(out)
 

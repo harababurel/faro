@@ -273,9 +273,8 @@ fn block(context: &Context<'_>, i: usize) -> Block {
         }
         MessageLayout::Bubbles => {
             // A blank line between bubbles (even from the same sender, or
-            // they'd merge into one box), unless a rule already separates them
-            // or they have rounded edges (whose half rows leave a row's gap).
-            if block.is_empty() && previous.is_some() && !bubbles::rounded(state, view.theme) {
+            // they'd merge into one box), unless a rule already separates them.
+            if block.is_empty() && previous.is_some() {
                 block.push(Line::default());
             }
             let rules = block.len();

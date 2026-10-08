@@ -14,7 +14,7 @@ expression: "snapshot(&draw(&with_palette(\":\"), 100, 30))"
 │           │   Colours ›                                    auto (truecolor detected) │           │
 │           │   Emoji ›                                                           auto │────────── │
 │           │   Message layout ›                                                   IRC │hursday?   │
-│           │   Bubble corners ›                                               rounded │ss         │
+│           │   Bubble style ›                                                    auto │ss         │
 │           │ Notifications                                                            │           │
 │           │   Bell                                                                on │           │
 │           │   Unread count in the window title                                    on │           │

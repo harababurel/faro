@@ -173,7 +173,7 @@ const SETTINGS_LIST: [&str; 13] = [
     "Colours",
     "Emoji",
     "Message layout",
-    "Bubble corners",
+    "Bubble style",
     "Notifications",
     "Bell",
     "Unread count in the window title",

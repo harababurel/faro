@@ -73,13 +73,17 @@ impl MessageLayout {
 }
 
 choice! {
-    /// The corners of message bubbles (D56).
-    BubbleCorners {
-        /// Half-block edges above and below each bubble: ▗▄▄▖ … ▝▀▀▘.
+    /// How message bubbles are drawn (D58).
+    BubbleStyle {
+        /// Rounded where the terminal is known to draw the glyphs itself
+        /// (kitty), bars elsewhere.
         #[default]
+        Auto = "auto",
+        /// Half-circle caps on one-line bubbles, diagonal corners on taller
+        /// ones (Powerline and Legacy Computing glyphs).
         Rounded = "rounded",
-        /// Plain boxes.
-        Square = "square",
+        /// A heavy bar on the bubble's outer side, in the sender's colour.
+        Bar = "bar",
     }
 }
 
@@ -157,7 +161,7 @@ pub struct Conversations {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Messages {
     pub layout: MessageLayout,
-    pub bubble_corners: BubbleCorners,
+    pub bubble_style: BubbleStyle,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -212,7 +216,7 @@ pub mod key {
     pub const COLORS: &str = "ui.colors";
     pub const ALLOWLIST: &str = "conversations.allowlist";
     pub const LAYOUT: &str = "messages.layout";
-    pub const BUBBLE_CORNERS: &str = "messages.bubble_corners";
+    pub const BUBBLE_STYLE: &str = "messages.bubble_style";
     pub const MOUSE: &str = "mouse.enabled";
     pub const BELL: &str = "notifications.bell";
     pub const TITLE: &str = "notifications.title";
@@ -346,12 +350,13 @@ pub static SETTINGS: &[Setting] = &[
         },
     },
     Setting {
-        path: key::BUBBLE_CORNERS,
-        help: "Bubble corners: \"rounded\" (half-block edges) or \"square\". The system \
-               theme always draws square ones.",
-        get: |c| text(c.messages.bubble_corners),
+        path: key::BUBBLE_STYLE,
+        help: "Bubbles: \"rounded\" (needs a terminal or font with Powerline and Legacy \
+               Computing glyphs, as kitty has), \"bar\" (a bar on the outer side) or \
+               \"auto\" (rounded in kitty, bars elsewhere). The system theme always draws bars.",
+        get: |c| text(c.messages.bubble_style),
         set: |c, v| {
-            c.messages.bubble_corners = choice(v)?;
+            c.messages.bubble_style = choice(v)?;
             Ok(())
         },
     },
@@ -409,6 +414,21 @@ pub static SETTINGS: &[Setting] = &[
 /// Settings DESIGN.md sketches that faro doesn't have yet: setting them says
 /// so instead of "unknown".
 const PLANNED: &[&str] = &["messages.density", "messages.timestamps"];
+
+/// Settings that were renamed: still read (with a warning) when the new name
+/// isn't set.
+const RENAMED: &[Renamed] = &[Renamed {
+    old: "messages.bubble_corners",
+    new: key::BUBBLE_STYLE,
+    values: &[("rounded", "rounded"), ("square", "bar")],
+}];
+
+/// A renamed setting: its old path, the new one, and old values → new ones.
+struct Renamed {
+    old: &'static str,
+    new: &'static str,
+    values: &'static [(&'static str, &'static str)],
+}
 
 /// The table holding key bindings.
 const KEYBINDINGS: &str = "keybindings";
@@ -544,6 +564,7 @@ pub fn parse(text: &str, previous: &Config) -> Parsed {
             )));
         }
     }
+    renamed(&doc, &mut config, &mut problems);
     config.keybindings = keybindings(&doc, &mut problems);
     unknown_keys(&doc, &mut problems);
     Parsed { config, problems }
@@ -561,6 +582,58 @@ pub fn mentions(text: &str, path: &str) -> bool {
         doc.get(table)
             .and_then(Item::as_table_like)
             .is_some_and(|t| t.contains_key(key))
+    }
+}
+
+/// The item at `path` in `doc`, if it's there.
+fn item<'a>(doc: &'a DocumentMut, path: &str) -> Option<&'a Item> {
+    let (table, key) = split(path);
+    if table.is_empty() {
+        doc.get(key)
+    } else {
+        doc.get(table)
+            .and_then(Item::as_table_like)
+            .and_then(|t| t.get(key))
+    }
+}
+
+/// Read renamed settings under their old names, unless the new name is set,
+/// and say how to rename them.
+fn renamed(doc: &DocumentMut, config: &mut Config, problems: &mut Vec<Problem>) {
+    for rename in RENAMED {
+        let Some(old) = item(doc, rename.old) else {
+            continue;
+        };
+        let (_, new_key) = split(rename.new);
+        if item(doc, rename.new).is_some() {
+            problems.push(Problem::warning(format!(
+                "{} is replaced by {}; ignored (remove it)",
+                rename.old, rename.new
+            )));
+            continue;
+        }
+        let new_value = old
+            .as_str()
+            .and_then(|v| rename.values.iter().find(|(o, _)| *o == v))
+            .map(|(_, n)| *n);
+        let applied = new_value.and_then(|value| {
+            config
+                .set(rename.new, &ConfigValue::Text(value.to_owned()))
+                .ok()
+                .map(|()| value)
+        });
+        problems.push(match applied {
+            Some(value) => Problem::warning(format!(
+                "{} is now {}: write {new_key} = \"{value}\"",
+                rename.old, rename.new
+            )),
+            None => Problem::error(format!(
+                "{} is now {}; {} isn't a value it had",
+                rename.old,
+                rename.new,
+                old.as_value().map_or_else(|| "a table".to_owned(), shown)
+            )),
+        });
     }
 }
 
@@ -617,7 +690,7 @@ fn keybindings(doc: &DocumentMut, problems: &mut Vec<Problem>) -> Vec<Keybinding
 fn unknown_keys(doc: &DocumentMut, problems: &mut Vec<Problem>) {
     let known_table = |name: &str| SETTINGS.iter().any(|s| s.split().0 == name);
     let mut check = |path: String| {
-        if setting(&path).is_some() {
+        if setting(&path).is_some() || RENAMED.iter().any(|r| r.old == path) {
             return;
         }
         if PLANNED.contains(&path.as_str()) {

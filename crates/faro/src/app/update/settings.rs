@@ -2,7 +2,7 @@
 //! whenever it changes, and settings changed in the app (palette `:`, the
 //! allowlist key) written back to it.
 
-use faro_core::config::{self, BubbleCorners, Config, EmojiChoice, Problem, Severity, key};
+use faro_core::config::{self, BubbleStyle, Config, EmojiChoice, Problem, Severity, key};
 
 use super::{check_terminal, curation};
 use crate::app::event::Effect;
@@ -54,6 +54,9 @@ fn apply(
         }
         if !startup && old.ui.emoji != state.config.ui.emoji {
             effects.extend(apply_emoji(state));
+        }
+        if !startup && old.messages.bubble_style != state.config.messages.bubble_style {
+            effects.extend(apply_bubble_style(state));
         }
         // The mouse and the theme are read from `state.config` by the app loop.
     }
@@ -159,6 +162,16 @@ fn apply_emoji(state: &mut State) -> Vec<Effect> {
     vec![]
 }
 
+/// Following kitty (`auto`) needs a fresh look at the terminal (D58); the
+/// renderer reads the style from `state.config`.
+fn apply_bubble_style(state: &mut State) -> Vec<Effect> {
+    if state.config.messages.bubble_style != BubbleStyle::Auto {
+        return vec![];
+    }
+    state.env.emoji.checked_at = None;
+    check_terminal(state)
+}
+
 /// A setting chosen in the palette: applied now and saved to the file.
 pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
     match choice {
@@ -179,13 +192,16 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
             }));
             save(state, key::LAYOUT)
         }
-        SettingChoice::BubbleCorners(corners) => {
-            state.config.messages.bubble_corners = corners;
-            state.notice = Some(Notice::info(match corners {
-                BubbleCorners::Rounded => "Bubbles have rounded corners",
-                BubbleCorners::Square => "Bubbles have square corners",
+        SettingChoice::BubbleStyle(style) => {
+            state.config.messages.bubble_style = style;
+            state.notice = Some(Notice::info(match style {
+                BubbleStyle::Auto => "Bubbles: rounded in kitty, bars elsewhere",
+                BubbleStyle::Rounded => "Bubbles have rounded ends",
+                BubbleStyle::Bar => "Bubbles have a bar on the outer side",
             }));
-            save(state, key::BUBBLE_CORNERS)
+            let mut effects = apply_bubble_style(state);
+            effects.extend(save(state, key::BUBBLE_STYLE));
+            effects
         }
         SettingChoice::Allowlist(on) => curation::set_allowlist_mode(state, on),
         SettingChoice::Emoji(emoji) => {

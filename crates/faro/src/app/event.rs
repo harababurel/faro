@@ -42,10 +42,9 @@ pub enum AppEvent {
     },
     /// Opening a link failed; the text is safe to show.
     OpenFailed(String),
-    /// Whether mosh is between faro and the user (D47).
-    TerminalChecked {
-        mosh: bool,
-    },
+    /// What's between faro and the user: mosh (D47), and who draws block
+    /// glyphs (D58).
+    TerminalChecked(super::system::Terminal),
     /// The config file changed and was read again (D48); the error is safe
     /// to show.
     ConfigRead(Result<String, String>),
@@ -92,7 +91,8 @@ pub enum Effect {
     Copy(String),
     /// Open an http(s) link with the system's opener.
     OpenUrl(String),
-    /// Look for mosh; answered with `AppEvent::TerminalChecked` (D47).
+    /// Look at the terminal (mosh, kitty); answered with
+    /// `AppEvent::TerminalChecked` (D47, D58).
     CheckTerminal,
     /// Ring the terminal bell (D49).
     Bell,

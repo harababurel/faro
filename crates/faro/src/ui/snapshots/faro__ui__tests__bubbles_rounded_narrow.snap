@@ -1,25 +1,25 @@
 ---
 source: crates/faro/src/ui/tests.rs
-expression: "snapshot(&draw(&square(bubbles_state()), 60, 24))"
+expression: "snapshot(&draw(&rounded(bubbles_state()), 60, 24))"
 ---
 ╭ Climbing 🧗 ─────────────────────────────────────────────╮
-│  Carol Bartholomew-Smythe                                │
-│  This message was deleted  17:40                         │
-│                                                          │
-│  Carol Bartholomew-Smythe                                │
+│ 🭊🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬿                       │
 │  Route map from last time                                │
 │  📎 route-map.jpg · 2.3 MB  17:50                        │
+│ 🭥🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🭚                       │
 │ ───────────────────── new messages ───────────────────── │
+│ 🭊🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬿                │
 │  Also: the new overhang section opened                   │
 │  last week and apparently the grades are                 │
 │  soft, so bring your project shoes 🧗‍♀️🧗‍♂️                  │
 │  and maybe some tape for your fingers.                   │
 │                                    17:51                 │
+│ 🭥🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🭚                │
 │                                                          │
-│                                      On my way  17:54 ✓  │
+│                                     On my way  17:54 ✓ │
 │                                                          │
 │  Alice 🌸                                                │
-│  Running 10 min late 🙈  17:55                           │
+│ Running 10 min late 🙈  17:55                          │
 │ Alice 🌸 is typing…                                      │
 │╭────────────────────────────────────────────────────────╮│
 ││ See you there                                          ││
