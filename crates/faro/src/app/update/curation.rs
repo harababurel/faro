@@ -397,6 +397,9 @@ fn follow(state: &mut State, target: ConversationId, before: &[ConversationId]) 
 /// is saved and the list, shown and focused, highlights it (D60).
 pub fn close(state: &mut State) -> Vec<Effect> {
     let mut effects = super::presence::stop_typing(state);
+    if state.playing.take().is_some() {
+        effects.push(Effect::StopAudio);
+    }
     effects.extend(save_draft(state));
     state.list.cursor = state.open.take().map(|o| o.id);
     state.popup = None;

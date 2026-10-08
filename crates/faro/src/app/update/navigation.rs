@@ -56,6 +56,7 @@ pub fn on_action(state: &mut State, action: Action) -> Vec<Effect> {
         Action::ReactPicker => return selection::on_selected(state, MessageAction::React),
         Action::Copy => return selection::on_selected(state, MessageAction::Copy),
         Action::OpenLink => return selection::open_link(state),
+        Action::PlayVoiceNote => return selection::play_voice_note(state),
         Action::DownloadAttachment => return selection::download_attachment(state),
         Action::OpenAttachment => return selection::open_attachment(state),
         Action::SaveAttachment => return selection::save_attachment(state),

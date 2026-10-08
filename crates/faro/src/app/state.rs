@@ -70,6 +70,17 @@ pub struct StagedAttachment {
     pub height: Option<u32>,
 }
 
+/// A voice note currently playing in an external audio player (D81).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlayingVoiceNote {
+    pub conversation: ConversationId,
+    pub message: MessageRef,
+    pub index: usize,
+    pub started_at: Instant,
+    pub elapsed_secs: u32,
+    pub duration_secs: Option<u32>,
+}
+
 /// One entry in a folder listed for the palette's file picker (D77).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileEntry {
@@ -139,6 +150,8 @@ pub struct State {
     /// Attachments that should be copied to `~/Downloads/` as soon as their
     /// download finishes (when `s` was pressed on an undownloaded attachment).
     pub save_when_downloaded: HashSet<(MessageRef, usize)>,
+    /// Voice note currently playing in an external audio player (D81).
+    pub playing: Option<PlayingVoiceNote>,
     /// When the terminal bell last rang (`BELL_INTERVAL`, D49).
     pub last_bell: Option<Instant>,
     /// Ctrl+C was pressed once; a second press quits.
@@ -224,6 +237,15 @@ pub struct Environment {
     pub colors: ColorDepth,
 }
 
+impl Environment {
+    /// Whether faro is running in a remote session (SSH or mosh), where local
+    /// audio playback would play on the remote host instead of the user's
+    /// speakers (D81).
+    pub const fn is_remote(&self) -> bool {
+        self.over_ssh || self.emoji.mosh
+    }
+}
+
 /// How emoji are drawn (D47).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EmojiMode {
@@ -274,6 +296,8 @@ pub struct EmojiSetting {
     pub auto: bool,
     /// Chosen with `--emoji` or `FARO_EMOJI`, which beat the config file.
     pub from_cli: bool,
+    /// Whether mosh is between faro and the user (D47, D81).
+    pub mosh: bool,
     /// When the terminal was last checked (for mosh and for who draws block
     /// glyphs).
     pub checked_at: Option<Instant>,
@@ -363,6 +387,8 @@ pub enum MessageAction {
     React,
     Copy,
     OpenLink(String),
+    PlayVoiceNote { index: usize },
+    StopVoiceNote { index: usize },
     DownloadAttachment { index: usize, name: String },
     ViewAttachment { index: usize, name: String },
     OpenAttachment { index: usize, name: String },
@@ -379,6 +405,8 @@ impl MessageAction {
             Self::React => ("React…".to_owned(), "+"),
             Self::Copy => ("Copy text".to_owned(), "y"),
             Self::OpenLink(url) => (format!("Open {url}"), "o"),
+            Self::PlayVoiceNote { .. } => ("Play voice note".to_owned(), "x"),
+            Self::StopVoiceNote { .. } => ("Stop voice note".to_owned(), "x"),
             Self::DownloadAttachment { name, .. } => (format!("Download {name}"), "d"),
             Self::ViewAttachment { name, .. } => (format!("View {name}"), "v"),
             Self::OpenAttachment { name, .. } => (format!("Open {name} with system viewer"), "v"),
@@ -621,6 +649,7 @@ impl State {
             downloading: HashSet::new(),
             download_queue: VecDeque::new(),
             save_when_downloaded: HashSet::new(),
+            playing: None,
             last_bell: None,
             quit_armed: bool::default(),
             quit: false,
@@ -763,20 +792,28 @@ impl State {
     }
 
     /// A message's text as people read it: mentions written as `@Name`
-    /// (D72). For copying and quoting; drawing styles the names too
+    /// (D72), or a voice note's transcript if there is no text body (D82).
+    /// For copying and quoting; drawing styles the names too
     /// (`ui::messages::content`).
     pub fn readable_body(&self, message: &Message) -> Option<String> {
-        let body = message.body.as_ref()?;
-        let parts = mention_parts(body.expose(), &message.mentions);
-        Some(
-            parts
-                .into_iter()
-                .map(|part| match part {
-                    BodyPart::Text(text) => text.to_owned(),
-                    BodyPart::Mention(who) => self.mention_name(who),
-                })
-                .collect(),
-        )
+        if let Some(body) = message.body.as_ref() {
+            let parts = mention_parts(body.expose(), &message.mentions);
+            return Some(
+                parts
+                    .into_iter()
+                    .map(|part| match part {
+                        BodyPart::Text(text) => text.to_owned(),
+                        BodyPart::Mention(who) => self.mention_name(who),
+                    })
+                    .collect(),
+            );
+        }
+        message
+            .attachments
+            .iter()
+            .find_map(|a| a.transcript.as_deref())
+            .filter(|t| !t.is_empty())
+            .map(str::to_owned)
     }
 
     /// How a mention of `who` reads: `@` and their name ("@You" for us).
@@ -955,8 +992,23 @@ impl State {
                 .any(|j| (j.message, j.index) == key)
     }
 
+    /// Whether faro can play voice notes locally (not over SSH or mosh, D81).
+    pub const fn can_play_audio(&self) -> bool {
+        !self.env.is_remote()
+    }
+
+    /// Elapsed seconds of `message`'s `index`-th attachment if it is currently
+    /// playing (D81).
+    pub fn playing_voice_note(&self, message: MessageRef, index: usize) -> Option<u32> {
+        self.playing
+            .as_ref()
+            .filter(|p| p.message == message && p.index == index)
+            .map(|p| p.elapsed_secs)
+    }
+
     /// When the reducer next needs a `Tick` (a typing indicator expiring, a
-    /// draft to save, a notice to clear, "stopped typing" to send).
+    /// draft to save, a notice to clear, "stopped typing" to send, or voice
+    /// note playback progress).
     pub fn next_deadline(&self) -> Option<Instant> {
         let typing = self
             .typing
@@ -974,7 +1026,16 @@ impl State {
             .as_ref()
             .and_then(|o| o.typing_sent)
             .map(|t| t.last_edit + TYPING_PAUSE);
-        typing.chain(draft).chain(notice).chain(typing_sent).min()
+        let playing = self
+            .playing
+            .as_ref()
+            .map(|p| p.started_at + Duration::from_secs(u64::from(p.elapsed_secs) + 1));
+        typing
+            .chain(draft)
+            .chain(notice)
+            .chain(typing_sent)
+            .chain(playing)
+            .min()
     }
 }
 

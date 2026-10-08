@@ -1350,3 +1350,48 @@ fn staged_attachment_bar_renders_above_the_input() {
     assert!(text.contains("esc remove"), "{text}");
     assert_drawable(&compatible(state), 100, 24);
 }
+
+#[test]
+fn voice_note_renders_waveform_progress_and_transcript() {
+    use crate::app::state::PlayingVoiceNote;
+    use faro_core::domain::{AttachmentRef, AttachmentStatus, TranscriptSource};
+    use std::path::PathBuf;
+
+    let mut state = loaded_state();
+    let mut msg = fixtures::text(climbing(), ALICE, NOW_MS + 5, "");
+    msg.body = None;
+    msg.attachments = vec![AttachmentRef {
+        size: Some(32_044),
+        status: AttachmentStatus::Downloaded(PathBuf::from("/tmp/voice.wav")),
+        voice_note: true,
+        duration_secs: Some(14),
+        waveform: Some(vec![0, 1, 2, 3, 4, 5, 6, 7, 7, 6, 5, 4, 3, 2, 1, 0]),
+        transcript: Some("Meet at the crag at nine.".into()),
+        transcript_source: Some(TranscriptSource::Local),
+        ..AttachmentRef::remote("att-vn", "audio/wav")
+    }];
+    let target = msg.reference();
+    update(&mut state, AppEvent::Backend(BackendEvent::Message(msg)));
+
+    let idle = snapshot(&draw(&state, 100, 24));
+    assert!(idle.contains("▶ 0:14 ▁▂▃▄▅▆▇██▇▆▅▄▃▂▁ · 31.3 KB"), "{idle}");
+    assert!(
+        idle.contains("❝ Meet at the crag at nine. [local]"),
+        "{idle}"
+    );
+
+    state.playing = Some(PlayingVoiceNote {
+        conversation: climbing(),
+        message: target,
+        index: 0,
+        started_at: tokio::time::Instant::now(),
+        elapsed_secs: 7,
+        duration_secs: Some(14),
+    });
+    let playing = snapshot(&draw(&state, 100, 24));
+    assert!(
+        playing.contains("■ 0:07 / 0:14 ▁▂▃▄▅▆▇██▇▆▅▄▃▂▁ · playing"),
+        "{playing}"
+    );
+    assert_drawable(&compatible(state), 100, 24);
+}

@@ -43,6 +43,8 @@ fn saved(effects: &[Effect], id: ConversationId) -> Option<ConversationState> {
         | Effect::ListFiles(_)
         | Effect::StageFile(_)
         | Effect::CheckPaste { .. }
+        | Effect::PlayAudio { .. }
+        | Effect::StopAudio
         | Effect::CheckTerminal
         | Effect::Bell => None,
     })

@@ -10,14 +10,15 @@ use faro_core::domain::{
     AttachmentRef, AttachmentStatus, ConversationId, DeliveryStatus, Direction, Message,
     MessageBody, MessageRef, Quote,
 };
+use tokio::time::Instant;
 
 use super::{curation, on_backend};
 use crate::app::commands::Command;
 use crate::app::event::Effect;
 use crate::app::keymap::PopupKey;
 use crate::app::state::{
-    AUTO_DOWNLOAD_LIMIT, DownloadJob, Focus, MAX_DOWNLOADS_IN_FLIGHT, MessageAction, Notice, Popup,
-    REACTIONS, Selection, State,
+    AUTO_DOWNLOAD_LIMIT, DownloadJob, Focus, MAX_DOWNLOADS_IN_FLIGHT, MessageAction, Notice,
+    PlayingVoiceNote, Popup, REACTIONS, Selection, State,
 };
 
 /// At most this many links get their own menu entry.
@@ -113,6 +114,9 @@ fn find(state: &State, target: MessageRef) -> Option<&Message> {
 }
 
 fn attachment_label(attachment: &AttachmentRef) -> String {
+    if attachment.is_voice_note() {
+        return "voice note".to_owned();
+    }
     attachment
         .file_name
         .as_deref()
@@ -128,8 +132,10 @@ fn actions(state: &State, message: &Message) -> Vec<MessageAction> {
     if !message.deleted {
         items.extend([MessageAction::Reply, MessageAction::React]);
     }
-    if let Some(body) = message.body.as_ref().filter(|_| !message.deleted) {
+    if !message.deleted && state.readable_body(message).is_some() {
         items.push(MessageAction::Copy);
+    }
+    if let Some(body) = message.body.as_ref().filter(|_| !message.deleted) {
         let links = find_links(body.expose());
         items.extend(
             links
@@ -156,17 +162,27 @@ fn actions(state: &State, message: &Message) -> Vec<MessageAction> {
                     }
                 }
                 AttachmentStatus::Downloaded(_) => {
-                    if att.is_image() {
-                        items.push(MessageAction::ViewAttachment {
-                            index,
-                            name: name.clone(),
-                        });
-                    }
-                    if !state.env.over_ssh {
-                        items.push(MessageAction::OpenAttachment {
-                            index,
-                            name: name.clone(),
-                        });
+                    if att.is_voice_note() {
+                        if state.can_play_audio() {
+                            if state.playing_voice_note(msg_ref, index).is_some() {
+                                items.push(MessageAction::StopVoiceNote { index });
+                            } else {
+                                items.push(MessageAction::PlayVoiceNote { index });
+                            }
+                        }
+                    } else {
+                        if att.is_image() {
+                            items.push(MessageAction::ViewAttachment {
+                                index,
+                                name: name.clone(),
+                            });
+                        }
+                        if !state.env.over_ssh {
+                            items.push(MessageAction::OpenAttachment {
+                                index,
+                                name: name.clone(),
+                            });
+                        }
                     }
                     items.push(MessageAction::SaveAttachment {
                         index,
@@ -203,6 +219,12 @@ fn shortcut(c: char) -> Option<fn(&MessageAction) -> bool> {
         '+' => Some(|a| *a == MessageAction::React),
         'y' => Some(|a| *a == MessageAction::Copy),
         'o' => Some(|a| matches!(a, MessageAction::OpenLink(_))),
+        'x' => Some(|a| {
+            matches!(
+                a,
+                MessageAction::PlayVoiceNote { .. } | MessageAction::StopVoiceNote { .. }
+            )
+        }),
         'd' => Some(|a| matches!(a, MessageAction::DownloadAttachment { .. })),
         'v' => Some(|a| {
             matches!(
@@ -311,6 +333,8 @@ pub fn perform(state: &mut State, target: MessageRef, action: MessageAction) -> 
         }
         MessageAction::Copy => copy(state, target),
         MessageAction::OpenLink(url) => open_url(state, url),
+        MessageAction::PlayVoiceNote { index } => play_one_voice_note(state, target, index),
+        MessageAction::StopVoiceNote { .. } => stop_voice_note(state),
         MessageAction::DownloadAttachment { index, .. } => download_one(state, target, index, true),
         MessageAction::ViewAttachment { index, .. } => {
             if find(state, target)
@@ -542,6 +566,140 @@ fn retry(state: &mut State, target: MessageRef) -> Vec<Effect> {
     effects
 }
 
+/// `x`: play or stop the selected message's voice note (D81). Over SSH or mosh,
+/// saves the voice note to `~/Downloads/` and copies its path instead.
+pub fn play_voice_note(state: &mut State) -> Vec<Effect> {
+    let Some(message) = selected(state).filter(|m| !m.deleted) else {
+        return vec![];
+    };
+    let target = message.reference();
+    let Some((index, att)) = message
+        .attachments
+        .iter()
+        .enumerate()
+        .find(|(_, att)| att.is_voice_note())
+    else {
+        if state.playing.is_some() {
+            return stop_voice_note(state);
+        }
+        state.notice = Some(Notice::info("No voice note in this message"));
+        return vec![];
+    };
+    if state.playing_voice_note(target, index).is_some() {
+        return stop_voice_note(state);
+    }
+    if !state.can_play_audio() {
+        if att.is_downloaded() {
+            return save_and_copy_remote_voice_note(state, target, index);
+        }
+        state.notice = Some(Notice::info(if state.is_downloading(target, index) {
+            "Voice note is still downloading…"
+        } else {
+            "Press d to download the voice note first (or s to save to Downloads)"
+        }));
+        return vec![];
+    }
+    if !att.is_downloaded() {
+        state.notice = Some(Notice::info(if state.is_downloading(target, index) {
+            "Voice note is still downloading…"
+        } else {
+            "Press d to download the voice note first"
+        }));
+        return vec![];
+    }
+    play_one_voice_note(state, target, index)
+}
+
+fn play_one_voice_note(state: &mut State, target: MessageRef, index: usize) -> Vec<Effect> {
+    if state.playing_voice_note(target, index).is_some() {
+        return stop_voice_note(state);
+    }
+    if !state.can_play_audio() {
+        return save_and_copy_remote_voice_note(state, target, index);
+    }
+    let Some(conversation) = state.open.as_ref().map(|o| o.id) else {
+        return vec![];
+    };
+    let Some(att) = find(state, target).and_then(|m| m.attachments.get(index)) else {
+        return vec![];
+    };
+    let Some(path) = att.local_path().map(PathBuf::from) else {
+        state.notice = Some(Notice::info("Press d to download the voice note first"));
+        return vec![];
+    };
+    let duration_secs = att.duration_secs;
+    let player = state.config.voice.player.clone();
+    state.playing = Some(PlayingVoiceNote {
+        conversation,
+        message: target,
+        index,
+        started_at: Instant::now(),
+        elapsed_secs: 0,
+        duration_secs,
+    });
+    vec![Effect::PlayAudio {
+        message: target,
+        index,
+        path,
+        player,
+    }]
+}
+
+fn stop_voice_note(state: &mut State) -> Vec<Effect> {
+    if state.playing.take().is_some() {
+        vec![Effect::StopAudio]
+    } else {
+        vec![]
+    }
+}
+
+pub fn on_playback_finished(
+    state: &mut State,
+    message: MessageRef,
+    index: usize,
+    error: Option<String>,
+) {
+    if state
+        .playing
+        .as_ref()
+        .is_some_and(|p| p.message == message && p.index == index)
+    {
+        state.playing = None;
+    }
+    if let Some(error) = error {
+        state.notice = Some(Notice::warning(format!(
+            "Couldn't play voice note: {error}"
+        )));
+    }
+}
+
+fn save_and_copy_remote_voice_note(
+    state: &mut State,
+    target: MessageRef,
+    index: usize,
+) -> Vec<Effect> {
+    let Some(att) = find(state, target).and_then(|m| m.attachments.get(index)) else {
+        return vec![];
+    };
+    let Some(path) = att.local_path().map(PathBuf::from) else {
+        return vec![];
+    };
+    let file_name = att.file_name.clone();
+    let content_type = att.content_type.clone();
+    let display = path.display().to_string();
+    state.notice = Some(Notice::info(
+        "Saving voice note to Downloads and copying path (remote session: audio isn't played remotely)",
+    ));
+    vec![
+        Effect::Copy(display),
+        Effect::SaveToDownloads {
+            source: path,
+            file_name,
+            content_type,
+        },
+    ]
+}
+
 /// `d`: download the selected message's attachment(s).
 pub fn download_attachment(state: &mut State) -> Vec<Effect> {
     let Some(message) = selected(state).filter(|m| !m.deleted) else {
@@ -592,9 +750,9 @@ pub fn download_attachment(state: &mut State) -> Vec<Effect> {
     }
 }
 
-/// `v`: view an image in the inline viewer popup, open a local file with the
-/// system viewer, or (for non-image files over SSH) save to `~/Downloads/` and
-/// copy the path (D75).
+/// `v`: view an image in the inline viewer popup, play/stop a voice note, open
+/// a local file with the system viewer, or (for non-image files over SSH) save
+/// to `~/Downloads/` and copy the path (D75, D81).
 pub fn open_attachment(state: &mut State) -> Vec<Effect> {
     let Some(message) = selected(state).filter(|m| !m.deleted) else {
         return vec![];
@@ -606,12 +764,20 @@ pub fn open_attachment(state: &mut State) -> Vec<Effect> {
     let target = message.reference();
     let count = message.attachments.len();
     let over_ssh = state.env.over_ssh;
-    let downloaded: Vec<(usize, bool, String)> = message
+    let can_play = state.can_play_audio();
+    let downloaded: Vec<(usize, bool, bool, String)> = message
         .attachments
         .iter()
         .enumerate()
         .filter(|(_, att)| att.is_downloaded())
-        .map(|(index, att)| (index, att.is_image(), attachment_label(att)))
+        .map(|(index, att)| {
+            (
+                index,
+                att.is_image(),
+                att.is_voice_note(),
+                attachment_label(att),
+            )
+        })
         .collect();
     match downloaded.as_slice() {
         [] => {
@@ -623,8 +789,10 @@ pub fn open_attachment(state: &mut State) -> Vec<Effect> {
             }));
             vec![]
         }
-        [(index, is_image, name)] => {
-            if *is_image {
+        [(index, is_image, is_voice, name)] => {
+            if *is_voice {
+                play_one_voice_note(state, target, *index)
+            } else if *is_image {
                 perform(
                     state,
                     target,
@@ -642,10 +810,16 @@ pub fn open_attachment(state: &mut State) -> Vec<Effect> {
         [..] => {
             let items = downloaded
                 .into_iter()
-                .map(|(index, is_image, name)| {
-                    if is_image {
+                .map(|(index, is_image, is_voice, name)| {
+                    if is_voice && can_play {
+                        if state.playing_voice_note(target, index).is_some() {
+                            MessageAction::StopVoiceNote { index }
+                        } else {
+                            MessageAction::PlayVoiceNote { index }
+                        }
+                    } else if is_image {
                         MessageAction::ViewAttachment { index, name }
-                    } else if !over_ssh {
+                    } else if !over_ssh && !is_voice {
                         MessageAction::OpenAttachment { index, name }
                     } else {
                         MessageAction::SaveAttachment { index, name }

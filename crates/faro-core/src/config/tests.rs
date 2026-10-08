@@ -53,6 +53,7 @@ fn key_constants_name_settings() {
         key::LAYOUT,
         key::AUTO_DOWNLOAD,
         key::INLINE_IMAGES,
+        key::VOICE_PLAYER,
         key::MOUSE,
     ] {
         assert!(setting(path).is_some(), "{path}");
@@ -67,6 +68,7 @@ fn settings_are_read() {
          [conversations]\nallowlist = true\n\
          [messages]\nlayout = \"irc\"\n\
          [media]\nauto_download = \"all\"\ninline_images = \"halfblocks\"\n\
+         [voice]\nplayer = \"mpv\"\n\
          [notifications]\nbell = false\ndesktop = \"osc\"\nprivacy = \"preview\"\n\
          [mouse]\nenabled = false\n",
     );
@@ -78,6 +80,7 @@ fn settings_are_read() {
     assert_eq!(c.messages.layout, MessageLayout::Irc);
     assert_eq!(c.media.auto_download, AutoDownload::All);
     assert_eq!(c.media.inline_images, InlineImages::Halfblocks);
+    assert_eq!(c.voice.player, "mpv");
     assert!(!c.notifications.bell);
     assert_eq!(c.notifications.desktop, DesktopNotifications::Osc);
     assert_eq!(c.notifications.privacy, NotificationPrivacy::Preview);

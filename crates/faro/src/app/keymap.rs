@@ -51,6 +51,7 @@ pub enum Action {
     ReactPicker,
     Copy,
     OpenLink,
+    PlayVoiceNote,
     DownloadAttachment,
     OpenAttachment,
     SaveAttachment,

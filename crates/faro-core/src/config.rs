@@ -172,6 +172,7 @@ pub struct Config {
     pub conversations: Conversations,
     pub messages: Messages,
     pub media: Media,
+    pub voice: Voice,
     pub notifications: Notifications,
     pub mouse: Mouse,
     /// `[keybindings.<context>]` entries in file order, unchecked.
@@ -200,6 +201,19 @@ pub struct Messages {
 pub struct Media {
     pub auto_download: AutoDownload,
     pub inline_images: InlineImages,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Voice {
+    pub player: String,
+}
+
+impl Default for Voice {
+    fn default() -> Self {
+        Self {
+            player: "auto".to_owned(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -236,6 +250,7 @@ impl Default for Config {
             conversations: Conversations::default(),
             messages: Messages::default(),
             media: Media::default(),
+            voice: Voice::default(),
             notifications: Notifications {
                 bell: true,
                 title: true,
@@ -259,6 +274,7 @@ pub mod key {
     pub const BUBBLE_STYLE: &str = "messages.bubble_style";
     pub const AUTO_DOWNLOAD: &str = "media.auto_download";
     pub const INLINE_IMAGES: &str = "media.inline_images";
+    pub const VOICE_PLAYER: &str = "voice.player";
     pub const MOUSE: &str = "mouse.enabled";
     pub const BELL: &str = "notifications.bell";
     pub const TITLE: &str = "notifications.title";
@@ -419,6 +435,16 @@ pub static SETTINGS: &[Setting] = &[
         get: |c| text(c.media.inline_images),
         set: |c, v| {
             c.media.inline_images = choice(v)?;
+            Ok(())
+        },
+    },
+    Setting {
+        path: key::VOICE_PLAYER,
+        help: "External command for voice-note playback: \"auto\" (afplay on macOS, mpv, \
+               ffplay, paplay, aplay or play) or a command name.",
+        get: |c| ConfigValue::Text(c.voice.player.clone()),
+        set: |c, v| {
+            c.voice.player = string(v)?;
             Ok(())
         },
     },

@@ -182,6 +182,16 @@ pub enum TranscriptSource {
     Remote,
 }
 
+impl TranscriptSource {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Local => "local",
+            Self::Remote => "remote",
+        }
+    }
+}
+
 /// Metadata about an attachment; the content is fetched on demand (D75, D80–D82).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AttachmentRef {

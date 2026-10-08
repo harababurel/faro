@@ -223,6 +223,11 @@ pub const NAMES: &[(&str, &str, Action)] = &[
     ("message.copy", "Copy text", Action::Copy),
     ("message.open_link", "Open link", Action::OpenLink),
     (
+        "message.play",
+        "Play or stop voice note",
+        Action::PlayVoiceNote,
+    ),
+    (
         "attachments.download",
         "Download attachment",
         Action::DownloadAttachment,
@@ -344,6 +349,7 @@ pub const BINDINGS: &[(Context, &str, Action)] = &[
     (Messages, "+", Action::ReactPicker),
     (Messages, "y", Action::Copy),
     (Messages, "o", Action::OpenLink),
+    (Messages, "x", Action::PlayVoiceNote),
     (Messages, "d", Action::DownloadAttachment),
     (Messages, "v", Action::OpenAttachment),
     (Messages, "s", Action::SaveAttachment),

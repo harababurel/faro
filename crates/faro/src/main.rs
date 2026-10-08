@@ -197,6 +197,7 @@ async fn terminal_setting(
             mode,
             auto,
             from_cli,
+            mosh: terminal.mosh,
             checked_at: Some(tokio::time::Instant::now()),
         },
         glyphs: terminal.glyphs,

@@ -61,9 +61,13 @@ fn letters_type_in_the_input_and_navigate_elsewhere() {
     assert_eq!(j(Focus::Input), Some(Action::Edit(Edit::Insert('j'))));
     assert_eq!(j(Focus::Conversations), Some(Action::NextConversation));
     assert_eq!(j(Focus::Messages), Some(Action::SelectNewer));
-    // Unbound letters do nothing outside the input.
     assert_eq!(
         press(KeyCode::Char('x'), KeyModifiers::NONE, Focus::Messages),
+        Some(Action::PlayVoiceNote)
+    );
+    // Unbound letters do nothing outside the input.
+    assert_eq!(
+        press(KeyCode::Char('z'), KeyModifiers::NONE, Focus::Messages),
         None
     );
 }

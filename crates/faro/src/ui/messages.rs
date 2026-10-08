@@ -511,6 +511,12 @@ pub(super) fn content(
                 body.push(vec![Span::raw(pad.clone())]);
             }
         }
+        if attachment.is_voice_note() {
+            body.extend(voice_note_lines(
+                state, msg_ref, index, attachment, max, view,
+            ));
+            continue;
+        }
         let name = attachment.file_name.as_deref().map_or_else(
             || attachment.content_type.clone(),
             |n| sanitize(n).into_owned(),
@@ -536,6 +542,133 @@ pub(super) fn content(
         body.push(vec![Span::styled("(empty message)", theme.muted())]);
     }
     (body, pending_images)
+}
+
+/// Render a voice note row (`▶ 0:14 ▂▄▆█… · size` or `■ 0:05 / 0:14 ▂▄▆█… · playing`)
+/// and its transcript below when present (D80, D81, D82).
+fn voice_note_lines(
+    state: &State,
+    msg_ref: MessageRef,
+    index: usize,
+    attachment: &faro_core::domain::AttachmentRef,
+    max: usize,
+    view: &View<'_>,
+) -> Vec<Vec<Span<'static>>> {
+    let theme = view.theme;
+    let mut lines: Vec<Vec<Span<'static>>> = Vec::new();
+    let levels = attachment
+        .waveform
+        .as_deref()
+        .filter(|w| !w.is_empty())
+        .map_or_else(
+            || faro_core::audio::synthetic_waveform(attachment.id.0.as_bytes()),
+            <[u8]>::to_vec,
+        );
+    let waveform = faro_core::audio::format_waveform(&levels);
+    let bars: Vec<char> = waveform.chars().collect();
+    let duration = attachment
+        .duration_secs
+        .map_or_else(|| "0:00".to_owned(), faro_core::audio::format_duration);
+
+    let spans = if let Some(elapsed) = state.playing_voice_note(msg_ref, index) {
+        let elapsed_str = faro_core::audio::format_duration(elapsed);
+        let head = format!("■ {elapsed_str} / {duration} ");
+        let tail = " · playing";
+        let played_count = match attachment.duration_secs.filter(|&d| d > 0) {
+            Some(total) => {
+                (usize::try_from(elapsed.min(total)).unwrap_or(0) * bars.len())
+                    / usize::try_from(total).unwrap_or(1)
+            }
+            None => usize::try_from(elapsed).unwrap_or(0) % (bars.len() + 1),
+        }
+        .min(bars.len());
+        let played: String = bars.iter().take(played_count).collect();
+        let remaining: String = bars.iter().skip(played_count).collect();
+        let full = format!("{head}{played}{remaining}{tail}");
+        if width(&full) <= max {
+            let mut row = vec![Span::styled(
+                head,
+                Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
+            )];
+            if !played.is_empty() {
+                row.push(Span::styled(played, Style::new().fg(theme.accent)));
+            }
+            if !remaining.is_empty() {
+                row.push(Span::styled(remaining, theme.muted()));
+            }
+            row.push(Span::styled(tail.to_owned(), Style::new().fg(theme.accent)));
+            row
+        } else {
+            vec![Span::styled(
+                truncate(&full, max).into_owned(),
+                Style::new().fg(theme.accent),
+            )]
+        }
+    } else {
+        let size = attachment.size.map(format_size).unwrap_or_default();
+        let status = match &attachment.status {
+            AttachmentStatus::Downloaded(_) => "",
+            AttachmentStatus::Remote | AttachmentStatus::Failed
+                if state.is_downloading(msg_ref, index) =>
+            {
+                " · downloading…"
+            }
+            AttachmentStatus::Remote => " · not downloaded (d)",
+            AttachmentStatus::Failed => " · download failed (d)",
+        };
+        let head = format!("▶ {duration} ");
+        let tail = format!("{size}{status}");
+        let full = format!("{head}{waveform}{tail}");
+        if width(&full) <= max {
+            let bar_style = if attachment.is_downloaded() {
+                Style::new().fg(theme.accent)
+            } else {
+                theme.muted()
+            };
+            vec![
+                Span::styled(head, Style::new().fg(theme.secondary)),
+                Span::styled(waveform, bar_style),
+                Span::styled(tail, theme.muted()),
+            ]
+        } else {
+            vec![Span::styled(
+                truncate(&full, max).into_owned(),
+                Style::new().fg(theme.secondary),
+            )]
+        }
+    };
+    lines.push(spans);
+    lines.extend(transcript_lines(attachment, max, view));
+    lines
+}
+
+fn transcript_lines(
+    attachment: &faro_core::domain::AttachmentRef,
+    max: usize,
+    view: &View<'_>,
+) -> Vec<Vec<Span<'static>>> {
+    let theme = view.theme;
+    let Some(transcript) = attachment.transcript.as_deref().filter(|t| !t.is_empty()) else {
+        return Vec::new();
+    };
+    let quoted = format!("❝ {}", sanitize(transcript));
+    let tag = attachment
+        .transcript_source
+        .map(|s| format!(" [{}]", s.as_str()))
+        .unwrap_or_default();
+    let text_style = Style::new().fg(theme.text).add_modifier(Modifier::ITALIC);
+    let mut pieces = vec![(quoted.as_str(), text_style)];
+    if !tag.is_empty() {
+        pieces.push((tag.as_str(), theme.muted()));
+    }
+    wrap_pieces(&pieces, max)
+        .into_iter()
+        .map(|line| {
+            line.into_iter()
+                .map(|(text, style)| Span::styled(text, style))
+                .collect()
+        })
+        .collect()
 }
 
 /// A message's text wrapped to `max` cells, mentions drawn as `@Name` in

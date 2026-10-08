@@ -94,6 +94,115 @@ pub fn save_to_downloads(
     });
 }
 
+/// Manages a single external audio player child process (D81). Starting a new
+/// voice note or calling [`AudioPlayer::stop`] aborts the running task, which
+/// drops and kills (`kill_on_drop(true)`) the child process immediately.
+#[derive(Default)]
+pub struct AudioPlayer {
+    task: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl Drop for AudioPlayer {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+impl AudioPlayer {
+    pub fn stop(&mut self) {
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
+    }
+
+    pub fn play(
+        &mut self,
+        message: faro_core::domain::MessageRef,
+        index: usize,
+        path: PathBuf,
+        player: String,
+        results: mpsc::UnboundedSender<AppEvent>,
+    ) {
+        self.stop();
+        self.task = Some(tokio::spawn(async move {
+            let error = run_audio_player(&path, &player).await.err();
+            if let Some(ref err) = error {
+                tracing::warn!(%err, "audio playback failed");
+            }
+            let _ = results.send(AppEvent::PlaybackFinished {
+                message,
+                index,
+                error,
+            });
+        }));
+    }
+}
+
+const AUTO_PLAYERS_MACOS: &[(&str, &[&str])] = &[
+    ("afplay", &[]),
+    ("mpv", &["--no-video", "--really-quiet"]),
+    ("ffplay", &["-nodisp", "-autoexit", "-loglevel", "quiet"]),
+    ("play", &["-q"]),
+];
+
+const AUTO_PLAYERS_UNIX: &[(&str, &[&str])] = &[
+    ("mpv", &["--no-video", "--really-quiet"]),
+    ("ffplay", &["-nodisp", "-autoexit", "-loglevel", "quiet"]),
+    ("paplay", &[]),
+    ("aplay", &["-q"]),
+    ("play", &["-q"]),
+];
+
+async fn run_audio_player(path: &Path, player: &str) -> Result<(), String> {
+    let trimmed = player.trim();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("auto") {
+        let candidates = if cfg!(target_os = "macos") {
+            AUTO_PLAYERS_MACOS
+        } else {
+            AUTO_PLAYERS_UNIX
+        };
+        for &(program, args) in candidates {
+            let status = tokio::process::Command::new(program)
+                .args(args)
+                .arg(path)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .kill_on_drop(true)
+                .status()
+                .await;
+            match status {
+                Ok(status) if status.success() => return Ok(()),
+                Ok(status) => return Err(format!("{program} exited with {status}")),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(format!("couldn't run {program}: {error}")),
+            }
+        }
+        return Err(
+            "no audio player found (install mpv, ffplay, paplay or aplay, or set [voice] player)"
+                .to_owned(),
+        );
+    }
+    let mut parts = trimmed.split_whitespace();
+    let Some(program) = parts.next() else {
+        return Err("no audio player configured".to_owned());
+    };
+    let status = tokio::process::Command::new(program)
+        .args(parts)
+        .arg(path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .status()
+        .await;
+    match status {
+        Ok(status) if status.success() => Ok(()),
+        Ok(status) => Err(format!("{program} exited with {status}")),
+        Err(error) => Err(format!("couldn't run {program}: {error}")),
+    }
+}
+
 /// Split a palette file query into `(dir_prefix_with_trailing_slash, file_prefix)`.
 /// For example, `"~/Downloads/rep"` splits into `("~/Downloads/", "rep")`, and
 /// `"~/"` splits into `("~/", "")`.

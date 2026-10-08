@@ -143,6 +143,7 @@ pub async fn run<B: Backend + 'static>(
         effects,
         config: config_writer,
         results: results_tx,
+        audio: std::cell::RefCell::new(system::AudioPlayer::default()),
     };
     let dispatch = |list: Vec<Effect>| router.dispatch(list);
 
@@ -235,6 +236,7 @@ async fn shutdown(
     // A send still in flight is abandoned; the store marks it failed on the
     // next start (`Store::fail_unsent`).
     command_task.abort();
+    router.audio.borrow_mut().stop();
     let Router {
         effects, config, ..
     } = router;
@@ -264,6 +266,7 @@ struct Router {
     effects: mpsc::UnboundedSender<Effect>,
     config: mpsc::UnboundedSender<faro_core::config::SettingEdit>,
     results: mpsc::UnboundedSender<AppEvent>,
+    audio: std::cell::RefCell<system::AudioPlayer>,
 }
 
 impl Router {
@@ -281,6 +284,25 @@ impl Router {
                 }
                 Effect::OpenFile(path) => {
                     system::open_file(path, self.results.clone());
+                    true
+                }
+                Effect::PlayAudio {
+                    message,
+                    index,
+                    path,
+                    player,
+                } => {
+                    self.audio.borrow_mut().play(
+                        message,
+                        index,
+                        path,
+                        player,
+                        self.results.clone(),
+                    );
+                    true
+                }
+                Effect::StopAudio => {
+                    self.audio.borrow_mut().stop();
                     true
                 }
                 Effect::SaveToDownloads {
@@ -418,6 +440,7 @@ fn affects_view(event: &AppEvent) -> bool {
         | AppEvent::FileStaged(_)
         | AppEvent::PasteChecked { .. }
         | AppEvent::ImageDecoded(_)
+        | AppEvent::PlaybackFinished { .. }
         | AppEvent::OpenFailed(_)
         | AppEvent::TerminalChecked { .. }
         | AppEvent::ConfigRead(_)

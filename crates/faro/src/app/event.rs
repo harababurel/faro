@@ -66,6 +66,12 @@ pub enum AppEvent {
     },
     /// An inline image finished decoding and slicing off the UI thread (D79).
     ImageDecoded(super::images::DecodedImage),
+    /// External audio playback finished or failed (D81).
+    PlaybackFinished {
+        message: MessageRef,
+        index: usize,
+        error: Option<String>,
+    },
     /// Opening a link or attachment failed; the text is safe to show.
     OpenFailed(String),
     /// What's between faro and the user: mosh (D47), and who draws block
@@ -134,6 +140,16 @@ pub enum Effect {
     OpenUrl(String),
     /// Open a local file with the system's opener (local session only, D75).
     OpenFile(PathBuf),
+    /// Play a downloaded voice note with an external player (local session
+    /// only, D81). Answered with `AppEvent::PlaybackFinished`.
+    PlayAudio {
+        message: MessageRef,
+        index: usize,
+        path: PathBuf,
+        player: String,
+    },
+    /// Stop any currently playing voice note (D81).
+    StopAudio,
     /// Copy a downloaded attachment into `~/Downloads/`, numbering collisions
     /// (D75). Answered with `AppEvent::SavedToDownloads`.
     SaveToDownloads {

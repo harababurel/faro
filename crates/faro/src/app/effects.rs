@@ -117,6 +117,8 @@ async fn execute(store: &Store, effect: Effect) -> Result<Option<AppEvent>, Stor
         | Effect::Copy(_)
         | Effect::OpenUrl(_)
         | Effect::OpenFile(_)
+        | Effect::PlayAudio { .. }
+        | Effect::StopAudio
         | Effect::SaveToDownloads { .. }
         | Effect::ListFiles(_)
         | Effect::StageFile(_)

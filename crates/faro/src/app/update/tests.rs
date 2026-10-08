@@ -1490,6 +1490,120 @@ fn staging_sending_and_pasting_attachments() {
     )));
 }
 
+#[test]
+fn voice_note_playback_and_remote_session_guard() {
+    use faro_core::config::AutoDownload;
+    use faro_core::domain::{AttachmentRef, AttachmentStatus};
+    use std::path::PathBuf;
+
+    let mut state = loaded_state();
+    state.config.media.auto_download = AutoDownload::Off;
+    state.config.voice.player = "mpv".into();
+    let voice_path = PathBuf::from("/tmp/faro-test/voice.wav");
+    let mut msg = text(climbing(), BOB, fixtures::NOW_MS + 30, "");
+    msg.body = None;
+    msg.attachments = vec![AttachmentRef {
+        file_name: Some("voice.wav".into()),
+        size: Some(16_000),
+        status: AttachmentStatus::Downloaded(voice_path.clone()),
+        voice_note: true,
+        duration_secs: Some(8),
+        waveform: Some(vec![1, 2, 3, 4]),
+        transcript: Some("Heading to the boulders".into()),
+        transcript_source: Some(faro_core::domain::TranscriptSource::Local),
+        ..AttachmentRef::remote("att-vn", "audio/wav")
+    }];
+    let target = msg.reference();
+    update(&mut state, AppEvent::Backend(BackendEvent::Message(msg)));
+    update(&mut state, key(KeyCode::Up, KeyModifiers::NONE));
+    assert_eq!(selected_ref(&state), Some(target));
+
+    // Copying a voice note with a transcript copies the transcript text.
+    assert_eq!(
+        press(&mut state, 'y'),
+        vec![Effect::Copy("Heading to the boulders".into())]
+    );
+
+    // Local session: `x` starts playback; pressing `x` again stops it.
+    let effects = press(&mut state, 'x');
+    assert_eq!(
+        effects,
+        vec![Effect::PlayAudio {
+            message: target,
+            index: 0,
+            path: voice_path.clone(),
+            player: "mpv".into(),
+        }]
+    );
+    assert_eq!(state.playing_voice_note(target, 0), Some(0));
+
+    // Message menu while playing offers `StopVoiceNote`.
+    update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(matches!(
+        &state.popup,
+        Some(Popup::Actions { items, .. })
+            if items.contains(&MessageAction::StopVoiceNote { index: 0 })
+    ));
+    update(&mut state, key(KeyCode::Esc, KeyModifiers::NONE));
+
+    let effects = press(&mut state, 'x');
+    assert_eq!(effects, vec![Effect::StopAudio]);
+    assert!(state.playing.is_none());
+
+    // Starting again via `v`, then finishing via PlaybackFinished clears `playing`.
+    let effects = press(&mut state, 'v');
+    assert_eq!(
+        effects,
+        vec![Effect::PlayAudio {
+            message: target,
+            index: 0,
+            path: voice_path.clone(),
+            player: "mpv".into(),
+        }]
+    );
+    update(
+        &mut state,
+        AppEvent::PlaybackFinished {
+            message: target,
+            index: 0,
+            error: Some("mpv exited with 1".into()),
+        },
+    );
+    assert!(state.playing.is_none());
+    assert!(
+        state
+            .notice
+            .as_ref()
+            .is_some_and(|n| n.text.contains("Couldn't play voice note"))
+    );
+
+    // Remote session (mosh or SSH): PlayVoiceNote is omitted from the menu, and `x` saves + copies path.
+    state.env.emoji.mosh = true;
+    assert!(!state.can_play_audio());
+    update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(matches!(
+        &state.popup,
+        Some(Popup::Actions { items, .. })
+            if !items.iter().any(|a| matches!(
+                a,
+                MessageAction::PlayVoiceNote { .. } | MessageAction::StopVoiceNote { .. }
+            ))
+    ));
+    update(&mut state, key(KeyCode::Esc, KeyModifiers::NONE));
+
+    assert_eq!(
+        press(&mut state, 'x'),
+        vec![
+            Effect::Copy(voice_path.display().to_string()),
+            Effect::SaveToDownloads {
+                source: voice_path,
+                file_name: Some("voice.wav".into()),
+                content_type: "audio/wav".into(),
+            }
+        ]
+    );
+}
+
 mod curation;
 mod notify;
 mod palette;

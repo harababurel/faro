@@ -83,6 +83,14 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
         }
         AppEvent::PasteChecked { raw, staged } => sending::on_paste_checked(state, &raw, staged),
         AppEvent::ImageDecoded(_) => vec![],
+        AppEvent::PlaybackFinished {
+            message,
+            index,
+            error,
+        } => {
+            selection::on_playback_finished(state, message, index, error);
+            vec![]
+        }
         AppEvent::TerminalChecked(terminal) => {
             terminal_checked(state, terminal);
             vec![]
@@ -106,30 +114,40 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
             on_unread_cleared(state, &cleared);
             vec![]
         }
-        AppEvent::Tick => {
-            let now = Instant::now();
-            expire_typing(state, now);
-            if state
-                .notice
-                .as_ref()
-                .and_then(|n| n.until)
-                .is_some_and(|t| now >= t)
-            {
-                state.notice = None;
-            }
-            let draft_due = state
-                .open
-                .as_ref()
-                .and_then(|o| o.draft_edited)
-                .is_some_and(|t| now >= t + DRAFT_SAVE_DELAY);
-            let mut effects = presence::on_tick(state, now);
-            if draft_due {
-                effects.extend(save_draft(state));
-            }
-            effects
-        }
+        AppEvent::Tick => on_tick(state),
         AppEvent::Shutdown => quit(state),
     }
+}
+
+fn on_tick(state: &mut State) -> Vec<Effect> {
+    let now = Instant::now();
+    expire_typing(state, now);
+    if let Some(playing) = state.playing.as_mut() {
+        let elapsed = u32::try_from(now.saturating_duration_since(playing.started_at).as_secs())
+            .unwrap_or(u32::MAX);
+        playing.elapsed_secs = match playing.duration_secs {
+            Some(total) if total > 0 => elapsed.min(total),
+            Some(_) | None => elapsed,
+        };
+    }
+    if state
+        .notice
+        .as_ref()
+        .and_then(|n| n.until)
+        .is_some_and(|t| now >= t)
+    {
+        state.notice = None;
+    }
+    let draft_due = state
+        .open
+        .as_ref()
+        .and_then(|o| o.draft_edited)
+        .is_some_and(|t| now >= t + DRAFT_SAVE_DELAY);
+    let mut effects = presence::on_tick(state, now);
+    if draft_due {
+        effects.extend(save_draft(state));
+    }
+    effects
 }
 
 fn on_terminal(state: &mut State, event: &Event) -> Vec<Effect> {
@@ -208,6 +226,9 @@ fn on_drawn(state: &mut State, geometry: Geometry) -> Vec<Effect> {
 fn quit(state: &mut State) -> Vec<Effect> {
     state.quit = true;
     let mut effects = presence::stop_typing(state);
+    if state.playing.take().is_some() {
+        effects.push(Effect::StopAudio);
+    }
     effects.extend(save_draft(state));
     effects
 }
@@ -242,6 +263,9 @@ fn open_conversation(state: &mut State, id: ConversationId) -> Vec<Effect> {
         state.focus = Focus::Input;
     }
     let mut effects = presence::stop_typing(state);
+    if state.playing.take().is_some() {
+        effects.push(Effect::StopAudio);
+    }
     effects.extend(save_draft(state));
     effects.extend([Effect::LoadMessages(id), Effect::RememberOpen(id)]);
     let mut unread = 0;
@@ -590,6 +614,7 @@ fn terminal_checked(state: &mut State, terminal: Terminal) {
         state.env.repaint = true;
     }
     let emoji = &mut state.env.emoji;
+    emoji.mosh = mosh;
     let mode = if mosh {
         EmojiMode::Compatible
     } else {
