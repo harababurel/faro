@@ -227,16 +227,122 @@ Outline only. Bring the phone's message history into faro when linking, as Signa
 **Acceptance**
 - Linking a fresh data dir with "Transfer message history" chosen on the phone shows the recent history of the allowed chats in faro.
 
+## M12: UX, messaging, search and polish (v0.2, D83)
+
+All 11 features approved by the owner on 2026-10-08. Organized into **3 sequential waves of parallel tracks** so an orchestrating agent can spawn 2–3 subagents concurrently per wave using isolated worktrees (`Workspace="share"`) with minimal file overlap.
+
+### Parallel Subagent Protocol (for all M12 waves)
+- **Isolated worktrees:** Spawn each track in a wave with `Workspace="share"` (or a separate clone/worktree) on its own local branch (`git fetch origin && git switch -c m12-track-1a origin/main`).
+- **Quality gate & rebase before push:** Each worker runs `set -o pipefail; cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test --workspace --exclude faro && cargo test -p faro -- --test-threads=1`, then `git fetch origin && git rebase origin/main`, re-runs the gate if the rebase brought changes (regenerating insta snapshots with `INSTA_UPDATE=always cargo test -p faro -- --test-threads=1` if needed), and pushes with `git push origin HEAD:main`.
+- **Sequential wave boundary:** Wait for all tracks in **Wave N** to push to `origin/main` before spawning **Wave N+1**.
+- **Non-workspace `view_file` ban:** Subagents must **never** call `view_file` on paths outside the repo workspace (such as `~/.cargo/registry/...`); use `run_command` if inspecting external crate sources.
+
+---
+
+### Wave 1 — Protocol Actions, Store Plumbing & Palette/Notification Core (3 Parallel Tracks)
+
+Run **Tracks 1A, 1B, and 1C in parallel**:
+
+#### Track 1A: Outgoing Edit, Delete for Everyone & Sending `@mentions`
+- **Primary files:** `crates/faro-core/src/backend.rs`, `crates/faro-core/src/guard.rs`, `crates/faro-core/src/mock.rs`, `crates/faro-presage/src/{backend.rs,convert.rs}`, `crates/faro/src/app/{commands.rs,update/sending.rs,update/selection.rs}`, `crates/faro/src/ui/input.rs`.
+- **Tasks:**
+  1. **Edit & Delete for Everyone (`e` / `D` in `messages`):**
+     - Add `Backend::edit(&mut self, conversation: ConversationId, target_sent_at: Timestamp, new_body: MessageBody, mentions: Vec<Mention>)` and `Backend::delete(&mut self, conversation: ConversationId, target_sent_at: Timestamp)` (guarded by `faro-core::guard`, simulated in `MockBackend`, mapped to Signal `EditMessage` and `DataMessage::Delete` in `faro-presage`).
+     - Pressing `e` (`Action::EditMessage`, `message.edit`) on an outgoing message loads its text into the input editor with an `✎ Editing message · esc cancel` bar (`OpenConversation::editing: Option<Timestamp>`); `Enter` dispatches `Command::Edit`, updates the timeline and store (`BackendEvent::Edited`), and clears the bar.
+     - Pressing `D` (`Action::DeleteMessage`, `message.delete`) on an outgoing message opens `Popup::ConfirmDelete(Timestamp)`; confirming dispatches `Command::Delete` and marks the message deleted in the timeline and store (`BackendEvent::Deleted`).
+  2. **Sending `@mentions` with inline `@` autocomplete:**
+     - Add `mentions: Vec<Mention>` to `OutgoingMessage` and encode UTF-16 `BodyRange` (`AssociatedValue::MentionAci`) in `faro-presage::convert`.
+     - In `Input` focus, typing `@` followed by characters opens an inline completion popup above the input box listing participants of the open conversation matching the prefix; `Tab`/`Enter` inserts `@Name` and tracks the mention so sending builds accurate byte-offset `Mention` structs.
+
+#### Track 1B: Delivery Receipts, "Message Info" Popup & Search/Jump Store Queries
+- **Primary files:** `crates/faro-core/migrations/0008_receipts.sql` (**only Track 1B adds a migration in M12**), `crates/faro-core/src/store/` (`db.rs`, `db/messages.rs`, `tests.rs`), `crates/faro-presage/src/convert.rs`, `crates/faro/src/ui/{messages.rs,popup.rs}`.
+- **Tasks:**
+  1. **Delivery receipts & per-recipient tracking (`0008_receipts.sql`):**
+     - Map `ReceiptMessage::Type::Delivery` in `faro-presage::convert::receipt` to `DeliveryStatus::Delivered` (currently ignored).
+     - Add migration `0008_receipts.sql` creating `message_receipts (conversation_id, sender, sent_at, recipient, status, updated_at)` to record per-recipient delivery and read timestamps in groups and direct chats.
+     - Render `DeliveryStatus::Delivered` as dim `✓✓` and `DeliveryStatus::Read` as `accent`-coloured `✓✓` in `ui/messages.rs`.
+     - Add `i` (`Action::MessageInfo`, `message.info`) and menu item *Message info* opening `Popup::MessageInfo`, displaying sender, sent/edited timestamp, attachment details, and per-recipient delivered/read timestamps.
+  2. **Store queries for search & context jump (used by Track 2A in Wave 2):**
+     - Add `Store::search_messages(conversation: Option<ConversationId>, query: &str, limit: u32) -> Vec<SearchHit>` searching `messages.body` and `attachments.transcript` (case-insensitive substring/token match, newest first).
+     - Add `Store::messages_around(conversation: ConversationId, target: Timestamp, radius: u32) -> Vec<StoredMessage>` so the UI can jump to any historical message in context.
+
+#### Track 1C: `Ctrl+P` Palette Navigation & Multi-Edit + OSC Desktop Notifications
+- **Primary files:** `crates/faro/src/app/{palette.rs,update/palette.rs,update/settings.rs,update/notify.rs}`, `crates/faro/src/ui/palette.rs`, `crates/faro/src/tui.rs`.
+- **Tasks:**
+  1. **Palette `←`/`→` value cycling & staying open on setting/theme changes (owner's request):**
+     - In `Level::Settings`, pressing `←` or `→` (`PaletteKey::Edit(Edit::Left | Edit::Right)`) on any setting row (both multi-choice `ItemKind::Level(Level::Setting(s))` and boolean `ItemKind::Switch(s)`) cycles backward/forward through that setting's choices in place, immediately applying the new value (`settings::choose`) and writing back to `config.toml` while keeping `Settings ›` open and showing the live UI change behind the palette. (If the user has typed a non-empty filter query in `Settings ›`, `←` at cursor 0 still steps up only when not on a cycleable setting, or `Backspace` on empty steps up; document the exact rule and show a hint `←/→ cycle · enter list` in `Settings ›`.)
+     - Only `Enter` (not `→`) opens the vertical sub-menu `Level::Setting(s)`.
+     - Inside `Level::Setting(s)`, pressing `Enter` on an option applies and saves it, then calls `up(state)` to return to `Level::Settings` with that setting row still selected (instead of setting `state.palette = None`).
+     - Inside `Level::Themes`, pressing `Enter` applies and saves the selected theme and updates the `current` marker on the list while keeping `Level::Themes` open (`Esc` or `←` exits).
+  2. **OSC 99 (kitty) / OSC 9 / OSC 777 desktop notifications over SSH & tmux:**
+     - Wire `[notifications] desktop = "auto" | "osc" | "native" | "off"` and `privacy = "none" | "sender" | "preview"` in `faro-core::config` (promote from `PLANNED` to `SETTINGS`) and add `Setting::Desktop` and `Setting::Privacy` under `SettingsGroup::Notifications`.
+     - Add `Effect::DesktopNotify { title: String, body: String }`, emitted by `update/notify.rs` alongside `Effect::Bell` when a message rings (`State::rings_for`), formatted according to `privacy` (`none` → `"New message"`, `sender` → sender/chat title, `preview` → sender + `readable_body`).
+     - In `tui.rs`, emit OSC 99 (`\x1b]99;i=faro:d=0;...\x1b\\`) when kitty is detected (`BlockGlyphs::Native`), OSC 9 / OSC 777 elsewhere, automatically wrapped in tmux DCS passthrough (`\x1bPtmux;\x1b...\x1b\\`) when `$TMUX` is set; for `"native"` when not `over_ssh`, fall back to `osascript` (macOS) or `notify-send` (Linux) off the UI thread.
+
+---
+
+### Wave 2 — Search UI, Emoji Autocomplete & Message View Polish (3 Parallel Tracks)
+
+Start after Wave 1 is merged to `origin/main`. Run **Tracks 2A, 2B, and 2C in parallel**:
+
+#### Track 2A: Full-Text Message & Transcript Search UI + Jump to Unread (`u`)
+- **Primary files:** `crates/faro/src/app/{palette.rs,update/palette.rs,update/navigation.rs,state.rs}`, `crates/faro/src/ui/messages.rs`.
+- **Tasks:**
+  1. **In-chat & global message search (`/` or `Ctrl+F`):**
+     - Bind `/` in `messages` and `Ctrl+F` globally (`Action::SearchMessages`, `message.search`) to open `Level::Search(Option<ConversationId>)` in the palette (scoped to the open conversation when one is open, with a toggle/prefix to search all conversations, or listed at `Level::Root` as `Search ›` with `/` prefix).
+     - As the user types (debounced or on each edit via `Effect::SearchMessages`), query `Store::search_messages` (from Track 1B) and display matching messages/transcripts with sender, date, and snippet.
+     - Pressing `Enter` on a search hit opens the conversation (if needed), loads `Store::messages_around` centered on the hit (`Effect::LoadAround`), selects that message in the message pane, and highlights the matched query term.
+  2. **Jump to unread marker (`u`):**
+     - Bind `u` in `messages` (`Action::JumpUnread`, `message.jump_unread`) and add *Jump to unread* to the palette commands: scrolls to and selects the first unread message at `OpenConversation::unread_marker` (or loads around it if scrolled/paged away).
+
+#### Track 2B: Wire Up `[messages] density` and `timestamps` Settings
+- **Primary files:** `crates/faro-core/src/config.rs`, `crates/faro/src/app/{palette.rs,update/settings.rs,state.rs}`, `crates/faro/src/ui/{messages.rs,bubbles.rs}`.
+- **Tasks:**
+  1. Promote `[messages] density = "comfortable" | "compact"` and `[messages] timestamps = "relative" | "absolute" | "off"` from `config::PLANNED` into active `Config` fields and `SETTINGS`.
+  2. Add `Setting::Density` and `Setting::Timestamps` under `SettingsGroup::Appearance` with live preview (`Setting::previews()`) and `←`/`→` cycling (from Track 1C).
+  3. In `ui/messages.rs` and `ui/bubbles.rs`:
+     - `compact` omits the blank separator line between consecutive messages from the same sender within 5 minutes and tightens one-line bubble chrome where appropriate.
+     - `timestamps = "relative"` formats timestamps relative to `View::now_timestamp()` (`just now`, `5m`, `2h`, `yesterday`), `"absolute"` keeps `HH:MM`, and `"off"` hides timestamps on unselected messages (still showing on the selected message).
+
+#### Track 2C: Emoji `:shortcode:` Autocomplete & Full Reaction Search
+- **Primary files:** `crates/faro/src/ui/{shortcodes.rs,popup.rs}`, `crates/faro/src/app/{input.rs,update/selection.rs,state.rs}`.
+- **Tasks:**
+  1. Add `crates/faro/src/ui/shortcodes.rs` with a curated, zero-dependency static table of common emoji and `:shortcode:` aliases, pre-validated against `ui/emoji.rs` (`D55` tmux width rules).
+  2. **Input `:shortcode:` completion:** typing `:word` (at least 2 letters after `:`) in the input box shows a compact completion popup above the input; `Tab`/`Enter` replaces `:word` with the chosen emoji.
+  3. **Searchable reaction picker:** in `Popup::ReactionPicker` (`+` on a message), pressing `/` or typing letters transitions the picker into search mode over `shortcodes.rs` so the user can react with any emoji beyond the 6 defaults.
+
+---
+
+### Wave 3 — Forwarding & Info Panel Links/Media (2 Parallel Tracks)
+
+Start after Wave 2 is merged to `origin/main`. Run **Tracks 3A and 3B in parallel**:
+
+#### Track 3A: Forward Message (`f` in Message Selection)
+- **Primary files:** `crates/faro/src/app/{update/selection.rs,update/palette.rs,palette.rs,keymap/defaults.rs}`.
+- **Tasks:**
+  1. Bind `f` in `messages` (`Action::ForwardMessage`, `message.forward`) and add *Forward…* to the message action menu and palette.
+  2. Open `Level::ForwardTo(MessageRef)` in the palette listing allowed conversations (`Chats ›` order).
+  3. Choosing a target conversation switches to it and sends a copy of the source message's readable body and any downloaded local attachments via `sending::send` (respecting the allowlist guard, D62).
+
+#### Track 3B: Shared Links & Media in the Right Info Panel (`Alt+I`) & Palette
+- **Primary files:** `crates/faro/src/ui/info.rs`, `crates/faro/src/app/{palette.rs,update/palette.rs}`.
+- **Tasks:**
+  1. Extend `crates/faro/src/ui/info.rs` (the right-hand info sidebar toggled by `Alt+I`) to display two new sections below participants/details for the open conversation: **Recent files & media** (downloaded images, voice notes, documents) and **Recent links** (extracted URLs from loaded messages).
+  2. Add *Links & files in this chat…* (`Level::ChatLinks`) to the palette's open-chat commands so every shared URL and downloaded attachment in the conversation can be fuzzy-filtered and opened/copied/viewed with one keystroke.
+
+**Acceptance (M12)**
+- All 11 features pass unit, reducer, and snapshot tests, `tools/frames` replay stays at 0 divergent frames, and `docs/MANUAL_TESTS.md` includes an `## M12` hands-on section.
+
 ## Later (backlog: do not lose)
 
 - `faro daemon` + attachable TUI
 - signal-cli JSON-RPC backend
 - Encryption at rest
 - About screen with the logo (the animated lighthouse itself is done: the empty message pane, D61)
-- Message search
+- Drag-resizable sidebars with hover highlight
 - Optional sync of hidden/allowlist state via config
 - Recording and sending voice notes
-- (Inline images and voice note playback moved to M9 and M10, D69; history transfer proposed as M11, D74.)
+- Packaging (cargo-dist binaries, Homebrew tap, AUR `faro-bin`/`faro-git`, `.deb`, Nix flake)
 
 ---
 
@@ -253,8 +359,9 @@ Outline only. Bring the phone's message history into faro when linking, as Signa
 | M4.5 Emoji widths (from M8 task 2) | ✅ Done (2026-10-07; owner's hands-on checks pending) | D46, D47. Task 1: `tools/emoji_widths.py`; the owner's numbers showed **mosh** (between kitty and tmux) is what disagrees; tmux and kitty agree with faro. Task 2: compatible emoji mode (`ui/emoji.rs`), auto-detected from mosh clients of faro's tmux session or faro's own ancestry, re-checked on focus/resize, `--emoji auto\|full\|compatible` override; half flags drawn as letters everywhere. Task 3: palette/picker measure sanitised text; wide characters cut by an overlay border are blanked; `Ctrl+L` repaints. Found while flood-testing: ratatui re-sent the hidden cell after VS16 emoji, shifting the rest of the row in **every** terminal; fixed with `ForcedWidth` (replay: 0 broken frames in 459, was broken at frame 77). Task 4: whole-screen test in compatible mode + diff regression test. |
 | M5 Configuration | ✅ Done (2026-10-07; owner's hands-on checks pending) | D48. Task 1: settings table in `faro-core/src/config.rs` with defaults and a commented first-run template (every setting plus every default key binding), `--config`/`FARO_CONFIG`. Task 2: per-setting parsing: bad values keep the previous value and name the key, invalid TOML keeps the last good config, unknown keys warn; problems shown in the footer once. Task 3: `notify` on the config directory, 300 ms debounce, `AppEvent::ConfigRead`, only changes applied (theme files wait for M8). Task 4: `config::set` with `toml_edit` (keeps comments, uncomments the template line), in-place writes from one writer task. Task 5: key bindings, layout, allowlist mode, emoji (`--emoji` wins), mouse capture live, theme name checked, notifications and `reduce_motion` parsed for later; density/timestamps not yet. Preferences moved out of `app_state` once at startup. Task 6: palette `:` settings (layout, allowlist, emoji, mouse) write back. Acceptance test `config::tests::toggling_the_layout_from_the_palette_keeps_the_file_s_comments`; live editing smoke-tested in tmux. |
 | M6 Notifications | ✅ Done (2026-10-07; owner's hands-on checks pending) | D49. Task 1: terminal bell (`Effect::Bell`, `update/notify.rs`) for new unseen incoming messages in conversations that notify (main list, not muted, every-message level), at most once per 2 s, `[notifications] bell`. Task 2: window/tmux title `faro (N)` via OSC 0, written only on change, terminal title pushed/popped (blanked where there's no title stack), `[notifications] title`; bell and title are `:` palette settings. Task 3: per-conversation "mentions only" level (migration 0003, `@` in the sidebar, menu, palette; silent until M7 maps mentions), next to mute. Acceptance smoke-tested in a private tmux server: background mock messages set `#{window_bell_flag}` and fire `alert-bell` (≥ 2 s apart), `#{pane_title}` reads `faro (49)` and returns to the old title on quit and when turned off live. Desktop notifications stay v0.2. |
-| M7 presage backend (test account needed) | 🚧 In progress | Safeguards first: allowlist guard (D62). `faro-presage` (D63): `faro link` (terminal QR), `faro ids` (IDs for the allowlist), the backend behind a mandatory `--allowlist`, mapping of messages, receipts, typing, reactions, edits, deletions and sync transcripts (tested), reconnect with backoff. Next: link the test account, then the acceptance checks with the owner. Read syncs from the phone clear unread counts (D70); reads in faro are synced to the phone (D71). Mentions are drawn as `@Name` and ring "mentions only" chats (D72). Taking a reaction back names the emoji, so phones remove it (D73). Attachments and stickers are in M9 (D75–D79). Not yet: delivery receipts, history transfer. |
+| M7 presage backend (test account needed) | 🚧 In progress | Safeguards first: allowlist guard (D62). `faro-presage` (D63): `faro link` (terminal QR), `faro ids` (IDs for the allowlist), the backend behind a mandatory `--allowlist`, mapping of messages, receipts, typing, reactions, edits, deletions and sync transcripts (tested), reconnect with backoff. Next: link the test account, then the acceptance checks with the owner. Read syncs from the phone clear unread counts (D70); reads in faro are synced to the phone (D71). Mentions are drawn as `@Name` and ring "mentions only" chats (D72). Taking a reaction back names the emoji, so phones remove it (D73). Attachments and stickers are in M9 (D75–D79). Not yet: delivery receipts (moved to M12 Track 1B), history transfer (M11). |
 | M8 v0.1 hardening + release | 🚧 In progress (tasks 1, 3, 4 pulled ahead of M7, D50) | Task 3 done: themes `faro-dusk`, `faro-light`, `system` (terminal's 16 colours, reverse-video selection, dim muted text) beside `faro-dark`; colour depth detected (`COLORTERM`, tmux, known terminals) with `[ui] colors` override; 256-colour fallback mapped once at load, surfaces kept apart; 16 colours → `system`; `:` palette theme/colour settings with write-back; contrast tests (D51). Task 4 done: README rewritten (pre-release status, install from source incl. the future `protoc` packages, trying the mock, flags, keys, config, recommended tmux settings, mosh, colours) with a text capture of the UI; real screenshots left to the owner (TODO comment in the README). Task 1 prepared: [MANUAL_TESTS.md](MANUAL_TESTS.md) "M8: terminal matrix" (Linux/macOS × direct, tmux, SSH, mosh × rendering, emoji, colours, mouse, OSC 52, bell, title, focus, paste, keys, Ctrl+L, restore); the owner runs it after M7. Left: the hands-on matrix and task 5 (tag, binaries), both after M7. Owner-reported glitches (2026-10-08, D55): tmux joined code points onto the wrong cell (flags, VS16 emoji, skin tones on bases it doesn't know); fixed in `tui/backend.rs` and `ui/emoji.rs`, found with the frame log (`FARO_DEBUG_FRAMES`) and `tools/frames/`; 20,122 replayed frames, 0 divergent, direct and nested (was 1176 of 2900). Bubble styles (owner's choice, D58, superseding D56's half-block corners): rounded (Powerline caps on one-line bubbles, two-thirds Legacy Computing edges on taller ones) or a bar on the outer side in the sender's colour; `[messages] bubble_style = "auto"` draws rounded only where every terminal is kitty (it draws those glyphs itself), detected with the D47 terminal check; the `system` theme always draws bars. Logo screen (owner's choice, D61): the animated lighthouse from `tools/logos.py` ported to `ui/logo.rs` fills the message pane while no chat is open, in four sizes, with key hints; 10 fps only while visible, focused and `reduce_motion` off (now a palette switch). |
 | M9 Attachments + inline images (v0.2) | ✅ Done (2026-10-08; owner's hands-on checks pending) | D75–D79. Task 1: `AttachmentStatus` (`Remote`/`Downloaded`/`Failed`), `width`/`height` (migration `0006_attachments.sql`), `Backend::fetch_attachment` returning bytes, `p1:` hex-encoded `AttachmentPointer` in `AttachmentId` (refreshed on replay), atomic `0600` writes into `<data dir>/attachments/`, background downloads (`Command::Fetch` → `AppEvent::Fetched`, max 3 concurrent, auto-download images ≤ 25 MB in the open conversation, `[media] auto_download`), mock PNG/PDF/sticker attachments. Task 2: `d` download, `v` view/open, `s` save to Downloads (`name (N).ext` deduplication), copy path (OSC 52), per-attachment action menu items, `Open` omitted over SSH (`State::env.over_ssh`). Task 3: `Send a file…` in the palette (`Level::AttachFile`, non-blocking directory listings, `~` expansion) and pasted file paths (`Effect::CheckPaste`), staged attachment bar above the input (`Esc` removes it first), caption-optional sending, outgoing files copied into `attachments/` (`0600`) before `Backend::send` (`upload_attachment` in presage, behind the allowlist guard). Task 4: `ratatui-image` 11.1 (`SlicedProtocol`) + `image` 0.25, startup protocol query (`Picker::from_query_stdio`), kitty/sixel/iTerm2 with tmux `allow-passthrough` or half-block fallback (mosh, mixed tmux clients, 256 colours mapped to xterm palette, none at 16 colours), `[media] inline_images`, `app/images.rs` LRU cache (32 entries) with off-thread decoding, `Popup::ImageViewer`, stickers (`[sticker]` + `image/webp`). Task 5: graphics protocols suppressed while overlays are open, `emoji::finish` skips `cell.skip` cells, `images` scenario in `tools/frames/record.py` (343 frames, 0 divergent direct and nested). |
 | M10 Voice notes + transcription (v0.2) | ✅ Done (2026-10-08; owner's hands-on checks pending) | D80–D82. Task 1: `AttachmentRef::{voice_note, duration_secs, waveform, transcript, transcript_source}` + `RemoteTranscription` (migration `0007_voice_notes.sql`), presage `VoiceMessage` flag mapping (`flags & 1 != 0`), `faro-core::audio` pure-Rust RIFF/WAVE PCM/float duration & 16-bar RMS waveform (`▁▂▃▄▅▆▇█`) with `ffmpeg`/`ffprobe` fallback, mock synthesized 8 kHz WAV voice notes, `▶ duration waveform · size` row in both layouts. Task 2: external audio player (`app/player.rs`, `[voice] player`, `x`/`v` play/stop, `■ elapsed / total` progress with `accent` played waveform bars, 1 s `PlaybackTick`, SSH/mosh guard). Task 3: opt-in Whisper transcription (`[voice] transcribe = "off"\|"local"\|"remote"`, `t` in messages, menu/palette *Transcribe*, auto-transcribe up to `transcribe_max_secs`), local CLI (`whisper-cli`/`whisper-cpp`/`whisper` or `{file}` wrapper) and remote OpenAI-compatible `/audio/transcriptions` via `curl --config -` (API key from env or OS keychain, rejected from `config.toml`), `Popup::ConfirmRemoteTranscription` (`voice.remote_consent` in `app_state`) and per-conversation `RemoteTranscription::Allowed`, persisted `❝ <text> [local\|remote]` under the voice note and in `readable_body`. |
 | M11 History transfer on link (v0.2) | 📋 Proposed (D74) | Outline in this file; needs presage to expose the link-time key (PR #430). |
+| M12 UX, messaging, search & polish (v0.2) | 📋 Planned (D83; ready for parallel execution) | 11 features organized in 3 sequential waves of parallel subagent tracks (`Workspace="share"`): **Wave 1** (`1A`: edit/delete own messages + send `@mentions`; `1B`: delivery receipts `0008_receipts.sql`, message info popup + store search queries; `1C`: `Ctrl+P` `←`/`→` cycling & persistent settings/themes + OSC 99/9/777 desktop notifications), **Wave 2** (`2A`: search UI + `u` jump to unread; `2B`: `[messages] density` & `timestamps`; `2C`: `:shortcode:` autocomplete + full reaction search), **Wave 3** (`3A`: forward message `f`; `3B`: links & media in `Alt+I` info panel + palette). |
