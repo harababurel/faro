@@ -86,6 +86,7 @@ Terminal matrix (DESIGN §15): kitty, WezTerm, Ghostty, iTerm2, Alacritty, foot;
 - [ ] **Flags through mosh:** the same through mosh (compatible mode, auto-detected): flags show as letters (`RO DE JP`), the rainbow and pirate flags as their parts; no trail while scrolling.
 - [ ] **Skin tones:** reactions and messages with 🫶🏽 (and 👍🏽) stay aligned. 👍🏽 keeps its tone; 🫶🏽 is drawn without one (tmux can't join that tone; expected).
 - [ ] **✌ and friends:** the mock's `❤️ ☺️ ✌️ (variation selectors)` message keeps the bubble's right edge and the border straight in tmux over ssh; through mosh it reads `❤ ☺ ☮` and is straight too.
+- [ ] **ZWJ sequences without VS16:** type `🧗‍♀` or `❤‍🔥` without the trailing VS16 (e.g. paste them from a terminal `printf '\U1F9D7\u200d\u2640'`) into the input: the cursor and the input border stay where they should; faro shows them fully qualified (🧗‍♀️, ❤️‍🔥).
 - [ ] **Stale mosh clients:** `tmux list-clients -t faro`. If an old mosh client is listed while you're on ssh, faro stays in compatible mode. Detach it (`tmux detach-client -t <tty>`) and focus faro: it switches back to full emoji with a notice.
 - [ ] **Directly in kitty (no tmux):** `faro --mock` in a kitty window: flags and emoji look right and the borders are straight.
 

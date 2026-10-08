@@ -165,7 +165,10 @@ fn needs_rewrite(g: &str, mode: EmojiMode) -> bool {
         || match mode {
             EmojiMode::Full => missing_presentation(g),
             EmojiMode::Compatible => {
-                !width_agrees(g) || flag_letters(g).is_some() || g.chars().any(is_tmux_wide)
+                !width_agrees(g)
+                    || is_joined(g)
+                    || flag_letters(g).is_some()
+                    || g.chars().any(is_tmux_wide)
             }
         }
 }
@@ -191,26 +194,41 @@ fn is_tmux_wide(c: char) -> bool {
     TMUX_WIDE.iter().any(|(wide, _)| *wide == c)
 }
 
-/// An emoji tmux draws two cells wide not followed by VS16, which makes it
-/// two cells wide for faro and other terminals too.
+/// Whether `c` needs VS16 after it to be measured alike by faro and tmux:
+/// an emoji tmux always draws wide, or a narrow code point in a ZWJ sequence
+/// (`joined`). tmux sizes a joined cell by its first code point, two cells
+/// once VS16 follows, while faro measures a sequence that isn't fully
+/// qualified by adding up its parts: 🧗‍♀ is 3 cells for faro and 2 for tmux,
+/// ❤‍🔥 3 and 1; with VS16 (🧗‍♀️, ❤️‍🔥) both say 2.
+fn wants_vs16(c: char, joined: bool) -> bool {
+    is_tmux_wide(c) || (joined && c.width() == Some(1))
+}
+
+fn is_joined(g: &str) -> bool {
+    g.chars().count() > 1 && g.contains('\u{200D}')
+}
+
+/// An emoji that needs VS16 (see [`wants_vs16`]) not followed by one.
 fn missing_presentation(g: &str) -> bool {
+    let joined = is_joined(g);
     let mut chars = g.chars().peekable();
     while let Some(c) = chars.next() {
-        if is_tmux_wide(c) && chars.peek() != Some(&'\u{FE0F}') {
+        if wants_vs16(c, joined) && chars.peek() != Some(&'\u{FE0F}') {
             return true;
         }
     }
     false
 }
 
-/// `g` with VS16 after each emoji tmux draws two cells wide (replacing a
-/// text presentation selector).
+/// `g` with VS16 after each emoji that needs it (replacing a text
+/// presentation selector).
 fn with_presentation(g: &str) -> String {
+    let joined = is_joined(g);
     let mut out = String::with_capacity(g.len() + 3);
     let mut chars = g.chars().peekable();
     while let Some(c) = chars.next() {
         out.push(c);
-        if is_tmux_wide(c) {
+        if wants_vs16(c, joined) {
             if chars.peek() == Some(&'\u{FE0E}') {
                 chars.next();
             }
@@ -595,6 +613,24 @@ mod tests {
             );
         }
         compatible(|| assert_eq!(display("✌️ ☝🏽 🖐"), "☮ 👆 ✋"));
+    }
+
+    #[test]
+    fn zwj_sequences_are_fully_qualified() {
+        // tmux sizes a joined cell by its first code point (2 with VS16);
+        // faro adds up the parts of a sequence missing VS16 (D55).
+        assert_eq!(display("🧗‍♀ ❤‍🔥 👁‍🗨"), "🧗‍♀️ ❤️‍🔥 👁️‍🗨️");
+        for g in ["🧗‍♀️", "❤️‍🔥", "👁️‍🗨️", "🏳️‍🌈", "🏴‍☠️", "🐻‍❄️", "👨‍⚕️"]
+        {
+            assert_eq!(display(g), g);
+            assert_eq!(g.width(), 2, "{g:?}");
+        }
+        compatible(|| {
+            assert_eq!(display("🧗‍♀ ❤‍🔥"), "🧗♀ ❤🔥");
+            for g in display("🧗‍♀ ❤‍🔥 👁‍🗨").graphemes(true) {
+                assert!(!needs_rewrite(g, EmojiMode::Compatible), "{g:?}");
+            }
+        });
     }
 
     #[test]
