@@ -1,0 +1,295 @@
+use presage::libsignal_service::content::Metadata;
+use presage::libsignal_service::protocol::DeviceId;
+use presage::proto::data_message::Reaction;
+use presage::proto::{SyncMessage, sync_message};
+
+use super::*;
+
+const ME: ServiceId = ServiceId::Aci(Uuid::from_u128(1));
+const ALICE: ServiceId = ServiceId::Aci(Uuid::from_u128(2));
+const KEY: MasterKey = [7; 32];
+
+fn from(sender: ServiceId, body: impl Into<ContentBody>) -> Content {
+    Content::from_body(
+        body,
+        Metadata {
+            sender: signal_id(sender),
+            destination: signal_id(ME),
+            sender_device: DeviceId::try_from(1u32).unwrap(),
+            pni_verified: None,
+            client_timestamp: chrono_default(),
+            server_timestamp: chrono_default(),
+            needs_receipt: true,
+            unidentified_sender: true,
+            was_plaintext: false,
+            server_guid: None,
+        },
+    )
+}
+
+/// The epoch, without naming chrono's types.
+fn chrono_default<T: Default>() -> T {
+    T::default()
+}
+
+fn text_from_alice(body: &str, sent_at: u64) -> DataMessage {
+    DataMessage {
+        body: Some(body.to_owned()),
+        timestamp: Some(sent_at),
+        ..DataMessage::default()
+    }
+}
+
+fn only(events: Vec<BackendEvent>) -> BackendEvent {
+    assert_eq!(events.len(), 1, "{events:?}");
+    events.into_iter().next().unwrap()
+}
+
+#[test]
+fn ids_round_trip() {
+    assert_eq!(service_id(&signal_id(ALICE)), ALICE);
+    let pni = ServiceId::Pni(Uuid::from_u128(3));
+    assert_eq!(service_id(&signal_id(pni)), pni);
+}
+
+#[test]
+fn group_ids_are_derived_not_the_secret() {
+    let id = group_id(&KEY);
+    assert_ne!(id.as_bytes(), &KEY);
+    assert_eq!(id, group_id(&KEY), "stable");
+    assert_ne!(id, group_id(&[8; 32]));
+}
+
+#[test]
+fn incoming_text_is_a_message_in_the_senders_chat() {
+    let content = from(ALICE, text_from_alice("hi", 1000));
+    let BackendEvent::Message(message) = only(events(&content, ME)) else {
+        panic!("expected a message");
+    };
+    assert_eq!(message.conversation, ConversationId::Direct(ALICE));
+    assert_eq!(message.sender, ALICE);
+    assert_eq!(message.sent_at, Timestamp::from_millis(1000));
+    assert_eq!(message.direction, Direction::Incoming);
+    assert_eq!(message.body, Some(MessageBody::new("hi")));
+}
+
+#[test]
+fn group_messages_go_to_the_group() {
+    let data = DataMessage {
+        group_v2: Some(group_context(&KEY, 3)),
+        ..text_from_alice("hi all", 1000)
+    };
+    let content = from(ALICE, data);
+    assert_eq!(group_of(&content), Some((KEY, 3)));
+    let BackendEvent::Message(message) = only(events(&content, ME)) else {
+        panic!("expected a message");
+    };
+    assert_eq!(message.conversation, ConversationId::Group(group_id(&KEY)));
+}
+
+#[test]
+fn quotes_keep_their_target() {
+    let data = DataMessage {
+        quote: Some(data_message::Quote {
+            id: Some(500),
+            author_aci: Some(ME.to_string()),
+            text: Some("earlier".to_owned()),
+            ..data_message::Quote::default()
+        }),
+        ..text_from_alice("reply", 1000)
+    };
+    let BackendEvent::Message(message) = only(events(&from(ALICE, data), ME)) else {
+        panic!("expected a message");
+    };
+    let quote = message.quote.unwrap();
+    assert_eq!(
+        quote.target,
+        MessageRef {
+            sender: ME,
+            sent_at: Timestamp::from_millis(500)
+        }
+    );
+    assert_eq!(quote.preview, Some(MessageBody::new("earlier")));
+}
+
+#[test]
+fn empty_data_messages_show_nothing() {
+    // e.g. a profile key update
+    let data = DataMessage {
+        profile_key: Some(vec![1; 32]),
+        timestamp: Some(5),
+        ..DataMessage::default()
+    };
+    assert_eq!(events(&from(ALICE, data), ME), vec![]);
+}
+
+#[test]
+fn reactions_and_removals() {
+    let react = |remove| DataMessage {
+        reaction: Some(Reaction {
+            emoji: Some("👍".to_owned()),
+            remove: Some(remove),
+            target_author_aci: Some(ME.to_string()),
+            target_sent_timestamp: Some(500),
+            ..Reaction::default()
+        }),
+        timestamp: Some(1000),
+        ..DataMessage::default()
+    };
+    let target = MessageRef {
+        sender: ME,
+        sent_at: Timestamp::from_millis(500),
+    };
+    assert_eq!(
+        only(events(&from(ALICE, react(false)), ME)),
+        BackendEvent::Reaction {
+            conversation: ConversationId::Direct(ALICE),
+            target,
+            sender: ALICE,
+            emoji: Some("👍".to_owned()),
+        }
+    );
+    let BackendEvent::Reaction { emoji, .. } = only(events(&from(ALICE, react(true)), ME)) else {
+        panic!("expected a reaction");
+    };
+    assert_eq!(emoji, None);
+}
+
+#[test]
+fn binary_authors_are_understood() {
+    let data = DataMessage {
+        reaction: Some(Reaction {
+            emoji: Some("❤".to_owned()),
+            target_author_aci_binary: Some(ME.uuid().as_bytes().to_vec()),
+            target_sent_timestamp: Some(500),
+            ..Reaction::default()
+        }),
+        ..DataMessage::default()
+    };
+    let BackendEvent::Reaction { target, .. } = only(events(&from(ALICE, data), ME)) else {
+        panic!("expected a reaction");
+    };
+    assert_eq!(target.sender, ME);
+}
+
+#[test]
+fn deletions_and_edits_target_the_senders_message() {
+    let delete = DataMessage {
+        delete: Some(Delete {
+            target_sent_timestamp: Some(500),
+        }),
+        timestamp: Some(1000),
+        ..DataMessage::default()
+    };
+    let target = MessageRef {
+        sender: ALICE,
+        sent_at: Timestamp::from_millis(500),
+    };
+    assert_eq!(
+        only(events(&from(ALICE, delete), ME)),
+        BackendEvent::Deleted {
+            conversation: ConversationId::Direct(ALICE),
+            target,
+        }
+    );
+    let edit = EditMessage {
+        target_sent_timestamp: Some(500),
+        data_message: Some(text_from_alice("fixed", 2000)),
+    };
+    assert_eq!(
+        only(events(&from(ALICE, edit), ME)),
+        BackendEvent::Edited {
+            conversation: ConversationId::Direct(ALICE),
+            target,
+            body: MessageBody::new("fixed"),
+            edited_at: Timestamp::from_millis(2000),
+        }
+    );
+}
+
+#[test]
+fn messages_sent_from_the_phone_are_outgoing() {
+    let sync = SyncMessage {
+        content: Some(sync_message::Content::Sent(Sent {
+            destination_service_id: Some(ALICE.to_string()),
+            timestamp: Some(1000),
+            message: Some(text_from_alice("from my phone", 1000)),
+            ..Sent::default()
+        })),
+        ..SyncMessage::default()
+    };
+    let BackendEvent::Message(message) = only(events(&from(ME, sync), ME)) else {
+        panic!("expected a message");
+    };
+    assert_eq!(message.conversation, ConversationId::Direct(ALICE));
+    assert_eq!(message.sender, ME);
+    assert_eq!(message.direction, Direction::Outgoing(DeliveryStatus::Sent));
+}
+
+#[test]
+fn receipts_update_our_messages() {
+    let receipt = ReceiptMessage {
+        r#type: Some(receipt_message::Type::Read.into()),
+        timestamp: vec![10, 20],
+    };
+    assert_eq!(
+        events(&from(ALICE, receipt), ME),
+        [10, 20]
+            .map(|t| BackendEvent::DeliveryUpdate {
+                message: MessageRef {
+                    sender: ME,
+                    sent_at: Timestamp::from_millis(t)
+                },
+                status: DeliveryStatus::Read,
+            })
+            .to_vec()
+    );
+}
+
+#[test]
+fn typing_in_a_group() {
+    let id = group_id(&KEY);
+    let content = from(ALICE, typing(TypingState::Started, 5, Some(id)));
+    assert_eq!(
+        only(events(&content, ME)),
+        BackendEvent::Typing {
+            conversation: ConversationId::Group(id),
+            sender: ALICE,
+            state: TypingState::Started,
+        }
+    );
+}
+
+#[test]
+fn outgoing_text_carries_quote_and_group() {
+    let msg = OutgoingMessage {
+        sent_at: Timestamp::from_millis(42),
+        body: MessageBody::new("hello"),
+        quote: Some(Quote {
+            target: MessageRef {
+                sender: ALICE,
+                sent_at: Timestamp::from_millis(7),
+            },
+            preview: None,
+        }),
+    };
+    let data = text(&msg, Some(group_context(&KEY, 2)));
+    assert_eq!(data.body.as_deref(), Some("hello"));
+    assert_eq!(data.timestamp, Some(42));
+    let quote = data.quote.unwrap();
+    assert_eq!(quote.id, Some(7));
+    assert_eq!(quote.author_aci, Some(ALICE.to_string()));
+    assert_eq!(master_key(data.group_v2.as_ref()), Some(KEY));
+}
+
+#[test]
+fn outgoing_reaction_removal() {
+    let target = MessageRef {
+        sender: ALICE,
+        sent_at: Timestamp::from_millis(7),
+    };
+    let data = reaction(target, None, 9, None);
+    let r = data.reaction.unwrap();
+    assert_eq!(r.remove, Some(true));
+    assert_eq!(r.target_sent_timestamp, Some(7));
+}

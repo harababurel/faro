@@ -32,6 +32,14 @@ jobs:
       - name: Install Rust
         run: rustup toolchain install && rustc --version
 
+      # libsignal's protobufs are compiled at build time.
+      - name: Install protoc (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Install protoc (macOS)
+        if: runner.os == 'macOS'
+        run: brew install protobuf
+
       - uses: Swatinem/rust-cache@v2
 
       - name: Format

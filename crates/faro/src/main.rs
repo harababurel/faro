@@ -5,6 +5,7 @@ mod config;
 mod fixtures;
 mod frames;
 mod logging;
+mod signal;
 mod theme;
 mod tui;
 mod ui;
@@ -47,9 +48,29 @@ fn main() -> anyhow::Result<()> {
     };
 
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "faro starting");
-    if !cli.mock {
-        // Until the presage backend exists (M7), the mock is the only backend.
-        tracing::info!("no Signal backend yet; using the mock backend");
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("starting the async runtime")?;
+    // presage's futures aren't `Send` (D30) and it spawns local tasks, so
+    // everything runs inside a `LocalSet`.
+    let local = tokio::task::LocalSet::new();
+    match cli.command {
+        Some(cli::Command::Link { device_name }) => {
+            return local.block_on(&runtime, signal::link(paths.data_dir(), device_name));
+        }
+        Some(cli::Command::Ids { usernames }) => {
+            return local.block_on(&runtime, signal::ids(paths.data_dir(), &usernames));
+        }
+        None => {}
+    }
+    // While faro is tested on a real account, the Signal backend only runs
+    // behind the allowlist guard (D62).
+    if !cli.mock && allowlist.is_none() {
+        anyhow::bail!(
+            "the Signal backend needs --allowlist FILE while faro is being tested \
+             (`faro ids` prints the IDs for it); use --mock to try faro without an account"
+        );
     }
     let mock = MockConfig {
         seed: cli.mock_seed,
@@ -58,21 +79,8 @@ fn main() -> anyhow::Result<()> {
         errors: !cli.mock_no_faults,
         ..MockConfig::default()
     };
-    tracing::info!(
-        seed = mock.seed,
-        activity_ms = cli.mock_activity,
-        faults = !cli.mock_no_faults,
-        "starting mock backend"
-    );
-
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .context("starting the async runtime")?;
     let db_file = paths.db_file();
-    // Backend futures may be `!Send` (D30): the app drives the backend from a
-    // local task, so everything runs inside a `LocalSet`.
-    let local = tokio::task::LocalSet::new();
+    let data_dir = paths.data_dir().to_owned();
     local.block_on(&runtime, async {
         let store = Store::open(&db_file)
             .await
@@ -92,13 +100,27 @@ fn main() -> anyhow::Result<()> {
             problems,
             themes,
         };
-        let (backend, events) = MockBackend::new(&mock);
-        let result = match allowlist {
-            Some(list) => {
-                let (backend, events) = guard::guard(backend, events, list);
-                serve(backend, events, &store, tz, detected, startup).await
+        let result = if cli.mock {
+            tracing::info!(
+                seed = mock.seed,
+                activity_ms = cli.mock_activity,
+                faults = !cli.mock_no_faults,
+                "starting mock backend"
+            );
+            let (backend, events) = MockBackend::new(&mock);
+            match allowlist {
+                Some(list) => {
+                    let (backend, events) = guard::guard(backend, events, list);
+                    serve(backend, events, &store, tz, detected, startup).await
+                }
+                None => serve(backend, events, &store, tz, detected, startup).await,
             }
-            None => serve(backend, events, &store, tz, detected, startup).await,
+        } else {
+            tracing::info!("starting the Signal backend");
+            let (backend, events) = signal::start(&data_dir).await?;
+            let list = allowlist.context("the Signal backend needs --allowlist")?;
+            let (backend, events) = guard::guard(backend, events, list);
+            Box::pin(serve(backend, events, &store, tz, detected, startup)).await
         };
         store.close().await.context("closing the database")?;
         tracing::info!("faro exiting");

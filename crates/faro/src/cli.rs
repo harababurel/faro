@@ -8,9 +8,13 @@ use clap::Parser;
 #[derive(Debug, Parser)]
 #[command(name = "faro", version, about, long_about)]
 pub struct Cli {
+    #[command(subcommand)]
+    pub command: Option<Command>,
+
     #[arg(
         long,
         env = "FARO_CONFIG",
+        global = true,
         value_name = "FILE",
         help = "Config file, written with every setting commented out if missing \
                 [default: $XDG_CONFIG_HOME/faro/config.toml, usually ~/.config/faro/config.toml]"
@@ -20,6 +24,7 @@ pub struct Cli {
     #[arg(
         long,
         env = "FARO_DATA_DIR",
+        global = true,
         value_name = "DIR",
         help = "Directory for faro's database, logs and Signal keys \
                 [default: $XDG_DATA_HOME/faro, usually ~/.local/share/faro]"
@@ -27,7 +32,7 @@ pub struct Cli {
     pub data_dir: Option<PathBuf>,
 
     /// Use the mock backend: fake contacts and messages, no Signal account needed.
-    /// Currently always on: the Signal backend doesn't exist yet.
+    /// Without it faro uses the Signal account linked with `faro link`.
     #[arg(long)]
     pub mock: bool,
 
@@ -67,6 +72,25 @@ pub struct Cli {
     pub allowlist: Option<PathBuf>,
 }
 
+/// Things to do instead of running the TUI.
+#[derive(Debug, PartialEq, Eq, clap::Subcommand)]
+pub enum Command {
+    /// Link this computer to your Signal account as a new device (shows a QR
+    /// code to scan with Signal on your phone)
+    Link {
+        /// Name shown in the phone's list of linked devices [default: faro (<hostname>)]
+        #[arg(long, value_name = "NAME")]
+        device_name: Option<String>,
+    },
+    /// Print the Signal IDs an allowlist needs: this account's, the given
+    /// usernames' and the known groups' (titles and IDs only)
+    Ids {
+        /// A Signal username to look up (repeatable), e.g. --username alice.42
+        #[arg(long = "username", value_name = "NAME")]
+        usernames: Vec<String>,
+    },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum EmojiChoice {
     Auto,
@@ -102,6 +126,22 @@ mod tests {
         assert_eq!(cli.config, None);
         let cli = Cli::try_parse_from(["faro", "--config", "/tmp/c.toml"]).unwrap();
         assert_eq!(cli.config, Some(PathBuf::from("/tmp/c.toml")));
+    }
+
+    #[test]
+    fn parses_subcommands() {
+        assert_eq!(Cli::try_parse_from(["faro"]).unwrap().command, None);
+        let cli = Cli::try_parse_from(["faro", "link", "--data-dir", "/tmp/x"]).unwrap();
+        assert_eq!(cli.command, Some(Command::Link { device_name: None }));
+        assert_eq!(cli.data_dir, Some(PathBuf::from("/tmp/x")));
+        let cli =
+            Cli::try_parse_from(["faro", "ids", "--username", "a.1", "--username", "b.2"]).unwrap();
+        assert_eq!(
+            cli.command,
+            Some(Command::Ids {
+                usernames: vec!["a.1".to_owned(), "b.2".to_owned()]
+            })
+        );
     }
 
     #[test]

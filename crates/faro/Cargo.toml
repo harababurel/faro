@@ -16,6 +16,8 @@ anyhow = "1.0.104"
 crossterm = { version = "0.29.0", features = ["event-stream", "osc52"] }
 clap = { version = "4.6.7", features = ["derive", "env"] }
 faro-core.workspace = true
+faro-presage.workspace = true
+gethostname = "1.0"
 futures-util = "0.3.34"
 jiff = "0.2.38"
 ratatui = { version = "0.30.2", default-features = false, features = ["crossterm", "layout-cache", "underline-color"] }
@@ -27,6 +29,8 @@ unicode-segmentation = "1.13.3"
 unicode-width = "0.2.2"
 nucleo-matcher = "0.3.1"
 notify = "8.2.0"
+qrcode = { version = "0.14", default-features = false }
+uuid = "1.27.0"
 
 [dev-dependencies]
 insta = "1.49.0"

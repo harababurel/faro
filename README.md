@@ -2,7 +2,7 @@
 
 A terminal client for [Signal](https://signal.org), built for people who live in tmux.
 
-> **Status: pre-release.** The interface is usable against a built-in **mock backend** (fake contacts and messages). The real Signal backend (via [presage](https://github.com/whisperfish/presage)) isn't written yet, so faro can't send or receive real Signal messages today. See the [plan](docs/PLAN.md) for progress.
+> **Status: pre-release.** The interface is usable against a built-in **mock backend** (fake contacts and messages). The real Signal backend (via [presage](https://github.com/whisperfish/presage)) is being tested: for now it only runs with an allowlist of who faro may talk to. See the [plan](docs/PLAN.md) for progress.
 
 faro is an unofficial, independent project. It is not affiliated with, endorsed by, or supported by Signal Messenger LLC or the Signal Technology Foundation.
 
@@ -51,12 +51,12 @@ cd faro
 cargo build --release          # binary: target/release/faro
 ```
 
-Once the Signal backend lands, building will also need the protobuf compiler and a C toolchain for libsignal:
+Building also needs the protobuf compiler and a C toolchain for libsignal and SQLCipher:
 
 | OS | Packages |
 |---|---|
-| Arch | `sudo pacman -S protobuf cmake clang pkgconf` |
-| Debian/Ubuntu | `sudo apt install protobuf-compiler cmake clang pkg-config` |
+| Arch | `sudo pacman -S protobuf cmake clang pkgconf openssl` |
+| Debian/Ubuntu | `sudo apt install protobuf-compiler cmake clang pkg-config libssl-dev` |
 | macOS | `brew install protobuf cmake` |
 
 Release binaries and packages come later (see [DESIGN.md §13](docs/DESIGN.md)).
@@ -67,18 +67,28 @@ Release binaries and packages come later (see [DESIGN.md §13](docs/DESIGN.md)).
 cargo run --release -- --mock --data-dir /tmp/faro-try --config /tmp/faro-try/config.toml
 ```
 
-`--mock` uses fake contacts and scripted activity; no Signal account is involved. (It's currently on whether you pass it or not.) The throwaway `--data-dir` and `--config` keep your real ones untouched.
+`--mock` uses fake contacts and scripted activity; no Signal account is involved. The throwaway `--data-dir` and `--config` keep your real ones untouched.
+
+With a real account (while testing):
+
+```sh
+faro link                                  # shows a QR code: scan it in Signal › Settings › Linked devices
+faro ids --username alice.42               # prints the IDs for an allowlist file
+faro --allowlist ~/faro-allowlist.toml     # faro only talks to the people and groups listed
+```
 
 | Flag | Environment | What |
 |---|---|---|
-| `--data-dir DIR` | `FARO_DATA_DIR` | Database, logs and (later) Signal keys. Default `~/.local/share/faro` |
+| `--data-dir DIR` | `FARO_DATA_DIR` | Database, logs and Signal keys. Default `~/.local/share/faro` |
 | `--config FILE` | `FARO_CONFIG` | Config file. Default `~/.config/faro/config.toml` |
-| `--mock` | | Use the mock backend |
+| `--mock` | | Use the mock backend (without it: the account linked with `faro link`) |
 | `--mock-seed N` | `FARO_MOCK_SEED` | Another seed, another scripted conversation |
 | `--mock-activity MS` | `FARO_MOCK_ACTIVITY` | Mean time between mock events (default 4000; small values flood the UI) |
 | `--mock-no-faults` | `FARO_MOCK_NO_FAULTS` | No scripted outages or send failures |
 | `--emoji auto\|full\|compatible` | `FARO_EMOJI` | How to draw emoji (see [mosh](#mosh)); overrides the config |
-| `--allowlist FILE` | `FARO_ALLOWLIST` | Talk only to the people and groups in FILE; drop everything else (for testing with a real account) |
+| `--allowlist FILE` | `FARO_ALLOWLIST` | Talk only to the people and groups in FILE; drop everything else (required with a real account while testing) |
+| `faro link [--device-name NAME]` | | Link this computer to your Signal account (QR code) |
+| `faro ids [--username NAME]…` | | Print this account's, usernames' and groups' IDs for an allowlist |
 
 ## Keys
 

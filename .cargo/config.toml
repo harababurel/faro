@@ -1,0 +1,4 @@
+# presage and libsignal are git dependencies. Fetch them with the git CLI so
+# URL rewrites and credentials in the user's git config apply.
+[net]
+git-fetch-with-cli = true

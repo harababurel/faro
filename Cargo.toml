@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/faro", "crates/faro-core"]
+members = ["crates/faro", "crates/faro-core", "crates/faro-presage"]
 
 [workspace.package]
 version = "0.1.0-dev"
@@ -12,6 +12,7 @@ publish = false
 
 [workspace.dependencies]
 faro-core = { path = "crates/faro-core" }
+faro-presage = { path = "crates/faro-presage" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
@@ -46,6 +47,11 @@ print_stderr = "warn"
 wildcard_enum_match_arm = "warn"
 # Never block the UI: see `disallowed-methods` in clippy.toml.
 disallowed_methods = "warn"
+
+# presage's store needs SQLCipher; faro's own database (sqlx) links the same
+# library, so both use whisperfish's build of it (as presage does).
+[patch.crates-io]
+libsqlite3-sys = { git = "https://github.com/whisperfish/rusqlite", rev = "2a42b3354c9194700d08aa070f70a131a470e7dc" }
 
 [profile.release]
 lto = "thin"

@@ -200,6 +200,19 @@ Switch with the palette (`Ctrl+P` › Themes) or `theme = "…"` in the config; 
 - [ ] With an empty list (`people = []` and `groups = []`): no conversations show up while the mock is active. The log says `allowlist guard on … people=0 groups=0` and counts dropped events, never names or text.
 - [ ] With a real account (M7): a message from someone off the list never appears. Sending to an allowed chat works.
 
+## M7: the Signal backend (D63)
+
+Use a separate data dir for the test account, e.g. `--data-dir ~/.local/share/faro-test`.
+
+- [ ] `faro link --data-dir …` shows a QR code that the phone scans at once (Signal › Settings › Linked devices › Link new device). The phone lists "faro (<host>)". faro prints the account's ID.
+- [ ] Running `faro link` again on the same data dir refuses and explains how to start over.
+- [ ] `faro ids --data-dir … --username <yours>` prints your ID and, after a message in the test group, the group's title and ID, plus an allowlist to copy.
+- [ ] `faro --data-dir …` without `--allowlist` refuses to start.
+- [ ] With the allowlist: the group and your direct chat appear, with names. A message from the phone shows up as outgoing. Messages, replies, reactions, edits and deletions work both ways. Typing indicators and receipts (✓✓, read) show.
+- [ ] A message from anyone else never appears.
+- [ ] Wi-Fi off: the footer shows the connection dropping and coming back. Messages sent meanwhile arrive after reconnecting.
+- [ ] Restarting keeps the history.
+
 ## M8: terminal matrix (D50; run after M7 against the real backend, and once now with the mock)
 
 Columns: **direct** = faro straight in kitty; **tmux** = kitty → tmux (with the README's tmux settings); **SSH** = kitty → ssh → tmux on the other machine; **mosh** = kitty → mosh → tmux. Mark each cell ✓, ✗ (add a note below) or – (not applicable). Also try one other terminal per OS (WezTerm/Ghostty/Alacritty/foot on Linux, iTerm2 and Terminal.app on macOS) for the rows marked †.
