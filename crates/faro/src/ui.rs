@@ -13,6 +13,7 @@ mod conversation;
 mod emoji;
 mod footer;
 mod info;
+pub mod logo;
 mod messages;
 mod palette;
 mod popup;
@@ -28,6 +29,8 @@ pub struct View<'a> {
     pub tz: &'a TimeZone,
     /// For "Today"/"Yesterday".
     pub now: jiff::Timestamp,
+    /// Seconds into the logo's animation (D61); `None` draws it still.
+    pub logo_time: Option<f64>,
 }
 
 impl View<'_> {

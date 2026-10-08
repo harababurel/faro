@@ -126,6 +126,18 @@ Run `faro --mock --config /tmp/faro-test.toml` (bubbles is the default layout). 
 - [ ] **Incoming while closed:** with nothing open, new messages (the mock sends them) raise unread counts and ring the bell (if on); nothing opens by itself, and the other phone (M7) shows them unread.
 - [ ] **Hidden list:** hide the list (`Alt+S`), then `Esc` out of the chat: the list comes back, focused.
 
+## The logo screen (D61)
+
+- [ ] **Sizes:** with no chat open, resize the terminal (inside tmux) through roughly 200×50, 130×24 (lighthouse and wordmark side by side), 100×32 (stacked, big wordmark), 100×26 (stacked, small wordmark or the small lighthouse), 80×20 (small lighthouse with "faro" and the tagline beside it) and 60×12 (just "faro"). Each is centred, nothing is cut or wraps, the hints under it are readable and their keys line up.
+- [ ] **It looks like the prototype:** compare with `python3 tools/logos.py anim faro` in the same terminal: red and white stripes, the lamp glowing as the beam sweeps, waves rolling, stars twinkling.
+- [ ] **Smooth, and only when needed:** the beam turns smoothly (about 10 frames a second) directly in kitty, in tmux, over SSH and over mosh (mosh may drop frames; it shouldn't smear or leave stray dots). Open a chat: the animation stops (`top` shows faro idle). Switch to another tmux window or app so the terminal loses focus: it stands still and resumes when you come back.
+- [ ] **CPU:** in a release build with the mock (`--mock-activity 0`), `top` shows faro's CPU with the logo moving (a few percent at most) and close to zero with it still (`reduce_motion`, unfocused, or a chat open).
+- [ ] **Reduce motion:** `Ctrl+P`, `:`, `Reduce motion` → `Enter`: the logo stops at once and `reduce_motion = true` is written to the config; flip it back and it moves again. Editing the file by hand does the same live.
+- [ ] **Light theme:** with `faro-light` (and an OpenCode light theme such as `github-light`) the lighthouse has grey and red stripes, an amber lamp and beam, no stars, and the wordmark's left edge is clearly visible.
+- [ ] **256 and 16 colours:** `Settings › Colours` → 256: the logo keeps its look in approximated colours. → 16: only the small lighthouse with "faro" is drawn, in your terminal's own colours (red, yellow, default text), and nothing animates. Also try the `system` theme at truecolor: the same small lighthouse.
+- [ ] **No glitches beside another pane:** split the tmux window with another pane next to faro and leave the logo animating for a minute, also while typing in the other pane: no stray characters, nothing shifts in either pane, the border stays straight.
+- [ ] **Empty and loading:** with a fresh `--data-dir` the logo shows "Loading…" briefly; with no conversations at all it says "No conversations yet" and hints only the palette and keybindings.
+
 ## Setting previews (D59)
 
 - [ ] **Bubble style:** `Ctrl+P`, `:bubble`, `Enter`: the list opens on the style in use and nothing changes. `↓`/`↑` redraw the bubbles behind the palette in each style straight away; `Esc` puts the old style back and the config file is unchanged; `Enter` keeps the selected one, closes the palette and writes `bubble_style`.

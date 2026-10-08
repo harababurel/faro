@@ -1,0 +1,30 @@
+---
+source: crates/faro/src/ui/tests.rs
+expression: "snapshot(&draw(&state, 120, 26))"
+---
+╭ Conversations ─────────────╮╭────────────────────────────────────────────────────────────────────────────────────────╮
+│ No conversations yet       ││                                                                                        │
+│                            ││                                                                                        │
+│                            ││                                                                                        │
+│                            ││                                                                                        │
+│                            ││                                                                                        │
+│                            ││                  ▄█▄                                                                   │
+│                            ││                  ███                                                                   │
+│                            ││                 ▀▀▀▀▀                                                                  │
+│                            ││                  ███      faro                                                         │
+│                            ││                  ███      terminal messenger · unofficial Signal client                │
+│                            ││                 █████                                                                  │
+│                            ││                 █████                                                                  │
+│                            ││               ▄▄▄▄▄▄▄▄▄                                                                │
+│                            ││                                                                                        │
+│                            ││                                  No conversations yet                                  │
+│                            ││                                ctrl+p  command palette                                 │
+│                            ││                                     ?  keybindings                                     │
+│                            ││                                                                                        │
+│                            ││                                                                                        │
+│                            ││                                                                                        │
+│                            ││                                                                                        │
+│                            ││                                                                                        │
+│                            ││                                                                                        │
+╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────────────────────────╯
+ ◌ connecting…            ↑↓ choose · enter open · space actions · p pin · m mute · h hide · a archive · A archive list

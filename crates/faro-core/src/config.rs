@@ -212,6 +212,7 @@ impl Default for Config {
 /// Paths of the settings the app changes itself (palette toggles).
 pub mod key {
     pub const THEME: &str = "theme";
+    pub const REDUCE_MOTION: &str = "reduce_motion";
     pub const EMOJI: &str = "ui.emoji";
     pub const COLORS: &str = "ui.colors";
     pub const ALLOWLIST: &str = "conversations.allowlist";
@@ -302,8 +303,8 @@ pub static SETTINGS: &[Setting] = &[
         },
     },
     Setting {
-        path: "reduce_motion",
-        help: "Turn off animations (nothing animates yet).",
+        path: key::REDUCE_MOTION,
+        help: "Turn off animations: the lighthouse shown while no chat is open stands still.",
         get: |c| ConfigValue::Bool(c.reduce_motion),
         set: |c, v| {
             c.reduce_motion = boolean(v)?;

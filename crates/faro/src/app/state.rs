@@ -399,6 +399,8 @@ pub struct Geometry {
     pub history_rows: Vec<Option<MessageRef>>,
     /// The palette, while open.
     pub palette: Option<PaletteGeometry>,
+    /// The logo was drawn moving (D61): it needs another frame soon.
+    pub logo_animated: bool,
 }
 
 /// Where the palette was drawn.
@@ -702,6 +704,14 @@ impl State {
             Some(SettingChoice::BubbleStyle(style)) => style,
             Some(_) | None => self.config.messages.bubble_style,
         }
+    }
+
+    /// Whether the logo should move (D61): it's on screen (nothing is open),
+    /// the terminal has focus and `reduce_motion` is off. It also needs the
+    /// last frame to have drawn its moving form (`Geometry::logo_animated`;
+    /// small panes and 16 colours draw a still one).
+    pub fn logo_moves(&self) -> bool {
+        self.open.is_none() && self.env.focused && !self.config.reduce_motion
     }
 
     /// The open conversation's newest messages are in front of the user: the

@@ -369,6 +369,7 @@ fn geometry(state: &State) -> Geometry {
         at_top: false,
         history_rows: vec![],
         palette: None,
+        logo_animated: false,
     }
 }
 

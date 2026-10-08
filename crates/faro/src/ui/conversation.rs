@@ -10,7 +10,7 @@ use unicode_segmentation::UnicodeSegmentation as _;
 use unicode_width::UnicodeWidthStr as _;
 
 use super::text::{one_line, sanitize, truncate};
-use super::{View, bubbles, focused, messages};
+use super::{View, bubbles, focused, logo, messages};
 use crate::app::input::Input;
 use crate::app::state::{Focus, Geometry, OpenConversation, State};
 use faro_core::domain::MessageRef;
@@ -34,20 +34,7 @@ pub fn render(
             .border_style(theme.border(messages_focused));
         let inner = block.inner(area);
         frame.render_widget(block, area);
-        let text = if state.loading {
-            "Loading…"
-        } else {
-            "No conversation open"
-        };
-        let middle = Rect {
-            y: inner.y + inner.height / 2,
-            height: 1.min(inner.height),
-            ..inner
-        };
-        frame.render_widget(
-            Paragraph::new(Span::styled(text, theme.muted())).alignment(Alignment::Center),
-            middle,
-        );
+        logo::render(frame, inner, state, view, geometry);
         return;
     };
 

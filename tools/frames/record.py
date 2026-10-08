@@ -9,7 +9,9 @@ usage: record.py <out-dir> <scenario> [--width W] [--height H] [--split N]
               [--layout bubbles|irc] [--steps N] [--binary PATH]
 
 <scenario>: mixed (typing, switching, paging, palette, popups, resizes),
-type (typing only) or switch (switching and typing). --split N puts a
+type (typing only), switch (switching and typing) or logo (the logo screen
+animating while nothing is open: idle spells, resizes across its sizes,
+opening and closing a chat, the palette over it). --split N puts a
 N-column pane to the left of faro (faro on the right). <out-dir> is wiped
 first and holds faro's scratch data dir and config, so nothing touches your
 real ones. Run from the repository root (or set FARO_REPO); the binary
@@ -37,6 +39,8 @@ ap.add_argument("--seed", type=int, default=7)
 ap.add_argument("--layout", default=None)
 ap.add_argument("--bubbles", default=None, help="bubble_style: auto, rounded or bar")
 ap.add_argument("--steps", type=int, default=300)
+ap.add_argument("--steady", action="store_true",
+                help="no resizes: a nested replay with --split can't mirror them")
 ap.add_argument("--binary", default=os.path.join(REPO, "target/debug/faro"))
 args = ap.parse_args()
 
@@ -144,6 +148,11 @@ def step(kind):
             time.sleep(0.1)
             keys("Escape")
         keys("Escape")
+    elif kind in ("resize", "tall") and args.steady:
+        time.sleep(rng.uniform(0.5, 1.5))
+    elif kind == "tall" and args.split:
+        # A height change resizes the whole window, left pane included.
+        time.sleep(rng.uniform(0.5, 1.5))
     elif kind == "resize":
         w = rng.choice([args.width, args.width - 13, args.width + 7, 80, 97])
         if args.split:
@@ -158,6 +167,19 @@ def step(kind):
                 tmux("resize-window", "-t", "s", "-x", str(args.width))
     elif kind == "end":
         keys("End")
+    elif kind == "idle":
+        time.sleep(rng.uniform(0.5, 1.5))
+    elif kind == "openclose":
+        keys("Enter")
+        time.sleep(rng.uniform(0.2, 0.6))
+        for _ in range(3):
+            keys("Escape")
+            time.sleep(0.05)
+    elif kind == "tall":
+        h = rng.choice([args.height, args.height, 14, 20, 40])
+        tmux("resize-window", "-t", "s", "-y", str(h))
+        time.sleep(rng.uniform(0.3, 0.8))
+        tmux("resize-window", "-t", "s", "-y", str(args.height))
     time.sleep(rng.uniform(0.05, 0.3))
 
 
@@ -165,6 +187,7 @@ KINDS = {
     "mixed": ["type"] * 5 + ["switch"] * 3 + ["page"] * 2 + ["palette", "popup", "resize", "end"],
     "type": ["type"],
     "switch": ["switch", "type"],
+    "logo": ["idle"] * 4 + ["openclose", "resize", "tall", "palette", "switch"],
 }[args.scenario]
 for n in range(args.steps):
     step(rng.choice(KINDS))

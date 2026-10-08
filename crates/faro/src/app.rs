@@ -99,11 +99,7 @@ pub async fn run<B: Backend + 'static>(
     let dispatch = |list: Vec<Effect>| router.dispatch(list);
 
     let mut state = State::new(directory.me, directory.contacts, directory.groups);
-    state.env.over_ssh = system::over_ssh();
-    state.env.emoji = detected.emoji;
-    state.env.glyphs = detected.glyphs;
-    state.env.colors = ColorDepth::detect(|var| std::env::var(var).ok());
-    tracing::info!(colors = ?state.env.colors, "colour depth detected");
+    sense_terminal(&mut state, detected);
     // Before the config: its theme may be one of them.
     for problem in state.user_themes.load(theme_files) {
         problems.push(faro_core::config::Problem::warning(format!(
@@ -122,13 +118,15 @@ pub async fn run<B: Backend + 'static>(
     let mut themes = Themes::default();
     let mut dirty = true;
     let mut last_draw: Option<Instant> = None;
+    let mut logo_since: Option<Instant> = None;
     loop {
         if tui.mouse() != state.config.mouse.enabled {
             tui.set_mouse(state.config.mouse.enabled)
                 .context("switching the mouse")?;
         }
         if dirty && last_draw.is_none_or(|t| t.elapsed() >= FRAME) {
-            let geometry = draw(&mut tui, &mut state, &mut themes, &tz)?;
+            let logo = logo_time(&mut logo_since, &state);
+            let geometry = draw(&mut tui, &mut state, &mut themes, &tz, logo)?;
             last_draw = Some(Instant::now());
             dirty = false;
             // Same picture; only bookkeeping (and maybe loading older messages).
@@ -139,6 +137,7 @@ pub async fn run<B: Backend + 'static>(
         }
         let redraw_at = last_draw.map_or_else(Instant::now, |t| t + FRAME);
         let deadline = state.next_deadline();
+        let logo_at = logo_frame(&state, last_draw);
         let event = tokio::select! {
             terminal = input.next() => match terminal {
                 Some(Ok(event)) => AppEvent::Terminal(event),
@@ -151,6 +150,10 @@ pub async fn run<B: Backend + 'static>(
             Some(event) = backend_events.recv() => AppEvent::Backend(event),
             Some(event) = results.recv() => event,
             () = sleep_until(redraw_at), if dirty => continue,
+            () = sleep_until(logo_at.unwrap_or_else(Instant::now)), if logo_at.is_some() => {
+                dirty = true;
+                continue;
+            }
             () = sleep_until(deadline.unwrap_or_else(Instant::now)), if deadline.is_some() => {
                 AppEvent::Tick
             }
@@ -179,6 +182,15 @@ pub async fn run<B: Backend + 'static>(
     drop(config);
     finish(config_task, "config writer").await;
     Ok(())
+}
+
+/// What faro knows about the terminal before the first frame.
+fn sense_terminal(state: &mut State, detected: state::Detected) {
+    state.env.over_ssh = system::over_ssh();
+    state.env.emoji = detected.emoji;
+    state.env.glyphs = detected.glyphs;
+    state.env.colors = ColorDepth::detect(|var| std::env::var(var).ok());
+    tracing::info!(colors = ?state.env.colors, "colour depth detected");
 }
 
 /// Where effects go: store work to the effects worker, backend commands to
@@ -242,6 +254,7 @@ fn draw(
     state: &mut State,
     themes: &mut Themes,
     tz: &jiff::tz::TimeZone,
+    logo_time: Option<f64>,
 ) -> anyhow::Result<state::Geometry> {
     // Unknown names were reported when the config was read.
     let theme = themes.get(state.theme_name(), state.colors(), &state.user_themes);
@@ -249,6 +262,7 @@ fn draw(
         theme,
         tz,
         now: jiff::Timestamp::now(),
+        logo_time,
     };
     let mut geometry = state::Geometry::default();
     if std::mem::take(&mut state.env.repaint) {
@@ -260,6 +274,25 @@ fn draw(
     tui.set_title(state.window_title(view.now_timestamp()).as_deref())
         .context("setting the window title")?;
     Ok(geometry)
+}
+
+/// When the logo needs its next frame (D61): only while the last frame drew
+/// it moving and it should still move. Otherwise nothing is scheduled, so a
+/// still logo costs no wakeups.
+fn logo_frame(state: &State, last_draw: Option<Instant>) -> Option<Instant> {
+    (state.geometry.logo_animated && state.logo_moves())
+        .then(|| last_draw.map_or_else(Instant::now, |t| t + ui::logo::FRAME))
+}
+
+/// Seconds into the logo's animation, counted from when it started moving
+/// so that it starts from the still picture; `None` while it stands still.
+fn logo_time(since: &mut Option<Instant>, state: &State) -> Option<f64> {
+    if !state.logo_moves() {
+        *since = None;
+        return None;
+    }
+    let start = *since.get_or_insert_with(Instant::now);
+    Some(ui::logo::STILL + start.elapsed().as_secs_f64())
 }
 
 /// Whether an event can change what's on screen; the rest don't cost a frame.
@@ -289,5 +322,49 @@ fn affects_view(event: &AppEvent) -> bool {
         | AppEvent::StoreFailed(_)
         | AppEvent::Tick
         | AppEvent::Shutdown => true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::time::Instant;
+
+    use super::{logo_frame, logo_time};
+    use crate::fixtures::loaded_state;
+    use crate::ui::logo::{FRAME, STILL};
+
+    #[test]
+    fn the_logo_timer_runs_only_while_the_logo_moves_on_screen() {
+        let mut state = loaded_state();
+        state.geometry.logo_animated = true;
+        let drawn = Instant::now();
+        assert_eq!(logo_frame(&state, Some(drawn)), None, "a chat is open");
+        state.open = None;
+        assert_eq!(logo_frame(&state, Some(drawn)), Some(drawn + FRAME));
+        state.env.focused = false;
+        assert_eq!(logo_frame(&state, Some(drawn)), None, "unfocused");
+        state.env.focused = true;
+        state.config.reduce_motion = true;
+        assert_eq!(logo_frame(&state, Some(drawn)), None, "reduce motion");
+        state.config.reduce_motion = false;
+        state.geometry.logo_animated = false;
+        assert_eq!(
+            logo_frame(&state, Some(drawn)),
+            None,
+            "drawn still (small pane, 16 colours)"
+        );
+    }
+
+    #[test]
+    fn the_animation_starts_from_the_still_picture() {
+        let mut state = loaded_state();
+        state.open = None;
+        let mut since = None;
+        let t = logo_time(&mut since, &state).unwrap();
+        assert!((STILL..STILL + 1.0).contains(&t), "{t}");
+        assert!(since.is_some());
+        state.config.reduce_motion = true;
+        assert_eq!(logo_time(&mut since, &state), None);
+        assert_eq!(since, None);
     }
 }

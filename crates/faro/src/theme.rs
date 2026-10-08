@@ -17,7 +17,7 @@ mod user;
 use faro_core::domain::ServiceId;
 use ratatui::style::{Color, Modifier, Style};
 
-pub use self::colors::ColorDepth;
+pub use self::colors::{ColorDepth, Rgb, indexed_rgb, luminance, nearest_256};
 pub use self::user::{ThemeText, UserThemes};
 
 /// Where a theme comes from.

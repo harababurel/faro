@@ -14,15 +14,15 @@ expression: "snapshot(&draw(&with_palette(\":\"), 100, 30))"
 │           │   Emoji ›                                                           auto │           │
 │           │   Message layout ›                                                   IRC │────────── │
 │           │   Bubble style ›                                                    auto │hursday?   │
-│           │ Notifications                                                            │ss         │
+│           │   Reduce motion                                                      off │ss         │
+│           │ Notifications                                                            │           │
 │           │   Bell                                                                on │           │
 │           │   Unread count in the window title                                    on │           │
 │           │ Conversations                                                            │           │
-│           │   Allowlist mode                                                     off │           │
-│           │ Input                                                                    │────────── │
-│           │   Mouse                                                               on │ast week   │
-│           ╰──────────────────────────────────────────────────────────────────────────╯bring your │
-│                            ││                  project shoes 🧗‍♀️🧗‍♂️ and maybe some tape for your   │
+│           │   Allowlist mode                                                     off │────────── │
+│           │ Input                                                                    │ast week   │
+│           │   Mouse                                                               on │bring your │
+│           ╰──────────────────────────────────────────────────────────────────────────╯for your   │
 │                            ││                  fingers.                                          │
 │                            ││ 17:54        You On my way ✓                                       │
 │                            ││ 17:55   Alice 🌸 Running 10 min late 🙈                            │

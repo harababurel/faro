@@ -28,6 +28,7 @@ fn draw_with(state: &State, width: u16, height: u16, theme: &Theme) -> Buffer {
         theme,
         tz: &tz,
         now,
+        logo_time: None,
     };
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
     terminal
@@ -259,6 +260,7 @@ fn window_text(state: &State, height: usize) -> (Vec<String>, super::messages::W
         theme: &theme,
         tz: &tz,
         now,
+        logo_time: None,
     };
     let open = state.open.as_ref().unwrap();
     let window = super::messages::window(state, open, &view, 60, height);
@@ -519,6 +521,7 @@ fn palette_reports_its_rows_for_the_mouse() {
         theme: &theme,
         tz: &tz,
         now,
+        logo_time: None,
     };
     let mut terminal = Terminal::new(TestBackend::new(100, 26)).unwrap();
     let mut geometry = None;
@@ -875,4 +878,140 @@ fn compatible_mode_covers_the_input_too() {
 fn full_mode_keeps_emoji_as_they_are() {
     let buffer = draw(&typing_state(), 100, 34);
     assert!(snapshot(&buffer).contains("🧗‍♀️"));
+}
+
+// --- The logo screen (D61) ---
+
+/// After startup: conversations loaded, nothing open (D60).
+fn logo_state() -> State {
+    let mut state = State::new(ME, fixtures::contacts(), fixtures::groups());
+    update(
+        &mut state,
+        AppEvent::Loaded {
+            conversations: fixtures::summaries(),
+            last_open: Some(climbing()),
+        },
+    );
+    state
+}
+
+/// Draw with the logo `logo_time` seconds in (`None`: still), returning the
+/// geometry too.
+fn draw_logo(
+    state: &State,
+    size: (u16, u16),
+    theme: &Theme,
+    logo_time: Option<f64>,
+) -> (Buffer, crate::app::state::Geometry) {
+    let tz = TimeZone::UTC;
+    let now = jiff::Timestamp::from_millisecond(i64::try_from(NOW_MS).unwrap()).unwrap();
+    let view = View {
+        theme,
+        tz: &tz,
+        now,
+        logo_time,
+    };
+    let mut terminal = Terminal::new(TestBackend::new(size.0, size.1)).unwrap();
+    let mut geometry = crate::app::state::Geometry::default();
+    terminal
+        .draw(|frame| geometry = render(frame, state, &view))
+        .unwrap();
+    (terminal.backend().buffer().clone(), geometry)
+}
+
+#[test]
+fn logo_full() {
+    insta::assert_snapshot!(snapshot(&draw(&logo_state(), 140, 24)));
+}
+
+#[test]
+fn logo_stacked() {
+    insta::assert_snapshot!(snapshot(&draw(&logo_state(), 100, 32)));
+}
+
+#[test]
+fn logo_small() {
+    insta::assert_snapshot!(snapshot(&draw(&logo_state(), 100, 20)));
+}
+
+#[test]
+fn logo_word_only() {
+    insta::assert_snapshot!(snapshot(&draw(&logo_state(), 60, 12)));
+}
+
+#[test]
+fn logo_at_16_colours() {
+    let mut state = logo_state();
+    state.config.ui.colors = faro_core::config::ColorChoice::Colors16;
+    let theme = Theme::default().for_depth(crate::theme::ColorDepth::Ansi16);
+    let buffer = draw_with(&state, 140, 24, &theme);
+    insta::assert_snapshot!(snapshot(&buffer));
+    // The small lighthouse in the theme's (the terminal's) colours.
+    let cells: Vec<_> = buffer.content().iter().collect();
+    assert!(
+        cells
+            .iter()
+            .any(|c| c.symbol() == "█" && c.fg == theme.error)
+    );
+    assert!(
+        cells
+            .iter()
+            .all(|c| !matches!(c.fg, ratatui::style::Color::Rgb(..)))
+    );
+}
+
+#[test]
+fn logo_with_no_conversations() {
+    let mut state = State::new(ME, fixtures::contacts(), fixtures::groups());
+    update(
+        &mut state,
+        AppEvent::Loaded {
+            conversations: vec![],
+            last_open: None,
+        },
+    );
+    insta::assert_snapshot!(snapshot(&draw(&state, 120, 26)));
+}
+
+#[test]
+fn the_logo_s_colours_follow_the_terminal() {
+    use crate::theme::ColorDepth;
+    use ratatui::style::Color;
+    let state = logo_state();
+    // Truecolor: the logo's own red stripes.
+    let (buffer, _) = draw_logo(&state, (140, 24), &Theme::default(), None);
+    assert!(
+        buffer
+            .content()
+            .iter()
+            .any(|c| c.fg == Color::Rgb(210, 60, 60))
+    );
+    // 256 colours: nothing but indexed colours anywhere.
+    let mut state = logo_state();
+    state.config.ui.colors = faro_core::config::ColorChoice::Colors256;
+    let theme = Theme::default().for_depth(ColorDepth::Indexed256);
+    let (buffer, _) = draw_logo(&state, (140, 24), &theme, None);
+    assert!(
+        buffer
+            .content()
+            .iter()
+            .all(|c| !matches!(c.fg, Color::Rgb(..)) && !matches!(c.bg, Color::Rgb(..)))
+    );
+    assert!(buffer.content().iter().any(|c| c.symbol() == "▀"));
+}
+
+#[test]
+fn only_the_big_logo_asks_for_more_frames() {
+    let state = logo_state();
+    let theme = Theme::default();
+    let moving = |size, time| draw_logo(&state, size, &theme, time).1.logo_animated;
+    assert!(moving((140, 24), Some(1.0)));
+    assert!(moving((100, 32), Some(1.0)));
+    assert!(!moving((140, 24), None), "still");
+    assert!(!moving((100, 20), Some(1.0)), "the small one never moves");
+    // Different moments, different pictures; the same moment, the same.
+    let at = |time| snapshot(&draw_logo(&state, (140, 24), &theme, time).0);
+    assert_ne!(at(Some(1.0)), at(Some(2.0)));
+    assert_eq!(at(Some(1.0)), at(Some(1.0)));
+    assert_eq!(at(None), at(Some(super::logo::STILL)));
 }

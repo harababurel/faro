@@ -260,7 +260,7 @@ Hide (disappears until a new message arrives, configurable), archive, pin, mute 
 
 ### 7.8 Graphics and motion
 
-Colour carries meaning (btop style): status, unread, mentions, own vs others, errors. Glyph graphics where they add information (e.g. activity sparkline in the info panel, connection quality). Splash/about screen uses the animated lighthouse logo. A `reduce_motion` setting disables animations.
+Colour carries meaning (btop style): status, unread, mentions, own vs others, errors. Glyph graphics where they add information (e.g. activity sparkline in the info panel, connection quality). The empty message pane (no chat open) shows the animated lighthouse logo (D61); an about screen may reuse it later. A `reduce_motion` setting disables animations.
 
 ## 8. Notifications
 
@@ -330,6 +330,7 @@ Sketch:
 - **Live preview:** moving through `Ctrl+P › Themes` draws the selected theme (`Palette::preview`, `State::theme_name()`); `Enter` keeps and saves it, `Esc`, `←` or anything that leaves the level puts the configured one back unsaved. Opening the level starts on the theme in use. At 256 or 16 colours a note above the list says themes are approximated or that `system` is drawn (`palette::note`, D57); at 16 the preview, like the theme, is `system`.
 - **As built (D60):** themes are listed once, as the root category `Themes ›`; the settings list has no Theme row.
 - **As built (D60): no chat open.** faro starts with nothing open (the message pane shows the logo, D61) and nothing opens by itself. `Esc` steps back (reply, notice/focus) and then closes the open conversation, keeping its draft and focusing the list. With nothing open the list's highlight is a cursor: `j`/`k`/`Alt+J/K` move it without reading anything, `Enter` or a click opens, curation keys act on it.
+- **As built (D61): the logo screen.** With nothing open the message pane shows the lighthouse logo (`ui/logo.rs`, art in `ui/logo/art.rs`), centred, in the largest form that fits: lighthouse + wordmark + tagline side by side (90 × 13), stacked (wordmark scale 2 or 1), a small theme-coloured lighthouse with the word, or the word alone; under it a status line ("Loading…", "No conversations yet") and key hints from the key map. The beam turns at 10 fps while the logo is visible, the terminal is focused and `reduce_motion` is off; otherwise it stands still and nothing is scheduled. Truecolor draws the logo's own colours, 256 colours their nearest xterm colours, 16 colours and the `system` theme only the small form in theme colours; light backgrounds get no stars and darker whites.
 - **As built (D59): settings preview too.** The values of `Settings › Colours`, `Message layout` and `Bubble style` preview the same way: moving through them draws the selected value (`Palette::preview` is a theme or a `SettingChoice`; the renderer reads `State::colors()`, `message_layout()`, `bubble_style()`), `Enter` keeps and saves it, `Esc` or `←` puts the one in use back. A values level opens on the value in use. Emoji and the on/off settings don't preview.
 - **Not yet:** `mention` (mentions arrive with M7). `NO_COLOR` isn't honoured yet. Transparent backgrounds can't show the terminal's own background (they're drawn over black/white).
 
@@ -395,7 +396,7 @@ Task-level breakdown and progress tracking: [PLAN.md](PLAN.md).
 - `faro daemon` + attachable TUI (§4.2)
 - signal-cli JSON-RPC backend (D6)
 - Encryption at rest (§12)
-- Animated lighthouse splash and logo in the about screen
+- Logo in an about screen (the animated lighthouse already fills the empty message pane, D61)
 - Search across messages
 - Voice note playback (external player)
 

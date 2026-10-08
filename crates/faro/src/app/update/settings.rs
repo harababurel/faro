@@ -58,7 +58,8 @@ fn apply(
         if !startup && old.messages.bubble_style != state.config.messages.bubble_style {
             effects.extend(apply_bubble_style(state));
         }
-        // The mouse and the theme are read from `state.config` by the app loop.
+        // The mouse, the theme and `reduce_motion` are read from
+        // `state.config` by the app loop.
     }
     report(state, &problems, changed && !startup);
     effects
@@ -241,6 +242,16 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
                 "The window title is left to the terminal"
             }));
             save(state, key::TITLE)
+        }
+        SettingChoice::ReduceMotion(on) => {
+            // The app loop reads it from `state.config` (D61).
+            state.config.reduce_motion = on;
+            state.notice = Some(Notice::info(if on {
+                "Reduce motion: the lighthouse stands still"
+            } else {
+                "The lighthouse's beam turns again"
+            }));
+            save(state, key::REDUCE_MOTION)
         }
     }
 }

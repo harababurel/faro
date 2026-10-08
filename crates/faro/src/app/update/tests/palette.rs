@@ -167,12 +167,13 @@ fn prefixes_jump_into_a_category() {
 }
 
 /// `Settings ›` with nothing typed: every setting under its section.
-const SETTINGS_LIST: [&str; 12] = [
+const SETTINGS_LIST: [&str; 13] = [
     "Appearance",
     "Colours",
     "Emoji",
     "Message layout",
     "Bubble style",
+    "Reduce motion",
     "Notifications",
     "Bell",
     "Unread count in the window title",
@@ -259,7 +260,7 @@ fn headers_are_skipped() {
     press(&mut state, KeyCode::Down);
     press(&mut state, KeyCode::Down);
     assert_eq!(selected_title(&state), "Colours", "wraps past Appearance");
-    for _ in 0..4 {
+    for _ in 0..5 {
         press(&mut state, KeyCode::Down);
     }
     assert_eq!(selected_title(&state), "Bell", "skips Notifications");
@@ -595,7 +596,7 @@ fn mouse_picks_a_result_or_closes() {
     update(&mut state, click(20, 5));
     assert_eq!(level(&state), Level::Settings);
     assert_eq!(selected_title(&state), "Colours");
-    update(&mut state, click(20, 11));
+    update(&mut state, click(20, 12));
     assert_eq!(selected_title(&state), "Bell");
     assert!(!state.config.notifications.bell);
     update(&mut state, click(2, 20));

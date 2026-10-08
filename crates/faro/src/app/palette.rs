@@ -67,6 +67,7 @@ pub enum Setting {
     Emoji,
     Layout,
     BubbleStyle,
+    ReduceMotion,
     Bell,
     Title,
     Allowlist,
@@ -141,6 +142,7 @@ impl SettingsGroup {
                 Setting::Emoji,
                 Setting::Layout,
                 Setting::BubbleStyle,
+                Setting::ReduceMotion,
             ],
             Self::Notifications => &[Setting::Bell, Setting::Title],
             Self::Conversations => &[Setting::Allowlist],
@@ -156,6 +158,7 @@ impl Setting {
             Self::Emoji => "Emoji",
             Self::Layout => "Message layout",
             Self::BubbleStyle => "Bubble style",
+            Self::ReduceMotion => "Reduce motion",
             Self::Bell => "Bell",
             Self::Title => "Unread count in the window title",
             Self::Allowlist => "Allowlist mode",
@@ -166,7 +169,7 @@ impl Setting {
     /// Whether it's on or off (flipped by `Enter` in the settings list).
     pub const fn is_switch(self) -> bool {
         match self {
-            Self::Bell | Self::Title | Self::Allowlist | Self::Mouse => true,
+            Self::ReduceMotion | Self::Bell | Self::Title | Self::Allowlist | Self::Mouse => true,
             Self::Colors | Self::Emoji | Self::Layout | Self::BubbleStyle => false,
         }
     }
@@ -178,7 +181,12 @@ impl Setting {
     pub const fn previews(self) -> bool {
         match self {
             Self::Colors | Self::Layout | Self::BubbleStyle => true,
-            Self::Emoji | Self::Bell | Self::Title | Self::Allowlist | Self::Mouse => false,
+            Self::Emoji
+            | Self::ReduceMotion
+            | Self::Bell
+            | Self::Title
+            | Self::Allowlist
+            | Self::Mouse => false,
         }
     }
 }
@@ -217,6 +225,7 @@ pub enum SettingChoice {
     Mouse(bool),
     Bell(bool),
     Title(bool),
+    ReduceMotion(bool),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -846,6 +855,7 @@ fn values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)>
                 )
             })
             .collect(),
+        Setting::ReduceMotion => on_off(SettingChoice::ReduceMotion, state.config.reduce_motion),
         Setting::Bell => on_off(SettingChoice::Bell, state.config.notifications.bell),
         Setting::Title => on_off(SettingChoice::Title, state.config.notifications.title),
         Setting::Allowlist => on_off(SettingChoice::Allowlist, state.list.allowlist),
