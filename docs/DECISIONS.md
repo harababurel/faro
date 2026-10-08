@@ -636,3 +636,22 @@ Refines the DESIGN.md §5.1 sketch:
 - **Why:** faro sent a removal as `remove: true` with no emoji. Signal's Android app checks the emoji before looking at `remove` and drops a reaction message without a valid one ("Reaction text is not a valid emoji"), and the other apps always send it, so a reaction taken back in faro stayed on other people's phones.
 - **What:** `Backend::react` takes a `ReactionChange`: `Set(emoji)` or `Remove(emoji)`, the emoji being taken back (Signal's apps send the same). `convert::reaction` maps it to `emoji` plus `remove`; the mock and the guard pass it through (the guard still checks the conversation first, D62). `Command::React` carries the change; the reducer's toggle builds `Remove(previous)` when the chosen emoji is already ours, `Set` otherwise, and the local echo and the undo on failure work as before (`ReactionChange::emoji` is what's left).
 - Incoming removals were already understood with or without an emoji (a removal drops the sender's reaction whatever it names).
+
+### D74. History transfer on link: possible, planned as M11 (v0.2) — Judgement (2026-10-08; D19 revisited, M7 task 6)
+
+- **How Signal does it:** the new device advertises `capabilities=backup5` in the link URL (Signal Desktop's `Provisioner.preload.ts`). If the user picks "Transfer message history", the phone uploads an encrypted archive to the transit CDN and puts its key in `ProvisionMessage.ephemeralBackupKey` (field 14). The new device long-polls `GET /v1/devices/transfer_archive` for `{cdn, key}` (or `RELINK_REQUESTED` / `CONTINUE_WITHOUT_UPLOAD`), downloads, checks the HMAC, decrypts (AES-256-CBC; keys from libsignal's `MessageBackupKey`), and reads gzip'd, varint-delimited `backup.proto` frames (libsignal `message-backup`, `Purpose::DeviceTransfer`).
+- **Our stack:**
+  - libsignal-service-rs (our rev) keeps the key in `NewDeviceRegistration.ephemeral_backup_key`, but advertises no capabilities and has no `transfer_archive` call.
+  - presage (pinned rev) drops the key (`manager/linking.rs`); presage PR #430 (an open draft) would expose it, and issue #396 asks for the feature.
+  - Nothing in whisperfish parses the archive.
+  - mautrix-signal (Go, AGPL) does the whole thing (`pkg/signalmeow/backup.go`), which shows the phone serves unofficial clients that advertise the capability.
+- **What faro would need:**
+  - add `backup5` to the QR URL, but only once everything below works, or the phone uploads for nothing;
+  - the key, from PR #430 or a pinned fork;
+  - the long-poll and the CDN download;
+  - parsing with `libsignal-message-backup` (AGPL-3.0, git-only, the same libsignal tag libsignal-service-rs pins) or a lenient prost decode;
+  - mapping text, quotes, reactions, contacts and groups into faro's store as stored events, **through the allowlist guard** (the archive holds every conversation);
+  - progress and a skip option in `faro link`.
+- **Limits:** it only happens at link time, so existing installs re-link. Media backfill is separate. The format moves with Signal's releases, and libsignal's strict validator may reject archives from newer phones.
+- **Other routes:** legacy Android `.backup` files aren't worth it. Newer on-device backups reportedly use the same format, keyed by the Account Entropy Pool presage already stores, so a later "import a backup" could reuse the parser.
+- **Decision:** not in v0.1; proposed as **M11** in v0.2, after M9 and M10. The owner can reorder it.

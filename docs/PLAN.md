@@ -211,6 +211,20 @@ Outline only, like M9; it builds on M9's downloads.
 
 Pulled forward on 2026-10-08 at the owner's request: the palette as a tree (D52), do not disturb (D53), and OpenCode's themes bundled, user theme files with hot reload and the live-preview theme picker (D54).
 
+## M11: history transfer on link (v0.2, proposed, D74)
+
+Outline only. Bring the phone's message history into faro when linking, as Signal Desktop does.
+
+**Tasks**
+1. Get `ephemeralBackupKey` from presage (upstream PR #430, or a pinned fork until it lands).
+2. Long-poll `GET /v1/devices/transfer_archive`, download the archive from the CDN, verify and decrypt it.
+3. Parse it with `libsignal-message-backup` (same libsignal tag as libsignal-service-rs) and map text, quotes, reactions, contacts and groups into faro's store as stored events, through the allowlist guard.
+4. `faro link`: advertise `capabilities=backup5` (only now that 1–3 work), show progress, let the user skip, handle `RELINK_REQUESTED` and `CONTINUE_WITHOUT_UPLOAD`.
+5. Out of scope: media backfill. Existing installs must re-link to use it.
+
+**Acceptance**
+- Linking a fresh data dir with "Transfer message history" chosen on the phone shows the recent history of the allowed chats in faro.
+
 ## Later (backlog: do not lose)
 
 - `faro daemon` + attachable TUI
@@ -220,7 +234,7 @@ Pulled forward on 2026-10-08 at the owner's request: the palette as a tree (D52)
 - Message search
 - Optional sync of hidden/allowlist state via config
 - Recording and sending voice notes
-- (Inline images and voice note playback moved to M9 and M10, D69.)
+- (Inline images and voice note playback moved to M9 and M10, D69; history transfer proposed as M11, D74.)
 
 ---
 
@@ -241,3 +255,4 @@ Pulled forward on 2026-10-08 at the owner's request: the palette as a tree (D52)
 | M8 v0.1 hardening + release | 🚧 In progress (tasks 1, 3, 4 pulled ahead of M7, D50) | Task 3 done: themes `faro-dusk`, `faro-light`, `system` (terminal's 16 colours, reverse-video selection, dim muted text) beside `faro-dark`; colour depth detected (`COLORTERM`, tmux, known terminals) with `[ui] colors` override; 256-colour fallback mapped once at load, surfaces kept apart; 16 colours → `system`; `:` palette theme/colour settings with write-back; contrast tests (D51). Task 4 done: README rewritten (pre-release status, install from source incl. the future `protoc` packages, trying the mock, flags, keys, config, recommended tmux settings, mosh, colours) with a text capture of the UI; real screenshots left to the owner (TODO comment in the README). Task 1 prepared: [MANUAL_TESTS.md](MANUAL_TESTS.md) "M8: terminal matrix" (Linux/macOS × direct, tmux, SSH, mosh × rendering, emoji, colours, mouse, OSC 52, bell, title, focus, paste, keys, Ctrl+L, restore); the owner runs it after M7. Left: the hands-on matrix and task 5 (tag, binaries), both after M7. Owner-reported glitches (2026-10-08, D55): tmux joined code points onto the wrong cell (flags, VS16 emoji, skin tones on bases it doesn't know); fixed in `tui/backend.rs` and `ui/emoji.rs`, found with the frame log (`FARO_DEBUG_FRAMES`) and `tools/frames/`; 20,122 replayed frames, 0 divergent, direct and nested (was 1176 of 2900). Bubble styles (owner's choice, D58, superseding D56's half-block corners): rounded (Powerline caps on one-line bubbles, two-thirds Legacy Computing edges on taller ones) or a bar on the outer side in the sender's colour; `[messages] bubble_style = "auto"` draws rounded only where every terminal is kitty (it draws those glyphs itself), detected with the D47 terminal check; the `system` theme always draws bars. Logo screen (owner's choice, D61): the animated lighthouse from `tools/logos.py` ported to `ui/logo.rs` fills the message pane while no chat is open, in four sizes, with key hints; 10 fps only while visible, focused and `reduce_motion` off (now a palette switch). |
 | M9 Attachments + inline images (v0.2) | 📋 Planned (D69) | Outline in this file; designed when it starts. |
 | M10 Voice notes + transcription (v0.2) | 📋 Planned (D69) | Outline in this file; playback through an external player, opt-in local or remote Whisper transcription. |
+| M11 History transfer on link (v0.2) | 📋 Proposed (D74) | Outline in this file; needs presage to expose the link-time key (PR #430). |
