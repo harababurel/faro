@@ -125,6 +125,7 @@ async fn execute(store: &Store, effect: Effect) -> Result<Option<AppEvent>, Stor
         | Effect::CheckPaste { .. }
         | Effect::CheckTerminal
         | Effect::Bell
+        | Effect::DesktopNotify { .. }
         | Effect::SaveSetting(_) => {
             // `app::run` routes these elsewhere (command task, config writer…).
             tracing::error!("a non-store effect reached the store worker; dropped");

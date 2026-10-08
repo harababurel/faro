@@ -11,9 +11,9 @@ expression: "snapshot(&draw(&with_palette(\":notif\"), 100, 20))"
 │           │ Notifications                                                            │           │
 │           │▌  Bell                                                                on │────────── │
 │           │   Unread count in the window title                                    on │ast week   │
-│           ╰──────────────────────────────────────────────────────────────────────────╯bring your │
-│                            ││                  project shoes 🧗‍♀️🧗‍♂️ and maybe some tape for your   │
-│                            ││                  fingers.                                          │
+│           │   Desktop notifications ›                                           auto │bring your │
+│           │   Notification privacy ›                                          sender │for your   │
+│           ╰──────────────────────────────────────────────────────────────────────────╯           │
 │                            ││ 17:54        You On my way ✓                                       │
 │                            ││ 17:55   Alice 🌸 Running 10 min late 🙈                            │
 │                            ││                                                                    │
@@ -21,4 +21,4 @@ expression: "snapshot(&draw(&with_palette(\":notif\"), 100, 20))"
 │                            │││ Message Climbing 🧗…                                             ││
 │                            ││╰──────────────────────────────────────────────────────────────────╯│
 ╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯
- ● connected · 1 unread                              ↑↓ move · enter flip/open · ← back · esc close
+ ● connected · 1 unread                            ↑↓ move · ←→ cycle · enter flip/open · esc close

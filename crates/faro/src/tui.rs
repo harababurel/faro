@@ -141,6 +141,58 @@ impl Tui {
         self.terminal.swap_buffers();
         Ok(())
     }
+
+    /// Send a desktop notification through the terminal using OSC 99 (kitty)
+    /// or OSC 777 (`WezTerm`, Foot, VTE, rxvt-unicode), wrapped in tmux DCS
+    /// passthrough when `$TMUX` is set.
+    pub fn notify(title: &str, body: &str, kitty: bool) -> io::Result<()> {
+        let in_tmux = std::env::var_os("TMUX").is_some();
+        let payload = format_osc_notification(title, body, kitty, in_tmux);
+        let mut out = stdout();
+        out.write_all(payload.as_bytes())?;
+        out.flush()
+    }
+}
+
+/// Format an OSC 99 (kitty) or OSC 777 desktop notification sequence, wrapped
+/// in tmux DCS passthrough (`\x1bPtmux;...\x1b\\`) when `in_tmux` is true.
+pub fn format_osc_notification(title: &str, body: &str, kitty: bool, in_tmux: bool) -> String {
+    let clean_title = sanitize_osc_field(title);
+    let clean_body = sanitize_osc_field(body);
+    if kitty {
+        let first = format!("\x1b]99;i=faro:d=0:p=title;{clean_title}\x1b\\");
+        let second = format!("\x1b]99;i=faro:d=1:p=body;{clean_body}\x1b\\");
+        if in_tmux {
+            format!(
+                "{}{}",
+                wrap_tmux_passthrough(&first),
+                wrap_tmux_passthrough(&second)
+            )
+        } else {
+            format!("{first}{second}")
+        }
+    } else {
+        let seq = format!("\x1b]777;notify;{clean_title};{clean_body}\x1b\\");
+        if in_tmux {
+            wrap_tmux_passthrough(&seq)
+        } else {
+            seq
+        }
+    }
+}
+
+/// Strip control characters (`\x1b`, `\x07`, newlines…) and OSC delimiters
+/// (`;`, `\`) before embedding a string inside an OSC notification sequence.
+pub fn sanitize_osc_field(text: &str) -> String {
+    text.chars()
+        .filter(|&c| !c.is_control() && c != ';' && c != '\\')
+        .collect()
+}
+
+/// Wrap an escape sequence in tmux DCS passthrough (`\x1bPtmux;...\x1b\\`),
+/// doubling every inner `ESC` byte (`\x1b` → `\x1b\x1b`).
+pub fn wrap_tmux_passthrough(sequence: &str) -> String {
+    format!("\x1bPtmux;{}\x1b\\", sequence.replace('\x1b', "\x1b\x1b"))
 }
 
 impl Drop for Tui {
@@ -185,4 +237,41 @@ fn install_panic_hook() {
             previous(info);
         }));
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn formats_osc_99_for_kitty_and_osc_777_elsewhere() {
+        assert_eq!(
+            format_osc_notification("faro", "New message from Alice", true, false),
+            "\x1b]99;i=faro:d=0:p=title;faro\x1b\\\x1b]99;i=faro:d=1:p=body;New message from Alice\x1b\\"
+        );
+        assert_eq!(
+            format_osc_notification("faro", "New message from Alice", false, false),
+            "\x1b]777;notify;faro;New message from Alice\x1b\\"
+        );
+    }
+
+    #[test]
+    fn wraps_osc_notifications_in_tmux_dcs_passthrough() {
+        assert_eq!(
+            format_osc_notification("faro", "Hi", false, true),
+            "\x1bPtmux;\x1b\x1b]777;notify;faro;Hi\x1b\x1b\\\x1b\\"
+        );
+        assert_eq!(
+            format_osc_notification("faro", "Hi", true, true),
+            "\x1bPtmux;\x1b\x1b]99;i=faro:d=0:p=title;faro\x1b\x1b\\\x1b\\\x1bPtmux;\x1b\x1b]99;i=faro:d=1:p=body;Hi\x1b\x1b\\\x1b\\"
+        );
+    }
+
+    #[test]
+    fn sanitizes_control_chars_and_osc_delimiters_in_fields() {
+        assert_eq!(
+            sanitize_osc_field("Alice\x1b]52;c;evil\x07;\\test\n"),
+            "Alice]52ceviltest"
+        );
+    }
 }

@@ -7,7 +7,7 @@ expression: "snapshot(&draw(&with_palette(\":\"), 100, 30))"
 │   Bob                      ││                                                                    │
 │ ▾ Recent                   ││                                                                    │
 │   Climbing╭ Settings ────────────────────────────────────────────────────────────────╮           │
-│ ● Alice 🌸│ ›                                                                 ← back │           │
+│ ● Alice 🌸│ ›                                                 ←/→ cycle · enter list │           │
 │           │──────────────────────────────────────────────────────────────────────────│────────── │
 │           │ Appearance                                                               │           │
 │           │▌  Colours ›                                    auto (truecolor detected) │           │
@@ -18,10 +18,10 @@ expression: "snapshot(&draw(&with_palette(\":\"), 100, 30))"
 │           │ Notifications                                                            │           │
 │           │   Bell                                                                on │           │
 │           │   Unread count in the window title                                    on │           │
-│           │ Conversations                                                            │           │
-│           │   Allowlist mode                                                     off │────────── │
-│           │ Media                                                                    │ast week   │
-│           │   Inline images ›                                                   auto │bring your │
+│           │   Desktop notifications ›                                           auto │           │
+│           │   Notification privacy ›                                          sender │────────── │
+│           │ Conversations                                                            │ast week   │
+│           │   Allowlist mode                                                     off │bring your │
 │           ╰──────────────────────────────────────────────────────────────────────────╯for your   │
 │                            ││                  fingers.                                          │
 │                            ││ 17:54        You On my way ✓                                       │
@@ -31,4 +31,4 @@ expression: "snapshot(&draw(&with_palette(\":\"), 100, 30))"
 │                            │││ Message Climbing 🧗…                                             ││
 │                            ││╰──────────────────────────────────────────────────────────────────╯│
 ╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯
- ● connected · 1 unread                              ↑↓ move · enter flip/open · ← back · esc close
+ ● connected · 1 unread                            ↑↓ move · ←→ cycle · enter flip/open · esc close

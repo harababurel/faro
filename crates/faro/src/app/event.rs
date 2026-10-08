@@ -183,4 +183,10 @@ pub enum Effect {
     CheckTerminal,
     /// Ring the terminal bell (D49).
     Bell,
+    /// Send a desktop notification through the terminal (OSC 99 / OSC 777) or
+    /// native OS notifier (DESIGN.md §8).
+    DesktopNotify {
+        title: String,
+        body: String,
+    },
 }

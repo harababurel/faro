@@ -21,6 +21,8 @@ use crate::app::state::{Geometry, PaletteGeometry, State};
 const MAX_WIDTH: u16 = 76;
 /// Shown on the query row at the root while nothing is typed.
 const PREFIX_HINT: &str = "@ chats  : settings  > commands  ? keys";
+/// Shown on the query row at Settings while nothing is typed.
+const SETTINGS_HINT: &str = "←/→ cycle · enter list";
 /// Shown on the query row below the root while nothing is typed.
 const BACK_HINT: &str = "← back";
 /// After a category's title.
@@ -133,10 +135,17 @@ fn draw_query(frame: &mut Frame<'_>, area: Rect, palette: &Palette, view: &View<
             Style::new().fg(theme.text),
         ),
     ];
-    let hint = if palette.level() == Level::Root {
-        PREFIX_HINT
-    } else {
-        BACK_HINT
+    let hint = match palette.level() {
+        Level::Root => PREFIX_HINT,
+        Level::Settings => SETTINGS_HINT,
+        Level::Chats
+        | Level::Themes
+        | Level::Setting(_)
+        | Level::Commands
+        | Level::Keys
+        | Level::People
+        | Level::Nickname(_)
+        | Level::AttachFile => BACK_HINT,
     };
     if text.is_empty() && usize::from(area.width) > width(hint) + 20 {
         let gap = usize::from(area.width) - 3 - width(hint) - 1;

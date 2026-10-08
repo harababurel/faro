@@ -167,7 +167,7 @@ fn prefixes_jump_into_a_category() {
 }
 
 /// `Settings ›` with nothing typed: every setting under its section.
-const SETTINGS_LIST: [&str; 17] = [
+const SETTINGS_LIST: [&str; 19] = [
     "Appearance",
     "Colours",
     "Emoji",
@@ -177,6 +177,8 @@ const SETTINGS_LIST: [&str; 17] = [
     "Notifications",
     "Bell",
     "Unread count in the window title",
+    "Desktop notifications",
+    "Notification privacy",
     "Conversations",
     "Allowlist mode",
     "Media",
@@ -197,8 +199,8 @@ fn moving_down_and_up_the_tree() {
     let item = state.palette.as_ref().unwrap().selected_item().unwrap();
     assert_eq!(item.title, "Colours");
     assert_eq!(item.detail, "auto (truecolor detected)");
-    // → opens a setting too; it lists its values, the current one marked.
-    press(&mut state, KeyCode::Right);
+    // Enter opens a setting's sub-level; it lists its values, the current one marked.
+    enter(&mut state);
     assert_eq!(breadcrumb(&state), "Settings › Colours");
     let values: Vec<(String, Option<bool>)> = {
         let palette = state.palette.as_ref().unwrap();
@@ -237,10 +239,8 @@ fn moving_down_and_up_the_tree() {
     press(&mut state, KeyCode::Backspace);
     assert_eq!(state.palette.as_ref().unwrap().input.text(), "b");
     assert_eq!(level(&state), Level::Settings);
-    // ← at the start of the query goes up; at the root, ← and Backspace
+    // ← at the start of a non-empty query goes up; at the root, ← and Backspace
     // do nothing.
-    press(&mut state, KeyCode::Delete);
-    assert_eq!(state.palette.as_ref().unwrap().input.text(), "");
     press(&mut state, KeyCode::Left);
     assert_eq!(level(&state), Level::Root);
     press(&mut state, KeyCode::Left);
@@ -302,7 +302,13 @@ fn typing_keeps_the_headers_of_groups_with_matches() {
     typed(&mut state, "notif");
     assert_eq!(
         titles(&state),
-        vec!["Notifications", "Bell", "Unread count in the window title"]
+        vec![
+            "Notifications",
+            "Bell",
+            "Unread count in the window title",
+            "Desktop notifications",
+            "Notification privacy",
+        ]
     );
     update(&mut state, ctrl('u'));
     typed(&mut state, "zzz");
@@ -377,6 +383,7 @@ fn a_theme_chosen_at_16_colours_is_saved_for_later() {
     palette_open(&mut state, "themes");
     enter(&mut state);
     let effects = pick(&mut state, "nord");
+    assert_eq!(level(&state), Level::Themes);
     assert_eq!(state.config.theme, "nord");
     assert_eq!(
         effects,
@@ -386,9 +393,8 @@ fn a_theme_chosen_at_16_colours_is_saved_for_later() {
         state.notice.as_ref().map(|n| n.text.as_str()),
         Some("Theme: nord (drawn as system until 256 colours or more)")
     );
-    // Choosing system itself needs no explanation.
-    palette_open(&mut state, "themes");
-    enter(&mut state);
+    // Choosing system itself needs no explanation (and the Themes list is still open).
+    update(&mut state, ctrl('u'));
     pick(&mut state, "system");
     assert_eq!(
         state.notice.as_ref().map(|n| n.text.as_str()),
@@ -633,7 +639,8 @@ fn the_layout_switches_from_the_palette_and_is_saved() {
         vec![saved(key::LAYOUT, ConfigValue::Text("irc".into()))]
     );
 
-    palette_open(&mut state, ":layout");
+    // Choosing a setting value returns to Settings with that setting selected.
+    assert_eq!(level(&state), Level::Settings);
     assert_eq!(
         state
             .palette
@@ -703,10 +710,10 @@ fn settings_from_the_palette_apply_and_are_saved() {
     assert_eq!(state.env.emoji.mode, EmojiMode::Compatible);
     assert!(!state.env.emoji.auto);
     assert!(state.env.repaint);
+    assert_eq!(level(&state), Level::Settings);
 
     // `--emoji` decides for this run; the choice is only saved.
     state.env.emoji.from_cli = true;
-    palette_open(&mut state, ":emoji");
     enter(&mut state);
     assert_eq!(
         state.palette.as_ref().unwrap().items[0].detail,
@@ -743,12 +750,24 @@ fn themes_are_a_category() {
         ("", "OpenCode")
     );
     let effects = pick(&mut state, "dusk");
-    assert!(state.palette.is_none());
+    assert_eq!(level(&state), Level::Themes);
     assert_eq!(state.config.theme, "faro-dusk");
     assert_eq!(
         effects,
         vec![saved(key::THEME, ConfigValue::Text("faro-dusk".into()))]
     );
+    assert_eq!(
+        state
+            .palette
+            .as_ref()
+            .unwrap()
+            .selected_item()
+            .unwrap()
+            .current,
+        Some(true)
+    );
+    press(&mut state, KeyCode::Esc);
+    assert!(state.palette.is_none());
 
     // The root shows the new one; the list starts on it and previews.
     update(&mut state, ctrl('p'));
@@ -790,15 +809,17 @@ fn moving_through_themes_previews_them() {
     assert_eq!(level(&state), Level::Root);
     assert_eq!(state.theme_name(), "faro-dark");
 
-    // Enter keeps it and saves it.
+    // Enter keeps it and saves it, staying in the Themes list.
     pick(&mut state, "themes");
     let effects = pick(&mut state, "tokyonight");
+    assert_eq!(level(&state), Level::Themes);
     assert_eq!(state.config.theme, "tokyonight");
     assert_eq!(state.theme_name(), "tokyonight");
     assert_eq!(
         effects,
         vec![saved(key::THEME, ConfigValue::Text("tokyonight".into()))]
     );
+    press(&mut state, KeyCode::Esc);
     // Opening the list again starts on it.
     palette_open(&mut state, "themes");
     enter(&mut state);
@@ -834,16 +855,32 @@ fn moving_through_a_visual_setting_previews_its_values() {
     press(&mut state, KeyCode::Backspace);
     assert_eq!(breadcrumb(&state), "Settings");
     assert_eq!(state.bubble_style(), BubbleStyle::Auto);
-    // Enter keeps it, saves it and closes.
+    // Enter keeps it, saves it and returns to the settings list.
     enter(&mut state);
     let effects = pick(&mut state, "bar");
-    assert!(state.palette.is_none());
+    assert_eq!(level(&state), Level::Settings);
+    assert_eq!(
+        selected(&state),
+        Some(ItemKind::Level(Level::Setting(Setting::BubbleStyle)))
+    );
+    assert_eq!(
+        state
+            .palette
+            .as_ref()
+            .unwrap()
+            .selected_item()
+            .unwrap()
+            .detail,
+        "bar"
+    );
     assert_eq!(state.config.messages.bubble_style, BubbleStyle::Bar);
     assert_eq!(state.bubble_style(), BubbleStyle::Bar);
     assert_eq!(
         effects,
         vec![saved(key::BUBBLE_STYLE, ConfigValue::Text("bar".into()))]
     );
+    press(&mut state, KeyCode::Esc);
+    assert!(state.palette.is_none());
 
     // The layout and the colours preview the same way.
     palette_open(&mut state, ":layout");
@@ -952,4 +989,121 @@ fn send_a_file_browses_folders_and_stages_the_chosen_file() {
             "/home/user/Downloads/report.pdf"
         ))]
     );
+}
+
+#[test]
+fn left_and_right_cycle_setting_values_in_place_at_settings_level() {
+    use faro_core::config::{DesktopNotifications, NotificationPrivacy};
+
+    let mut state = loaded_state();
+    palette_open(&mut state, ":");
+    assert_eq!(level(&state), Level::Settings);
+    assert_eq!(selected_title(&state), "Colours");
+
+    // Cycle Colours forward: Auto -> Truecolor -> Colors256 -> Colors16 -> Auto.
+    let effects = update(&mut state, key(KeyCode::Right, KeyModifiers::NONE));
+    assert_eq!(level(&state), Level::Settings);
+    assert_eq!(state.config.ui.colors, ColorChoice::Truecolor);
+    assert_eq!(
+        effects,
+        vec![saved(key::COLORS, ConfigValue::Text("truecolor".into()))]
+    );
+    assert_eq!(
+        state
+            .palette
+            .as_ref()
+            .unwrap()
+            .selected_item()
+            .unwrap()
+            .detail,
+        "truecolor"
+    );
+
+    // Cycle Colours backward: Truecolor -> Auto, then wrap to Colors16.
+    update(&mut state, key(KeyCode::Left, KeyModifiers::NONE));
+    assert_eq!(state.config.ui.colors, ColorChoice::Auto);
+    update(&mut state, key(KeyCode::Left, KeyModifiers::NONE));
+    assert_eq!(state.config.ui.colors, ColorChoice::Colors16);
+    assert_eq!(
+        state
+            .palette
+            .as_ref()
+            .unwrap()
+            .selected_item()
+            .unwrap()
+            .detail,
+        "16 (system theme)"
+    );
+
+    // Move down to Bell (a switch) and cycle with Right and Left.
+    for _ in 0..5 {
+        press(&mut state, KeyCode::Down);
+    }
+    assert_eq!(selected_title(&state), "Bell");
+    assert!(state.config.notifications.bell);
+    let effects = update(&mut state, key(KeyCode::Right, KeyModifiers::NONE));
+    assert!(!state.config.notifications.bell);
+    assert_eq!(effects, vec![saved(key::BELL, ConfigValue::Bool(false))]);
+    let effects = update(&mut state, key(KeyCode::Left, KeyModifiers::NONE));
+    assert!(state.config.notifications.bell);
+    assert_eq!(effects, vec![saved(key::BELL, ConfigValue::Bool(true))]);
+
+    // Move down to Desktop notifications and cycle: Auto -> Osc -> Native -> Off -> Auto.
+    press(&mut state, KeyCode::Down);
+    press(&mut state, KeyCode::Down);
+    assert_eq!(selected_title(&state), "Desktop notifications");
+    assert_eq!(
+        state.config.notifications.desktop,
+        DesktopNotifications::Auto
+    );
+    let effects = update(&mut state, key(KeyCode::Right, KeyModifiers::NONE));
+    assert_eq!(
+        state.config.notifications.desktop,
+        DesktopNotifications::Osc
+    );
+    assert_eq!(
+        effects,
+        vec![saved(key::DESKTOP, ConfigValue::Text("osc".into()))]
+    );
+    update(&mut state, key(KeyCode::Right, KeyModifiers::NONE));
+    assert_eq!(
+        state.config.notifications.desktop,
+        DesktopNotifications::Native
+    );
+    update(&mut state, key(KeyCode::Right, KeyModifiers::NONE));
+    assert_eq!(
+        state.config.notifications.desktop,
+        DesktopNotifications::Off
+    );
+    update(&mut state, key(KeyCode::Right, KeyModifiers::NONE));
+    assert_eq!(
+        state.config.notifications.desktop,
+        DesktopNotifications::Auto
+    );
+
+    // Move down to Notification privacy and cycle backward: Sender -> None -> Preview.
+    press(&mut state, KeyCode::Down);
+    assert_eq!(selected_title(&state), "Notification privacy");
+    assert_eq!(
+        state.config.notifications.privacy,
+        NotificationPrivacy::Sender
+    );
+    let effects = update(&mut state, key(KeyCode::Left, KeyModifiers::NONE));
+    assert_eq!(
+        state.config.notifications.privacy,
+        NotificationPrivacy::None
+    );
+    assert_eq!(
+        effects,
+        vec![saved(key::PRIVACY, ConfigValue::Text("none".into()))]
+    );
+    update(&mut state, key(KeyCode::Left, KeyModifiers::NONE));
+    assert_eq!(
+        state.config.notifications.privacy,
+        NotificationPrivacy::Preview
+    );
+
+    // Backspace on an empty query still goes back to Root.
+    press(&mut state, KeyCode::Backspace);
+    assert_eq!(level(&state), Level::Root);
 }

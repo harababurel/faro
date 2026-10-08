@@ -46,7 +46,8 @@ fn saved(effects: &[Effect], id: ConversationId) -> Option<ConversationState> {
         | Effect::PlayAudio { .. }
         | Effect::StopAudio
         | Effect::CheckTerminal
-        | Effect::Bell => None,
+        | Effect::Bell
+        | Effect::DesktopNotify { .. } => None,
     })
 }
 
