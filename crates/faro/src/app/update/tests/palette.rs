@@ -167,9 +167,8 @@ fn prefixes_jump_into_a_category() {
 }
 
 /// `Settings ›` with nothing typed: every setting under its section.
-const SETTINGS_LIST: [&str; 13] = [
+const SETTINGS_LIST: [&str; 12] = [
     "Appearance",
-    "Theme",
     "Colours",
     "Emoji",
     "Message layout",
@@ -252,15 +251,15 @@ fn headers_are_skipped() {
     let at = |state: &State| state.palette.as_ref().unwrap().selected;
     // Opening starts on the first setting, under the first header.
     assert_eq!(at(&state), 1);
-    assert_eq!(selected_title(&state), "Theme");
+    assert_eq!(selected_title(&state), "Colours");
     press(&mut state, KeyCode::Up);
     assert_eq!(selected_title(&state), "Mouse", "wraps past the header");
     press(&mut state, KeyCode::Up);
     assert_eq!(selected_title(&state), "Allowlist mode", "skips Input");
     press(&mut state, KeyCode::Down);
     press(&mut state, KeyCode::Down);
-    assert_eq!(selected_title(&state), "Theme", "wraps past Appearance");
-    for _ in 0..5 {
+    assert_eq!(selected_title(&state), "Colours", "wraps past Appearance");
+    for _ in 0..4 {
         press(&mut state, KeyCode::Down);
     }
     assert_eq!(selected_title(&state), "Bell", "skips Notifications");
@@ -350,11 +349,13 @@ fn the_theme_list_says_how_the_colour_depth_changes_it() {
         note(&mut state).as_deref(),
         Some("16 colours: the system theme is drawn; others need 256 colours or more")
     );
-    // Only at Themes, however it's reached.
+    // Only at Themes.
     palette_open(&mut state, ":");
     assert_eq!(state.palette.as_ref().unwrap().note, None);
+    press(&mut state, KeyCode::Esc);
+    palette_open(&mut state, "themes");
     enter(&mut state);
-    assert_eq!(breadcrumb(&state), "Settings › Themes");
+    assert_eq!(breadcrumb(&state), "Themes");
     assert!(state.palette.as_ref().unwrap().note.is_some());
     press(&mut state, KeyCode::Left);
     assert_eq!(state.palette.as_ref().unwrap().note, None);
@@ -593,8 +594,8 @@ fn mouse_picks_a_result_or_closes() {
     // A click on a header does nothing; on an on/off setting, flips it.
     update(&mut state, click(20, 5));
     assert_eq!(level(&state), Level::Settings);
-    assert_eq!(selected_title(&state), "Theme");
-    update(&mut state, click(20, 12));
+    assert_eq!(selected_title(&state), "Colours");
+    update(&mut state, click(20, 11));
     assert_eq!(selected_title(&state), "Bell");
     assert!(!state.config.notifications.bell);
     update(&mut state, click(2, 20));
@@ -712,7 +713,7 @@ fn settings_from_the_palette_apply_and_are_saved() {
 }
 
 #[test]
-fn themes_are_a_category_and_a_setting() {
+fn themes_are_a_category() {
     let mut state = loaded_state();
     update(&mut state, ctrl('p'));
     let themes = state.palette.as_ref().unwrap().items[1].clone();
@@ -740,18 +741,17 @@ fn themes_are_a_category_and_a_setting() {
         vec![saved(key::THEME, ConfigValue::Text("faro-dusk".into()))]
     );
 
-    palette_open(&mut state, ":");
-    let theme = state.palette.as_ref().unwrap().selected_item().unwrap();
-    assert_eq!(
-        (theme.title.as_str(), theme.detail.as_str()),
-        ("Theme", "faro-dusk")
-    );
-    enter(&mut state);
-    assert_eq!(breadcrumb(&state), "Settings › Themes");
-    // From there too, the list starts on the theme in use and previews.
+    // The root shows the new one; the list starts on it and previews.
+    update(&mut state, ctrl('p'));
+    assert_eq!(state.palette.as_ref().unwrap().items[1].detail, "faro-dusk");
+    pick(&mut state, "themes");
     assert_eq!(selected_title(&state), "faro-dusk");
     press(&mut state, KeyCode::Down);
     assert_eq!(state.theme_name(), "faro-light");
+    // Themes are listed once: not in the settings (D60).
+    press(&mut state, KeyCode::Esc);
+    palette_open(&mut state, ":theme");
+    assert_eq!(kinds(&state), vec![]);
 }
 
 #[test]

@@ -10,19 +10,19 @@ expression: "snapshot(&draw(&with_palette(\":\"), 100, 30))"
 │ ● Alice 🌸│ ›                                                                 ← back │           │
 │           │──────────────────────────────────────────────────────────────────────────│────────── │
 │           │ Appearance                                                               │           │
-│           │▌  Theme ›                                                      faro-dark │           │
-│           │   Colours ›                                    auto (truecolor detected) │           │
-│           │   Emoji ›                                                           auto │────────── │
-│           │   Message layout ›                                                   IRC │hursday?   │
-│           │   Bubble style ›                                                    auto │ss         │
-│           │ Notifications                                                            │           │
+│           │▌  Colours ›                                    auto (truecolor detected) │           │
+│           │   Emoji ›                                                           auto │           │
+│           │   Message layout ›                                                   IRC │────────── │
+│           │   Bubble style ›                                                    auto │hursday?   │
+│           │ Notifications                                                            │ss         │
 │           │   Bell                                                                on │           │
 │           │   Unread count in the window title                                    on │           │
 │           │ Conversations                                                            │           │
-│           │   Allowlist mode                                                     off │────────── │
-│           │ Input                                                                    │ast week   │
-│           │   Mouse                                                               on │bring your │
-│           ╰──────────────────────────────────────────────────────────────────────────╯for your   │
+│           │   Allowlist mode                                                     off │           │
+│           │ Input                                                                    │────────── │
+│           │   Mouse                                                               on │ast week   │
+│           ╰──────────────────────────────────────────────────────────────────────────╯bring your │
+│                            ││                  project shoes 🧗‍♀️🧗‍♂️ and maybe some tape for your   │
 │                            ││                  fingers.                                          │
 │                            ││ 17:54        You On my way ✓                                       │
 │                            ││ 17:55   Alice 🌸 Running 10 min late 🙈                            │

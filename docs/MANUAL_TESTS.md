@@ -70,12 +70,12 @@ Terminal matrix (DESIGN §15): kitty, WezTerm, Ghostty, iTerm2, Alacritty, foot;
 
 ## One settings list and colour-depth notes (D57)
 
-- [ ] **The list:** `Ctrl+P`, `:`: every setting at once under bold, dim section headers (Appearance, Notifications, Conversations, Input), each with its current value on the right; Theme and the multi-value settings end in `›`. Say whether it reads well and whether the headers stand out enough from the settings.
-- [ ] **Headers are skipped:** `↑`/`↓` never stop on a header (and wrap from Theme to Mouse and back); `PgUp`/`PgDn` and the wheel don't either; clicking a header does nothing.
+- [ ] **The list:** `Ctrl+P`, `:`: every setting at once under bold, dim section headers (Appearance, Notifications, Conversations, Input), each with its current value on the right; the multi-value settings end in `›`. Say whether it reads well and whether the headers stand out enough from the settings.
+- [ ] **Headers are skipped:** `↑`/`↓` never stop on a header (and wrap from Colours to Mouse and back); `PgUp`/`PgDn` and the wheel don't either; clicking a header does nothing.
 - [ ] **Filtering:** `:bell` shows only "Notifications" and Bell; `:notif` shows both notification settings; `:zzz` says "No matches".
 - [ ] **Flip in place:** `:bell` + `Enter`: the row turns `off`, the footer says `bell off`, the palette stays open with `bell` still typed; `Enter` again turns it back on. Same with a click on Mouse (then the mouse is off, so turn it back with the keyboard). The config file changes each time.
 - [ ] **Values:** `Enter` on Colours, Emoji, Message layout or Bubble style opens its values (`●` on the current one); choosing one applies it and closes.
-- [ ] **Theme from Settings:** `Enter` on Theme opens the picker ("Settings › Themes") with the live preview, as from the root.
+- [ ] **Themes once:** themes are only at the root (`Ctrl+P`, Themes); the settings list has no Theme row (D60).
 - [ ] **256-colour note:** `env -u TMUX COLORTERM= TERM=xterm-256color faro --mock …` (outside tmux, or forced with `Settings › Colours › 256`): Themes shows a dim line "256 colours: themes are approximated (truecolor: Settings › Colours)" above the list. Preview solarized: its blue background turns grey, as the README says. At truecolor there's no note.
 - [ ] **16-colour note:** `Settings › Colours › 16`: Themes says "16 colours: the system theme is drawn; others need 256 colours or more". Choose `nord`: the notice says "Theme: nord (drawn as system until 256 colours or more)", faro stays in `system`, and `theme = "nord"` is in the file. `Settings › Colours › auto` (in kitty): nord appears.
 

@@ -132,7 +132,8 @@ impl SettingsGroup {
         }
     }
 
-    /// Its settings, in order (Appearance also starts with `Theme ›`).
+    /// Its settings, in order. Themes are a category of their own at the
+    /// root, not a row here (D60).
     const fn settings(self) -> &'static [Setting] {
         match self {
             Self::Appearance => &[
@@ -715,11 +716,6 @@ fn settings(state: &State) -> Vec<Item> {
     let mut items = Vec::new();
     for group in SettingsGroup::ALL {
         items.push(Item::new(ItemKind::Header, group.title()));
-        if group == SettingsGroup::Appearance {
-            items.push(
-                Item::new(ItemKind::Level(Level::Themes), "Theme").detail(current_theme(state)),
-            );
-        }
         items.extend(group.settings().iter().map(|s| setting_item(state, *s)));
     }
     items
