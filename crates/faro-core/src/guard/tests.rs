@@ -204,6 +204,7 @@ async fn actions_towards_others_are_refused() {
         sent_at: Timestamp::from_millis(2),
         body: MessageBody::new("hello"),
         quote: None,
+        attachments: vec![],
     };
     let refused = |r: Result<()>| matches!(r, Err(BackendError::NotAllowed));
     assert!(refused(guarded.send(stranger, msg.clone()).await));
@@ -307,8 +308,8 @@ impl Backend for Kept {
     async fn send_typing(&self, _: ConversationId, _: TypingState) -> Result<()> {
         Ok(())
     }
-    async fn fetch_attachment(&self, _: &AttachmentRef) -> Result<PathBuf> {
-        Ok(PathBuf::new())
+    async fn fetch_attachment(&self, _: &AttachmentRef) -> Result<Vec<u8>> {
+        Ok(Vec::new())
     }
 }
 

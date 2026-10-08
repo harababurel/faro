@@ -156,17 +156,81 @@ pub struct Quote {
     pub preview: Option<MessageBody>,
 }
 
-/// Backend-specific handle used to fetch an attachment's content.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Backend-specific handle used to fetch an attachment's content. Opaque to
+/// faro; the presage backend keeps the attachment's key in it (D75), so
+/// `Debug` shows only its start.
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct AttachmentId(pub String);
 
-/// Metadata about an attachment; the content is fetched on demand.
+impl std::fmt::Debug for AttachmentId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let start: String = self.0.chars().take(8).collect();
+        if start.len() < self.0.len() {
+            write!(f, "AttachmentId({start}…)")
+        } else {
+            write!(f, "AttachmentId({start})")
+        }
+    }
+}
+
+/// Metadata about an attachment; the content is fetched on demand (D75).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AttachmentRef {
     pub id: AttachmentId,
     pub content_type: String,
     pub file_name: Option<String>,
     pub size: Option<u64>,
+    /// Pixel size of images, when the sender gave it or the file was read.
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub status: AttachmentStatus,
+}
+
+impl AttachmentRef {
+    /// An attachment as a backend reports it: not downloaded, size unknown.
+    pub fn remote(id: impl Into<String>, content_type: impl Into<String>) -> Self {
+        Self {
+            id: AttachmentId(id.into()),
+            content_type: content_type.into(),
+            file_name: None,
+            size: None,
+            width: None,
+            height: None,
+            status: AttachmentStatus::Remote,
+        }
+    }
+
+    /// Whether it's a picture faro can draw (D78).
+    pub fn is_image(&self) -> bool {
+        matches!(
+            self.content_type.to_ascii_lowercase().as_str(),
+            "image/jpeg" | "image/jpg" | "image/png" | "image/gif" | "image/webp"
+        )
+    }
+
+    /// A Signal sticker (D79): a WebP image without a file name.
+    pub fn is_sticker(&self) -> bool {
+        self.file_name.is_none() && self.content_type.eq_ignore_ascii_case("image/webp")
+    }
+
+    /// The downloaded copy, if there is one.
+    pub fn local_path(&self) -> Option<&std::path::Path> {
+        match &self.status {
+            AttachmentStatus::Downloaded(path) => Some(path),
+            AttachmentStatus::Remote | AttachmentStatus::Failed => None,
+        }
+    }
+}
+
+/// Whether faro has an attachment's content (D75). "Downloading" is only
+/// known to the running app.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum AttachmentStatus {
+    #[default]
+    Remote,
+    Downloaded(std::path::PathBuf),
+    /// The last download failed; the user can try again.
+    Failed,
 }
 
 #[cfg(test)]
@@ -266,5 +330,25 @@ mod tests {
             vec![BodyPart::Text("hé "), BodyPart::Mention(alice)],
             "overlapping"
         );
+    }
+
+    #[test]
+    fn attachment_id_redacts_keys_and_helpers_classify_media() {
+        let short = AttachmentId("att-1".into());
+        assert_eq!(format!("{short:?}"), "AttachmentId(att-1)");
+        let long = AttachmentId("p1:0123456789abcdef_secret_key".into());
+        assert_eq!(format!("{long:?}"), "AttachmentId(p1:01234…)");
+
+        let mut photo = AttachmentRef::remote("a", "image/JPEG");
+        assert!(photo.is_image());
+        assert!(!photo.is_sticker());
+        assert_eq!(photo.local_path(), None);
+        photo.status = AttachmentStatus::Downloaded("/tmp/a.jpg".into());
+        assert_eq!(photo.local_path(), Some(std::path::Path::new("/tmp/a.jpg")));
+
+        let sticker = AttachmentRef::remote("s", "image/webp");
+        assert!(sticker.is_image() && sticker.is_sticker());
+        let doc = AttachmentRef::remote("d", "application/pdf");
+        assert!(!doc.is_image());
     }
 }

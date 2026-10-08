@@ -3,8 +3,12 @@
 //! Every value read back is validated: a bad row becomes `StoreError::Corrupt`
 //! naming the column, never a panic or a silently wrong value.
 
+use std::path::PathBuf;
+
 use super::{Result, StoreError};
-use crate::domain::{ConversationId, DeliveryStatus, Direction, ServiceId, Timestamp};
+use crate::domain::{
+    AttachmentStatus, ConversationId, DeliveryStatus, Direction, ServiceId, Timestamp,
+};
 
 /// `direct:<service id>` or `group:<hex>` (`ConversationId`'s string form).
 pub(super) fn conversation_key(id: ConversationId) -> String {
@@ -74,6 +78,37 @@ pub(super) fn status_from_db(status: &str) -> Result<DeliveryStatus> {
     }
 }
 
+/// `(status, local_path)` columns of `attachments` (D75).
+pub(super) fn attachment_status_to_db(
+    status: &AttachmentStatus,
+) -> Result<(&'static str, Option<&str>)> {
+    match status {
+        AttachmentStatus::Remote => Ok(("remote", None)),
+        AttachmentStatus::Downloaded(path) => {
+            let text = path
+                .to_str()
+                .filter(|s| !s.is_empty())
+                .ok_or(StoreError::OutOfRange("attachment path"))?;
+            Ok(("downloaded", Some(text)))
+        }
+        AttachmentStatus::Failed => Ok(("failed", None)),
+    }
+}
+
+pub(super) fn attachment_status_from_db(
+    status: &str,
+    local_path: Option<String>,
+) -> Result<AttachmentStatus> {
+    match (status, local_path) {
+        ("remote", _) => Ok(AttachmentStatus::Remote),
+        ("downloaded", Some(path)) if !path.is_empty() => {
+            Ok(AttachmentStatus::Downloaded(PathBuf::from(path)))
+        }
+        ("failed", _) => Ok(AttachmentStatus::Failed),
+        _ => Err(StoreError::Corrupt("attachment status")),
+    }
+}
+
 pub(super) fn count_from_db(value: i64, column: &'static str) -> Result<u32> {
     u32::try_from(value).map_err(|_| StoreError::Corrupt(column))
 }
@@ -127,5 +162,23 @@ mod tests {
             timestamp_from_db(timestamp_to_db(ts).unwrap(), "x").unwrap(),
             ts
         );
+    }
+
+    #[test]
+    fn attachment_statuses_round_trip() {
+        let statuses = [
+            AttachmentStatus::Remote,
+            AttachmentStatus::Downloaded(PathBuf::from("/tmp/faro/a.jpg")),
+            AttachmentStatus::Failed,
+        ];
+        for s in statuses {
+            let (status, path) = attachment_status_to_db(&s).unwrap();
+            assert_eq!(
+                attachment_status_from_db(status, path.map(str::to_owned)).unwrap(),
+                s
+            );
+        }
+        assert!(attachment_status_from_db("downloaded", None).is_err());
+        assert!(attachment_status_from_db("unknown", None).is_err());
     }
 }

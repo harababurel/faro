@@ -14,14 +14,13 @@ use super::codec::{
 use super::{ConversationState, ConversationSummary, NotifyLevel, Result, StoreError, StoreStats};
 use crate::backend::BackendEvent;
 use crate::domain::{
-    AttachmentId, AttachmentRef, Contact, ConversationId, DeliveryStatus, Direction, Group,
-    Mention, Message, MessageBody, MessageRef, PhoneNumber, Quote, Reaction, ServiceId, Timestamp,
+    Contact, ConversationId, DeliveryStatus, Direction, Group, Mention, Message, MessageBody,
+    MessageRef, PhoneNumber, Quote, Reaction, ServiceId, Timestamp,
 };
 
-static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!();
+mod attachments;
 
-/// `(message_id, backend_id, content_type, file_name, size)`.
-type AttachmentRow = (i64, String, String, Option<String>, Option<i64>);
+static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!();
 
 pub(super) struct Db {
     conn: SqliteConnection,
@@ -229,8 +228,11 @@ impl Db {
         .execute(&mut *tx)
         .await?;
 
-        // Already stored (a duplicate delivery): keep the first copy.
+        // Already stored (a duplicate delivery): keep the first copy, but
+        // refresh attachment pointers/dimensions if they were stored pre-M9.
         if inserted.rows_affected() == 0 {
+            attachments::refresh(&mut tx, message.reference(), &message.attachments).await?;
+            tx.commit().await?;
             return Ok(());
         }
         let id = inserted.last_insert_rowid();
@@ -238,7 +240,7 @@ impl Db {
             insert_reaction(&mut tx, id, reaction.sender, &reaction.emoji).await?;
         }
         for attachment in &message.attachments {
-            insert_attachment(&mut tx, id, attachment).await?;
+            attachments::insert(&mut tx, id, attachment).await?;
         }
         insert_mentions(&mut tx, id, &message.mentions).await?;
         let unread = i64::from(message.direction == Direction::Incoming && !message.deleted);
@@ -544,30 +546,7 @@ impl Db {
             }
         }
 
-        let attachments: Vec<AttachmentRow> = sqlx::query_as(
-            "SELECT a.message_id, a.backend_id, a.content_type, a.file_name, a.size
-             FROM attachments a JOIN messages m ON m.id = a.message_id
-             WHERE m.conversation_id = ?1 AND m.id BETWEEN ?2 AND ?3
-             ORDER BY a.id",
-        )
-        .bind(key)
-        .bind(low)
-        .bind(high)
-        .fetch_all(&mut self.conn)
-        .await?;
-        for (id, backend_id, content_type, file_name, size) in attachments {
-            if let Some(message) = index.get(&id).and_then(|&i| messages.get_mut(i)) {
-                let size = size
-                    .map(|s| u64::try_from(s).map_err(|_| StoreError::Corrupt("attachment size")))
-                    .transpose()?;
-                message.attachments.push(AttachmentRef {
-                    id: AttachmentId(backend_id),
-                    content_type,
-                    file_name,
-                    size,
-                });
-            }
-        }
+        attachments::load(&mut self.conn, key, low, high, &index, messages).await?;
 
         let mentions: Vec<(i64, i64, i64, String)> = sqlx::query_as(
             "SELECT n.message_id, n.start, n.length, n.service_id
@@ -796,29 +775,6 @@ async fn insert_mentions(
         .execute(&mut *conn)
         .await?;
     }
-    Ok(())
-}
-
-async fn insert_attachment(
-    conn: &mut SqliteConnection,
-    message: i64,
-    attachment: &AttachmentRef,
-) -> Result<()> {
-    let size = attachment
-        .size
-        .map(|s| i64::try_from(s).map_err(|_| StoreError::OutOfRange("attachment size")))
-        .transpose()?;
-    sqlx::query(
-        "INSERT INTO attachments (message_id, backend_id, content_type, file_name, size)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-    )
-    .bind(message)
-    .bind(&attachment.id.0)
-    .bind(&attachment.content_type)
-    .bind(attachment.file_name.as_deref())
-    .bind(size)
-    .execute(conn)
-    .await?;
     Ok(())
 }
 

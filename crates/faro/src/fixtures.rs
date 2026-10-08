@@ -152,6 +152,9 @@ pub fn climbing_history() -> Vec<Message> {
         content_type: "image/jpeg".into(),
         file_name: Some("route-map.jpg".into()),
         size: Some(2_400_000),
+        width: Some(1200),
+        height: Some(800),
+        status: faro_core::domain::AttachmentStatus::Downloaded("/tmp/route-map.jpg".into()),
     }];
     let long = text(
         g,

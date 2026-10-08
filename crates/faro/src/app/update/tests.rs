@@ -725,6 +725,7 @@ fn enter_sends_shows_and_stores_the_message() {
                     sent_at: sent.sent_at,
                     body: MessageBody::new(body),
                     quote: None,
+                    attachments: vec![],
                 },
             }),
         ]
@@ -1148,6 +1149,7 @@ fn failed_messages_can_be_retried_from_the_menu() {
                     sent_at: sent.sent_at,
                     body: MessageBody::new("lost"),
                     quote: None,
+                    attachments: vec![],
                 },
             }),
         ]

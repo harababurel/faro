@@ -10,7 +10,7 @@ use std::cmp::{Ordering, Reverse};
 use std::collections::{BinaryHeap, VecDeque};
 use std::time::Duration;
 
-use super::world::{REACTIONS, TEXTS, World};
+use super::world::{ATTACHMENTS, REACTIONS, TEXTS, World, mock_attachment};
 use super::{MockConfig, MockEpoch};
 use crate::backend::{BackendError, BackendEvent, OutgoingMessage, Result};
 use crate::domain::{
@@ -31,6 +31,8 @@ const RECENT_CAP: usize = 64;
 const ISSUED_CAP: usize = 256;
 /// How often a group message mentions someone.
 const MENTION_PERCENT: u32 = 15;
+/// How often a message carries an attachment.
+const ATTACHMENT_PERCENT: u32 = 12;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Activity {
@@ -638,6 +640,13 @@ impl Sim {
             ),
             None => (text, vec![]),
         };
+        let attachments = if self.chance(ATTACHMENT_PERCENT) {
+            mock_attachment(self.rng.usize(0..ATTACHMENTS.len()))
+                .into_iter()
+                .collect()
+        } else {
+            vec![]
+        };
         Message {
             conversation,
             sender,
@@ -646,7 +655,7 @@ impl Sim {
             body: Some(body),
             mentions,
             quote,
-            attachments: vec![],
+            attachments,
             reactions: vec![],
             edited_at: None,
             deleted: false,
@@ -761,6 +770,9 @@ mod tests {
         ));
         assert!(has(
             |e| matches!(e, BackendEvent::Message(m) if !m.mentions.is_empty())
+        ));
+        assert!(has(
+            |e| matches!(e, BackendEvent::Message(m) if !m.attachments.is_empty())
         ));
         assert!(has(|e| matches!(e, BackendEvent::Reaction { .. })));
         assert!(has(|e| matches!(e, BackendEvent::Typing { .. })));

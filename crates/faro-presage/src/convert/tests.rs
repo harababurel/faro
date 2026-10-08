@@ -362,14 +362,80 @@ fn outgoing_text_carries_quote_and_group() {
             },
             preview: None,
         }),
+        attachments: vec![],
     };
-    let data = text(&msg, Some(group_context(&KEY, 2)));
+    let data = text(&msg, vec![], Some(group_context(&KEY, 2)));
     assert_eq!(data.body.as_deref(), Some("hello"));
     assert_eq!(data.timestamp, Some(42));
     let quote = data.quote.unwrap();
     assert_eq!(quote.id, Some(7));
     assert_eq!(quote.author_aci, Some(ALICE.to_string()));
     assert_eq!(master_key(data.group_v2.as_ref()), Some(KEY));
+}
+
+#[test]
+fn attachment_pointers_and_stickers_round_trip() {
+    use presage::proto::attachment_pointer::AttachmentIdentifier;
+
+    let pointer = AttachmentPointer {
+        content_type: Some("image/png".to_owned()),
+        key: Some(vec![0xab; 64]),
+        size: Some(4096),
+        digest: Some(vec![0xcd; 32]),
+        file_name: Some("summit.png".to_owned()),
+        width: Some(640),
+        height: Some(480),
+        attachment_identifier: Some(AttachmentIdentifier::CdnKey("cdn-key-1".to_owned())),
+        ..AttachmentPointer::default()
+    };
+    let data = DataMessage {
+        attachments: vec![pointer.clone()],
+        timestamp: Some(1000),
+        ..DataMessage::default()
+    };
+    let BackendEvent::Message(message) = only(events(&from(ALICE, data), ME)) else {
+        panic!("expected a message");
+    };
+    assert_eq!(message.attachments.len(), 1);
+    let att = &message.attachments[0];
+    assert_eq!(att.content_type, "image/png");
+    assert_eq!(att.file_name.as_deref(), Some("summit.png"));
+    assert_eq!(att.size, Some(4096));
+    assert_eq!(att.width, Some(640));
+    assert_eq!(att.height, Some(480));
+    assert_eq!(att.status, AttachmentStatus::Remote);
+    assert_eq!(decode_pointer(&att.id), Some(pointer.clone()));
+
+    // Sticker carries an AttachmentPointer with no file name and 512x512 fallback.
+    let sticker_ptr = AttachmentPointer {
+        content_type: None,
+        width: None,
+        height: None,
+        file_name: None,
+        ..pointer
+    };
+    let sticker_data = DataMessage {
+        sticker: Some(data_message::Sticker {
+            pack_id: Some(vec![1; 16]),
+            pack_key: Some(vec![2; 32]),
+            sticker_id: Some(3),
+            data: Some(sticker_ptr.clone()),
+            emoji: Some("🧗".to_owned()),
+        }),
+        timestamp: Some(2000),
+        ..DataMessage::default()
+    };
+    let BackendEvent::Message(sticker_msg) = only(events(&from(ALICE, sticker_data), ME)) else {
+        panic!("expected a sticker message");
+    };
+    assert_eq!(sticker_msg.body, Some(MessageBody::new("[sticker] 🧗")));
+    assert_eq!(sticker_msg.attachments.len(), 1);
+    let s_att = &sticker_msg.attachments[0];
+    assert!(s_att.is_sticker());
+    assert_eq!(s_att.content_type, "image/webp");
+    assert_eq!(s_att.width, Some(512));
+    assert_eq!(s_att.height, Some(512));
+    assert_eq!(decode_pointer(&s_att.id), Some(sticker_ptr));
 }
 
 #[test]

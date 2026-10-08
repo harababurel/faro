@@ -10,7 +10,10 @@
 //! (to exercise conversation curation).
 
 use crate::backend::Account;
-use crate::domain::{Contact, ConversationId, Group, GroupId, PhoneNumber, ServiceId};
+use crate::domain::{
+    AttachmentId, AttachmentRef, AttachmentStatus, Contact, ConversationId, Group, GroupId,
+    PhoneNumber, ServiceId,
+};
 
 /// Seed for IDs. Changing it changes every mock ID, orphaning stored history.
 const WORLD_SEED: u64 = 0x00fa_0001;
@@ -201,6 +204,160 @@ impl World {
     }
 }
 
+pub(super) struct MockAttachment {
+    pub(super) id: &'static str,
+    pub(super) content_type: &'static str,
+    pub(super) file_name: Option<&'static str>,
+    pub(super) dims: Option<(u32, u32)>,
+}
+
+/// Canned attachment kinds.
+pub(super) const ATTACHMENTS: &[MockAttachment] = &[
+    MockAttachment {
+        id: "mock:ridge-trail",
+        content_type: "image/png",
+        file_name: Some("ridge-trail.png"),
+        dims: Some((64, 36)),
+    },
+    MockAttachment {
+        id: "mock:crag-topo",
+        content_type: "image/png",
+        file_name: Some("crag-topo.png"),
+        dims: Some((48, 48)),
+    },
+    MockAttachment {
+        id: "mock:sticker-send",
+        content_type: "image/png",
+        file_name: None,
+        dims: Some((32, 32)),
+    },
+    MockAttachment {
+        id: "mock:gear-checklist",
+        content_type: "text/plain",
+        file_name: Some("gear-checklist.txt"),
+        dims: None,
+    },
+];
+
+/// Build a remote [`AttachmentRef`] for one of [`ATTACHMENTS`].
+pub(super) fn mock_attachment(index: usize) -> Option<AttachmentRef> {
+    let spec = ATTACHMENTS.get(index)?;
+    let bytes = attachment_bytes(spec.id)?;
+    Some(AttachmentRef {
+        id: AttachmentId(spec.id.to_owned()),
+        content_type: spec.content_type.to_owned(),
+        file_name: spec.file_name.map(str::to_owned),
+        size: Some(u64::try_from(bytes.len()).unwrap_or(0)),
+        width: spec.dims.map(|(w, _)| w),
+        height: spec.dims.map(|(_, h)| h),
+        status: AttachmentStatus::Remote,
+    })
+}
+
+/// Bytes served by [`super::MockBackend::fetch_attachment`] for `id`.
+pub(super) fn attachment_bytes(id: &str) -> Option<Vec<u8>> {
+    match id {
+        "mock:ridge-trail" => Some(encode_rgb_png(64, 36, |x, y, w, h| {
+            // Sunset sky over a dark mountain ridge with a bright trail line.
+            let ridge = h / 2 + (x * 7).abs_diff(w * 3) / 6;
+            if y < ridge {
+                let t = u8::try_from((y * 255 / h.max(1)).min(255)).unwrap_or(0);
+                [245u8.saturating_sub(t / 3), 120 + t / 3, 90 + t / 2]
+            } else if y.abs_diff(ridge + (x / 5)) <= 1 {
+                [250, 210, 90]
+            } else {
+                [36, 46, 66]
+            }
+        })),
+        "mock:crag-topo" => Some(encode_rgb_png(48, 48, |x, y, w, h| {
+            // Warm limestone face with a diagonal red route line.
+            let diag = (x * h / w.max(1)).abs_diff(y);
+            if diag <= 1 {
+                [235, 75, 60]
+            } else {
+                let shade = u8::try_from((x * 3 + y * 5) % 28).unwrap_or(0);
+                [165 + shade, 150 + shade, 130 + shade]
+            }
+        })),
+        "mock:sticker-send" => Some(encode_rgb_png(32, 32, |x, y, w, h| {
+            let dx = x.abs_diff(w / 2);
+            let dy = y.abs_diff(h / 2);
+            if dx * dx + dy * dy <= 130 {
+                [80, 195, 150]
+            } else {
+                [28, 32, 42]
+            }
+        })),
+        "mock:gear-checklist" => {
+            Some(b"Rope 60m\n12 quickdraws\nChalk bag\nHeadlamp\nFirst-aid kit\n".to_vec())
+        }
+        _ => None,
+    }
+}
+
+/// Minimal valid 8-bit RGB PNG using an uncompressed (stored) deflate block.
+fn encode_rgb_png(
+    width: u32,
+    height: u32,
+    pixel: impl Fn(u32, u32, u32, u32) -> [u8; 3],
+) -> Vec<u8> {
+    let mut raw = Vec::with_capacity((height * (1 + width * 3)) as usize);
+    for y in 0..height {
+        raw.push(0); // filter: None
+        for x in 0..width {
+            raw.extend_from_slice(&pixel(x, y, width, height));
+        }
+    }
+    let len = u16::try_from(raw.len()).unwrap_or(u16::MAX);
+    let mut zlib = Vec::with_capacity(raw.len() + 11);
+    zlib.extend_from_slice(&[0x78, 0x01, 0x01]);
+    zlib.extend_from_slice(&len.to_le_bytes());
+    zlib.extend_from_slice(&(!len).to_le_bytes());
+    zlib.extend_from_slice(&raw);
+    zlib.extend_from_slice(&adler32(&raw).to_be_bytes());
+
+    let mut ihdr = Vec::with_capacity(13);
+    ihdr.extend_from_slice(&width.to_be_bytes());
+    ihdr.extend_from_slice(&height.to_be_bytes());
+    ihdr.extend_from_slice(&[8, 2, 0, 0, 0]);
+
+    let mut png = Vec::with_capacity(zlib.len() + 64);
+    png.extend_from_slice(b"\x89PNG\r\n\x1a\n");
+    write_png_chunk(&mut png, *b"IHDR", &ihdr);
+    write_png_chunk(&mut png, *b"IDAT", &zlib);
+    write_png_chunk(&mut png, *b"IEND", &[]);
+    png
+}
+
+fn write_png_chunk(out: &mut Vec<u8>, kind: [u8; 4], data: &[u8]) {
+    let len = u32::try_from(data.len()).unwrap_or(0);
+    out.extend_from_slice(&len.to_be_bytes());
+    out.extend_from_slice(&kind);
+    out.extend_from_slice(data);
+    out.extend_from_slice(&crc32(kind, data).to_be_bytes());
+}
+
+fn crc32(kind: [u8; 4], data: &[u8]) -> u32 {
+    let mut crc = 0xffff_ffffu32;
+    for &byte in kind.iter().chain(data) {
+        crc ^= u32::from(byte);
+        for _ in 0..8 {
+            let mask = (crc & 1).wrapping_neg();
+            crc = (crc >> 1) ^ (0xedb8_8320 & mask);
+        }
+    }
+    !crc
+}
+
+fn adler32(data: &[u8]) -> u32 {
+    let (mut a, mut b) = (1u32, 0u32);
+    for &byte in data {
+        a = (a + u32::from(byte)) % 65_521;
+        b = (b + a) % 65_521;
+    }
+    (b << 16) | a
+}
+
 /// Deterministic, valid-looking (v4) IDs.
 struct IdSource(fastrand::Rng);
 
@@ -276,5 +433,17 @@ mod tests {
     #[test]
     fn uuids_are_not_nil() {
         assert_ne!(World::build().me().uuid(), Uuid::nil());
+    }
+
+    #[test]
+    fn canned_attachments_have_matching_bytes() {
+        for i in 0..ATTACHMENTS.len() {
+            let att = mock_attachment(i).expect("valid index");
+            let bytes = attachment_bytes(&att.id.0).expect("bytes exist");
+            assert_eq!(att.size, Some(bytes.len() as u64));
+            if att.is_image() {
+                assert!(bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
+            }
+        }
     }
 }

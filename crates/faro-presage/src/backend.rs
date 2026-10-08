@@ -2,7 +2,6 @@
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, SystemTime};
 
@@ -317,6 +316,7 @@ impl Backend for PresageBackend {
         Capabilities::NONE
             .with(Capability::Edit)
             .with(Capability::DeleteForEveryone)
+            .with(Capability::Attachments)
     }
 
     fn whoami(&self) -> impl Future<Output = Result<Account>> {
@@ -392,7 +392,32 @@ impl Backend for PresageBackend {
     }
 
     async fn send(&self, to: ConversationId, msg: OutgoingMessage) -> Result<()> {
-        let message = convert::text(&msg, self.group_of(to)?);
+        let group = self.group_of(to)?;
+        let pointers = if msg.attachments.is_empty() {
+            Vec::new()
+        } else {
+            let mut specs = Vec::with_capacity(msg.attachments.len());
+            for att in &msg.attachments {
+                let bytes = tokio::fs::read(&att.path)
+                    .await
+                    .map_err(|e| BackendError::Storage(e.to_string()))?;
+                specs.push((convert::attachment_spec(att, bytes.len()), bytes));
+            }
+            let uploaded = Box::pin(self.manager.clone().upload_attachments(specs))
+                .await
+                .map_err(|e| {
+                    tracing::warn!(error = %e, "uploading attachments failed");
+                    backend_error(&e)
+                })?;
+            uploaded
+                .into_iter()
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(|e| {
+                    tracing::warn!(error = %e, "attachment upload rejected");
+                    BackendError::Network(e.to_string())
+                })?
+        };
+        let message = convert::text(&msg, pointers, group);
         self.deliver(to, message, msg.sent_at.as_millis()).await
     }
 
@@ -476,11 +501,16 @@ impl Backend for PresageBackend {
             .await
     }
 
-    fn fetch_attachment(
-        &self,
-        _attachment: &AttachmentRef,
-    ) -> impl Future<Output = Result<PathBuf>> {
-        std::future::ready(Err(BackendError::Unsupported(Capability::Attachments)))
+    async fn fetch_attachment(&self, attachment: &AttachmentRef) -> Result<Vec<u8>> {
+        let pointer = convert::decode_pointer(&attachment.id).ok_or_else(|| {
+            BackendError::Protocol("attachment pointer is missing or malformed".into())
+        })?;
+        Box::pin(self.manager.clone().get_attachment(&pointer))
+            .await
+            .map_err(|e| {
+                tracing::warn!(error = %e, "downloading an attachment failed");
+                backend_error(&e)
+            })
     }
 }
 

@@ -410,13 +410,29 @@ fn retry(state: &mut State, target: MessageRef) -> Vec<Effect> {
     else {
         return vec![];
     };
-    let Some(body) = message.body.clone() else {
+    if message.body.is_none() && message.attachments.is_empty() {
         return vec![];
-    };
+    }
+    let body = message.body.clone().unwrap_or_else(|| MessageBody::new(""));
+    let attachments = message
+        .attachments
+        .iter()
+        .filter_map(|att| {
+            Some(faro_core::backend::OutgoingAttachment {
+                path: att.local_path()?.to_path_buf(),
+                content_type: att.content_type.clone(),
+                file_name: att.file_name.clone(),
+                size: att.size.unwrap_or(0),
+                width: att.width,
+                height: att.height,
+            })
+        })
+        .collect();
     let outgoing = OutgoingMessage {
         sent_at: target.sent_at,
         body,
         quote: message.quote.clone(),
+        attachments,
     };
     let mut effects = on_backend(
         state,

@@ -1,15 +1,18 @@
 //! presage's contents ↔ faro's types. Pure functions, so the mapping is
 //! tested with hand-built contents and no network.
 
-use faro_core::backend::{BackendEvent, OutgoingEdit, OutgoingMessage, ReactionChange};
+use faro_core::backend::{
+    BackendEvent, OutgoingAttachment, OutgoingEdit, OutgoingMessage, ReactionChange,
+};
 use faro_core::domain::{
-    AttachmentId, AttachmentRef, ConversationId, DeliveryStatus, Direction, GroupId, Mention,
-    Message, MessageBody, MessageRef, Quote, ServiceId, Timestamp, TypingState,
+    AttachmentId, AttachmentRef, AttachmentStatus, ConversationId, DeliveryStatus, Direction,
+    GroupId, Mention, Message, MessageBody, MessageRef, Quote, ServiceId, Timestamp, TypingState,
 };
 use presage::libsignal_service::content::{Content, ContentBody};
+use presage::libsignal_service::prelude::ProtobufMessage as _;
 use presage::libsignal_service::protocol::{Aci, Pni, ServiceId as SignalId};
+use presage::libsignal_service::sender::AttachmentSpec;
 use presage::libsignal_service::zkgroup::groups::{GroupMasterKey, GroupSecretParams};
-use presage::proto::attachment_pointer::AttachmentIdentifier;
 use presage::proto::body_range::AssociatedValue;
 use presage::proto::data_message::{self, Delete};
 use presage::proto::receipt_message;
@@ -192,7 +195,10 @@ fn data_message(data: &DataMessage, author: &Author, fallback_sent_at: u64) -> V
                 MessageBody::new(format!("[sticker] {emoji}").trim_end())
             })
         });
-    let attachments: Vec<AttachmentRef> = data.attachments.iter().map(attachment).collect();
+    let mut attachments: Vec<AttachmentRef> = data.attachments.iter().map(attachment).collect();
+    if let Some(sticker) = data.sticker.as_ref().and_then(|s| s.data.as_ref()) {
+        attachments.push(sticker_attachment(sticker));
+    }
     if body.is_none() && attachments.is_empty() {
         // Profile key, timer and group changes, payments, calls…: nothing to show.
         return vec![];
@@ -274,18 +280,68 @@ fn quote(quote: &data_message::Quote) -> Option<Quote> {
     })
 }
 
+/// Encode a Signal [`AttachmentPointer`] (CDN identifier, key, digest, size)
+/// into an [`AttachmentId`] (`p1:<hex>`, D75) so `fetch_attachment` can
+/// download and decrypt it without calling into presage's private DB tables.
+pub fn encode_pointer(pointer: &AttachmentPointer) -> AttachmentId {
+    AttachmentId(format!("p1:{}", hex_encode(&pointer.encode_to_vec())))
+}
+
+/// Decode an [`AttachmentId`] produced by [`encode_pointer`].
+pub fn decode_pointer(id: &AttachmentId) -> Option<AttachmentPointer> {
+    let hex = id.0.strip_prefix("p1:")?;
+    let bytes = hex_decode(hex)?;
+    AttachmentPointer::decode(bytes.as_slice()).ok()
+}
+
 fn attachment(pointer: &AttachmentPointer) -> AttachmentRef {
-    let id = match &pointer.attachment_identifier {
-        Some(AttachmentIdentifier::CdnId(id)) => id.to_string(),
-        Some(AttachmentIdentifier::CdnKey(key)) => key.clone(),
-        None => String::new(),
-    };
     AttachmentRef {
-        id: AttachmentId(id),
+        id: encode_pointer(pointer),
         content_type: pointer.content_type.clone().unwrap_or_default(),
         file_name: pointer.file_name.clone(),
         size: pointer.size.map(u64::from),
+        width: pointer.width.filter(|&w| w > 0),
+        height: pointer.height.filter(|&h| h > 0),
+        status: AttachmentStatus::Remote,
     }
+}
+
+/// Map a sticker's [`AttachmentPointer`] as an image attachment with no file
+/// name and default `512×512` dimensions when unset (D79).
+fn sticker_attachment(pointer: &AttachmentPointer) -> AttachmentRef {
+    let content_type = pointer
+        .content_type
+        .clone()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "image/webp".to_owned());
+    AttachmentRef {
+        id: encode_pointer(pointer),
+        content_type,
+        file_name: None,
+        size: pointer.size.map(u64::from),
+        width: pointer.width.filter(|&w| w > 0).or(Some(512)),
+        height: pointer.height.filter(|&h| h > 0).or(Some(512)),
+        status: AttachmentStatus::Remote,
+    }
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for &b in bytes {
+        let _ = write!(out, "{b:02x}");
+    }
+    out
+}
+
+fn hex_decode(hex: &str) -> Option<Vec<u8>> {
+    if !hex.len().is_multiple_of(2) {
+        return None;
+    }
+    (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(hex.get(i..i + 2)?, 16).ok())
+        .collect()
 }
 
 fn reacted(
@@ -420,9 +476,19 @@ pub fn group_context(master_key: &MasterKey, revision: u32) -> GroupContextV2 {
     }
 }
 
-pub fn text(msg: &OutgoingMessage, group: Option<GroupContextV2>) -> DataMessage {
+pub fn text(
+    msg: &OutgoingMessage,
+    attachments: Vec<AttachmentPointer>,
+    group: Option<GroupContextV2>,
+) -> DataMessage {
+    let body = if attachments.is_empty() || !msg.body.expose().is_empty() {
+        Some(msg.body.expose().to_owned())
+    } else {
+        None
+    };
     DataMessage {
-        body: Some(msg.body.expose().to_owned()),
+        body,
+        attachments,
         timestamp: Some(msg.sent_at.as_millis()),
         quote: msg.quote.as_ref().map(|q| data_message::Quote {
             id: Some(q.target.sent_at.as_millis()),
@@ -433,6 +499,21 @@ pub fn text(msg: &OutgoingMessage, group: Option<GroupContextV2>) -> DataMessage
         }),
         group_v2: group,
         ..DataMessage::default()
+    }
+}
+
+pub fn attachment_spec(att: &OutgoingAttachment, length: usize) -> AttachmentSpec {
+    AttachmentSpec {
+        content_type: att.content_type.clone(),
+        length,
+        file_name: att.file_name.clone(),
+        preview: None,
+        voice_note: None,
+        borderless: None,
+        width: att.width,
+        height: att.height,
+        caption: None,
+        blur_hash: None,
     }
 }
 

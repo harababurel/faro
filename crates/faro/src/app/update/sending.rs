@@ -57,6 +57,7 @@ pub fn send(state: &mut State) -> Vec<Effect> {
             sent_at,
             body,
             quote,
+            attachments: vec![],
         },
     }));
     effects

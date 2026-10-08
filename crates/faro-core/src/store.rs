@@ -16,8 +16,8 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::backend::BackendEvent;
 use crate::domain::{
-    Contact, ConversationId, Group, Message, MessageBody, MessageRef, PhoneNumber, ServiceId,
-    Timestamp,
+    AttachmentRef, Contact, ConversationId, Group, Message, MessageBody, MessageRef, PhoneNumber,
+    ServiceId, Timestamp,
 };
 use crate::paths;
 
@@ -147,6 +147,7 @@ enum Request {
         reply: Reply<Vec<Message>>,
     },
     SetConversationState(ConversationId, Box<ConversationState>, Reply<()>),
+    SetAttachment(MessageRef, usize, Box<AttachmentRef>, Reply<()>),
     MarkRead(ConversationId, Reply<()>),
     ReadElsewhere(Vec<MessageRef>, Reply<Vec<(ConversationId, u32)>>),
     FailUnsent(Reply<u64>),
@@ -237,6 +238,18 @@ impl Store {
         state: ConversationState,
     ) -> Result<()> {
         self.call(|reply| Request::SetConversationState(conversation, Box::new(state), reply))
+            .await
+    }
+
+    /// Update the status and dimensions of the `index`-th attachment on
+    /// `message` (e.g. after downloading and decoding it).
+    pub async fn set_attachment(
+        &self,
+        message: MessageRef,
+        index: usize,
+        attachment: AttachmentRef,
+    ) -> Result<()> {
+        self.call(|reply| Request::SetAttachment(message, index, Box::new(attachment), reply))
             .await
     }
 
@@ -356,6 +369,9 @@ async fn handle(db: &mut Db, request: Request) -> Option<Reply<()>> {
         }
         Request::SetConversationState(conversation, state, reply) => {
             let _ = reply.send(db.set_conversation_state(conversation, &state).await);
+        }
+        Request::SetAttachment(message, index, attachment, reply) => {
+            let _ = reply.send(db.set_attachment(message, index, &attachment).await);
         }
         Request::MarkRead(conversation, reply) => {
             let _ = reply.send(db.mark_read(conversation).await);

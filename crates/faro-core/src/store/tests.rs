@@ -110,12 +110,57 @@ async fn message_round_trips_with_quote_reactions_and_attachments() {
         content_type: "image/jpeg".into(),
         file_name: Some("cat.jpg".into()),
         size: Some(12_345),
+        width: Some(800),
+        height: Some(600),
+        status: crate::domain::AttachmentStatus::Remote,
     }];
     reply.edited_at = Some(ts(250));
 
     let store = store_with(&[original.clone(), reply.clone()]).await;
     let page = store.messages(direct(ALICE), None, 10).await.unwrap();
     assert_eq!(page, vec![original, reply]);
+}
+
+#[tokio::test]
+async fn attachment_status_updates_and_duplicate_replay_heals_pre_m9_pointer() {
+    use crate::domain::AttachmentStatus;
+
+    let mut message = incoming(direct(ALICE), ALICE, 100, "photo");
+    message.attachments = vec![AttachmentRef {
+        id: AttachmentId("cdn:12345".into()),
+        content_type: "image/png".into(),
+        file_name: Some("photo.png".into()),
+        size: Some(4_096),
+        width: None,
+        height: None,
+        status: AttachmentStatus::Remote,
+    }];
+    let store = store_with(std::slice::from_ref(&message)).await;
+
+    // Duplicate replay with full pointer + dimensions heals backend_id/width/height.
+    let mut replayed = message.clone();
+    replayed.attachments[0].id = AttachmentId("p1:deadbeef".into());
+    replayed.attachments[0].width = Some(320);
+    replayed.attachments[0].height = Some(240);
+    store
+        .apply(BackendEvent::Message(replayed.clone()))
+        .await
+        .unwrap();
+    let stored = only_message(&store, direct(ALICE)).await;
+    assert_eq!(stored.attachments, replayed.attachments);
+
+    // Downloading updates status and dimensions; a later duplicate replay keeps Downloaded.
+    let mut downloaded = replayed.attachments[0].clone();
+    downloaded.width = Some(640);
+    downloaded.height = Some(480);
+    downloaded.status = AttachmentStatus::Downloaded(PathBuf::from("/tmp/photo.png"));
+    store
+        .set_attachment(message.reference(), 0, downloaded.clone())
+        .await
+        .unwrap();
+    store.apply(BackendEvent::Message(replayed)).await.unwrap();
+    let stored = only_message(&store, direct(ALICE)).await;
+    assert_eq!(stored.attachments, vec![downloaded]);
 }
 
 #[tokio::test]

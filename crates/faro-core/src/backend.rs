@@ -97,10 +97,10 @@ pub trait Backend {
         state: TypingState,
     ) -> impl Future<Output = Result<()>>;
 
-    /// Download (if needed) and return the local path of an attachment.
+    /// Download an attachment's content; faro writes it to disk (D75).
     /// Requires [`Capability::Attachments`].
     fn fetch_attachment(&self, attachment: &AttachmentRef)
-    -> impl Future<Output = Result<PathBuf>>;
+    -> impl Future<Output = Result<Vec<u8>>>;
 }
 
 /// The linked account.
@@ -116,8 +116,23 @@ pub struct Account {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutgoingMessage {
     pub sent_at: Timestamp,
+    /// May be empty when there's an attachment (it's then the caption).
     pub body: MessageBody,
     pub quote: Option<Quote>,
+    /// Files to upload with it (D77); sending them requires
+    /// [`Capability::Attachments`].
+    pub attachments: Vec<OutgoingAttachment>,
+}
+
+/// A file to send: faro's own copy of it (D77).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutgoingAttachment {
+    pub path: PathBuf,
+    pub content_type: String,
+    pub file_name: Option<String>,
+    pub size: u64,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
 }
 
 /// A change to this account's reaction to a message.
@@ -273,10 +288,10 @@ mod tests {
         async fn send_typing(&self, _: ConversationId, _: TypingState) -> Result<()> {
             Ok(())
         }
-        async fn fetch_attachment(&self, _: &AttachmentRef) -> Result<PathBuf> {
+        async fn fetch_attachment(&self, _: &AttachmentRef) -> Result<Vec<u8>> {
             self.capabilities()
                 .require(Capability::Attachments)
-                .map(|()| PathBuf::new())
+                .map(|()| Vec::new())
         }
     }
 
@@ -285,6 +300,7 @@ mod tests {
             sent_at: Timestamp::from_millis(42),
             body: MessageBody::new("hello"),
             quote: None,
+            attachments: vec![],
         };
         backend.send(to, msg).await
     }

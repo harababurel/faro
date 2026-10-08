@@ -15,7 +15,6 @@ mod sim;
 mod world;
 
 use std::future::{Future, ready};
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
@@ -84,7 +83,8 @@ impl Default for MockConfig {
             errors: true,
             capabilities: Capabilities::NONE
                 .with(Capability::Edit)
-                .with(Capability::DeleteForEveryone),
+                .with(Capability::DeleteForEveryone)
+                .with(Capability::Attachments),
         }
     }
 }
@@ -220,6 +220,9 @@ impl Backend for MockBackend {
     }
 
     async fn send(&self, to: ConversationId, msg: OutgoingMessage) -> Result<()> {
+        if !msg.attachments.is_empty() {
+            self.capabilities.require(Capability::Attachments)?;
+        }
         self.request(|_| Ok(())).await?;
         self.shared.schedule(|sim, now| sim.sent(now, to, msg))
     }
@@ -246,13 +249,10 @@ impl Backend for MockBackend {
         self.request(|_| Ok(())).await
     }
 
-    /// The mock's messages carry no attachments, so there is never anything to fetch.
-    fn fetch_attachment(&self, _: &AttachmentRef) -> impl Future<Output = Result<PathBuf>> {
-        let result = self
-            .capabilities
-            .require(Capability::Attachments)
-            .and(Err(BackendError::NotFound));
-        ready(result)
+    async fn fetch_attachment(&self, attachment: &AttachmentRef) -> Result<Vec<u8>> {
+        self.capabilities.require(Capability::Attachments)?;
+        self.request(|_| Ok(())).await?;
+        world::attachment_bytes(&attachment.id.0).ok_or(BackendError::NotFound)
     }
 }
 
@@ -306,6 +306,7 @@ mod tests {
             sent_at: Timestamp::from_millis(DETERMINISTIC_EPOCH.as_millis() + offset),
             body: MessageBody::new("hello"),
             quote: None,
+            attachments: vec![],
         }
     }
 
@@ -424,15 +425,13 @@ mod tests {
             Err(BackendError::NotFound)
         );
         backend.delete_for_everyone(conv, mine).await.unwrap();
-        let attachment = AttachmentRef {
-            id: crate::domain::AttachmentId("x".into()),
-            content_type: "image/png".into(),
-            file_name: None,
-            size: None,
-        };
+        let known = world::mock_attachment(0).unwrap();
+        let bytes = backend.fetch_attachment(&known).await.unwrap();
+        assert!(bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
+        let unknown = AttachmentRef::remote("x", "image/png");
         assert_eq!(
-            backend.fetch_attachment(&attachment).await,
-            Err(BackendError::Unsupported(Capability::Attachments))
+            backend.fetch_attachment(&unknown).await,
+            Err(BackendError::NotFound)
         );
 
         let (limited, _events) = MockBackend::new(&MockConfig {
@@ -442,6 +441,10 @@ mod tests {
         assert_eq!(
             limited.edit(conv, mine, edit).await,
             Err(BackendError::Unsupported(Capability::Edit))
+        );
+        assert_eq!(
+            limited.fetch_attachment(&known).await,
+            Err(BackendError::Unsupported(Capability::Attachments))
         );
     }
 

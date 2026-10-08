@@ -12,8 +12,8 @@ pub use ids::{
     ParseServiceIdError, ServiceId, Timestamp,
 };
 pub use message::{
-    AttachmentId, AttachmentRef, BodyPart, DeliveryStatus, Direction, Mention, Message, Quote,
-    Reaction, mention_parts,
+    AttachmentId, AttachmentRef, AttachmentStatus, BodyPart, DeliveryStatus, Direction, Mention,
+    Message, Quote, Reaction, mention_parts,
 };
 pub use people::{Contact, Group};
 pub use presence::{ConnectionState, TypingState};

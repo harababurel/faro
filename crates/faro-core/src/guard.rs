@@ -23,7 +23,6 @@
 //! ```
 
 use std::collections::{BTreeSet, HashMap};
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use tokio::sync::mpsc;
@@ -335,7 +334,7 @@ impl<B: Backend> Backend for Guarded<B> {
         self.inner.send_typing(to, state).await
     }
 
-    async fn fetch_attachment(&self, attachment: &AttachmentRef) -> Result<PathBuf> {
+    async fn fetch_attachment(&self, attachment: &AttachmentRef) -> Result<Vec<u8>> {
         self.inner.fetch_attachment(attachment).await
     }
 }
