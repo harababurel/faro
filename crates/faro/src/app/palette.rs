@@ -11,10 +11,10 @@
 use std::path::PathBuf;
 
 use faro_core::config::{
-    AutoDownload, BubbleStyle, Choice as _, ColorChoice, EmojiChoice, InlineImages,
+    AutoDownload, BubbleStyle, Choice as _, ColorChoice, EmojiChoice, InlineImages, TranscribeMode,
 };
 use faro_core::domain::{ConversationId, ServiceId};
-use faro_core::store::NotifyLevel;
+use faro_core::store::{NotifyLevel, RemoteTranscription};
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher, Utf32Str};
 
@@ -84,6 +84,7 @@ pub enum Setting {
     Allowlist,
     InlineImages,
     AutoDownload,
+    Transcribe,
     Mouse,
 }
 
@@ -169,7 +170,11 @@ impl SettingsGroup {
             ],
             Self::Notifications => &[Setting::Bell, Setting::Title],
             Self::Conversations => &[Setting::Allowlist],
-            Self::Media => &[Setting::InlineImages, Setting::AutoDownload],
+            Self::Media => &[
+                Setting::InlineImages,
+                Setting::AutoDownload,
+                Setting::Transcribe,
+            ],
             Self::Input => &[Setting::Mouse],
         }
     }
@@ -188,6 +193,7 @@ impl Setting {
             Self::Allowlist => "Allowlist mode",
             Self::InlineImages => "Inline images",
             Self::AutoDownload => "Auto-download media",
+            Self::Transcribe => "Voice note transcription",
             Self::Mouse => "Mouse",
         }
     }
@@ -201,7 +207,8 @@ impl Setting {
             | Self::Layout
             | Self::BubbleStyle
             | Self::InlineImages
-            | Self::AutoDownload => false,
+            | Self::AutoDownload
+            | Self::Transcribe => false,
         }
     }
 
@@ -219,6 +226,7 @@ impl Setting {
             | Self::Allowlist
             | Self::InlineImages
             | Self::AutoDownload
+            | Self::Transcribe
             | Self::Mouse => false,
         }
     }
@@ -259,6 +267,7 @@ pub enum SettingChoice {
     Emoji(EmojiChoice),
     InlineImages(InlineImages),
     AutoDownload(AutoDownload),
+    Transcribe(TranscribeMode),
     Mouse(bool),
     Bell(bool),
     Title(bool),
@@ -931,65 +940,60 @@ fn values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)>
         [true, false]
             .into_iter()
             .map(|on| {
-                let name = if on { "on" } else { "off" };
-                (make(on), name.to_owned(), on == current)
+                (
+                    make(on),
+                    if on { "on" } else { "off" }.into(),
+                    on == current,
+                )
             })
             .collect()
     };
     match setting {
         Setting::Colors => ColorChoice::ALL
             .iter()
-            .map(|colors| {
-                let title = match colors {
+            .map(|&c| {
+                let title = match c {
                     ColorChoice::Auto => format!("auto ({} detected)", state.env.colors.name()),
                     ColorChoice::Truecolor => "truecolor".to_owned(),
                     ColorChoice::Colors256 => "256".to_owned(),
                     ColorChoice::Colors16 => "16 (system theme)".to_owned(),
                 };
-                (
-                    SettingChoice::Colors(*colors),
-                    title,
-                    state.config.ui.colors == *colors,
-                )
+                (SettingChoice::Colors(c), title, state.config.ui.colors == c)
             })
             .collect(),
         Setting::Emoji => EmojiChoice::ALL
             .iter()
-            .map(|emoji| {
+            .map(|&e| {
                 (
-                    SettingChoice::Emoji(*emoji),
-                    emoji.name().to_owned(),
-                    state.config.ui.emoji == *emoji,
+                    SettingChoice::Emoji(e),
+                    e.name().into(),
+                    state.config.ui.emoji == e,
                 )
             })
             .collect(),
         Setting::Layout => MessageLayout::ALL
             .iter()
-            .map(|layout| {
-                let name = match layout {
+            .map(|&l| {
+                let name = match l {
                     MessageLayout::Bubbles => "bubbles",
                     MessageLayout::Irc => "IRC",
                 };
-                (
-                    SettingChoice::Layout(*layout),
-                    name.to_owned(),
-                    state.layout == *layout,
-                )
+                (SettingChoice::Layout(l), name.into(), state.layout == l)
             })
             .collect(),
         Setting::BubbleStyle => BubbleStyle::ALL
             .iter()
-            .map(|style| {
-                let name = match style {
+            .map(|&s| {
+                let name = match s {
                     BubbleStyle::Auto => "auto",
                     BubbleStyle::Rounded => "rounded",
                     BubbleStyle::Bar => "bar",
                     BubbleStyle::Mixed => "mixed",
                 };
                 (
-                    SettingChoice::BubbleStyle(*style),
-                    name.to_owned(),
-                    state.config.messages.bubble_style == *style,
+                    SettingChoice::BubbleStyle(s),
+                    name.into(),
+                    state.config.messages.bubble_style == s,
                 )
             })
             .collect(),
@@ -999,21 +1003,31 @@ fn values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)>
         Setting::Allowlist => on_off(SettingChoice::Allowlist, state.list.allowlist),
         Setting::InlineImages => InlineImages::ALL
             .iter()
-            .map(|mode| {
+            .map(|&m| {
                 (
-                    SettingChoice::InlineImages(*mode),
-                    mode.name().to_owned(),
-                    state.config.media.inline_images == *mode,
+                    SettingChoice::InlineImages(m),
+                    m.name().into(),
+                    state.config.media.inline_images == m,
                 )
             })
             .collect(),
         Setting::AutoDownload => AutoDownload::ALL
             .iter()
-            .map(|policy| {
+            .map(|&p| {
                 (
-                    SettingChoice::AutoDownload(*policy),
-                    policy.name().to_owned(),
-                    state.config.media.auto_download == *policy,
+                    SettingChoice::AutoDownload(p),
+                    p.name().into(),
+                    state.config.media.auto_download == p,
+                )
+            })
+            .collect(),
+        Setting::Transcribe => TranscribeMode::ALL
+            .iter()
+            .map(|&m| {
+                (
+                    SettingChoice::Transcribe(m),
+                    m.name().into(),
+                    state.config.voice.transcribe == m,
                 )
             })
             .collect(),
@@ -1048,16 +1062,14 @@ fn open_conversation_commands(state: &State) -> Vec<Item> {
             .filter(|c| c.state.pinned.is_some())
             .count();
         if pins > 1 {
-            items.push(item(
-                ConversationAction::MoveUp,
-                "Move pin up",
-                Curate::MoveUp,
-            ));
-            items.push(item(
-                ConversationAction::MoveDown,
-                "Move pin down",
-                Curate::MoveDown,
-            ));
+            items.extend([
+                item(ConversationAction::MoveUp, "Move pin up", Curate::MoveUp),
+                item(
+                    ConversationAction::MoveDown,
+                    "Move pin down",
+                    Curate::MoveDown,
+                ),
+            ]);
         }
     } else {
         items.push(item(ConversationAction::Pin, "Pin", Curate::Pin));
@@ -1099,6 +1111,20 @@ fn open_conversation_commands(state: &State) -> Vec<Item> {
             Curate::Allow,
         )
     });
+    if state.config.voice.transcribe == TranscribeMode::Remote
+        || current.remote_transcription == RemoteTranscription::Allowed
+    {
+        let remote_action = if current.remote_transcription == RemoteTranscription::Allowed {
+            ConversationAction::DisallowRemoteTranscription
+        } else {
+            ConversationAction::AllowRemoteTranscription
+        };
+        items.push(command(
+            PaletteCommand::Conversation(remote_action),
+            remote_action.label().0,
+            None,
+        ));
+    }
     let name = state.conversation_title(summary.id);
     if let ConversationId::Direct(peer) = summary.id
         && peer != state.me
@@ -1122,11 +1148,17 @@ fn selected_message_commands(state: &State) -> Vec<Item> {
     let Some(selection) = open.selected else {
         return vec![];
     };
-    let has_attachments = open
+    let selected_msg = open
         .messages
         .iter()
         .rfind(|m| m.reference() == selection.message)
-        .is_some_and(|m| !m.deleted && !m.attachments.is_empty());
+        .filter(|m| !m.deleted);
+    let has_attachments = selected_msg.is_some_and(|m| !m.attachments.is_empty());
+    let has_voice_note = selected_msg.is_some_and(|m| {
+        m.attachments
+            .iter()
+            .any(faro_core::domain::AttachmentRef::is_voice_note)
+    });
     let mut items: Vec<Item> = [
         (Action::Reply, "Reply"),
         (Action::ReactPicker, "React"),
@@ -1144,6 +1176,20 @@ fn selected_message_commands(state: &State) -> Vec<Item> {
         item
     })
     .collect();
+    if has_voice_note {
+        for (action, title) in [
+            (Action::PlayVoiceNote, "Play or stop voice note"),
+            (Action::TranscribeVoiceNote, "Transcribe voice note"),
+        ] {
+            let mut item = command(
+                PaletteCommand::Action(action),
+                title,
+                state.keymap.hint(&[action], Focus::Messages),
+            );
+            item.path = Some("Message".to_owned());
+            items.push(item);
+        }
+    }
     if has_attachments {
         for (action, title) in [
             (Action::DownloadAttachment, "Download attachment"),

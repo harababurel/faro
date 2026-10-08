@@ -167,7 +167,7 @@ fn prefixes_jump_into_a_category() {
 }
 
 /// `Settings ›` with nothing typed: every setting under its section.
-const SETTINGS_LIST: [&str; 16] = [
+const SETTINGS_LIST: [&str; 17] = [
     "Appearance",
     "Colours",
     "Emoji",
@@ -182,6 +182,7 @@ const SETTINGS_LIST: [&str; 16] = [
     "Media",
     "Inline images",
     "Auto-download media",
+    "Voice note transcription",
     "Input",
     "Mouse",
 ];
@@ -259,7 +260,11 @@ fn headers_are_skipped() {
     press(&mut state, KeyCode::Up);
     assert_eq!(selected_title(&state), "Mouse", "wraps past the header");
     press(&mut state, KeyCode::Up);
-    assert_eq!(selected_title(&state), "Auto-download media", "skips Input");
+    assert_eq!(
+        selected_title(&state),
+        "Voice note transcription",
+        "skips Input"
+    );
     press(&mut state, KeyCode::Down);
     press(&mut state, KeyCode::Down);
     assert_eq!(selected_title(&state), "Colours", "wraps past Appearance");

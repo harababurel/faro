@@ -5,11 +5,12 @@
 use std::path::PathBuf;
 
 use faro_core::backend::{BackendError, BackendEvent, OutgoingMessage, ReactionChange};
-use faro_core::config::AutoDownload;
+use faro_core::config::{AutoDownload, TranscribeMode};
 use faro_core::domain::{
     AttachmentRef, AttachmentStatus, ConversationId, DeliveryStatus, Direction, Message,
-    MessageBody, MessageRef, Quote,
+    MessageBody, MessageRef, Quote, TranscriptSource,
 };
+use faro_core::store::RemoteTranscription;
 use tokio::time::Instant;
 
 use super::{curation, on_backend};
@@ -18,7 +19,7 @@ use crate::app::event::Effect;
 use crate::app::keymap::PopupKey;
 use crate::app::state::{
     AUTO_DOWNLOAD_LIMIT, DownloadJob, Focus, MAX_DOWNLOADS_IN_FLIGHT, MessageAction, Notice,
-    PlayingVoiceNote, Popup, REACTIONS, Selection, State,
+    PlayingVoiceNote, Popup, REACTIONS, REMOTE_CONSENT_CHOICES, Selection, State,
 };
 
 /// At most this many links get their own menu entry.
@@ -170,6 +171,9 @@ fn actions(state: &State, message: &Message) -> Vec<MessageAction> {
                                 items.push(MessageAction::PlayVoiceNote { index });
                             }
                         }
+                        if !state.is_transcribing(msg_ref, index) {
+                            items.push(MessageAction::TranscribeVoiceNote { index });
+                        }
                     } else {
                         if att.is_image() {
                             items.push(MessageAction::ViewAttachment {
@@ -225,6 +229,7 @@ fn shortcut(c: char) -> Option<fn(&MessageAction) -> bool> {
                 MessageAction::PlayVoiceNote { .. } | MessageAction::StopVoiceNote { .. }
             )
         }),
+        't' => Some(|a| matches!(a, MessageAction::TranscribeVoiceNote { .. })),
         'd' => Some(|a| matches!(a, MessageAction::DownloadAttachment { .. })),
         'v' => Some(|a| {
             matches!(
@@ -304,6 +309,12 @@ pub fn on_popup(state: &mut State, key: PopupKey) -> Vec<Effect> {
                 vec![]
             }
         },
+        Popup::ConfirmRemoteTranscription {
+            conversation,
+            target,
+            index,
+            selected,
+        } => on_remote_consent_key(state, conversation, target, index, selected, key),
         Popup::Conversation {
             target,
             items,
@@ -335,6 +346,9 @@ pub fn perform(state: &mut State, target: MessageRef, action: MessageAction) -> 
         MessageAction::OpenLink(url) => open_url(state, url),
         MessageAction::PlayVoiceNote { index } => play_one_voice_note(state, target, index),
         MessageAction::StopVoiceNote { .. } => stop_voice_note(state),
+        MessageAction::TranscribeVoiceNote { index } => {
+            transcribe_one_voice_note(state, target, index, true)
+        }
         MessageAction::DownloadAttachment { index, .. } => download_one(state, target, index, true),
         MessageAction::ViewAttachment { index, .. } => {
             if find(state, target)
@@ -670,6 +684,298 @@ pub fn on_playback_finished(
         state.notice = Some(Notice::warning(format!(
             "Couldn't play voice note: {error}"
         )));
+    }
+}
+
+/// `t`: transcribe the selected message's voice note (D82).
+pub fn transcribe_voice_note(state: &mut State) -> Vec<Effect> {
+    let Some(message) = selected(state).filter(|m| !m.deleted) else {
+        return vec![];
+    };
+    let target = message.reference();
+    let Some((index, _)) = message
+        .attachments
+        .iter()
+        .enumerate()
+        .find(|(_, att)| att.is_voice_note())
+    else {
+        state.notice = Some(Notice::info("No voice note in this message"));
+        return vec![];
+    };
+    transcribe_one_voice_note(state, target, index, true)
+}
+
+fn transcribe_one_voice_note(
+    state: &mut State,
+    target: MessageRef,
+    index: usize,
+    manual: bool,
+) -> Vec<Effect> {
+    let Some(conversation) = state.open.as_ref().map(|o| o.id) else {
+        return vec![];
+    };
+    let Some(att) = find(state, target).and_then(|m| m.attachments.get(index)) else {
+        return vec![];
+    };
+    if !att.is_voice_note() {
+        return vec![];
+    }
+    let max_secs = state.config.voice.transcribe_max_secs;
+    if !manual && max_secs > 0 && att.duration_secs.is_some_and(|d| d > max_secs) {
+        return vec![];
+    }
+    if !att.is_downloaded() {
+        if manual && !att.id.0.is_empty() {
+            state.transcribe_when_downloaded.insert((target, index));
+            let effects = download_one(state, target, index, false);
+            state.notice = Some(Notice::info("Downloading voice note to transcribe…"));
+            return effects;
+        }
+        return vec![];
+    }
+    let mode = match state.config.voice.transcribe {
+        TranscribeMode::Remote => TranscribeMode::Remote,
+        TranscribeMode::Local | TranscribeMode::Off => TranscribeMode::Local,
+    };
+    if mode == TranscribeMode::Remote {
+        let perm = state
+            .summary(conversation)
+            .map_or(RemoteTranscription::Disallowed, |s| {
+                s.state.remote_transcription
+            });
+        match perm {
+            RemoteTranscription::Allowed => {
+                return start_transcription(
+                    state,
+                    conversation,
+                    target,
+                    index,
+                    TranscribeMode::Remote,
+                    manual,
+                );
+            }
+            RemoteTranscription::Disallowed => {
+                if manual {
+                    state.popup = Some(Popup::ConfirmRemoteTranscription {
+                        conversation,
+                        target,
+                        index,
+                        selected: 0,
+                    });
+                }
+                return vec![];
+            }
+        }
+    }
+    start_transcription(
+        state,
+        conversation,
+        target,
+        index,
+        TranscribeMode::Local,
+        manual,
+    )
+}
+
+fn on_remote_consent_key(
+    state: &mut State,
+    conversation: ConversationId,
+    target: MessageRef,
+    index: usize,
+    selected: usize,
+    key: PopupKey,
+) -> Vec<Effect> {
+    let chosen = match key {
+        PopupKey::Previous | PopupKey::Next => {
+            let selected = cycle(
+                selected,
+                REMOTE_CONSENT_CHOICES.len(),
+                key == PopupKey::Next,
+            );
+            state.popup = Some(Popup::ConfirmRemoteTranscription {
+                conversation,
+                target,
+                index,
+                selected,
+            });
+            return vec![];
+        }
+        PopupKey::Choose => Some(selected),
+        PopupKey::Char(c) => c
+            .to_digit(10)
+            .and_then(|d| usize::try_from(d).ok())
+            .and_then(|d| d.checked_sub(1))
+            .filter(|i| *i < REMOTE_CONSENT_CHOICES.len()),
+        PopupKey::Close => None,
+    };
+    let Some(choice) = chosen else {
+        return vec![];
+    };
+    match choice {
+        0 => {
+            let mut effects = Vec::new();
+            if let Some(summary) = state
+                .conversations
+                .iter_mut()
+                .find(|c| c.id == conversation)
+            {
+                summary.state.remote_transcription = RemoteTranscription::Allowed;
+                effects.push(Effect::SaveConversationState(
+                    conversation,
+                    Box::new(summary.state.clone()),
+                ));
+            }
+            effects.extend(start_transcription(
+                state,
+                conversation,
+                target,
+                index,
+                TranscribeMode::Remote,
+                true,
+            ));
+            effects.extend(queue_auto_transcriptions(state));
+            effects
+        }
+        1 => start_transcription(
+            state,
+            conversation,
+            target,
+            index,
+            TranscribeMode::Remote,
+            true,
+        ),
+        2 => {
+            let mut effects = Vec::new();
+            if let Some(summary) = state
+                .conversations
+                .iter_mut()
+                .find(|c| c.id == conversation)
+            {
+                summary.state.remote_transcription = RemoteTranscription::Disallowed;
+                effects.push(Effect::SaveConversationState(
+                    conversation,
+                    Box::new(summary.state.clone()),
+                ));
+            }
+            state.notice = Some(Notice::info(
+                "Remote transcription disabled for this conversation",
+            ));
+            effects
+        }
+        _ => vec![],
+    }
+}
+
+fn start_transcription(
+    state: &mut State,
+    conversation: ConversationId,
+    target: MessageRef,
+    index: usize,
+    mode: TranscribeMode,
+    announce: bool,
+) -> Vec<Effect> {
+    let Some(att) = find(state, target).and_then(|m| m.attachments.get(index)) else {
+        return vec![];
+    };
+    let Some(path) = att.local_path().map(PathBuf::from) else {
+        return vec![];
+    };
+    if !state.transcribing.insert((target, index)) {
+        if announce {
+            state.notice = Some(Notice::info("Voice note is already transcribing…"));
+        }
+        return vec![];
+    }
+    let mut voice = state.config.voice.clone();
+    voice.transcribe = mode;
+    if announce {
+        state.notice = Some(Notice::info("Transcribing voice note…"));
+    }
+    vec![Effect::Backend(Command::Transcribe {
+        conversation,
+        message: target,
+        index,
+        path,
+        voice,
+    })]
+}
+
+/// Queue auto-transcriptions for downloaded, untranscribed voice notes in the
+/// open conversation when `state.config.voice.transcribe` is `local` or `remote` (D82).
+pub fn queue_auto_transcriptions(state: &mut State) -> Vec<Effect> {
+    if state.config.voice.transcribe == TranscribeMode::Off {
+        return vec![];
+    }
+    let max_secs = state.config.voice.transcribe_max_secs;
+    let candidates: Vec<(MessageRef, usize)> = state
+        .open
+        .as_ref()
+        .filter(|o| !o.loading)
+        .map(|open| {
+            let mut out = Vec::new();
+            for message in &open.messages {
+                if message.deleted {
+                    continue;
+                }
+                let msg_ref = message.reference();
+                for (index, att) in message.attachments.iter().enumerate() {
+                    let within_limit =
+                        max_secs == 0 || att.duration_secs.is_none_or(|d| d <= max_secs);
+                    if att.is_voice_note()
+                        && att.is_downloaded()
+                        && att.transcript.is_none()
+                        && within_limit
+                        && !state.is_transcribing(msg_ref, index)
+                    {
+                        out.push((msg_ref, index));
+                    }
+                }
+            }
+            out
+        })
+        .unwrap_or_default();
+    let mut effects = Vec::new();
+    for (target, index) in candidates {
+        effects.extend(transcribe_one_voice_note(state, target, index, false));
+    }
+    effects
+}
+
+pub fn on_transcribed(
+    state: &mut State,
+    conversation: ConversationId,
+    message: MessageRef,
+    index: usize,
+    result: Result<(String, TranscriptSource), String>,
+) -> Vec<Effect> {
+    state.transcribing.remove(&(message, index));
+    match result {
+        Ok((text, source)) => {
+            let mut updated = None;
+            if let Some(open) = state.open.as_mut().filter(|o| o.id == conversation)
+                && let Some(msg) = open.messages.iter_mut().rfind(|m| m.reference() == message)
+                && let Some(att) = msg.attachments.get_mut(index)
+            {
+                att.transcript = Some(text);
+                att.transcript_source = Some(source);
+                updated = Some(att.clone());
+            }
+            if let Some(attachment) = updated {
+                vec![Effect::SaveAttachment {
+                    message,
+                    index,
+                    attachment,
+                }]
+            } else {
+                vec![]
+            }
+        }
+        Err(error) => {
+            state.notice = Some(Notice::warning(format!(
+                "Voice note transcription failed: {error}"
+            )));
+            vec![]
+        }
     }
 }
 
@@ -1109,9 +1415,11 @@ pub fn on_fetched(
     let key = (message, index);
     state.downloading.remove(&key);
     let save_after = state.save_when_downloaded.remove(&key);
+    let transcribe_after = state.transcribe_when_downloaded.remove(&key);
     let mut effects = Vec::new();
     match result {
         Ok(fetched) => {
+            let is_voice_note = fetched.is_voice_note();
             effects.push(Effect::SaveAttachment {
                 message,
                 index,
@@ -1129,6 +1437,11 @@ pub fn on_fetched(
                 && let Some(att) = msg.attachments.get_mut(index)
             {
                 *att = fetched;
+            }
+            if transcribe_after {
+                effects.extend(transcribe_one_voice_note(state, message, index, true));
+            } else if is_voice_note {
+                effects.extend(queue_auto_transcriptions(state));
             }
         }
         Err(error) => {

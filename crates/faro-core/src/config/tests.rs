@@ -54,6 +54,12 @@ fn key_constants_name_settings() {
         key::AUTO_DOWNLOAD,
         key::INLINE_IMAGES,
         key::VOICE_PLAYER,
+        key::VOICE_TRANSCRIBE,
+        key::VOICE_TRANSCRIBE_COMMAND,
+        key::VOICE_TRANSCRIBE_MODEL,
+        key::VOICE_TRANSCRIBE_URL,
+        key::VOICE_TRANSCRIBE_LANGUAGE,
+        key::VOICE_TRANSCRIBE_MAX_SECS,
         key::MOUSE,
     ] {
         assert!(setting(path).is_some(), "{path}");
@@ -68,7 +74,8 @@ fn settings_are_read() {
          [conversations]\nallowlist = true\n\
          [messages]\nlayout = \"irc\"\n\
          [media]\nauto_download = \"all\"\ninline_images = \"halfblocks\"\n\
-         [voice]\nplayer = \"mpv\"\n\
+         [voice]\nplayer = \"mpv\"\ntranscribe = \"local\"\ntranscribe_command = \"whisper-cli\"\n\
+         transcribe_model = \"small\"\ntranscribe_language = \"en\"\ntranscribe_max_secs = 180\n\
          [notifications]\nbell = false\ndesktop = \"osc\"\nprivacy = \"preview\"\n\
          [mouse]\nenabled = false\n",
     );
@@ -81,6 +88,11 @@ fn settings_are_read() {
     assert_eq!(c.media.auto_download, AutoDownload::All);
     assert_eq!(c.media.inline_images, InlineImages::Halfblocks);
     assert_eq!(c.voice.player, "mpv");
+    assert_eq!(c.voice.transcribe, TranscribeMode::Local);
+    assert_eq!(c.voice.transcribe_command, "whisper-cli");
+    assert_eq!(c.voice.transcribe_model, "small");
+    assert_eq!(c.voice.transcribe_language, "en");
+    assert_eq!(c.voice.transcribe_max_secs, 180);
     assert!(!c.notifications.bell);
     assert_eq!(c.notifications.desktop, DesktopNotifications::Osc);
     assert_eq!(c.notifications.privacy, NotificationPrivacy::Preview);
@@ -167,7 +179,8 @@ fn a_broken_file_keeps_the_whole_previous_config() {
 #[test]
 fn unknown_and_planned_keys_are_warnings() {
     let parsed = parse_fresh(
-        "colour = 1\n[messages]\nlayout = \"irc\"\ndensity = \"compact\"\n[nope]\nx = 1\n",
+        "colour = 1\n[messages]\nlayout = \"irc\"\ndensity = \"compact\"\n\
+         [voice]\ntranscribe_api_key = \"sk-secret\"\n[nope]\nx = 1\n",
     );
     assert_eq!(parsed.config.messages.layout, MessageLayout::Irc);
     assert_eq!(
@@ -175,6 +188,10 @@ fn unknown_and_planned_keys_are_warnings() {
         vec![
             Problem::warning("unknown setting colour; ignored"),
             Problem::warning("messages.density isn't supported yet; ignored"),
+            Problem::warning(
+                "voice.transcribe_api_key is ignored: API keys are never read from config.toml; \
+                 set $FARO_TRANSCRIBE_API_KEY or $OPENAI_API_KEY"
+            ),
             Problem::warning("unknown setting nope; ignored"),
         ]
     );

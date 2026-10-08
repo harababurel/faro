@@ -49,6 +49,12 @@ pub const MUTE_CHOICES: [(&str, Option<Duration>); 5] = [
     ("1 week", Some(Duration::from_hours(7 * 24))),
     ("Until unmuted", None),
 ];
+/// Choices in `Popup::ConfirmRemoteTranscription` (D82): label and shortcut key.
+pub const REMOTE_CONSENT_CHOICES: [(&str, &str); 3] = [
+    ("Allow for this conversation", "1"),
+    ("Transcribe this voice note once", "2"),
+    ("Never for this conversation", "3"),
+];
 
 /// An attachment queued to download (D75).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -150,6 +156,11 @@ pub struct State {
     /// Attachments that should be copied to `~/Downloads/` as soon as their
     /// download finishes (when `s` was pressed on an undownloaded attachment).
     pub save_when_downloaded: HashSet<(MessageRef, usize)>,
+    /// Voice notes that should be transcribed as soon as their download
+    /// finishes (when `t` was pressed on an undownloaded voice note, D82).
+    pub transcribe_when_downloaded: HashSet<(MessageRef, usize)>,
+    /// Voice notes currently being transcribed (D82).
+    pub transcribing: HashSet<(MessageRef, usize)>,
     /// Voice note currently playing in an external audio player (D81).
     pub playing: Option<PlayingVoiceNote>,
     /// When the terminal bell last rang (`BELL_INTERVAL`, D49).
@@ -316,6 +327,14 @@ pub enum Popup {
     React { target: MessageRef, selected: usize },
     /// Larger inline preview of a downloaded image attachment (`v`, D75).
     ImageViewer { target: MessageRef, index: usize },
+    /// Consent prompt before sending a voice note to a remote transcription
+    /// endpoint (`[voice] transcribe = "remote"`, D82).
+    ConfirmRemoteTranscription {
+        conversation: ConversationId,
+        target: MessageRef,
+        index: usize,
+        selected: usize,
+    },
     /// What can be done with a conversation (`Space` or right-click in the
     /// sidebar, D41).
     Conversation {
@@ -352,6 +371,9 @@ pub enum ConversationAction {
     Disallow,
     /// Turn allowlist mode on (`true`) or off.
     AllowlistMode(bool),
+    /// Allow or disallow remote voice-note transcription for this conversation (D82).
+    AllowRemoteTranscription,
+    DisallowRemoteTranscription,
     /// Give the person in a direct chat a nickname (D65).
     Nickname,
 }
@@ -376,6 +398,8 @@ impl ConversationAction {
             Self::Disallow => ("Remove from allowlist", "l"),
             Self::AllowlistMode(true) => ("Turn allowlist mode on", "L"),
             Self::AllowlistMode(false) => ("Turn allowlist mode off", "L"),
+            Self::AllowRemoteTranscription => ("Allow remote transcription", ""),
+            Self::DisallowRemoteTranscription => ("Disallow remote transcription", ""),
             Self::Nickname => ("Set a nickname…", ""),
         }
     }
@@ -389,6 +413,7 @@ pub enum MessageAction {
     OpenLink(String),
     PlayVoiceNote { index: usize },
     StopVoiceNote { index: usize },
+    TranscribeVoiceNote { index: usize },
     DownloadAttachment { index: usize, name: String },
     ViewAttachment { index: usize, name: String },
     OpenAttachment { index: usize, name: String },
@@ -407,6 +432,7 @@ impl MessageAction {
             Self::OpenLink(url) => (format!("Open {url}"), "o"),
             Self::PlayVoiceNote { .. } => ("Play voice note".to_owned(), "x"),
             Self::StopVoiceNote { .. } => ("Stop voice note".to_owned(), "x"),
+            Self::TranscribeVoiceNote { .. } => ("Transcribe voice note".to_owned(), "t"),
             Self::DownloadAttachment { name, .. } => (format!("Download {name}"), "d"),
             Self::ViewAttachment { name, .. } => (format!("View {name}"), "v"),
             Self::OpenAttachment { name, .. } => (format!("Open {name} with system viewer"), "v"),
@@ -649,6 +675,8 @@ impl State {
             downloading: HashSet::new(),
             download_queue: VecDeque::new(),
             save_when_downloaded: HashSet::new(),
+            transcribe_when_downloaded: HashSet::new(),
+            transcribing: HashSet::new(),
             playing: None,
             last_bell: None,
             quit_armed: bool::default(),
@@ -990,6 +1018,12 @@ impl State {
                 .download_queue
                 .iter()
                 .any(|j| (j.message, j.index) == key)
+    }
+
+    /// Whether the `index`-th attachment on `message` is currently being
+    /// transcribed (D82).
+    pub fn is_transcribing(&self, message: MessageRef, index: usize) -> bool {
+        self.transcribing.contains(&(message, index))
     }
 
     /// Whether faro can play voice notes locally (not over SSH or mosh, D81).

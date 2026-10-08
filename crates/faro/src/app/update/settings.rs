@@ -3,7 +3,8 @@
 //! allowlist key) written back to it.
 
 use faro_core::config::{
-    self, AutoDownload, BubbleStyle, Config, EmojiChoice, InlineImages, Problem, Severity, key,
+    self, AutoDownload, BubbleStyle, Config, EmojiChoice, InlineImages, Problem, Severity,
+    TranscribeMode, key,
 };
 
 use super::{check_terminal, curation, selection};
@@ -66,6 +67,9 @@ fn apply(
         }
         if !startup && old.media.auto_download != state.config.media.auto_download {
             effects.extend(selection::queue_auto_downloads(state));
+        }
+        if !startup && old.voice.transcribe != state.config.voice.transcribe {
+            effects.extend(selection::queue_auto_transcriptions(state));
         }
         // The mouse, the theme and `reduce_motion` are read from
         // `state.config` by the app loop.
@@ -256,7 +260,27 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
             effects.extend(save_with_notice(state, key::AUTO_DOWNLOAD, msg));
             effects
         }
-        SettingChoice::Mouse(on) => {
+        SettingChoice::Transcribe(mode) => {
+            state.config.voice.transcribe = mode;
+            let msg = match mode {
+                TranscribeMode::Off => "Voice note transcription off",
+                TranscribeMode::Local => "Voice note transcription: local Whisper",
+                TranscribeMode::Remote => "Voice note transcription: remote API (asks per chat)",
+            };
+            let mut effects = selection::queue_auto_transcriptions(state);
+            effects.extend(save_with_notice(state, key::VOICE_TRANSCRIBE, msg));
+            effects
+        }
+        SettingChoice::Mouse(on)
+        | SettingChoice::Bell(on)
+        | SettingChoice::Title(on)
+        | SettingChoice::ReduceMotion(on) => choose_toggle(state, choice, on),
+    }
+}
+
+fn choose_toggle(state: &mut State, choice: SettingChoice, on: bool) -> Vec<Effect> {
+    match choice {
+        SettingChoice::Mouse(_) => {
             state.config.mouse.enabled = on;
             let msg = if on {
                 "Mouse on"
@@ -265,7 +289,7 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
             };
             save_with_notice(state, key::MOUSE, msg)
         }
-        SettingChoice::Bell(on) => {
+        SettingChoice::Bell(_) => {
             state.config.notifications.bell = on;
             let msg = if on {
                 "Bell on: new messages ring again"
@@ -274,7 +298,7 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
             };
             save_with_notice(state, key::BELL, msg)
         }
-        SettingChoice::Title(on) => {
+        SettingChoice::Title(_) => {
             state.config.notifications.title = on;
             let msg = if on {
                 "The window title shows the unread count"
@@ -283,7 +307,7 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
             };
             save_with_notice(state, key::TITLE, msg)
         }
-        SettingChoice::ReduceMotion(on) => {
+        SettingChoice::ReduceMotion(_) => {
             // The app loop reads it from `state.config` (D61).
             state.config.reduce_motion = on;
             let msg = if on {
@@ -293,6 +317,14 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
             };
             save_with_notice(state, key::REDUCE_MOTION, msg)
         }
+        SettingChoice::Colors(_)
+        | SettingChoice::Emoji(_)
+        | SettingChoice::Layout(_)
+        | SettingChoice::BubbleStyle(_)
+        | SettingChoice::Allowlist(_)
+        | SettingChoice::InlineImages(_)
+        | SettingChoice::AutoDownload(_)
+        | SettingChoice::Transcribe(_) => vec![],
     }
 }
 

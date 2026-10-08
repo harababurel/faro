@@ -10,8 +10,10 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use faro_core::backend::{Backend, BackendError, OutgoingMessage, ReactionChange};
+use faro_core::config::{TranscribeMode, Voice};
 use faro_core::domain::{
-    AttachmentRef, AttachmentStatus, ConversationId, MessageRef, ServiceId, Timestamp, TypingState,
+    AttachmentRef, AttachmentStatus, ConversationId, MessageRef, ServiceId, Timestamp,
+    TranscriptSource, TypingState,
 };
 use faro_core::paths;
 use tokio::sync::mpsc;
@@ -43,6 +45,15 @@ pub enum Command {
         message: MessageRef,
         index: usize,
         attachment: AttachmentRef,
+    },
+    /// Transcribe a downloaded voice note (`local` or `remote`, D82).
+    /// Answered with `AppEvent::Transcribed`.
+    Transcribe {
+        conversation: ConversationId,
+        message: MessageRef,
+        index: usize,
+        path: PathBuf,
+        voice: Voice,
     },
     /// Read receipts for messages that have been seen (D42). No answer;
     /// failures are only logged.
@@ -112,6 +123,30 @@ async fn run<B: Backend + 'static>(
                     tracing::warn!(%error, %conversation, "attachment download failed");
                 }
                 let _ = tx.send(AppEvent::Fetched {
+                    conversation,
+                    message,
+                    index,
+                    result,
+                });
+            }));
+            continue;
+        }
+        if let Command::Transcribe {
+            conversation,
+            message,
+            index,
+            path,
+            voice,
+        } = command
+        {
+            let dir = attachments_dir.clone();
+            let tx = results.clone();
+            in_flight.spawn(tokio::task::spawn_local(async move {
+                let result = transcribe(&dir, message, index, &path, &voice).await;
+                if let Err(error) = &result {
+                    tracing::warn!(%error, %conversation, "voice note transcription failed");
+                }
+                let _ = tx.send(AppEvent::Transcribed {
                     conversation,
                     message,
                     index,
@@ -218,6 +253,274 @@ async fn inspect_audio_with_ffmpeg(path: &Path) -> Option<faro_core::audio::Audi
     faro_core::audio::pcm_s16le_info(&output.stdout, 8_000)
 }
 
+/// Transcribe a downloaded voice note (`local` Whisper CLI or `remote`
+/// OpenAI-compatible HTTP endpoint, D82).
+pub async fn transcribe(
+    attachments_dir: &Path,
+    message: MessageRef,
+    index: usize,
+    path: &Path,
+    voice: &Voice,
+) -> Result<(String, TranscriptSource), String> {
+    match voice.transcribe {
+        TranscribeMode::Remote => {
+            let text = transcribe_remote(path, voice).await?;
+            Ok((text, TranscriptSource::Remote))
+        }
+        TranscribeMode::Local | TranscribeMode::Off => {
+            let text = transcribe_local(attachments_dir, message, index, path, voice).await?;
+            Ok((text, TranscriptSource::Local))
+        }
+    }
+}
+
+async fn transcribe_local(
+    attachments_dir: &Path,
+    message: MessageRef,
+    index: usize,
+    path: &Path,
+    voice: &Voice,
+) -> Result<String, String> {
+    use std::process::Stdio;
+    let work_dir = attachments_dir.join(format!(
+        "transcribe-{}-{}-{index}",
+        message.sender,
+        message.sent_at.as_millis()
+    ));
+    let dir_for_setup = work_dir.clone();
+    tokio::task::spawn_blocking(move || prepare_transcribe_dir(&dir_for_setup))
+        .await
+        .map_err(|e| format!("transcription setup task: {e}"))??;
+
+    let (program, args) = build_local_whisper_args(voice, path, &work_dir);
+    let fut = tokio::process::Command::new(&program)
+        .args(&args)
+        .stdin(Stdio::null())
+        .kill_on_drop(true)
+        .output();
+    let run_res = tokio::time::timeout(std::time::Duration::from_secs(120), fut).await;
+
+    let dir_for_cleanup = work_dir.clone();
+    let file_text = tokio::task::spawn_blocking(move || finish_transcribe_dir(&dir_for_cleanup))
+        .await
+        .ok()
+        .flatten();
+
+    let output = run_res
+        .map_err(|_| format!("'{program}' timed out after 120s"))?
+        .map_err(|e| format!("failed to run '{program}': {e}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        return Err(if stderr.is_empty() {
+            format!("'{program}' exited with {}", output.status)
+        } else {
+            format!("'{program}': {stderr}")
+        });
+    }
+    let text = file_text
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| String::from_utf8_lossy(&output.stdout).trim().to_owned());
+    if text.is_empty() {
+        return Err(format!("'{program}' produced an empty transcript"));
+    }
+    Ok(text)
+}
+
+fn build_local_whisper_args(voice: &Voice, path: &Path, out_dir: &Path) -> (String, Vec<String>) {
+    let mut parts = voice.transcribe_command.split_whitespace();
+    let program = parts.next().unwrap_or("whisper").to_owned();
+    let raw_args: Vec<&str> = parts.collect();
+    let file_str = path.display().to_string();
+    let out_str = out_dir.display().to_string();
+    let has_placeholders = raw_args.iter().any(|a| {
+        a.contains("{file}")
+            || a.contains("{model}")
+            || a.contains("{language}")
+            || a.contains("{out_dir}")
+    });
+    if has_placeholders {
+        let args = raw_args
+            .into_iter()
+            .map(|a| {
+                a.replace("{file}", &file_str)
+                    .replace("{model}", &voice.transcribe_model)
+                    .replace("{language}", &voice.transcribe_language)
+                    .replace("{out_dir}", &out_str)
+            })
+            .collect();
+        return (program, args);
+    }
+    let mut args: Vec<String> = raw_args.iter().map(|s| (*s).to_owned()).collect();
+    let is_cpp = program.contains("whisper-cli") || program.contains("whisper-cpp");
+    if is_cpp {
+        if !voice.transcribe_model.is_empty()
+            && !raw_args.iter().any(|a| *a == "-m" || *a == "--model")
+        {
+            args.extend(["-m".to_owned(), voice.transcribe_model.clone()]);
+        }
+        if !voice.transcribe_language.is_empty()
+            && !raw_args.iter().any(|a| *a == "-l" || *a == "--language")
+        {
+            args.extend(["-l".to_owned(), voice.transcribe_language.clone()]);
+        }
+        args.extend([
+            "-np".to_owned(),
+            "-nt".to_owned(),
+            "-f".to_owned(),
+            file_str,
+        ]);
+    } else {
+        if !voice.transcribe_model.is_empty() && !raw_args.contains(&"--model") {
+            args.extend(["--model".to_owned(), voice.transcribe_model.clone()]);
+        }
+        if !voice.transcribe_language.is_empty() && !raw_args.contains(&"--language") {
+            args.extend(["--language".to_owned(), voice.transcribe_language.clone()]);
+        }
+        args.extend([
+            "--output_format".to_owned(),
+            "txt".to_owned(),
+            "--output_dir".to_owned(),
+            out_str,
+            file_str,
+        ]);
+    }
+    (program, args)
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "creating the temporary Whisper output directory runs inside spawn_blocking"
+)]
+fn prepare_transcribe_dir(dir: &Path) -> Result<(), String> {
+    let _ = std::fs::remove_dir_all(dir);
+    paths::create_private_dir_all(dir).map_err(|e| format!("creating {}: {e}", dir.display()))
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "reading and cleaning up the Whisper output directory runs inside spawn_blocking"
+)]
+fn finish_transcribe_dir(dir: &Path) -> Option<String> {
+    let mut found = None;
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("txt")
+                && let Ok(text) = std::fs::read_to_string(&path)
+            {
+                let trimmed = text.trim().to_owned();
+                if !trimmed.is_empty() {
+                    found = Some(trimmed);
+                    break;
+                }
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(dir);
+    found
+}
+
+async fn transcribe_remote(path: &Path, voice: &Voice) -> Result<String, String> {
+    use std::process::Stdio;
+    use tokio::io::AsyncWriteExt;
+
+    let api_key = resolve_transcribe_api_key().await?;
+    let mut args = vec![
+        "-sS".to_owned(),
+        "--fail-with-body".to_owned(),
+        "--max-time".to_owned(),
+        "60".to_owned(),
+        "--config".to_owned(),
+        "-".to_owned(),
+        "-F".to_owned(),
+        format!("file=@{}", path.display()),
+        "-F".to_owned(),
+        format!("model={}", voice.transcribe_model),
+        "-F".to_owned(),
+        "response_format=json".to_owned(),
+    ];
+    if !voice.transcribe_language.is_empty() {
+        args.push("-F".to_owned());
+        args.push(format!("language={}", voice.transcribe_language));
+    }
+    args.push(voice.transcribe_url.clone());
+
+    let mut child = tokio::process::Command::new("curl")
+        .args(&args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|e| format!("failed to run 'curl': {e}"))?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        let escaped = api_key.replace('\\', "\\\\").replace('"', "\\\"");
+        let cfg = format!("header = \"Authorization: Bearer {escaped}\"\n");
+        let _ = stdin.write_all(cfg.as_bytes()).await;
+    }
+
+    let output = tokio::time::timeout(std::time::Duration::from_secs(65), child.wait_with_output())
+        .await
+        .map_err(|_| "remote transcription timed out after 60s".to_owned())?
+        .map_err(|e| format!("waiting for 'curl': {e}"))?;
+
+    if !output.status.success() {
+        if let Err(api_err) = faro_core::audio::parse_whisper_json(&output.stdout)
+            && !api_err.starts_with("invalid JSON")
+        {
+            return Err(api_err);
+        }
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        return Err(if stderr.is_empty() {
+            format!("curl exited with {}", output.status)
+        } else {
+            stderr
+        });
+    }
+    faro_core::audio::parse_whisper_json(&output.stdout)
+}
+
+async fn resolve_transcribe_api_key() -> Result<String, String> {
+    for var in ["FARO_TRANSCRIBE_API_KEY", "OPENAI_API_KEY"] {
+        if let Ok(val) = std::env::var(var) {
+            let trimmed = val.trim().to_owned();
+            if !trimmed.is_empty() {
+                return Ok(trimmed);
+            }
+        }
+    }
+    let keychain_cmd: (&str, &[&str]) = if cfg!(target_os = "macos") {
+        (
+            "security",
+            &["find-generic-password", "-s", "faro-transcribe", "-w"],
+        )
+    } else {
+        ("secret-tool", &["lookup", "service", "faro-transcribe"])
+    };
+    if let Ok(Ok(out)) = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        tokio::process::Command::new(keychain_cmd.0)
+            .args(keychain_cmd.1)
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+        && out.status.success()
+    {
+        let key = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+        if !key.is_empty() {
+            return Ok(key);
+        }
+    }
+    Err(
+        "Missing transcription API key: set $FARO_TRANSCRIBE_API_KEY or $OPENAI_API_KEY (or store service 'faro-transcribe' in keychain)"
+            .to_owned(),
+    )
+}
+
 async fn execute<B: Backend>(
     backend: &B,
     me: ServiceId,
@@ -258,7 +561,7 @@ async fn execute<B: Backend>(
                 result,
             }
         }
-        Command::Fetch { .. } => return None,
+        Command::Fetch { .. } | Command::Transcribe { .. } => return None,
         Command::MarkRead(messages) => {
             if let Err(error) = backend.mark_read(&messages).await {
                 tracing::warn!(%error, count = messages.len(), "sending read receipts failed");
@@ -321,4 +624,61 @@ fn copy_attachment_file(src: &Path, dest: &Path) -> Result<(), BackendError> {
         .map_err(|e| BackendError::Storage(format!("reading {}: {e}", src.display())))?;
     paths::write_private_atomic(dest, &bytes)
         .map_err(|e| BackendError::Storage(format!("writing {}: {e}", dest.display())))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "tokio::test macro expands to Runtime::block_on and test writes a mock script"
+    )]
+    async fn local_whisper_transcribes_from_output_dir_or_stdout() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let audio = dir.path().join("voice.wav");
+        paths::write_private_atomic(&audio, b"RIFF").unwrap();
+        let script1 = dir.path().join("mock-whisper-dir.sh");
+        std::fs::write(
+            &script1,
+            "#!/bin/sh\nprintf 'Belay is on\\n' > \"$1/out.txt\"\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&script1, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+        let msg_ref = MessageRef {
+            sender: ServiceId::Aci(uuid::Uuid::from_u128(7)),
+            sent_at: Timestamp::from_millis(1_000),
+        };
+
+        // 1) Command with {out_dir} and {file} placeholders writing a .txt file.
+        let mut voice = Voice {
+            transcribe: TranscribeMode::Local,
+            transcribe_command: format!("{} {{out_dir}} {{file}}", script1.display()),
+            ..Voice::default()
+        };
+        let (text, source) = transcribe(dir.path(), msg_ref, 0, &audio, &voice)
+            .await
+            .unwrap();
+        assert_eq!(text, "Belay is on");
+        assert_eq!(source, TranscriptSource::Local);
+
+        // 2) Command printing transcript to stdout.
+        let script2 = dir.path().join("mock-whisper-stdout.sh");
+        std::fs::write(
+            &script2,
+            "#!/bin/sh\nprintf 'On belay, climb when ready\\n'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&script2, std::fs::Permissions::from_mode(0o700)).unwrap();
+        voice.transcribe_command = format!("{} {{file}}", script2.display());
+        let (text, source) = transcribe(dir.path(), msg_ref, 0, &audio, &voice)
+            .await
+            .unwrap();
+        assert_eq!(text, "On belay, climb when ready");
+        assert_eq!(source, TranscriptSource::Local);
+    }
 }

@@ -4,7 +4,9 @@ use std::path::PathBuf;
 
 use faro_core::backend::{BackendError, BackendEvent};
 use faro_core::config::SettingEdit;
-use faro_core::domain::{AttachmentRef, ConversationId, Message, MessageRef, ServiceId, Timestamp};
+use faro_core::domain::{
+    AttachmentRef, ConversationId, Message, MessageRef, ServiceId, Timestamp, TranscriptSource,
+};
 use faro_core::store::{ConversationState, ConversationSummary};
 
 use super::commands::Command;
@@ -48,6 +50,13 @@ pub enum AppEvent {
         message: MessageRef,
         index: usize,
         result: Result<AttachmentRef, BackendError>,
+    },
+    /// A voice-note transcription finished (`Command::Transcribe`, D82).
+    Transcribed {
+        conversation: ConversationId,
+        message: MessageRef,
+        index: usize,
+        result: Result<(String, TranscriptSource), String>,
     },
     /// Copying a downloaded attachment to `~/Downloads/` finished (D75).
     SavedToDownloads(Result<PathBuf, String>),

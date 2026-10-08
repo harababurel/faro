@@ -441,6 +441,7 @@ fn affects_view(event: &AppEvent) -> bool {
         | AppEvent::PasteChecked { .. }
         | AppEvent::ImageDecoded(_)
         | AppEvent::PlaybackFinished { .. }
+        | AppEvent::Transcribed { .. }
         | AppEvent::OpenFailed(_)
         | AppEvent::TerminalChecked { .. }
         | AppEvent::ConfigRead(_)

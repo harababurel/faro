@@ -65,6 +65,10 @@ fn letters_type_in_the_input_and_navigate_elsewhere() {
         press(KeyCode::Char('x'), KeyModifiers::NONE, Focus::Messages),
         Some(Action::PlayVoiceNote)
     );
+    assert_eq!(
+        press(KeyCode::Char('t'), KeyModifiers::NONE, Focus::Messages),
+        Some(Action::TranscribeVoiceNote)
+    );
     // Unbound letters do nothing outside the input.
     assert_eq!(
         press(KeyCode::Char('z'), KeyModifiers::NONE, Focus::Messages),

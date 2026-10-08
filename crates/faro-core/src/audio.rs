@@ -314,6 +314,30 @@ pub fn format_waveform(bars: &[u8]) -> String {
         .collect()
 }
 
+/// Extract the `"text"` field (or `"error"` message) from an OpenAI-compatible
+/// Whisper `/v1/audio/transcriptions` JSON response (D82).
+pub fn parse_whisper_json(bytes: &[u8]) -> Result<String, String> {
+    let val: serde_json::Value = serde_json::from_slice(bytes)
+        .map_err(|e| format!("invalid JSON from transcription endpoint: {e}"))?;
+    if let Some(err) = val
+        .get("error")
+        .and_then(|e| e.get("message").or(Some(e)))
+        .and_then(serde_json::Value::as_str)
+    {
+        return Err(err.trim().to_owned());
+    }
+    let text = val
+        .get("text")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "transcription JSON response missing \"text\" field".to_owned())?
+        .trim()
+        .to_owned();
+    if text.is_empty() {
+        return Err("transcription returned empty text".to_owned());
+    }
+    Ok(text)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -384,5 +408,19 @@ mod tests {
         assert_eq!(format_duration(9), "0:09");
         assert_eq!(format_duration(74), "1:14");
         assert_eq!(format_duration(3_661), "1:01:01");
+    }
+
+    #[test]
+    fn whisper_json_parsing_extracts_text_and_errors() {
+        assert_eq!(
+            parse_whisper_json(br#"{"text":"  Meet at the boulders at six. \n"}"#).unwrap(),
+            "Meet at the boulders at six."
+        );
+        assert_eq!(
+            parse_whisper_json(br#"{"error":{"message":"Incorrect API key provided"}}"#)
+                .unwrap_err(),
+            "Incorrect API key provided"
+        );
+        assert!(parse_whisper_json(br#"{"text":"   "}"#).is_err());
     }
 }

@@ -163,6 +163,20 @@ choice! {
     }
 }
 
+choice! {
+    /// How voice notes are transcribed (DESIGN.md §7.10, D82).
+    TranscribeMode {
+        /// Never transcribe automatically.
+        #[default]
+        Off = "off",
+        /// Run a local Whisper CLI (`voice.transcribe_command`) on this machine.
+        Local = "local",
+        /// Send audio to an OpenAI-compatible HTTP endpoint (`voice.transcribe_url`)
+        /// for conversations where remote transcription has been allowed.
+        Remote = "remote",
+    }
+}
+
 /// Everything the config file sets. `Default` is what faro does without one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
@@ -206,12 +220,24 @@ pub struct Media {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Voice {
     pub player: String,
+    pub transcribe: TranscribeMode,
+    pub transcribe_command: String,
+    pub transcribe_model: String,
+    pub transcribe_url: String,
+    pub transcribe_language: String,
+    pub transcribe_max_secs: u32,
 }
 
 impl Default for Voice {
     fn default() -> Self {
         Self {
             player: "auto".to_owned(),
+            transcribe: TranscribeMode::default(),
+            transcribe_command: "whisper".to_owned(),
+            transcribe_model: "base".to_owned(),
+            transcribe_url: "https://api.openai.com/v1/audio/transcriptions".to_owned(),
+            transcribe_language: String::new(),
+            transcribe_max_secs: 300,
         }
     }
 }
@@ -275,6 +301,12 @@ pub mod key {
     pub const AUTO_DOWNLOAD: &str = "media.auto_download";
     pub const INLINE_IMAGES: &str = "media.inline_images";
     pub const VOICE_PLAYER: &str = "voice.player";
+    pub const VOICE_TRANSCRIBE: &str = "voice.transcribe";
+    pub const VOICE_TRANSCRIBE_COMMAND: &str = "voice.transcribe_command";
+    pub const VOICE_TRANSCRIBE_MODEL: &str = "voice.transcribe_model";
+    pub const VOICE_TRANSCRIBE_URL: &str = "voice.transcribe_url";
+    pub const VOICE_TRANSCRIBE_LANGUAGE: &str = "voice.transcribe_language";
+    pub const VOICE_TRANSCRIBE_MAX_SECS: &str = "voice.transcribe_max_secs";
     pub const MOUSE: &str = "mouse.enabled";
     pub const BELL: &str = "notifications.bell";
     pub const TITLE: &str = "notifications.title";
@@ -284,6 +316,7 @@ pub mod key {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfigValue {
     Bool(bool),
+    Uint(u32),
     Text(String),
 }
 
@@ -291,6 +324,7 @@ impl ConfigValue {
     pub fn to_toml(&self) -> Value {
         match self {
             Self::Bool(b) => Value::from(*b),
+            Self::Uint(n) => Value::from(i64::from(*n)),
             Self::Text(s) => Value::from(s.as_str()),
         }
     }
@@ -298,6 +332,7 @@ impl ConfigValue {
     fn matches(&self, value: &Value) -> bool {
         match self {
             Self::Bool(b) => value.as_bool() == Some(*b),
+            Self::Uint(n) => value.as_integer() == Some(i64::from(*n)),
             Self::Text(s) => value.as_str() == Some(s.as_str()),
         }
     }
@@ -449,6 +484,65 @@ pub static SETTINGS: &[Setting] = &[
         },
     },
     Setting {
+        path: key::VOICE_TRANSCRIBE,
+        help: "Voice-note transcription: \"off\", \"local\" (runs voice.transcribe_command on \
+               this machine) or \"remote\" (sends audio to voice.transcribe_url after asking \
+               per conversation).",
+        get: |c| text(c.voice.transcribe),
+        set: |c, v| {
+            c.voice.transcribe = choice(v)?;
+            Ok(())
+        },
+    },
+    Setting {
+        path: key::VOICE_TRANSCRIBE_COMMAND,
+        help: "Command for local transcription: \"whisper\" (or a custom command; supports \
+               {file}, {model}, {language} and {out_dir} placeholders).",
+        get: |c| ConfigValue::Text(c.voice.transcribe_command.clone()),
+        set: |c, v| {
+            c.voice.transcribe_command = string(v)?;
+            Ok(())
+        },
+    },
+    Setting {
+        path: key::VOICE_TRANSCRIBE_MODEL,
+        help: "Whisper model name passed to local or remote transcription (e.g. \"base\", \
+               \"small\", \"whisper-1\").",
+        get: |c| ConfigValue::Text(c.voice.transcribe_model.clone()),
+        set: |c, v| {
+            c.voice.transcribe_model = string(v)?;
+            Ok(())
+        },
+    },
+    Setting {
+        path: key::VOICE_TRANSCRIBE_URL,
+        help: "OpenAI-compatible transcription endpoint for remote mode. Set the API key in \
+               $FARO_TRANSCRIBE_API_KEY or $OPENAI_API_KEY (never in this file).",
+        get: |c| ConfigValue::Text(c.voice.transcribe_url.clone()),
+        set: |c, v| {
+            c.voice.transcribe_url = string(v)?;
+            Ok(())
+        },
+    },
+    Setting {
+        path: key::VOICE_TRANSCRIBE_LANGUAGE,
+        help: "ISO-639-1 language hint for transcription (e.g. \"en\"); empty auto-detects.",
+        get: |c| ConfigValue::Text(c.voice.transcribe_language.clone()),
+        set: |c, v| {
+            c.voice.transcribe_language = string(v)?;
+            Ok(())
+        },
+    },
+    Setting {
+        path: key::VOICE_TRANSCRIBE_MAX_SECS,
+        help: "Maximum voice-note duration (seconds) to transcribe.",
+        get: |c| ConfigValue::Uint(c.voice.transcribe_max_secs),
+        set: |c, v| {
+            c.voice.transcribe_max_secs = uint32(v)?;
+            Ok(())
+        },
+    },
+    Setting {
         path: key::BELL,
         help: "Ring the terminal bell for new messages (not for muted or archived \
                conversations, nor for what you're looking at).",
@@ -551,6 +645,14 @@ fn boolean(value: &Value) -> Result<bool, String> {
     value
         .as_bool()
         .ok_or_else(|| format!("expected true or false, not {}", shown(value)))
+}
+
+fn uint32(value: &Value) -> Result<u32, String> {
+    value
+        .as_integer()
+        .and_then(|n| u32::try_from(n).ok())
+        .filter(|&n| n > 0)
+        .ok_or_else(|| format!("expected a positive number, not {}", shown(value)))
 }
 
 fn string(value: &Value) -> Result<String, String> {
@@ -781,7 +883,12 @@ fn unknown_keys(doc: &DocumentMut, problems: &mut Vec<Problem>) {
         if setting(&path).is_some() || RENAMED.iter().any(|r| r.old == path) {
             return;
         }
-        if PLANNED.contains(&path.as_str()) {
+        if matches!(path.as_str(), "voice.transcribe_api_key" | "voice.api_key") {
+            problems.push(Problem::warning(format!(
+                "{path} is ignored: API keys are never read from config.toml; \
+                 set $FARO_TRANSCRIBE_API_KEY or $OPENAI_API_KEY"
+            )));
+        } else if PLANNED.contains(&path.as_str()) {
             problems.push(Problem::warning(format!(
                 "{path} isn't supported yet; ignored"
             )));

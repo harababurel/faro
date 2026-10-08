@@ -205,7 +205,9 @@ fn hints(state: &State, geometry: &Geometry) -> Vec<(String, &'static str)> {
     }
     if let Some(popup) = &state.popup {
         return match popup {
-            Popup::Actions { .. } | Popup::Conversation { .. } => fixed(MENU_HINTS),
+            Popup::Actions { .. }
+            | Popup::Conversation { .. }
+            | Popup::ConfirmRemoteTranscription { .. } => fixed(MENU_HINTS),
             Popup::React { .. } => fixed(REACT_HINTS),
             Popup::Mute { .. } => fixed(MUTE_HINTS),
             Popup::ImageViewer { .. } => fixed(IMAGE_VIEWER_HINTS),

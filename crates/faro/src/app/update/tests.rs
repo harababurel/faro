@@ -1604,6 +1604,137 @@ fn voice_note_playback_and_remote_session_guard() {
     );
 }
 
+#[test]
+fn voice_note_local_transcription() {
+    use faro_core::config::{AutoDownload, TranscribeMode};
+    use faro_core::domain::{AttachmentRef, AttachmentStatus, TranscriptSource};
+    use std::path::PathBuf;
+
+    let mut state = loaded_state();
+    state.config.media.auto_download = AutoDownload::Off;
+    let voice_path = PathBuf::from("/tmp/faro-test/voice-t.wav");
+    let mut msg = text(climbing(), BOB, fixtures::NOW_MS + 40, "");
+    msg.body = None;
+    msg.attachments = vec![AttachmentRef {
+        file_name: Some("voice-t.wav".into()),
+        size: Some(12_000),
+        status: AttachmentStatus::Downloaded(voice_path.clone()),
+        voice_note: true,
+        duration_secs: Some(6),
+        waveform: Some(vec![2, 4, 6, 4]),
+        ..AttachmentRef::remote("att-vnt", "audio/wav")
+    }];
+    let target = msg.reference();
+    update(&mut state, AppEvent::Backend(BackendEvent::Message(msg)));
+    update(&mut state, key(KeyCode::Up, KeyModifiers::NONE));
+    assert_eq!(selected_ref(&state), Some(target));
+
+    let effects = press(&mut state, 't');
+    assert!(state.is_transcribing(target, 0));
+    assert!(effects.iter().any(|e| matches!(
+        e,
+        Effect::Backend(Command::Transcribe {
+            conversation,
+            message,
+            index: 0,
+            path,
+            voice,
+        }) if *conversation == climbing()
+            && *message == target
+            && *path == voice_path
+            && voice.transcribe == TranscribeMode::Local
+    )));
+
+    let effects = update(
+        &mut state,
+        AppEvent::Transcribed {
+            conversation: climbing(),
+            message: target,
+            index: 0,
+            result: Ok(("Meet at the crag at five".into(), TranscriptSource::Local)),
+        },
+    );
+    assert!(!state.is_transcribing(target, 0));
+    assert!(effects.iter().any(|e| matches!(
+        e,
+        Effect::SaveAttachment {
+            message,
+            index: 0,
+            attachment,
+        } if *message == target
+            && attachment.transcript.as_deref() == Some("Meet at the crag at five")
+            && attachment.transcript_source == Some(TranscriptSource::Local)
+    )));
+}
+
+#[test]
+fn voice_note_remote_consent_flow() {
+    use faro_core::config::{AutoDownload, TranscribeMode};
+    use faro_core::domain::{AttachmentRef, AttachmentStatus};
+    use faro_core::store::RemoteTranscription;
+    use std::path::PathBuf;
+
+    let mut state = loaded_state();
+    state.config.media.auto_download = AutoDownload::Off;
+    state.config.voice.transcribe = TranscribeMode::Remote;
+    let voice_path = PathBuf::from("/tmp/faro-test/voice-r.wav");
+    let mut msg = text(climbing(), BOB, fixtures::NOW_MS + 50, "");
+    msg.body = None;
+    msg.attachments = vec![AttachmentRef {
+        file_name: Some("voice-r.wav".into()),
+        size: Some(10_000),
+        status: AttachmentStatus::Downloaded(voice_path),
+        voice_note: true,
+        duration_secs: Some(5),
+        ..AttachmentRef::remote("att-vnr", "audio/wav")
+    }];
+    let target = msg.reference();
+    let effects = update(&mut state, AppEvent::Backend(BackendEvent::Message(msg)));
+    assert!(
+        !effects
+            .iter()
+            .any(|e| matches!(e, Effect::Backend(Command::Transcribe { .. }))),
+        "remote mode must not auto-transcribe when conversation is Disallowed"
+    );
+    update(&mut state, key(KeyCode::Up, KeyModifiers::NONE));
+    assert_eq!(selected_ref(&state), Some(target));
+
+    let effects = press(&mut state, 't');
+    assert_eq!(effects, vec![]);
+    assert!(matches!(
+        state.popup,
+        Some(Popup::ConfirmRemoteTranscription {
+            conversation,
+            target: t,
+            index: 0,
+            selected: 0,
+        }) if conversation == climbing() && t == target
+    ));
+
+    let effects = press(&mut state, '1');
+    assert_eq!(
+        state
+            .summary(climbing())
+            .unwrap()
+            .state
+            .remote_transcription,
+        RemoteTranscription::Allowed
+    );
+    assert!(effects.iter().any(|e| matches!(
+        e,
+        Effect::SaveConversationState(id, st)
+            if *id == climbing() && st.remote_transcription == RemoteTranscription::Allowed
+    )));
+    assert!(effects.iter().any(|e| matches!(
+        e,
+        Effect::Backend(Command::Transcribe {
+            message,
+            voice,
+            ..
+        }) if *message == target && voice.transcribe == TranscribeMode::Remote
+    )));
+}
+
 mod curation;
 mod notify;
 mod palette;

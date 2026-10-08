@@ -638,17 +638,28 @@ fn voice_note_lines(
         }
     };
     lines.push(spans);
-    lines.extend(transcript_lines(attachment, max, view));
+    lines.extend(transcript_lines(
+        state, msg_ref, index, attachment, max, view,
+    ));
     lines
 }
 
 fn transcript_lines(
+    state: &State,
+    msg_ref: MessageRef,
+    index: usize,
     attachment: &faro_core::domain::AttachmentRef,
     max: usize,
     view: &View<'_>,
 ) -> Vec<Vec<Span<'static>>> {
     let theme = view.theme;
     let Some(transcript) = attachment.transcript.as_deref().filter(|t| !t.is_empty()) else {
+        if state.is_transcribing(msg_ref, index) {
+            return vec![vec![Span::styled(
+                truncate("❝ transcribing…", max).into_owned(),
+                theme.muted().add_modifier(Modifier::ITALIC),
+            )]];
+        }
         return Vec::new();
     };
     let quoted = format!("❝ {}", sanitize(transcript));

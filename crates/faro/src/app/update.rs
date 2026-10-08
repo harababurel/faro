@@ -91,6 +91,12 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
             selection::on_playback_finished(state, message, index, error);
             vec![]
         }
+        AppEvent::Transcribed {
+            conversation,
+            message,
+            index,
+            result,
+        } => selection::on_transcribed(state, conversation, message, index, result),
         AppEvent::TerminalChecked(terminal) => {
             terminal_checked(state, terminal);
             vec![]
@@ -346,6 +352,7 @@ fn on_messages_loaded(
     presence::on_history(state, &unread);
     let mut effects = presence::catch_up(state);
     effects.extend(selection::queue_auto_downloads(state));
+    effects.extend(selection::queue_auto_transcriptions(state));
     effects
 }
 
@@ -364,7 +371,9 @@ fn on_older_loaded(
     open.loading_older = false;
     open.has_older = full_page(&messages);
     timeline::prepend(&mut open.messages, messages);
-    selection::queue_auto_downloads(state)
+    let mut effects = selection::queue_auto_downloads(state);
+    effects.extend(selection::queue_auto_transcriptions(state));
+    effects
 }
 
 /// A full page means there may be more before it.
@@ -514,6 +523,7 @@ fn on_message(state: &mut State, message: &Message, effects: &mut Vec<Effect>) {
         // the count the store just raised.
         effects.extend(presence::catch_up(state));
         effects.extend(selection::queue_auto_downloads(state));
+        effects.extend(selection::queue_auto_transcriptions(state));
     }
 }
 

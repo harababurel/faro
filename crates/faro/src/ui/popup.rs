@@ -13,7 +13,8 @@ use super::text::{pad_left, sanitize, truncate, width};
 use faro_core::domain::{ConversationId, MessageRef};
 
 use crate::app::state::{
-    Geometry, MUTE_CHOICES, MessageAction, Popup, REACTIONS, SidebarRow, State,
+    Geometry, MUTE_CHOICES, MessageAction, Popup, REACTIONS, REMOTE_CONSENT_CHOICES, SidebarRow,
+    State,
 };
 
 /// Shortcut keys of `MUTE_CHOICES`.
@@ -77,6 +78,17 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &
         }
         Popup::ImageViewer { target, index } => {
             image_viewer(frame, state, *target, *index, geometry, view);
+        }
+        Popup::ConfirmRemoteTranscription {
+            conversation,
+            target,
+            selected,
+            ..
+        } => {
+            let Some(anchor) = over_message(geometry, *target) else {
+                return;
+            };
+            remote_consent(frame, anchor, state, *conversation, *selected, view);
         }
     }
 }
@@ -334,4 +346,65 @@ fn react(
     let rect = place(anchor, line.width(), 1);
     let inner = frame_box(frame, rect, "React", view);
     frame.render_widget(Paragraph::new(line), inner);
+}
+
+fn remote_consent(
+    frame: &mut Frame<'_>,
+    anchor: Anchor,
+    state: &State,
+    conversation: ConversationId,
+    selected: usize,
+    view: &View<'_>,
+) {
+    let theme = view.theme;
+    let chat = sanitize(&state.conversation_title(conversation)).into_owned();
+    let header = format!(" Send audio from {chat} to:");
+    let endpoint = format!(" {}", sanitize(&state.config.voice.transcribe_url));
+    let labels: Vec<(String, &str)> = REMOTE_CONSENT_CHOICES
+        .iter()
+        .map(|&(label, key)| (label.to_owned(), key))
+        .collect();
+    let widest_item = labels
+        .iter()
+        .map(|(label, key)| width(label) + width(key) + 6)
+        .max()
+        .unwrap_or(0);
+    let max_inner = usize::from(anchor.area.width.saturating_sub(4));
+    let inner_width = widest_item
+        .max(width(&header) + 1)
+        .max(width(&endpoint) + 1)
+        .clamp(24, max_inner.max(24));
+    let rect = place(anchor, inner_width, labels.len() + 2);
+    let inner = frame_box(frame, rect, "Remote transcription", view);
+    let row_width = usize::from(inner.width);
+    let mut lines = vec![
+        Line::from(Span::styled(
+            truncate(&header, row_width).into_owned(),
+            theme.muted(),
+        )),
+        Line::from(Span::styled(
+            truncate(&endpoint, row_width).into_owned(),
+            Style::new().fg(theme.secondary),
+        )),
+    ];
+    for (i, (label, key)) in labels.iter().enumerate() {
+        let chosen = i == selected;
+        let marker = if chosen { " › " } else { "   " };
+        let key_width = width(key) + 1;
+        let room = row_width.saturating_sub(3 + key_width);
+        let label = truncate(label, room).into_owned();
+        let gap = row_width.saturating_sub(3 + width(&label) + key_width);
+        let style = if chosen {
+            theme.selected().fg(theme.text).add_modifier(Modifier::BOLD)
+        } else {
+            Style::new().fg(theme.text)
+        };
+        lines.push(Line::from(vec![
+            Span::styled(marker, style.fg(theme.primary)),
+            Span::styled(label, style),
+            Span::styled(" ".repeat(gap), style),
+            Span::styled(pad_left(key, key_width), style.patch(theme.muted())),
+        ]));
+    }
+    frame.render_widget(Paragraph::new(lines), inner);
 }

@@ -52,6 +52,7 @@ pub enum Action {
     Copy,
     OpenLink,
     PlayVoiceNote,
+    TranscribeVoiceNote,
     DownloadAttachment,
     OpenAttachment,
     SaveAttachment,

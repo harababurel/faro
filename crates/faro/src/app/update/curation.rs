@@ -1,9 +1,9 @@
 //! Curating the conversation list (M4 task 5, D41): pin, mute, hide, archive,
 //! the allowlist, and switching between the chats and the archive.
 
-use faro_core::config::key;
+use faro_core::config::{TranscribeMode, key};
 use faro_core::domain::{ConversationId, Timestamp};
-use faro_core::store::{ConversationState, NotifyLevel};
+use faro_core::store::{ConversationState, NotifyLevel, RemoteTranscription};
 
 use super::selection::cycle;
 use super::sending::wall_clock;
@@ -74,7 +74,7 @@ pub fn menu(state: &mut State, target: ConversationId) {
         .iter()
         .filter(|c| c.state.pinned.is_some())
         .count();
-    let mut items = Vec::with_capacity(8);
+    let mut items = Vec::with_capacity(9);
     if current.pinned.is_none() {
         items.push(ConversationAction::Pin);
     } else {
@@ -105,6 +105,17 @@ pub fn menu(state: &mut State, target: ConversationId) {
         ConversationAction::Allow
     });
     items.push(ConversationAction::AllowlistMode(!state.list.allowlist));
+    if state.config.voice.transcribe == TranscribeMode::Remote
+        || current.remote_transcription == RemoteTranscription::Allowed
+    {
+        items.push(
+            if current.remote_transcription == RemoteTranscription::Allowed {
+                ConversationAction::DisallowRemoteTranscription
+            } else {
+                ConversationAction::AllowRemoteTranscription
+            },
+        );
+    }
     if let ConversationId::Direct(peer) = target
         && peer != state.me
     {
@@ -256,21 +267,7 @@ pub fn perform(
             }
             vec![]
         }
-        ConversationAction::Pin => {
-            let next = state
-                .conversations
-                .iter()
-                .filter_map(|c| c.state.pinned)
-                .max()
-                .map_or(0, |p| p.saturating_add(1));
-            let effects = change(state, target, String::new(), |s| {
-                s.pinned = Some(next);
-                s.hidden = false;
-                s.archived = false;
-            });
-            state.notice = Some(Notice::info(pin_notice(state, target)));
-            effects
-        }
+        ConversationAction::Pin => pin(state, target),
         ConversationAction::Unpin => change(state, target, "Unpinned".into(), |s| s.pinned = None),
         ConversationAction::Unmute => {
             change(state, target, "Unmuted".into(), |s| s.muted_until = None)
@@ -320,7 +317,43 @@ pub fn perform(
                 s.allowed = false;
             })
         }
+        ConversationAction::AllowRemoteTranscription => {
+            let mut effects = change(
+                state,
+                target,
+                "Allowed remote transcription for this conversation".into(),
+                |s| {
+                    s.remote_transcription = RemoteTranscription::Allowed;
+                },
+            );
+            effects.extend(super::selection::queue_auto_transcriptions(state));
+            effects
+        }
+        ConversationAction::DisallowRemoteTranscription => change(
+            state,
+            target,
+            "Disallowed remote transcription for this conversation".into(),
+            |s| {
+                s.remote_transcription = RemoteTranscription::Disallowed;
+            },
+        ),
     }
+}
+
+fn pin(state: &mut State, target: ConversationId) -> Vec<Effect> {
+    let next = state
+        .conversations
+        .iter()
+        .filter_map(|c| c.state.pinned)
+        .max()
+        .map_or(0, |p| p.saturating_add(1));
+    let effects = change(state, target, String::new(), |s| {
+        s.pinned = Some(next);
+        s.hidden = false;
+        s.archived = false;
+    });
+    state.notice = Some(Notice::info(pin_notice(state, target)));
+    effects
 }
 
 /// Change `target`'s state, store it, re-sort the list, show `notice`, and
