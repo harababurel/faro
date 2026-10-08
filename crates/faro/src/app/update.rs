@@ -358,17 +358,27 @@ fn on_backend(state: &mut State, event: BackendEvent) -> Vec<Effect> {
             let title = contact.display_name().map(str::to_owned);
             let phone = contact.phone.clone();
             state.contacts.insert(contact.service_id, contact.clone());
-            if let Some(summary) = state.conversations.iter_mut().find(|c| c.id == id) {
+            // Someone new (a contact sync, a first message) is listed at
+            // once, as the store lists them after a restart.
+            let new = !state.conversations.iter().any(|c| c.id == id);
+            if let Some(summary) = summary_entry(state, id) {
                 summary.title = title;
                 summary.phone = phone;
+            }
+            if new {
+                sort_conversations(&mut state.conversations);
             }
             state.recount_names();
         }
         BackendEvent::GroupUpdated(group) => {
             let id = ConversationId::Group(group.id);
             state.groups.insert(group.id, group.clone());
+            let new = !state.conversations.iter().any(|c| c.id == id);
             if let Some(summary) = summary_entry(state, id) {
                 summary.title = Some(group.title.clone());
+            }
+            if new {
+                sort_conversations(&mut state.conversations);
             }
         }
         BackendEvent::Error(error) => {

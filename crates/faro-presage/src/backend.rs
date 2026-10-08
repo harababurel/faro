@@ -228,6 +228,19 @@ impl PresageBackend {
 
     /// Fetch missing profiles in the background and announce the contacts
     /// that got one, so startup never waits for the network.
+    /// Ask the phone to send its contacts, as Signal's desktop apps do once
+    /// linked; they arrive later as `Received::Contacts`. In the
+    /// background, so receiving never waits on it.
+    fn request_contacts(&self) {
+        let mut manager = self.manager.clone();
+        tokio::task::spawn_local(async move {
+            match Box::pin(manager.request_contacts()).await {
+                Ok(()) => tracing::info!("asked the phone for its contacts"),
+                Err(error) => tracing::warn!(%error, "asking the phone for its contacts failed"),
+            }
+        });
+    }
+
     fn refresh_profiles(&self, ids: Vec<ServiceId>) {
         let backend = self.clone();
         tokio::task::spawn_local(async move {
@@ -457,6 +470,8 @@ impl Backend for PresageBackend {
 struct Seen {
     /// People announced to the app this run (as `ContactUpdated`).
     people: HashSet<ServiceId>,
+    /// The phone was asked for its contacts this run.
+    asked_for_contacts: bool,
 }
 
 /// Receive until the app goes away, reconnecting with backoff.
@@ -527,6 +542,10 @@ async fn on_received(
     match received {
         Received::QueueEmpty => {
             tracing::debug!("caught up with queued messages");
+            if !seen.asked_for_contacts {
+                seen.asked_for_contacts = true;
+                backend.request_contacts();
+            }
             true
         }
         Received::DecryptionError(_) => {

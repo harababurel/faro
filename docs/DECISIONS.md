@@ -584,3 +584,10 @@ Refines the DESIGN.md §5.1 sketch:
 - `faro --no-allowlist` runs the Signal backend without the guard: faro talks to everyone, like any Signal client. It must be typed every time: no environment variable or config key, and it can't be combined with `--allowlist`. Without either flag the Signal backend still refuses to start, and the error names both.
 - faro logs a warning at startup, and the footer shows a muted `no allowlist` after the connection status.
 - The test account keeps running with `--allowlist` as before (D62); its data dir stays separate.
+
+### D68. Ask the phone for contacts; list new people and groups at once — Accepted (owner, 2026-10-08)
+
+- **Why:** on the owner's personal account, freshly linked, faro started with `contacts=0 groups=0` and an empty Chats list. presage only requests a contact sync when asked, and faro never asked. Contacts or groups that arrived while faro ran were stored but only listed after a restart.
+- **Contact sync:** the presage backend asks the phone for its contacts once per run, after the first catch-up with queued messages (`PresageBackend::request_contacts`, in a background task). Signal's desktop apps do the same after linking. The request is a sync message to our own devices only (D62). The phone's answer arrives as `Received::Contacts`, and each contact is announced as `ContactUpdated`. Behind the guard, contacts off the list are dropped as before.
+- **Listed at once:** `ContactUpdated` and `GroupUpdated` for a conversation the app doesn't have add it to `State::conversations` (as the store already does), and the list is sorted again. Empty conversations still stay out of the sidebar (DESIGN §7.7); the palette's `Chats ›` lists them.
+- **Still missing:** the full group list. presage learns a group only from a message in it; Signal keeps the list in its storage service, which presage doesn't read.

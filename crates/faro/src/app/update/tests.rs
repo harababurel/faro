@@ -336,6 +336,42 @@ fn new_contacts_and_groups_update_titles() {
 }
 
 #[test]
+fn new_contacts_and_groups_are_listed_at_once() {
+    let mut state = loaded_state();
+    let dave = ServiceId::Aci(uuid::Uuid::from_u128(99));
+    let effects = update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::ContactUpdated(faro_core::domain::Contact {
+            service_id: dave,
+            name: Some("Dave".to_owned()),
+            profile_name: None,
+            phone: None,
+        })),
+    );
+    let summary = state.summary(ConversationId::Direct(dave)).unwrap();
+    assert_eq!(summary.title.as_deref(), Some("Dave"));
+    assert!(matches!(effects.first(), Some(Effect::Persist(_))));
+    // Sorted: never above conversations with messages.
+    assert_eq!(
+        state.conversations.last().map(|c| c.id),
+        Some(ConversationId::Direct(dave))
+    );
+    let group = faro_core::domain::Group {
+        id: faro_core::domain::GroupId::from_bytes([9; faro_core::domain::GroupId::LEN]),
+        title: "Book club".to_owned(),
+        members: vec![ME, dave],
+    };
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::GroupUpdated(group.clone())),
+    );
+    assert_eq!(
+        state.conversation_title(ConversationId::Group(group.id)),
+        "Book club"
+    );
+}
+
+#[test]
 fn shutdown_and_store_failures() {
     let mut state = loaded_state();
     update(&mut state, AppEvent::StoreFailed("disk full".to_owned()));
