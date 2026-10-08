@@ -1190,7 +1190,7 @@ fn clicking_a_message_selects_it_and_right_click_opens_the_menu() {
 #[test]
 fn auto_downloads_respect_policy_size_and_concurrency_cap() {
     use faro_core::config::AutoDownload;
-    use faro_core::domain::{AttachmentId, AttachmentRef, AttachmentStatus};
+    use faro_core::domain::{AttachmentRef, AttachmentStatus};
     use std::path::PathBuf;
 
     let mut state = loaded_state();
@@ -1199,31 +1199,29 @@ fn auto_downloads_respect_policy_size_and_concurrency_cap() {
     let mut msg = text(climbing(), BOB, fixtures::NOW_MS + 10, "files");
     msg.attachments = vec![
         AttachmentRef {
-            id: AttachmentId("att-1".into()),
-            content_type: "image/jpeg".into(),
             file_name: Some("small.jpg".into()),
             size: Some(1024),
             width: Some(100),
             height: Some(80),
-            status: AttachmentStatus::Remote,
+            ..AttachmentRef::remote("att-1", "image/jpeg")
         },
         AttachmentRef {
-            id: AttachmentId("att-2".into()),
-            content_type: "application/pdf".into(),
             file_name: Some("doc.pdf".into()),
             size: Some(1024),
-            width: None,
-            height: None,
-            status: AttachmentStatus::Remote,
+            ..AttachmentRef::remote("att-2", "application/pdf")
         },
         AttachmentRef {
-            id: AttachmentId("att-3".into()),
-            content_type: "image/png".into(),
             file_name: Some("huge.png".into()),
             size: Some(30 * 1024 * 1024),
             width: Some(4000),
             height: Some(3000),
-            status: AttachmentStatus::Remote,
+            ..AttachmentRef::remote("att-3", "image/png")
+        },
+        AttachmentRef {
+            file_name: Some("voice-1.wav".into()),
+            size: Some(2048),
+            voice_note: true,
+            ..AttachmentRef::remote("att-vn", "audio/wav")
         },
     ];
     let target = msg.reference();
@@ -1240,6 +1238,7 @@ fn auto_downloads_respect_policy_size_and_concurrency_cap() {
     assert!(state.is_downloading(target, 0));
     assert!(!state.is_downloading(target, 1));
     assert!(!state.is_downloading(target, 2));
+    assert!(state.is_downloading(target, 3));
 
     // Completing the download updates state and emits SaveAttachment.
     let local_path = PathBuf::from("/tmp/faro-test/small.jpg");
@@ -1267,13 +1266,9 @@ fn auto_downloads_respect_policy_size_and_concurrency_cap() {
     state.config.media.auto_download = AutoDownload::Off;
     let mut msg2 = text(climbing(), BOB, fixtures::NOW_MS + 11, "more");
     msg2.attachments = vec![AttachmentRef {
-        id: AttachmentId("att-4".into()),
-        content_type: "image/jpeg".into(),
         file_name: Some("off.jpg".into()),
         size: Some(512),
-        width: None,
-        height: None,
-        status: AttachmentStatus::Remote,
+        ..AttachmentRef::remote("att-4", "image/jpeg")
     }];
     let effects = update(&mut state, AppEvent::Backend(BackendEvent::Message(msg2)));
     assert!(
@@ -1286,20 +1281,18 @@ fn auto_downloads_respect_policy_size_and_concurrency_cap() {
 #[test]
 fn attachment_keys_download_view_open_and_save() {
     use faro_core::config::AutoDownload;
-    use faro_core::domain::{AttachmentId, AttachmentRef, AttachmentStatus};
+    use faro_core::domain::{AttachmentRef, AttachmentStatus};
     use std::path::PathBuf;
 
     let mut state = loaded_state();
     state.config.media.auto_download = AutoDownload::Off;
     let mut msg = text(climbing(), BOB, fixtures::NOW_MS + 20, "photo");
     msg.attachments = vec![AttachmentRef {
-        id: AttachmentId("att-wall".into()),
-        content_type: "image/png".into(),
         file_name: Some("wall.png".into()),
         size: Some(2048),
         width: Some(640),
         height: Some(480),
-        status: AttachmentStatus::Remote,
+        ..AttachmentRef::remote("att-wall", "image/png")
     }];
     let target = msg.reference();
     update(
@@ -1354,13 +1347,10 @@ fn attachment_keys_download_view_open_and_save() {
     let pdf_path = PathBuf::from("/tmp/faro-test/guide.pdf");
     let mut pdf_msg = text(climbing(), BOB, fixtures::NOW_MS + 21, "guide");
     pdf_msg.attachments = vec![AttachmentRef {
-        id: AttachmentId("att-pdf".into()),
-        content_type: "application/pdf".into(),
         file_name: Some("guide.pdf".into()),
         size: Some(4096),
-        width: None,
-        height: None,
         status: AttachmentStatus::Downloaded(pdf_path.clone()),
+        ..AttachmentRef::remote("att-pdf", "application/pdf")
     }];
     update(
         &mut state,

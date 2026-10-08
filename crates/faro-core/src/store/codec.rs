@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use super::{Result, StoreError};
 use crate::domain::{
     AttachmentStatus, ConversationId, DeliveryStatus, Direction, ServiceId, Timestamp,
+    TranscriptSource,
 };
 
 /// `direct:<service id>` or `group:<hex>` (`ConversationId`'s string form).
@@ -111,6 +112,21 @@ pub(super) fn attachment_status_from_db(
 
 pub(super) fn count_from_db(value: i64, column: &'static str) -> Result<u32> {
     u32::try_from(value).map_err(|_| StoreError::Corrupt(column))
+}
+
+pub(super) fn transcript_source_to_db(source: TranscriptSource) -> &'static str {
+    match source {
+        TranscriptSource::Local => "local",
+        TranscriptSource::Remote => "remote",
+    }
+}
+
+pub(super) fn transcript_source_from_db(source: &str) -> Result<TranscriptSource> {
+    match source {
+        "local" => Ok(TranscriptSource::Local),
+        "remote" => Ok(TranscriptSource::Remote),
+        _ => Err(StoreError::Corrupt("transcript source")),
+    }
 }
 
 #[cfg(test)]

@@ -384,12 +384,13 @@ impl Db {
             Option<String>,
             Option<bool>,
             Option<String>,
+            Option<bool>,
         );
         let rows: Vec<Row> = sqlx::query_as(
             "SELECT c.id, c.title, c.last_activity, c.unread_count,
                     r.contact_name, r.profile_name, r.phone,
                     s.hidden, s.archived, s.pinned, s.muted_until, s.draft, s.allowed,
-                    s.notify
+                    s.notify, s.remote_transcription
              FROM conversations c
              LEFT JOIN recipients r ON r.service_id = c.peer
              LEFT JOIN conversation_state s ON s.conversation_id = c.id
@@ -403,8 +404,8 @@ impl Db {
             .map(|row| {
                 let (key, title, last_activity, unread, contact, profile, phone) =
                     (row.0, row.1, row.2, row.3, row.4, row.5, row.6);
-                let (hidden, archived, pinned, muted_until, draft, allowed, notify) =
-                    (row.7, row.8, row.9, row.10, row.11, row.12, row.13);
+                let (hidden, archived, pinned, muted_until, draft, allowed, notify, remote_tx) =
+                    (row.7, row.8, row.9, row.10, row.11, row.12, row.13, row.14);
                 let id = conversation_from_key(&key)?;
                 let title = match id {
                     ConversationId::Group(_) => title,
@@ -434,6 +435,9 @@ impl Db {
                             .map(|n| NotifyLevel::parse(&n).ok_or(StoreError::Corrupt("notify")))
                             .transpose()?
                             .unwrap_or_default(),
+                        remote_transcription: super::RemoteTranscription::from_bool(
+                            remote_tx.unwrap_or(false),
+                        ),
                     },
                 })
             })
@@ -582,13 +586,15 @@ impl Db {
         let key = ensure_conversation(&mut tx, conversation).await?;
         sqlx::query(
             "INSERT INTO conversation_state
-                 (conversation_id, hidden, archived, pinned, muted_until, draft, allowed, notify)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                 (conversation_id, hidden, archived, pinned, muted_until, draft, allowed, notify,
+                  remote_transcription)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
              ON CONFLICT (conversation_id) DO UPDATE SET
                  hidden = excluded.hidden, archived = excluded.archived,
                  pinned = excluded.pinned, muted_until = excluded.muted_until,
                  draft = excluded.draft, allowed = excluded.allowed,
-                 notify = excluded.notify",
+                 notify = excluded.notify,
+                 remote_transcription = excluded.remote_transcription",
         )
         .bind(&key)
         .bind(state.hidden)
@@ -598,6 +604,7 @@ impl Db {
         .bind(state.draft.as_ref().map(MessageBody::expose))
         .bind(state.allowed)
         .bind(state.notify.as_str())
+        .bind(state.remote_transcription.as_bool())
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;

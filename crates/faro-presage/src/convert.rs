@@ -295,6 +295,7 @@ pub fn decode_pointer(id: &AttachmentId) -> Option<AttachmentPointer> {
 }
 
 fn attachment(pointer: &AttachmentPointer) -> AttachmentRef {
+    let voice_note = (pointer.flags.unwrap_or(0) & 1) != 0;
     AttachmentRef {
         id: encode_pointer(pointer),
         content_type: pointer.content_type.clone().unwrap_or_default(),
@@ -303,6 +304,11 @@ fn attachment(pointer: &AttachmentPointer) -> AttachmentRef {
         width: pointer.width.filter(|&w| w > 0),
         height: pointer.height.filter(|&h| h > 0),
         status: AttachmentStatus::Remote,
+        voice_note,
+        duration_secs: None,
+        waveform: None,
+        transcript: None,
+        transcript_source: None,
     }
 }
 
@@ -322,6 +328,11 @@ fn sticker_attachment(pointer: &AttachmentPointer) -> AttachmentRef {
         width: pointer.width.filter(|&w| w > 0).or(Some(512)),
         height: pointer.height.filter(|&h| h > 0).or(Some(512)),
         status: AttachmentStatus::Remote,
+        voice_note: false,
+        duration_secs: None,
+        waveform: None,
+        transcript: None,
+        transcript_source: None,
     }
 }
 

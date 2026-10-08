@@ -147,7 +147,9 @@ async fn fetch<B: Backend>(
     let path = attachments_dir.join(name);
     let needs_dims =
         attachment.is_image() && (attachment.width.is_none() || attachment.height.is_none());
-    let (path, dims) = tokio::task::spawn_blocking(move || {
+    let needs_audio = attachment.is_voice_note()
+        && (attachment.duration_secs.is_none() || attachment.waveform.is_none());
+    let (path, dims, wav_info, fallback_waveform) = tokio::task::spawn_blocking(move || {
         let dims = if needs_dims {
             image::ImageReader::new(std::io::Cursor::new(&bytes))
                 .with_guessed_format()
@@ -156,8 +158,17 @@ async fn fetch<B: Backend>(
         } else {
             None
         };
+        let (wav_info, fallback_waveform) = if needs_audio {
+            let wav = faro_core::audio::inspect_wav(&bytes);
+            let synth = wav
+                .is_none()
+                .then(|| faro_core::audio::synthetic_waveform(&bytes));
+            (wav, synth)
+        } else {
+            (None, None)
+        };
         paths::write_private_atomic(&path, &bytes)
-            .map(|()| (path, dims))
+            .map(|()| (path, dims, wav_info, fallback_waveform))
             .map_err(|e| BackendError::Storage(format!("writing attachment: {e}")))
     })
     .await
@@ -166,9 +177,45 @@ async fn fetch<B: Backend>(
         attachment.width = Some(w);
         attachment.height = Some(h);
     }
+    if needs_audio {
+        let info = match wav_info {
+            Some(info) => Some(info),
+            None => inspect_audio_with_ffmpeg(&path).await,
+        };
+        if let Some(info) = info {
+            if attachment.duration_secs.is_none() {
+                attachment.duration_secs = info.duration_secs;
+            }
+            if attachment.waveform.is_none() {
+                attachment.waveform = Some(info.waveform);
+            }
+        } else if attachment.waveform.is_none() {
+            attachment.waveform = fallback_waveform;
+        }
+    }
     attachment.size = Some(size);
     attachment.status = AttachmentStatus::Downloaded(path);
     Ok(attachment)
+}
+
+async fn inspect_audio_with_ffmpeg(path: &Path) -> Option<faro_core::audio::AudioInfo> {
+    use std::process::Stdio;
+    let fut = tokio::process::Command::new("ffmpeg")
+        .args(["-v", "error", "-i"])
+        .arg(path)
+        .args(["-ac", "1", "-ar", "8000", "-f", "s16le", "-"])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .output();
+    let output = tokio::time::timeout(std::time::Duration::from_secs(5), fut)
+        .await
+        .ok()?
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    faro_core::audio::pcm_s16le_info(&output.stdout, 8_000)
 }
 
 async fn execute<B: Backend>(

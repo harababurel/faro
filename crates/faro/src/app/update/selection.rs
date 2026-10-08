@@ -860,7 +860,9 @@ fn should_auto_download(policy: AutoDownload, attachment: &AttachmentRef) -> boo
     }
     match policy {
         AutoDownload::Off => false,
-        AutoDownload::Images => attachment.is_image() || attachment.is_sticker(),
+        AutoDownload::Images => {
+            attachment.is_image() || attachment.is_sticker() || attachment.is_voice_note()
+        }
         AutoDownload::All => true,
     }
 }

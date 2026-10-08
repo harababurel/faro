@@ -173,7 +173,16 @@ impl std::fmt::Debug for AttachmentId {
     }
 }
 
-/// Metadata about an attachment; the content is fetched on demand (D75).
+/// Where a voice note transcript came from (D82).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TranscriptSource {
+    /// Transcribed on this machine (`[voice] transcribe = "local"`).
+    Local,
+    /// Transcribed by a remote endpoint (`[voice] transcribe = "remote"`).
+    Remote,
+}
+
+/// Metadata about an attachment; the content is fetched on demand (D75, D80–D82).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AttachmentRef {
     pub id: AttachmentId,
@@ -184,6 +193,16 @@ pub struct AttachmentRef {
     pub width: Option<u32>,
     pub height: Option<u32>,
     pub status: AttachmentStatus,
+    /// Whether Signal flagged the attachment as a voice note (`flags & 1 != 0`; D80).
+    pub voice_note: bool,
+    /// Duration in seconds for voice notes / audio clips when known (D80).
+    pub duration_secs: Option<u32>,
+    /// 16-bar RMS amplitude envelope (`0..=7` per bar; D80).
+    pub waveform: Option<Vec<u8>>,
+    /// Persisted speech-to-text transcript for a voice note (D82).
+    pub transcript: Option<String>,
+    /// Which backend produced `transcript` (`Local` or `Remote`; D82).
+    pub transcript_source: Option<TranscriptSource>,
 }
 
 impl AttachmentRef {
@@ -197,6 +216,11 @@ impl AttachmentRef {
             width: None,
             height: None,
             status: AttachmentStatus::Remote,
+            voice_note: false,
+            duration_secs: None,
+            waveform: None,
+            transcript: None,
+            transcript_source: None,
         }
     }
 
@@ -211,6 +235,18 @@ impl AttachmentRef {
     /// A Signal sticker (D79): a WebP image without a file name.
     pub fn is_sticker(&self) -> bool {
         self.file_name.is_none() && self.content_type.eq_ignore_ascii_case("image/webp")
+    }
+
+    /// Whether this attachment is a voice note (D80): explicitly flagged by
+    /// Signal (`voice_note`), or an `audio/*` clip with no file name or a
+    /// `voice-*` / `signal-voice*` file name.
+    pub fn is_voice_note(&self) -> bool {
+        self.voice_note
+            || (self.content_type.to_ascii_lowercase().starts_with("audio/")
+                && self
+                    .file_name
+                    .as_deref()
+                    .is_none_or(|n| n.starts_with("voice-") || n.starts_with("signal-voice")))
     }
 
     /// The downloaded copy, if there is one.

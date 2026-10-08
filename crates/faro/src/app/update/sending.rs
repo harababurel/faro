@@ -4,8 +4,8 @@
 
 use faro_core::backend::{BackendError, BackendEvent, OutgoingAttachment, OutgoingMessage};
 use faro_core::domain::{
-    AttachmentId, AttachmentRef, AttachmentStatus, ConversationId, DeliveryStatus, Direction,
-    Message, MessageBody, MessageRef, Timestamp,
+    AttachmentRef, AttachmentStatus, ConversationId, DeliveryStatus, Direction, Message,
+    MessageBody, MessageRef, Timestamp,
 };
 use faro_core::paths;
 
@@ -48,13 +48,12 @@ pub fn send(state: &mut State) -> Vec<Effect> {
                 paths::attachment_file_name(msg_ref, 0, Some(&staged.name), &staged.content_type);
             let dest = state.attachments_dir.join(file_name);
             let att = AttachmentRef {
-                id: AttachmentId(String::new()),
-                content_type: staged.content_type.clone(),
                 file_name: Some(staged.name.clone()),
                 size: Some(staged.size),
                 width: staged.width,
                 height: staged.height,
                 status: AttachmentStatus::Downloaded(dest),
+                ..AttachmentRef::remote(String::new(), staged.content_type.clone())
             };
             let out = OutgoingAttachment {
                 path: staged.path,

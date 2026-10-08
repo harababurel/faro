@@ -3,8 +3,8 @@
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use faro_core::backend::BackendEvent;
 use faro_core::domain::{
-    AttachmentId, AttachmentRef, Contact, ConversationId, DeliveryStatus, Direction, Group,
-    GroupId, Message, MessageBody, PhoneNumber, Quote, Reaction, ServiceId, Timestamp,
+    AttachmentRef, Contact, ConversationId, DeliveryStatus, Direction, Group, GroupId, Message,
+    MessageBody, PhoneNumber, Quote, Reaction, ServiceId, Timestamp,
 };
 use faro_core::store::{ConversationState, ConversationSummary};
 use uuid::Uuid;
@@ -148,13 +148,10 @@ pub fn climbing_history() -> Vec<Message> {
     deleted.deleted = true;
     let mut photo = text(g, CAROL, t(10), "Route map from last time");
     photo.attachments = vec![AttachmentRef {
-        id: AttachmentId("a1".into()),
-        content_type: "image/jpeg".into(),
         file_name: Some("route-map.jpg".into()),
         size: Some(2_400_000),
-        width: None,
-        height: None,
         status: faro_core::domain::AttachmentStatus::Downloaded("/tmp/route-map.jpg".into()),
+        ..AttachmentRef::remote("a1", "image/jpeg")
     }];
     let long = text(
         g,

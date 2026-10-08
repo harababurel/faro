@@ -1,5 +1,5 @@
-//! Attachment SQL (M9, D75, D78): inserting, refreshing ids on replay, loading
-//! with a message page, and saving download results.
+//! Attachment SQL (M9, D75, D78; M10, D80–D82): inserting, refreshing ids on
+//! replay, loading with a message page, and saving download / transcription results.
 
 use std::collections::HashMap;
 
@@ -9,10 +9,11 @@ use super::Db;
 use crate::domain::{AttachmentId, AttachmentRef, Message, MessageRef};
 use crate::store::codec::{
     attachment_status_from_db, attachment_status_to_db, count_from_db, timestamp_to_db,
+    transcript_source_from_db, transcript_source_to_db,
 };
 use crate::store::{Result, StoreError};
 
-/// `(message_id, backend_id, content_type, file_name, size, width, height, status, local_path)`.
+/// `(message_id, backend_id, content_type, file_name, size, width, height, status, local_path, voice_note, duration_secs, waveform, transcript, transcript_source)`.
 type AttachmentRow = (
     i64,
     String,
@@ -22,6 +23,11 @@ type AttachmentRow = (
     Option<i64>,
     Option<i64>,
     String,
+    Option<String>,
+    bool,
+    Option<i64>,
+    Option<Vec<u8>>,
+    Option<String>,
     Option<String>,
 );
 
@@ -34,8 +40,9 @@ pub(super) async fn insert(
     let (status, local_path) = attachment_status_to_db(&attachment.status)?;
     sqlx::query(
         "INSERT INTO attachments
-             (message_id, backend_id, content_type, file_name, size, width, height, status, local_path)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             (message_id, backend_id, content_type, file_name, size, width, height, status, local_path,
+              voice_note, duration_secs, waveform, transcript, transcript_source)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
     )
     .bind(message)
     .bind(&attachment.id.0)
@@ -46,14 +53,19 @@ pub(super) async fn insert(
     .bind(attachment.height.map(i64::from))
     .bind(status)
     .bind(local_path)
+    .bind(attachment.voice_note)
+    .bind(attachment.duration_secs.map(i64::from))
+    .bind(attachment.waveform.as_deref())
+    .bind(attachment.transcript.as_deref())
+    .bind(attachment.transcript_source.map(transcript_source_to_db))
     .execute(conn)
     .await?;
     Ok(())
 }
 
-/// When an already-stored message is replayed on startup (D64, D75), heal any
-/// pre-M9 attachment rows by updating their `backend_id` and missing dimensions
-/// by position, keeping their download status untouched.
+/// When an already-stored message is replayed on startup (D64, D75, D80), heal any
+/// pre-M9 / pre-M10 attachment rows by updating their `backend_id`, missing dimensions,
+/// and voice note metadata by position, keeping their download status and transcripts untouched.
 pub(super) async fn refresh(
     conn: &mut SqliteConnection,
     target: MessageRef,
@@ -75,12 +87,18 @@ pub(super) async fn refresh(
             "UPDATE attachments
              SET backend_id = ?1,
                  width = coalesce(width, ?2),
-                 height = coalesce(height, ?3)
-             WHERE id = ?4",
+                 height = coalesce(height, ?3),
+                 voice_note = CASE WHEN ?4 != 0 THEN 1 ELSE voice_note END,
+                 duration_secs = coalesce(duration_secs, ?5),
+                 waveform = coalesce(waveform, ?6)
+             WHERE id = ?7",
         )
         .bind(&attachment.id.0)
         .bind(attachment.width.map(i64::from))
         .bind(attachment.height.map(i64::from))
+        .bind(attachment.voice_note)
+        .bind(attachment.duration_secs.map(i64::from))
+        .bind(attachment.waveform.as_deref())
         .bind(id)
         .execute(&mut *conn)
         .await?;
@@ -98,7 +116,8 @@ pub(super) async fn load(
 ) -> Result<()> {
     let rows: Vec<AttachmentRow> = sqlx::query_as(
         "SELECT a.message_id, a.backend_id, a.content_type, a.file_name, a.size,
-                a.width, a.height, a.status, a.local_path
+                a.width, a.height, a.status, a.local_path,
+                a.voice_note, a.duration_secs, a.waveform, a.transcript, a.transcript_source
          FROM attachments a JOIN messages m ON m.id = a.message_id
          WHERE m.conversation_id = ?1 AND m.id BETWEEN ?2 AND ?3
          ORDER BY a.id",
@@ -109,8 +128,22 @@ pub(super) async fn load(
     .fetch_all(conn)
     .await?;
     for row in rows {
-        let (id, backend_id, content_type, file_name, size, width, height, status, local_path) =
-            row;
+        let (
+            id,
+            backend_id,
+            content_type,
+            file_name,
+            size,
+            width,
+            height,
+            status,
+            local_path,
+            voice_note,
+            duration_secs,
+            waveform,
+            transcript,
+            transcript_source,
+        ) = row;
         let Some(message) = index.get(&id).and_then(|&i| messages.get_mut(i)) else {
             continue;
         };
@@ -124,6 +157,13 @@ pub(super) async fn load(
             .map(|h| count_from_db(h, "attachment height"))
             .transpose()?;
         let status = attachment_status_from_db(&status, local_path)?;
+        let duration_secs = duration_secs
+            .map(|d| count_from_db(d, "attachment duration_secs"))
+            .transpose()?;
+        let transcript_source = transcript_source
+            .as_deref()
+            .map(transcript_source_from_db)
+            .transpose()?;
         message.attachments.push(AttachmentRef {
             id: AttachmentId(backend_id),
             content_type,
@@ -132,6 +172,11 @@ pub(super) async fn load(
             width,
             height,
             status,
+            voice_note,
+            duration_secs,
+            waveform,
+            transcript,
+            transcript_source,
         });
     }
     Ok(())
@@ -139,7 +184,7 @@ pub(super) async fn load(
 
 impl Db {
     /// Update the `index`-th attachment on `message` (download status, path,
-    /// and any size or dimensions learned from the downloaded file, D75).
+    /// dimensions, audio waveform/duration, or transcript, D75, D80, D82).
     pub(in crate::store) async fn set_attachment(
         &mut self,
         message: MessageRef,
@@ -171,14 +216,24 @@ impl Db {
                  width = coalesce(?2, width),
                  height = coalesce(?3, height),
                  status = ?4,
-                 local_path = ?5
-             WHERE id = ?6",
+                 local_path = ?5,
+                 voice_note = CASE WHEN ?6 != 0 THEN 1 ELSE voice_note END,
+                 duration_secs = coalesce(?7, duration_secs),
+                 waveform = coalesce(?8, waveform),
+                 transcript = coalesce(?9, transcript),
+                 transcript_source = coalesce(?10, transcript_source)
+             WHERE id = ?11",
         )
         .bind(size)
         .bind(attachment.width.map(i64::from))
         .bind(attachment.height.map(i64::from))
         .bind(status)
         .bind(local_path)
+        .bind(attachment.voice_note)
+        .bind(attachment.duration_secs.map(i64::from))
+        .bind(attachment.waveform.as_deref())
+        .bind(attachment.transcript.as_deref())
+        .bind(attachment.transcript_source.map(transcript_source_to_db))
         .bind(id)
         .execute(&mut self.conn)
         .await?;

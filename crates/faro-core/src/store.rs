@@ -76,6 +76,8 @@ pub struct ConversationState {
     pub allowed: bool,
     /// What notifies while not muted (D49).
     pub notify: NotifyLevel,
+    /// Whether remote voice note transcription is allowed in this chat (M10, D82).
+    pub remote_transcription: RemoteTranscription,
 }
 
 /// Which new messages in a conversation notify (bell, window title), D49.
@@ -87,6 +89,35 @@ pub enum NotifyLevel {
     /// Only messages that mention us (D72). They ring the bell but don't
     /// count in the window title.
     Mentions,
+}
+
+/// Whether a conversation is permitted to send voice notes to a remote
+/// transcription endpoint (`[voice] transcribe = "remote"`, D82).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RemoteTranscription {
+    /// Never send this conversation's audio to a remote endpoint (the default).
+    #[default]
+    Disallowed,
+    /// Permitted to use remote transcription once global consent is given.
+    Allowed,
+}
+
+impl RemoteTranscription {
+    pub fn is_allowed(self) -> bool {
+        matches!(self, Self::Allowed)
+    }
+
+    pub fn as_bool(self) -> bool {
+        self.is_allowed()
+    }
+
+    pub fn from_bool(allowed: bool) -> Self {
+        if allowed {
+            Self::Allowed
+        } else {
+            Self::Disallowed
+        }
+    }
 }
 
 impl NotifyLevel {

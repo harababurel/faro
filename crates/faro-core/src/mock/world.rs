@@ -209,6 +209,7 @@ pub(super) struct MockAttachment {
     pub(super) content_type: &'static str,
     pub(super) file_name: Option<&'static str>,
     pub(super) dims: Option<(u32, u32)>,
+    pub(super) voice_note: bool,
 }
 
 /// Canned attachment kinds.
@@ -218,24 +219,35 @@ pub(super) const ATTACHMENTS: &[MockAttachment] = &[
         content_type: "image/png",
         file_name: Some("ridge-trail.png"),
         dims: Some((64, 36)),
+        voice_note: false,
     },
     MockAttachment {
         id: "mock:crag-topo",
         content_type: "image/png",
         file_name: Some("crag-topo.png"),
         dims: Some((48, 48)),
+        voice_note: false,
     },
     MockAttachment {
         id: "mock:sticker-send",
         content_type: "image/png",
         file_name: None,
         dims: Some((32, 32)),
+        voice_note: false,
     },
     MockAttachment {
         id: "mock:gear-checklist",
         content_type: "text/plain",
         file_name: Some("gear-checklist.txt"),
         dims: None,
+        voice_note: false,
+    },
+    MockAttachment {
+        id: "mock:voice-note",
+        content_type: "audio/wav",
+        file_name: Some("voice-2026-10-08.wav"),
+        dims: None,
+        voice_note: true,
     },
 ];
 
@@ -243,6 +255,10 @@ pub(super) const ATTACHMENTS: &[MockAttachment] = &[
 pub(super) fn mock_attachment(index: usize) -> Option<AttachmentRef> {
     let spec = ATTACHMENTS.get(index)?;
     let bytes = attachment_bytes(spec.id)?;
+    let audio = spec
+        .voice_note
+        .then(|| crate::audio::inspect_wav(&bytes))
+        .flatten();
     Some(AttachmentRef {
         id: AttachmentId(spec.id.to_owned()),
         content_type: spec.content_type.to_owned(),
@@ -251,6 +267,11 @@ pub(super) fn mock_attachment(index: usize) -> Option<AttachmentRef> {
         width: spec.dims.map(|(w, _)| w),
         height: spec.dims.map(|(_, h)| h),
         status: AttachmentStatus::Remote,
+        voice_note: spec.voice_note,
+        duration_secs: audio.as_ref().and_then(|a| a.duration_secs),
+        waveform: audio.map(|a| a.waveform),
+        transcript: None,
+        transcript_source: None,
     })
 }
 
@@ -291,8 +312,48 @@ pub(super) fn attachment_bytes(id: &str) -> Option<Vec<u8>> {
         "mock:gear-checklist" => {
             Some(b"Rope 60m\n12 quickdraws\nChalk bag\nHeadlamp\nFirst-aid kit\n".to_vec())
         }
+        "mock:voice-note" => Some(encode_mock_voice_wav()),
         _ => None,
     }
+}
+
+/// 2-second 8 kHz mono 16-bit PCM WAV with a syllabic speech-like envelope.
+fn encode_mock_voice_wav() -> Vec<u8> {
+    const SAMPLE_RATE: u32 = 8_000;
+    const ENVELOPE: [i16; 16] = [
+        1_800, 4_200, 7_500, 9_800, 6_100, 2_400, 8_200, 10_500, 5_400, 3_100, 7_000, 9_100, 6_400,
+        4_500, 2_900, 1_400,
+    ];
+    let total_samples = (SAMPLE_RATE * 2) as usize;
+    let data_len = u32::try_from(total_samples * 2).unwrap_or(0);
+    let riff_len = 36_u32.saturating_add(data_len);
+    let byte_rate = SAMPLE_RATE * 2;
+    let mut wav = Vec::with_capacity(44 + total_samples * 2);
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&riff_len.to_le_bytes());
+    wav.extend_from_slice(b"WAVE");
+    wav.extend_from_slice(b"fmt ");
+    wav.extend_from_slice(&16_u32.to_le_bytes());
+    wav.extend_from_slice(&1_u16.to_le_bytes());
+    wav.extend_from_slice(&1_u16.to_le_bytes());
+    wav.extend_from_slice(&SAMPLE_RATE.to_le_bytes());
+    wav.extend_from_slice(&byte_rate.to_le_bytes());
+    wav.extend_from_slice(&2_u16.to_le_bytes());
+    wav.extend_from_slice(&16_u16.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&data_len.to_le_bytes());
+    for i in 0..total_samples {
+        let bucket = i * ENVELOPE.len() / total_samples;
+        let gain = ENVELOPE.get(bucket).copied().unwrap_or(0);
+        let sign = if (i / 18).is_multiple_of(2) {
+            1_i16
+        } else {
+            -1_i16
+        };
+        let sample = sign.saturating_mul(gain);
+        wav.extend_from_slice(&sample.to_le_bytes());
+    }
+    wav
 }
 
 /// Minimal valid 8-bit RGB PNG using an uncompressed (stored) deflate block.

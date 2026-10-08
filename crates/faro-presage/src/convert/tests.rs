@@ -436,6 +436,24 @@ fn attachment_pointers_and_stickers_round_trip() {
     assert_eq!(s_att.width, Some(512));
     assert_eq!(s_att.height, Some(512));
     assert_eq!(decode_pointer(&s_att.id), Some(sticker_ptr));
+
+    // VoiceMessage flag (1) sets voice_note = true.
+    let voice_ptr = AttachmentPointer {
+        content_type: Some("audio/aac".to_owned()),
+        flags: Some(1),
+        size: Some(18_000),
+        ..AttachmentPointer::default()
+    };
+    let voice_data = DataMessage {
+        attachments: vec![voice_ptr],
+        timestamp: Some(3000),
+        ..DataMessage::default()
+    };
+    let BackendEvent::Message(voice_msg) = only(events(&from(ALICE, voice_data), ME)) else {
+        panic!("expected a voice message");
+    };
+    assert!(voice_msg.attachments[0].voice_note);
+    assert!(voice_msg.attachments[0].is_voice_note());
 }
 
 #[test]

@@ -106,13 +106,11 @@ async fn message_round_trips_with_quote_reactions_and_attachments() {
         },
     ];
     reply.attachments = vec![AttachmentRef {
-        id: AttachmentId("att-1".into()),
-        content_type: "image/jpeg".into(),
         file_name: Some("cat.jpg".into()),
         size: Some(12_345),
         width: Some(800),
         height: Some(600),
-        status: crate::domain::AttachmentStatus::Remote,
+        ..AttachmentRef::remote("att-1", "image/jpeg")
     }];
     reply.edited_at = Some(ts(250));
 
@@ -123,25 +121,22 @@ async fn message_round_trips_with_quote_reactions_and_attachments() {
 
 #[tokio::test]
 async fn attachment_status_updates_and_duplicate_replay_heals_pre_m9_pointer() {
-    use crate::domain::AttachmentStatus;
+    use crate::domain::{AttachmentStatus, TranscriptSource};
 
     let mut message = incoming(direct(ALICE), ALICE, 100, "photo");
     message.attachments = vec![AttachmentRef {
-        id: AttachmentId("cdn:12345".into()),
-        content_type: "image/png".into(),
         file_name: Some("photo.png".into()),
         size: Some(4_096),
-        width: None,
-        height: None,
-        status: AttachmentStatus::Remote,
+        ..AttachmentRef::remote("cdn:12345", "image/png")
     }];
     let store = store_with(std::slice::from_ref(&message)).await;
 
-    // Duplicate replay with full pointer + dimensions heals backend_id/width/height.
+    // Duplicate replay with full pointer + dimensions + voice_note heals metadata.
     let mut replayed = message.clone();
     replayed.attachments[0].id = AttachmentId("p1:deadbeef".into());
     replayed.attachments[0].width = Some(320);
     replayed.attachments[0].height = Some(240);
+    replayed.attachments[0].voice_note = true;
     store
         .apply(BackendEvent::Message(replayed.clone()))
         .await
@@ -149,10 +144,15 @@ async fn attachment_status_updates_and_duplicate_replay_heals_pre_m9_pointer() {
     let stored = only_message(&store, direct(ALICE)).await;
     assert_eq!(stored.attachments, replayed.attachments);
 
-    // Downloading updates status and dimensions; a later duplicate replay keeps Downloaded.
+    // Downloading updates status, dimensions, duration, waveform, and transcript;
+    // a later duplicate replay keeps them.
     let mut downloaded = replayed.attachments[0].clone();
     downloaded.width = Some(640);
     downloaded.height = Some(480);
+    downloaded.duration_secs = Some(14);
+    downloaded.waveform = Some(vec![0, 2, 4, 7, 5, 3, 1, 0, 1, 3, 6, 7, 4, 2, 1, 0]);
+    downloaded.transcript = Some("Voice note check".into());
+    downloaded.transcript_source = Some(TranscriptSource::Local);
     downloaded.status = AttachmentStatus::Downloaded(PathBuf::from("/tmp/photo.png"));
     store
         .set_attachment(message.reference(), 0, downloaded.clone())
@@ -490,6 +490,7 @@ async fn conversation_and_app_state_round_trip() {
         draft: Some(MessageBody::new("half a thought")),
         allowed: true,
         notify: NotifyLevel::Mentions,
+        remote_transcription: RemoteTranscription::Allowed,
     };
     store
         .set_conversation_state(group(), state.clone())
