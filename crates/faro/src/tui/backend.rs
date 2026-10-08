@@ -12,6 +12,7 @@
 //! terminal draws the same picture either way.
 
 use std::io;
+use std::num::NonZeroU16;
 
 use ratatui::backend::{Backend as RatatuiBackend, ClearType, WindowSize};
 use ratatui::buffer::{Cell, CellDiffOption};
@@ -41,9 +42,11 @@ pub fn prepare<'a>(
     width: u16,
     out: &mut Vec<(u16, u16, Cell)>,
 ) {
+    let unit = CellDiffOption::ForcedWidth(NonZeroU16::MIN);
     for (x, y, cell) in content {
         if let Some(second) = x.checked_add(1)
             && second < width
+            && cell.diff_option != unit
             && widened(cell.symbol())
         {
             let mut blank = cell.clone();
@@ -59,7 +62,8 @@ pub fn prepare<'a>(
 /// after the fact (flags, ❤️, keycaps).
 fn widened(symbol: &str) -> bool {
     let mut chars = symbol.chars();
-    chars.next().is_some_and(|first| first.width() == Some(1))
+    !symbol.contains('\x1b')
+        && chars.next().is_some_and(|first| first.width() == Some(1))
         && chars.next().is_some()
         && symbol.width() > 1
 }

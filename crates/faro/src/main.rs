@@ -167,11 +167,14 @@ async fn terminal_setting(
     config: &faro_core::config::Config,
 ) -> app::state::Detected {
     use app::state::{Detected, EmojiMode, EmojiSetting};
-    use faro_core::config::{BubbleStyle, EmojiChoice};
+    use faro_core::config::{BubbleStyle, EmojiChoice, InlineImages};
     let from_cli = cli.is_some();
     let choice = cli.unwrap_or(config.ui.emoji);
     let auto = choice == EmojiChoice::Auto;
-    let terminal = if auto || config.messages.bubble_style == BubbleStyle::Auto {
+    let terminal = if auto
+        || config.messages.bubble_style == BubbleStyle::Auto
+        || config.media.inline_images == InlineImages::Auto
+    {
         app::system::inspect_terminal().await
     } else {
         app::system::Terminal::default()
@@ -181,7 +184,14 @@ async fn terminal_setting(
         EmojiChoice::Auto if terminal.mosh => EmojiMode::Compatible,
         EmojiChoice::Auto | EmojiChoice::Full => EmojiMode::Full,
     };
-    tracing::info!(?mode, auto, from_cli, glyphs = ?terminal.glyphs, "terminal");
+    tracing::info!(
+        ?mode,
+        auto,
+        from_cli,
+        glyphs = ?terminal.glyphs,
+        graphics = ?terminal.graphics,
+        "terminal"
+    );
     Detected {
         emoji: EmojiSetting {
             mode,
@@ -190,5 +200,6 @@ async fn terminal_setting(
             checked_at: Some(tokio::time::Instant::now()),
         },
         glyphs: terminal.glyphs,
+        graphics: terminal.graphics,
     }
 }

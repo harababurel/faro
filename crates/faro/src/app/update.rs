@@ -4,7 +4,7 @@
 
 use crossterm::event::Event;
 use faro_core::backend::BackendEvent;
-use faro_core::config::BubbleStyle;
+use faro_core::config::{BubbleStyle, InlineImages};
 use faro_core::domain::{
     ConversationId, Direction, Message, MessageBody, MessageRef, ServiceId, TypingState,
 };
@@ -73,6 +73,7 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
             selection::on_saved_to_downloads(state, result);
             vec![]
         }
+        AppEvent::ImageDecoded(_) => vec![],
         AppEvent::TerminalChecked(terminal) => {
             terminal_checked(state, terminal);
             vec![]
@@ -553,10 +554,13 @@ mod tests;
 /// Don't look for mosh more often than this (resizes come in bursts).
 const TERMINAL_RECHECK: Duration = Duration::from_secs(2);
 
-/// Look at the terminal again, if the emoji mode follows mosh (D47) or the
-/// bubble style follows kitty (D58).
+/// Look at the terminal again, if the emoji mode follows mosh (D47), the
+/// bubble style follows kitty (D58), or inline images follow mixed/mosh
+/// clients (D78).
 fn check_terminal(state: &mut State) -> Vec<Effect> {
-    let follows = state.env.emoji.auto || state.config.messages.bubble_style == BubbleStyle::Auto;
+    let follows = state.env.emoji.auto
+        || state.config.messages.bubble_style == BubbleStyle::Auto
+        || state.config.media.inline_images == InlineImages::Auto;
     let emoji = &mut state.env.emoji;
     let now = Instant::now();
     if !follows || emoji.checked_at.is_some_and(|t| now - t < TERMINAL_RECHECK) {
@@ -567,10 +571,18 @@ fn check_terminal(state: &mut State) -> Vec<Effect> {
 }
 
 /// Switch the emoji mode to match, redrawing everything if it changed, and
-/// note who draws block glyphs (the next frame picks the bubble style).
+/// note who draws block glyphs and whether graphics protocols are safe.
 fn terminal_checked(state: &mut State, terminal: Terminal) {
-    let Terminal { mosh, glyphs } = terminal;
+    let Terminal {
+        mosh,
+        glyphs,
+        graphics,
+    } = terminal;
     state.env.glyphs = glyphs;
+    if state.env.graphics != graphics {
+        state.env.graphics = graphics;
+        state.env.repaint = true;
+    }
     let emoji = &mut state.env.emoji;
     let mode = if mosh {
         EmojiMode::Compatible

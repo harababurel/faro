@@ -187,6 +187,9 @@ pub struct Environment {
     /// Whether the terminal draws block, Powerline and Legacy Computing
     /// glyphs itself (`[messages] bubble_style = "auto"`, D58).
     pub glyphs: BlockGlyphs,
+    /// Whether terminal graphics protocols can reach the user's terminal
+    /// (`[media] inline_images = "auto"`, D78).
+    pub graphics: GraphicsSupport,
     /// The colours the terminal shows, guessed at startup (D50); the
     /// config's `ui.colors` can override it (`State::colors`).
     pub colors: ColorDepth,
@@ -204,11 +207,12 @@ pub enum EmojiMode {
     Compatible,
 }
 
-/// What the terminal checks found at startup (D47, D58).
+/// What the terminal checks found at startup (D47, D58, D78).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Detected {
     pub emoji: EmojiSetting,
     pub glyphs: BlockGlyphs,
+    pub graphics: GraphicsSupport,
 }
 
 /// Who draws the glyphs rounded bubbles are made of (D58).
@@ -220,6 +224,18 @@ pub enum BlockGlyphs {
     /// The terminal itself, pixel-exact (kitty), for every terminal between
     /// faro and the user.
     Native,
+}
+
+/// Whether terminal graphics protocols (kitty, sixel, iTerm2) can reach the
+/// user's terminal intact (`[media] inline_images = "auto"`, D78).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GraphicsSupport {
+    /// Every hop between faro and the user supports graphics passthrough.
+    #[default]
+    Direct,
+    /// mosh is in the way, tmux has no attached client, or tmux clients are
+    /// on different terminal types: only Unicode half-blocks are safe.
+    HalfblocksOnly,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -444,6 +460,9 @@ pub struct Geometry {
     pub palette: Option<PaletteGeometry>,
     /// The logo was drawn moving (D61): it needs another frame soon.
     pub logo_animated: bool,
+    /// Inline image slices that the frame wanted to draw but weren't in the
+    /// cache yet (D78); decoded off-thread by `app::run`.
+    pub images_wanted: Vec<super::images::ImageKey>,
 }
 
 /// Where the palette was drawn.
@@ -559,6 +578,7 @@ impl State {
                 repaint: false,
                 emoji: EmojiSetting::default(),
                 glyphs: BlockGlyphs::default(),
+                graphics: GraphicsSupport::default(),
                 colors: ColorDepth::default(),
             },
             keymap: Keymap::default(),

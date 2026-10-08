@@ -11,7 +11,7 @@ use faro_core::paths;
 use tokio::sync::mpsc;
 
 use super::event::AppEvent;
-use super::state::BlockGlyphs;
+use super::state::{BlockGlyphs, GraphicsSupport};
 
 /// Copy with OSC 52: the terminal (even over SSH, and through tmux with
 /// `set-clipboard on`) puts the text on the local clipboard.
@@ -107,6 +107,9 @@ pub struct Terminal {
     pub mosh: bool,
     /// Who draws block, Powerline and Legacy Computing glyphs (D58).
     pub glyphs: BlockGlyphs,
+    /// Whether terminal graphics protocols are safe to use, or mixed/mosh
+    /// clients require Unicode half-blocks (D78).
+    pub graphics: GraphicsSupport,
 }
 
 /// Look at the terminals between faro and the user. Outside tmux: whether
@@ -128,14 +131,22 @@ pub async fn inspect_terminal() -> Terminal {
                 args.extend(["-t", pane]);
             }
             let clients = clients(&run("tmux", &args).await.unwrap_or_default());
+            let any_mosh = clients.iter().any(|(pid, _)| mosh(*pid));
             Terminal {
-                mosh: clients.iter().any(|(pid, _)| mosh(*pid)),
+                mosh: any_mosh,
                 glyphs: glyphs_of_clients(&clients),
+                graphics: graphics_of_clients(&clients, any_mosh),
             }
         } else {
+            let under_mosh = mosh(std::process::id());
             Terminal {
-                mosh: mosh(std::process::id()),
+                mosh: under_mosh,
                 glyphs: glyphs_of_environment(|var| std::env::var(var).ok()),
+                graphics: if under_mosh {
+                    GraphicsSupport::HalfblocksOnly
+                } else {
+                    GraphicsSupport::Direct
+                },
             }
         }
     };
@@ -183,6 +194,20 @@ fn glyphs_of_clients(clients: &[(u32, String)]) -> BlockGlyphs {
         BlockGlyphs::Native
     } else {
         BlockGlyphs::Font
+    }
+}
+
+/// Inside tmux: terminal graphics protocols are safe only when at least one
+/// client is attached, none is under mosh, and all attached clients share the
+/// same `client_termname` (D78).
+fn graphics_of_clients(clients: &[(u32, String)], mosh: bool) -> GraphicsSupport {
+    let uniform = clients.first().is_some_and(|(_, first)| {
+        !first.is_empty() && clients.iter().all(|(_, term)| term == first)
+    });
+    if !mosh && uniform {
+        GraphicsSupport::Direct
+    } else {
+        GraphicsSupport::HalfblocksOnly
     }
 }
 
@@ -318,9 +343,22 @@ mod mosh_tests {
             ]
         );
         assert_eq!(glyphs_of_clients(&kitty), BlockGlyphs::Native);
+        assert_eq!(graphics_of_clients(&kitty, false), GraphicsSupport::Direct);
+        assert_eq!(
+            graphics_of_clients(&kitty, true),
+            GraphicsSupport::HalfblocksOnly
+        );
         let mixed = clients("102 xterm-kitty\n202 xterm-256color\n");
         assert_eq!(glyphs_of_clients(&mixed), BlockGlyphs::Font);
+        assert_eq!(
+            graphics_of_clients(&mixed, false),
+            GraphicsSupport::HalfblocksOnly
+        );
         assert_eq!(glyphs_of_clients(&clients("102\n")), BlockGlyphs::Font);
         assert_eq!(glyphs_of_clients(&[]), BlockGlyphs::Font);
+        assert_eq!(
+            graphics_of_clients(&[], false),
+            GraphicsSupport::HalfblocksOnly
+        );
     }
 }

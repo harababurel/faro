@@ -9,13 +9,15 @@ usage: record.py <out-dir> <scenario> [--width W] [--height H] [--split N]
               [--layout bubbles|irc] [--steps N] [--binary PATH]
 
 <scenario>: mixed (typing, switching, paging, palette, popups, resizes),
-type (typing only), switch (switching and typing) or logo (the logo screen
+type (typing only), switch (switching and typing), logo (the logo screen
 animating while nothing is open: idle spells, resizes across its sizes,
-opening and closing a chat, the palette over it). --split N puts a
-N-column pane to the left of faro (faro on the right). <out-dir> is wiped
-first and holds faro's scratch data dir and config, so nothing touches your
-real ones. Run from the repository root (or set FARO_REPO); the binary
-defaults to target/debug/faro. Then compare with replay.py (AGENTS.md).
+opening and closing a chat, the palette over it) or images (opening chats
+with inline images, scrolling across image boxes, popups and resizes).
+--split N puts a N-column pane to the left of faro (faro on the right).
+<out-dir> is wiped first and holds faro's scratch data dir and config, so
+nothing touches your real ones. Run from the repository root (or set
+FARO_REPO); the binary defaults to target/debug/faro. Then compare with
+replay.py (AGENTS.md).
 """
 import argparse
 import os
@@ -188,7 +190,11 @@ KINDS = {
     "type": ["type"],
     "switch": ["switch", "type"],
     "logo": ["idle"] * 4 + ["openclose", "resize", "tall", "palette", "switch"],
+    "images": ["switch"] * 3 + ["page"] * 3 + ["popup", "resize", "end", "type"],
 }[args.scenario]
+if args.scenario == "images":
+    keys("Enter")
+    time.sleep(0.5)
 for n in range(args.steps):
     step(rng.choice(KINDS))
 keys("C-q")

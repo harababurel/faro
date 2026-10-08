@@ -407,6 +407,7 @@ fn geometry(state: &State) -> Geometry {
         history_rows: vec![],
         palette: None,
         logo_animated: false,
+        images_wanted: vec![],
     }
 }
 

@@ -60,6 +60,10 @@ fn apply(
         if !startup && old.messages.bubble_style != state.config.messages.bubble_style {
             effects.extend(apply_bubble_style(state));
         }
+        if !startup && old.media.inline_images != state.config.media.inline_images {
+            state.env.repaint = true;
+            effects.extend(apply_inline_images(state));
+        }
         if !startup && old.media.auto_download != state.config.media.auto_download {
             effects.extend(selection::queue_auto_downloads(state));
         }
@@ -178,36 +182,43 @@ fn apply_bubble_style(state: &mut State) -> Vec<Effect> {
     check_terminal(state)
 }
 
+/// Following terminal graphics (`auto`) needs a fresh look at the terminal
+/// (D78); the app loop updates `Images` before the next frame.
+fn apply_inline_images(state: &mut State) -> Vec<Effect> {
+    if state.config.media.inline_images != InlineImages::Auto {
+        return vec![];
+    }
+    state.env.emoji.checked_at = None;
+    check_terminal(state)
+}
+
 /// A setting chosen in the palette: applied now and saved to the file.
 pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
     match choice {
         SettingChoice::Colors(colors) => {
             state.config.ui.colors = colors;
-            state.notice = Some(Notice::info(format!(
-                "Drawing with {}",
-                state.colors().name()
-            )));
-            save(state, key::COLORS)
+            let name = state.colors().name();
+            save_with_notice(state, key::COLORS, format!("Drawing with {name}"))
         }
         SettingChoice::Layout(layout) => {
             state.layout = layout;
             state.config.messages.layout = layout;
-            state.notice = Some(Notice::info(match layout {
+            let msg = match layout {
                 MessageLayout::Bubbles => "Using the bubbles layout",
                 MessageLayout::Irc => "Using the IRC layout",
-            }));
-            save(state, key::LAYOUT)
+            };
+            save_with_notice(state, key::LAYOUT, msg)
         }
         SettingChoice::BubbleStyle(style) => {
             state.config.messages.bubble_style = style;
-            state.notice = Some(Notice::info(match style {
+            let msg = match style {
                 BubbleStyle::Auto => "Bubbles: rounded in kitty, bars elsewhere",
                 BubbleStyle::Rounded => "Bubbles have rounded ends",
                 BubbleStyle::Bar => "Bubbles have a bar on the outer side",
                 BubbleStyle::Mixed => "Bubbles have a bar outside and round inside",
-            }));
+            };
             let mut effects = apply_bubble_style(state);
-            effects.extend(save(state, key::BUBBLE_STYLE));
+            effects.extend(save_with_notice(state, key::BUBBLE_STYLE, msg));
             effects
         }
         SettingChoice::Allowlist(on) => curation::set_allowlist_mode(state, on),
@@ -225,62 +236,69 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
         SettingChoice::InlineImages(mode) => {
             state.config.media.inline_images = mode;
             state.env.repaint = true;
-            state.notice = Some(Notice::info(match mode {
+            let msg = match mode {
                 InlineImages::Auto => "Inline images: terminal graphics where supported",
                 InlineImages::Halfblocks => "Inline images: Unicode half-blocks",
                 InlineImages::Off => "Inline images off",
-            }));
-            save(state, key::INLINE_IMAGES)
+            };
+            let mut effects = apply_inline_images(state);
+            effects.extend(save_with_notice(state, key::INLINE_IMAGES, msg));
+            effects
         }
         SettingChoice::AutoDownload(policy) => {
             state.config.media.auto_download = policy;
-            state.notice = Some(Notice::info(match policy {
+            let msg = match policy {
                 AutoDownload::Images => "Auto-download: images and stickers (up to 25 MB)",
                 AutoDownload::All => "Auto-download: all attachments (up to 25 MB)",
                 AutoDownload::Off => "Auto-download off (press d to download)",
-            }));
+            };
             let mut effects = selection::queue_auto_downloads(state);
-            effects.extend(save(state, key::AUTO_DOWNLOAD));
+            effects.extend(save_with_notice(state, key::AUTO_DOWNLOAD, msg));
             effects
         }
         SettingChoice::Mouse(on) => {
             state.config.mouse.enabled = on;
-            state.notice = Some(Notice::info(if on {
+            let msg = if on {
                 "Mouse on"
             } else {
                 "Mouse off: the terminal selects text (Ctrl+P, \"mouse\" turns it back on)"
-            }));
-            save(state, key::MOUSE)
+            };
+            save_with_notice(state, key::MOUSE, msg)
         }
         SettingChoice::Bell(on) => {
             state.config.notifications.bell = on;
-            state.notice = Some(Notice::info(if on {
+            let msg = if on {
                 "Bell on: new messages ring again"
             } else {
                 "Do not disturb: the bell is off"
-            }));
-            save(state, key::BELL)
+            };
+            save_with_notice(state, key::BELL, msg)
         }
         SettingChoice::Title(on) => {
             state.config.notifications.title = on;
-            state.notice = Some(Notice::info(if on {
+            let msg = if on {
                 "The window title shows the unread count"
             } else {
                 "The window title is left to the terminal"
-            }));
-            save(state, key::TITLE)
+            };
+            save_with_notice(state, key::TITLE, msg)
         }
         SettingChoice::ReduceMotion(on) => {
             // The app loop reads it from `state.config` (D61).
             state.config.reduce_motion = on;
-            state.notice = Some(Notice::info(if on {
+            let msg = if on {
                 "Reduce motion: the lighthouse stands still"
             } else {
                 "The lighthouse's beam turns again"
-            }));
-            save(state, key::REDUCE_MOTION)
+            };
+            save_with_notice(state, key::REDUCE_MOTION, msg)
         }
     }
+}
+
+fn save_with_notice(state: &mut State, path: &'static str, text: impl Into<String>) -> Vec<Effect> {
+    state.notice = Some(Notice::info(text));
+    save(state, path)
 }
 
 /// Do not disturb (`Alt+N`, the palette): the bell off, or back on. It's

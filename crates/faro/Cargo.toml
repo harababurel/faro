@@ -19,8 +19,10 @@ faro-core.workspace = true
 faro-presage.workspace = true
 gethostname = "1.0"
 futures-util = "0.3.34"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 jiff = "0.2.38"
 ratatui = { version = "0.30.2", default-features = false, features = ["crossterm", "layout-cache", "underline-color"] }
+ratatui-image = { version = "11.1", default-features = false, features = ["crossterm"] }
 tokio = { version = "1.53.2", features = ["rt", "macros", "process", "signal", "sync", "time", "fs", "io-util"] }
 tracing = "0.1.44"
 tracing-appender = "0.2.5"

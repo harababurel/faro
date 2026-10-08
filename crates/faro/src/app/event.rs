@@ -51,6 +51,8 @@ pub enum AppEvent {
     },
     /// Copying a downloaded attachment to `~/Downloads/` finished (D75).
     SavedToDownloads(Result<PathBuf, String>),
+    /// An inline image finished decoding and slicing off the UI thread (D79).
+    ImageDecoded(super::images::DecodedImage),
     /// Opening a link or attachment failed; the text is safe to show.
     OpenFailed(String),
     /// What's between faro and the user: mosh (D47), and who draws block

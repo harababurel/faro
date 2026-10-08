@@ -4,14 +4,19 @@
 use crossterm::event::Event;
 
 use super::*;
-use crate::app::state::{BlockGlyphs, EmojiMode, EmojiSetting};
+use crate::app::state::{BlockGlyphs, EmojiMode, EmojiSetting, GraphicsSupport};
 use crate::app::system::Terminal;
-use faro_core::config::BubbleStyle;
+use faro_core::config::{BubbleStyle, InlineImages};
 
 fn checked(mosh: bool) -> AppEvent {
     AppEvent::TerminalChecked(Terminal {
         mosh,
         glyphs: BlockGlyphs::Font,
+        graphics: if mosh {
+            GraphicsSupport::HalfblocksOnly
+        } else {
+            GraphicsSupport::Direct
+        },
     })
 }
 
@@ -58,6 +63,8 @@ fn a_chosen_mode_is_kept() {
         from_cli: true,
     };
     state.config.messages.bubble_style = BubbleStyle::Bar;
+    state.config.media.inline_images = InlineImages::Off;
+    state.env.graphics = GraphicsSupport::HalfblocksOnly;
     update(&mut state, checked(true));
     assert_eq!(state.env.emoji.mode, EmojiMode::Full);
     assert!(!state.env.repaint);
@@ -103,6 +110,7 @@ fn an_auto_bubble_style_follows_kitty() {
     let kitty = Terminal {
         mosh: false,
         glyphs: BlockGlyphs::Native,
+        graphics: GraphicsSupport::Direct,
     };
     update(&mut state, AppEvent::TerminalChecked(kitty));
     assert_eq!(state.env.glyphs, BlockGlyphs::Native);

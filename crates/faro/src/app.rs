@@ -22,6 +22,7 @@ use crate::ui::{self, View};
 pub mod commands;
 mod effects;
 pub mod event;
+pub mod images;
 pub mod input;
 pub mod keymap;
 pub mod palette;
@@ -146,6 +147,8 @@ pub async fn run<B: Backend + 'static>(
     }
     dispatch(update::configure(&mut state, settings, problems));
     let mut tui = Tui::enter(state.config.mouse.enabled).context("setting up the terminal")?;
+    let mut images =
+        images::Images::detect(state.config.media.inline_images, state.env.graphics).await;
     let frame_log = FrameLog::from_env().map(|(log, task)| {
         tui.log_frames(log);
         task
@@ -164,7 +167,8 @@ pub async fn run<B: Backend + 'static>(
         }
         if dirty && last_draw.is_none_or(|t| t.elapsed() >= FRAME) {
             let logo = logo_time(&mut logo_since, &state);
-            let geometry = draw(&mut tui, &mut state, &mut themes, &tz, logo)?;
+            let geometry = draw(&mut tui, &mut state, &mut themes, &mut images, &tz, logo)?;
+            images.spawn_wanted(&geometry.images_wanted, &router.results);
             last_draw = Some(Instant::now());
             dirty = false;
             // Same picture; only bookkeeping (and maybe loading older messages).
@@ -199,6 +203,10 @@ pub async fn run<B: Backend + 'static>(
             _ = hangup.recv() => AppEvent::Shutdown,
         };
         dirty |= affects_view(&event);
+        if let AppEvent::ImageDecoded(decoded) = event {
+            images.insert(decoded);
+            continue;
+        }
         dispatch(update::update(&mut state, event));
     }
 
@@ -207,6 +215,17 @@ pub async fn run<B: Backend + 'static>(
         finish(task, "frame log").await;
     }
     drop(watch);
+    shutdown(router, command_task, worker, config_task).await;
+    Ok(())
+}
+
+/// Abort in-flight backend commands and wait for store and config writes to finish.
+async fn shutdown(
+    router: Router,
+    command_task: tokio::task::JoinHandle<()>,
+    worker: tokio::task::JoinHandle<()>,
+    config_task: tokio::task::JoinHandle<()>,
+) {
     // A send still in flight is abandoned; the store marks it failed on the
     // next start (`Store::fail_unsent`).
     command_task.abort();
@@ -219,7 +238,6 @@ pub async fn run<B: Backend + 'static>(
     // Same for a setting changed just before quitting.
     drop(config);
     finish(config_task, "config writer").await;
-    Ok(())
 }
 
 /// What faro knows about the terminal before the first frame.
@@ -227,6 +245,7 @@ fn sense_terminal(state: &mut State, detected: state::Detected) {
     state.env.over_ssh = system::over_ssh();
     state.env.emoji = detected.emoji;
     state.env.glyphs = detected.glyphs;
+    state.env.graphics = detected.graphics;
     state.env.colors = ColorDepth::detect(|var| std::env::var(var).ok());
     tracing::info!(colors = ?state.env.colors, "colour depth detected");
 }
@@ -311,9 +330,11 @@ fn draw(
     tui: &mut Tui,
     state: &mut State,
     themes: &mut Themes,
+    images: &mut images::Images,
     tz: &jiff::tz::TimeZone,
     logo_time: Option<f64>,
 ) -> anyhow::Result<state::Geometry> {
+    images.prepare_frame(state);
     // Unknown names were reported when the config was read.
     let theme = themes.get(state.theme_name(), state.colors(), &state.user_themes);
     let view = View {
@@ -321,6 +342,7 @@ fn draw(
         tz,
         now: jiff::Timestamp::now(),
         logo_time,
+        images,
     };
     let mut geometry = state::Geometry::default();
     if std::mem::take(&mut state.env.repaint) {
@@ -374,6 +396,7 @@ fn affects_view(event: &AppEvent) -> bool {
         | AppEvent::ReactResult { .. }
         | AppEvent::Fetched { .. }
         | AppEvent::SavedToDownloads(_)
+        | AppEvent::ImageDecoded(_)
         | AppEvent::OpenFailed(_)
         | AppEvent::TerminalChecked { .. }
         | AppEvent::ConfigRead(_)

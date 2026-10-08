@@ -19,7 +19,7 @@ use crate::app::state::{
 /// Shortcut keys of `MUTE_CHOICES`.
 const MUTE_KEYS: [&str; 5] = ["1", "2", "3", "4", "5"];
 
-pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &Geometry) {
+pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &mut Geometry) {
     let Some(popup) = &state.popup else {
         return;
     };
@@ -86,7 +86,7 @@ fn image_viewer(
     state: &State,
     target: MessageRef,
     index: usize,
-    geometry: &Geometry,
+    geometry: &mut Geometry,
     view: &View<'_>,
 ) {
     let Some(attachment) = state
@@ -116,6 +116,39 @@ fn image_viewer(
     };
     let title = format!("{name}{dims}");
     let inner = frame_box(frame, rect, &title, view);
+    let info_rows = 2u16.min(inner.height);
+    let img_avail_h = inner.height.saturating_sub(info_rows);
+    if img_avail_h > 0 && inner.width > 0 {
+        let size = match (attachment.width, attachment.height) {
+            (Some(w), Some(h)) if w > 0 && h > 0 => crate::app::images::box_size(
+                w,
+                h,
+                view.images.font_size(),
+                inner.width,
+                img_avail_h,
+            ),
+            _ => ratatui::layout::Size::new(inner.width, img_avail_h),
+        };
+        let img_x = (inner.width.saturating_sub(size.width)) / 2;
+        let img_y = i16::try_from((img_avail_h.saturating_sub(size.height)) / 2).unwrap_or(0);
+        let img_clip = Rect {
+            height: img_avail_h,
+            ..inner
+        };
+        super::render_image_box(
+            frame,
+            state,
+            view,
+            geometry,
+            img_clip,
+            img_x,
+            img_y,
+            size.width,
+            size.height,
+            attachment.local_path(),
+            state.palette.is_some(),
+        );
+    }
     let path_line = attachment
         .local_path()
         .map_or_else(String::new, |p| p.display().to_string());
@@ -129,7 +162,12 @@ fn image_viewer(
             view.theme.muted(),
         )),
     ];
-    frame.render_widget(Paragraph::new(info), inner);
+    let info_area = Rect {
+        y: inner.y + img_avail_h,
+        height: info_rows,
+        ..inner
+    };
+    frame.render_widget(Paragraph::new(info), info_area);
 }
 
 /// In the message area, next to the rows of the message `target` (so the

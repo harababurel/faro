@@ -128,6 +128,31 @@ fn render_history(
     if let Some(selected) = selected {
         highlight(frame, outer, &rows, selected, view);
     }
+    let image_clip = if window.scroll.is_some() {
+        Rect {
+            height: area.height.saturating_sub(1),
+            ..area
+        }
+    } else {
+        area
+    };
+    let overlay_open = state.popup.is_some() || state.palette.is_some();
+    let blank_dy = i16::try_from(blank).unwrap_or(0);
+    for slot in &window.images {
+        super::render_image_box(
+            frame,
+            state,
+            view,
+            geometry,
+            image_clip,
+            slot.x,
+            slot.y.saturating_add(blank_dy),
+            slot.width,
+            slot.height,
+            slot.path.as_deref(),
+            overlay_open,
+        );
+    }
     geometry.history_rows = rows;
     if window.scroll.is_some() {
         render_more_below(frame, area, open, view);

@@ -127,7 +127,7 @@ pub fn finish(buffer: &mut Buffer) -> usize {
             let Some(cell) = buffer.cell((x, y)) else {
                 continue;
             };
-            if !needs_rewrite(cell.symbol(), mode) {
+            if cell.diff_option != CellDiffOption::None || !needs_rewrite(cell.symbol(), mode) {
                 continue;
             }
             let cells = cell.symbol().width().max(1);
@@ -436,6 +436,14 @@ fn separate_joining_cells(buffer: &mut Buffer) -> usize {
         let mut left: Option<u16> = None;
         let mut x = area.left();
         while x < area.right() {
+            if buffer
+                .cell((x, y))
+                .is_some_and(|c| c.diff_option != CellDiffOption::None)
+            {
+                left = None;
+                x = x.saturating_add(1);
+                continue;
+            }
             let width = buffer
                 .cell((x, y))
                 .map_or(1, |cell| u16::try_from(cell.symbol().width()).unwrap_or(1));
@@ -472,6 +480,9 @@ fn repair_cut_wide(buffer: &mut Buffer) {
             let Some(cell) = buffer.cell((x, y)) else {
                 continue;
             };
+            if cell.diff_option != CellDiffOption::None {
+                continue;
+            }
             let width = u16::try_from(cell.symbol().width()).unwrap_or(1);
             if width < 2 {
                 continue;
@@ -495,6 +506,9 @@ fn repair_cut_wide(buffer: &mut Buffer) {
 /// and counts shift, and the row spills into the next one.
 fn pin_wide_cells(buffer: &mut Buffer) {
     for cell in &mut buffer.content {
+        if cell.diff_option != CellDiffOption::None {
+            continue;
+        }
         let width = u16::try_from(cell.symbol().width()).unwrap_or(1);
         if width > 1
             && let Some(width) = NonZeroU16::new(width)
@@ -718,5 +732,23 @@ mod tests {
         buffer.set_string(0, 0, "😂", Style::new().bg(Color::Red));
         finish(&mut buffer);
         assert_eq!(buffer[(0, 0)].symbol(), "😂");
+    }
+
+    #[test]
+    fn graphics_protocol_cells_are_left_alone() {
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 4, 1));
+        let unit = CellDiffOption::ForcedWidth(NonZeroU16::MIN);
+        buffer[(0, 0)]
+            .set_symbol("\x1b_Ga=T,f=32;AAAA\x1b\\\u{10EEEE}")
+            .diff_option = unit;
+        buffer[(1, 0)].set_symbol("\u{10EEEE}").diff_option = unit;
+        buffer[(2, 0)].diff_option = CellDiffOption::Skip;
+        finish(&mut buffer);
+        assert_eq!(
+            buffer[(0, 0)].symbol(),
+            "\x1b_Ga=T,f=32;AAAA\x1b\\\u{10EEEE}"
+        );
+        assert_eq!(buffer[(0, 0)].diff_option, unit);
+        assert_eq!(buffer[(2, 0)].diff_option, CellDiffOption::Skip);
     }
 }

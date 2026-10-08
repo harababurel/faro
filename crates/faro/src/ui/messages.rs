@@ -46,6 +46,30 @@ impl Columns {
     }
 }
 
+/// Where an inline image box sits inside the message list (D78).
+#[derive(Debug, Clone)]
+pub struct ImageSlot {
+    /// Column offset from the left edge of the history area.
+    pub x: u16,
+    /// Row offset from the top of `Window::lines` (negative when the top of
+    /// the box is scrolled above the visible window).
+    pub y: i16,
+    /// Width of the box in cells.
+    pub width: u16,
+    /// Height of the box in rows.
+    pub height: u16,
+    /// Local file path once downloaded, or `None` while downloading.
+    pub path: Option<std::path::PathBuf>,
+}
+
+/// An inline image box reserved inside `content` at line index `row`.
+pub(super) struct PendingImage {
+    pub row: usize,
+    pub width: u16,
+    pub height: u16,
+    pub path: Option<std::path::PathBuf>,
+}
+
 /// What the message area shows.
 pub struct Window {
     /// At most `height` lines, oldest first.
@@ -56,6 +80,8 @@ pub struct Window {
     pub at_top: bool,
     /// The message each line belongs to (`None` for date and unread rules).
     pub rows: Vec<Option<MessageRef>>,
+    /// Inline image boxes that overlap this window (D78).
+    pub images: Vec<ImageSlot>,
 }
 
 /// One message's lines, with the rules above it.
@@ -64,6 +90,7 @@ struct Block {
     /// How many of the first lines are rules (date, unread).
     rules: usize,
     message: Option<MessageRef>,
+    images: Vec<ImageSlot>,
 }
 
 impl Block {
@@ -130,15 +157,25 @@ fn newest(context: &Context<'_>, height: usize) -> Window {
     }
     blocks.reverse();
     let mut rows: Vec<Option<MessageRef>> = blocks.iter().flat_map(Block::rows).collect();
-    let mut lines: Vec<Line<'static>> = blocks.into_iter().flat_map(|b| b.lines).collect();
+    let mut lines: Vec<Line<'static>> = Vec::with_capacity(total);
+    let mut raw_images: Vec<(usize, ImageSlot)> = Vec::new();
+    for b in blocks {
+        let start = lines.len();
+        for slot in b.images {
+            raw_images.push((start, slot));
+        }
+        lines.extend(b.lines);
+    }
     let excess = lines.len().saturating_sub(height);
     lines.drain(..excess);
     rows.drain(..excess);
+    let images = visible_slots(raw_images, excess, height);
     Window {
         lines,
         scroll: None,
         at_top: built_all && excess == 0,
         rows,
+        images,
     }
 }
 
@@ -169,6 +206,7 @@ fn scrolled(
             scroll: None,
             at_top: true,
             rows: Vec::new(),
+            images: Vec::new(),
         };
     };
     let lowest_top_fill = height.min(total).saturating_sub(1);
@@ -211,6 +249,14 @@ fn scrolled(
         .flatten();
     let top = (bottom + 1).saturating_sub(height);
     let shown = bottom + 1 - top;
+    let mut raw_images: Vec<(usize, ImageSlot)> = Vec::new();
+    for (b, end) in blocks.iter().zip(&ends) {
+        let start = end - b.lines.len();
+        for slot in &b.images {
+            raw_images.push((start, slot.clone()));
+        }
+    }
+    let images = visible_slots(raw_images, top, shown);
     let rows = blocks
         .iter()
         .flat_map(Block::rows)
@@ -228,7 +274,28 @@ fn scrolled(
         scroll,
         at_top: top == 0,
         rows,
+        images,
     }
+}
+
+fn visible_slots(
+    raw: Vec<(usize, ImageSlot)>,
+    window_top: usize,
+    window_height: usize,
+) -> Vec<ImageSlot> {
+    let top = window_top.cast_signed();
+    let win_h = window_height.cast_signed();
+    raw.into_iter()
+        .filter_map(|(block_start, mut slot)| {
+            let y = block_start.cast_signed() + isize::from(slot.y) - top;
+            let bottom = y + usize::from(slot.height).cast_signed();
+            if bottom <= 0 || y >= win_h {
+                return None;
+            }
+            slot.y = i16::try_from(y).ok()?;
+            Some(slot)
+        })
+        .collect()
 }
 
 /// Message `i` with the date rule and unread rule that go above it.
@@ -242,11 +309,13 @@ fn block(context: &Context<'_>, i: usize) -> Block {
         today,
     } = context;
     let mut block = Vec::new();
+    let mut images = Vec::new();
     let Some(message) = open.messages.get(i) else {
         return Block {
             lines: block,
             rules: 0,
             message: None,
+            images,
         };
     };
     let previous = i.checked_sub(1).and_then(|p| open.messages.get(p));
@@ -271,7 +340,15 @@ fn block(context: &Context<'_>, i: usize) -> Block {
     let rules = match state.message_layout() {
         MessageLayout::Irc => {
             let rules = block.len();
-            render_message(state, message, !continued, columns, view, &mut block);
+            render_message(
+                state,
+                message,
+                !continued,
+                columns,
+                view,
+                &mut block,
+                &mut images,
+            );
             rules
         }
         MessageLayout::Bubbles => {
@@ -281,7 +358,15 @@ fn block(context: &Context<'_>, i: usize) -> Block {
                 block.push(Line::default());
             }
             let rules = block.len();
-            bubbles::render(state, message, !continued, *width, view, &mut block);
+            bubbles::render(
+                state,
+                message,
+                !continued,
+                *width,
+                view,
+                &mut block,
+                &mut images,
+            );
             rules
         }
     };
@@ -289,6 +374,7 @@ fn block(context: &Context<'_>, i: usize) -> Block {
         lines: block,
         rules,
         message: Some(message.reference()),
+        images,
     }
 }
 
@@ -299,6 +385,7 @@ fn render_message(
     columns: &Columns,
     view: &View<'_>,
     out: &mut Vec<Line<'static>>,
+    images: &mut Vec<ImageSlot>,
 ) {
     let theme = view.theme;
     let indent = " ".repeat(columns.text_start);
@@ -319,12 +406,13 @@ fn render_message(
         Span::styled(name, name_style),
         Span::raw(" "),
     ];
-    let mut body = content(state, message, columns.text_width, view);
+    let (mut body, pending_images) = content(state, message, columns.text_width, view);
     append_suffix(&mut body, suffix(message, view), columns.text_width);
     if !message.reactions.is_empty() {
         body.push(vec![Span::styled(reactions(message), theme.muted())]);
     }
 
+    let body_start = out.len();
     for (i, spans) in body.into_iter().enumerate() {
         let mut line = if i == 0 {
             std::mem::take(&mut prefix)
@@ -334,18 +422,32 @@ fn render_message(
         line.extend(spans);
         out.push(Line::from(line));
     }
+    let x = u16::try_from(columns.text_start).unwrap_or(0);
+    for pending in pending_images {
+        if let Ok(y) = i16::try_from(body_start + pending.row) {
+            images.push(ImageSlot {
+                x,
+                y,
+                width: pending.width,
+                height: pending.height,
+                path: pending.path,
+            });
+        }
+    }
 }
 
 /// What a message says, as lines of at most `max` cells: the quoted
-/// message, the text (or the deleted placeholder) and attachments.
+/// message, the text (or the deleted placeholder) and attachments, plus
+/// any inline image boxes reserved above attachment lines (D78, D79).
 pub(super) fn content(
     state: &State,
     message: &Message,
     max: usize,
     view: &View<'_>,
-) -> Vec<Vec<Span<'static>>> {
+) -> (Vec<Vec<Span<'static>>>, Vec<PendingImage>) {
     let theme = view.theme;
     let mut body: Vec<Vec<Span<'static>>> = Vec::new();
+    let mut pending_images: Vec<PendingImage> = Vec::new();
     if let Some(quote) = &message.quote {
         let who = state.person_name(quote.target.sender);
         let preview = quote
@@ -369,6 +471,46 @@ pub(super) fn content(
     }
     let msg_ref = message.reference();
     for (index, attachment) in message.attachments.iter().enumerate() {
+        let show_box = view.images.active_protocol().is_some()
+            && attachment.is_image()
+            && match &attachment.status {
+                AttachmentStatus::Downloaded(_) => true,
+                AttachmentStatus::Remote | AttachmentStatus::Failed => {
+                    state.is_downloading(msg_ref, index)
+                }
+            };
+        if show_box
+            && let (Some(w), Some(h)) = (attachment.width, attachment.height)
+            && w > 0
+            && h > 0
+        {
+            let is_sticker = attachment.file_name.is_none()
+                && (attachment.content_type == "image/webp"
+                    || message
+                        .body
+                        .as_ref()
+                        .is_some_and(|b| b.expose().starts_with("[sticker]")));
+            let max_rows = if is_sticker {
+                crate::app::images::MAX_STICKER_ROWS
+            } else {
+                crate::app::images::MAX_IMAGE_ROWS
+            };
+            let max_cols = crate::app::images::MAX_IMAGE_COLS
+                .min(u16::try_from(max).unwrap_or(u16::MAX))
+                .max(1);
+            let size =
+                crate::app::images::box_size(w, h, view.images.font_size(), max_cols, max_rows);
+            pending_images.push(PendingImage {
+                row: body.len(),
+                width: size.width,
+                height: size.height,
+                path: attachment.local_path().map(std::path::Path::to_owned),
+            });
+            let pad = " ".repeat(usize::from(size.width));
+            for _ in 0..size.height {
+                body.push(vec![Span::raw(pad.clone())]);
+            }
+        }
         let name = attachment.file_name.as_deref().map_or_else(
             || attachment.content_type.clone(),
             |n| sanitize(n).into_owned(),
@@ -393,7 +535,7 @@ pub(super) fn content(
     if body.is_empty() {
         body.push(vec![Span::styled("(empty message)", theme.muted())]);
     }
-    body
+    (body, pending_images)
 }
 
 /// A message's text wrapped to `max` cells, mentions drawn as `@Name` in

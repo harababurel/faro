@@ -25,7 +25,7 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 
 use super::View;
-use super::messages::{content, delivery, format_time, reactions};
+use super::messages::{ImageSlot, content, delivery, format_time, reactions};
 use super::text::{sanitize, truncate, width};
 use crate::app::state::{BlockGlyphs, State};
 use crate::theme::Theme;
@@ -84,6 +84,7 @@ pub(super) fn render(
     pane: usize,
     view: &View<'_>,
     out: &mut Vec<Line<'static>>,
+    images: &mut Vec<ImageSlot>,
 ) {
     let theme = view.theme;
     let own = matches!(message.direction, Direction::Outgoing(_));
@@ -104,12 +105,8 @@ pub(super) fn render(
         ]));
     }
 
-    let (lines, inner) = with_meta(
-        content(state, message, max_inner, view),
-        message,
-        view,
-        max_inner,
-    );
+    let (content_lines, pending_images) = content(state, message, max_inner, view);
+    let (lines, inner) = with_meta(content_lines, message, view, max_inner);
     let colour = if own {
         theme.bubble_own
     } else {
@@ -157,6 +154,7 @@ pub(super) fn render(
     if edges {
         out.push(edge(margin, inner, square(TOP), colour));
     }
+    let body_start = out.len();
     for spans in lines {
         let fill = inner.saturating_sub(spans_width(&spans));
         let mut line = vec![Span::raw(" ".repeat(margin)), left.clone()];
@@ -164,6 +162,18 @@ pub(super) fn render(
         line.push(Span::styled(" ".repeat(fill), bg));
         line.push(right.clone());
         out.push(Line::from(line));
+    }
+    let x = u16::try_from(margin + 1).unwrap_or(0);
+    for pending in pending_images {
+        if let Ok(y) = i16::try_from(body_start + pending.row) {
+            images.push(ImageSlot {
+                x,
+                y,
+                width: pending.width,
+                height: pending.height,
+                path: pending.path,
+            });
+        }
     }
     if edges {
         out.push(edge(margin, inner, square(BOTTOM), colour));

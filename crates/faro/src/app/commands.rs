@@ -141,13 +141,27 @@ async fn fetch<B: Backend>(
         &attachment.content_type,
     );
     let path = attachments_dir.join(name);
-    let path = tokio::task::spawn_blocking(move || {
+    let needs_dims =
+        attachment.is_image() && (attachment.width.is_none() || attachment.height.is_none());
+    let (path, dims) = tokio::task::spawn_blocking(move || {
+        let dims = if needs_dims {
+            image::ImageReader::new(std::io::Cursor::new(&bytes))
+                .with_guessed_format()
+                .ok()
+                .and_then(|r| r.into_dimensions().ok())
+        } else {
+            None
+        };
         paths::write_private_atomic(&path, &bytes)
-            .map(|()| path)
+            .map(|()| (path, dims))
             .map_err(|e| BackendError::Storage(format!("writing attachment: {e}")))
     })
     .await
     .map_err(|e| BackendError::Storage(format!("attachment writer task: {e}")))??;
+    if let Some((w, h)) = dims.filter(|(w, h)| *w > 0 && *h > 0) {
+        attachment.width = Some(w);
+        attachment.height = Some(h);
+    }
     attachment.size = Some(size);
     attachment.status = AttachmentStatus::Downloaded(path);
     Ok(attachment)

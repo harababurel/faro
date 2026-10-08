@@ -22,6 +22,18 @@ fn draw(state: &State, width: u16, height: u16) -> Buffer {
 }
 
 fn draw_with(state: &State, width: u16, height: u16, theme: &Theme) -> Buffer {
+    let mut images = crate::app::images::Images::halfblocks();
+    images.prepare_frame(state);
+    draw_with_images(state, width, height, theme, &images).0
+}
+
+fn draw_with_images(
+    state: &State,
+    width: u16,
+    height: u16,
+    theme: &Theme,
+    images: &crate::app::images::Images,
+) -> (Buffer, crate::app::state::Geometry) {
     let tz = TimeZone::UTC;
     let now = jiff::Timestamp::from_millisecond(i64::try_from(NOW_MS).unwrap()).unwrap();
     let view = View {
@@ -29,14 +41,16 @@ fn draw_with(state: &State, width: u16, height: u16, theme: &Theme) -> Buffer {
         tz: &tz,
         now,
         logo_time: None,
+        images,
     };
+    let mut geometry = crate::app::state::Geometry::default();
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
     terminal
         .draw(|frame| {
-            render(frame, state, &view);
+            geometry = render(frame, state, &view);
         })
         .unwrap();
-    terminal.backend().buffer().clone()
+    (terminal.backend().buffer().clone(), geometry)
 }
 
 fn snapshot(buffer: &Buffer) -> String {
@@ -256,11 +270,14 @@ fn window_text(state: &State, height: usize) -> (Vec<String>, super::messages::W
     let theme = Theme::default();
     let tz = TimeZone::UTC;
     let now = jiff::Timestamp::from_millisecond(i64::try_from(NOW_MS).unwrap()).unwrap();
+    let mut images = crate::app::images::Images::halfblocks();
+    images.prepare_frame(state);
     let view = View {
         theme: &theme,
         tz: &tz,
         now,
         logo_time: None,
+        images: &images,
     };
     let open = state.open.as_ref().unwrap();
     let window = super::messages::window(state, open, &view, 60, height);
@@ -517,11 +534,13 @@ fn palette_reports_its_rows_for_the_mouse() {
     let theme = Theme::default();
     let tz = TimeZone::UTC;
     let now = jiff::Timestamp::from_millisecond(i64::try_from(NOW_MS).unwrap()).unwrap();
+    let images = crate::app::images::Images::halfblocks();
     let view = View {
         theme: &theme,
         tz: &tz,
         now,
         logo_time: None,
+        images: &images,
     };
     let mut terminal = Terminal::new(TestBackend::new(100, 26)).unwrap();
     let mut geometry = None;
@@ -995,11 +1014,13 @@ fn draw_logo(
 ) -> (Buffer, crate::app::state::Geometry) {
     let tz = TimeZone::UTC;
     let now = jiff::Timestamp::from_millisecond(i64::try_from(NOW_MS).unwrap()).unwrap();
+    let images = crate::app::images::Images::halfblocks();
     let view = View {
         theme,
         tz: &tz,
         now,
         logo_time,
+        images: &images,
     };
     let mut terminal = Terminal::new(TestBackend::new(size.0, size.1)).unwrap();
     let mut geometry = crate::app::state::Geometry::default();
@@ -1174,4 +1195,138 @@ fn mentions_are_names_in_the_accent_colour_and_ours_stand_out() {
         assert!(us.modifier.contains(Modifier::REVERSED));
         assert!(!find("the wall").modifier.contains(Modifier::BOLD));
     }
+}
+
+// --- Inline images and image viewer (M9, D78–D79) ---
+
+#[test]
+fn inline_images_show_a_placeholder_then_draw_halfblocks_and_map_to_256_colours() {
+    use std::path::PathBuf;
+
+    use faro_core::domain::AttachmentStatus;
+    use ratatui::layout::Size;
+    use ratatui::style::Color;
+    use ratatui_image::Resize;
+    use ratatui_image::picker::{Picker, ProtocolType};
+    use ratatui_image::sliced::SlicedProtocol;
+
+    use crate::app::images::{DecodedImage, Images};
+    use crate::theme::ColorDepth;
+
+    let path = PathBuf::from("/tmp/wall.jpg");
+    let mut state = loaded_state();
+    let att = state
+        .open
+        .as_mut()
+        .unwrap()
+        .messages
+        .iter_mut()
+        .find_map(|m| m.attachments.first_mut())
+        .unwrap();
+    att.width = Some(400);
+    att.height = Some(200);
+    att.status = AttachmentStatus::Downloaded(path.clone());
+
+    let mut images = Images::halfblocks();
+    images.prepare_frame(&state);
+    let (buffer, geometry) = draw_with_images(&state, 100, 30, &Theme::default(), &images);
+    let text = snapshot(&buffer);
+    assert!(text.contains("loading image…"), "{text}");
+    assert_eq!(geometry.images_wanted.len(), 1);
+    let key = geometry.images_wanted[0].clone();
+    assert_eq!(key.path, path);
+    assert_eq!(key.protocol, ProtocolType::Halfblocks);
+
+    let dyn_img = image::DynamicImage::ImageRgba8(image::RgbaImage::from_fn(400, 200, |_, y| {
+        if (y / 10).is_multiple_of(2) {
+            image::Rgba([200, 60, 40, 255])
+        } else {
+            image::Rgba([40, 120, 200, 255])
+        }
+    }));
+    let sliced = SlicedProtocol::new_with_resize(
+        &Picker::halfblocks(),
+        dyn_img,
+        Size::new(key.width, key.height),
+        Resize::Fit(None),
+    )
+    .unwrap();
+    images.insert(DecodedImage {
+        key,
+        generation: 0,
+        protocol: Some(sliced),
+    });
+
+    let (buffer, geometry) = draw_with_images(&state, 100, 30, &Theme::default(), &images);
+    let text = snapshot(&buffer);
+    assert!(!text.contains("loading image…"), "{text}");
+    assert_eq!(
+        geometry.images_wanted,
+        [] as [crate::app::images::ImageKey; 0]
+    );
+    assert!(
+        buffer
+            .content()
+            .iter()
+            .any(|c| (c.symbol() == "▀" || c.symbol() == "▄")
+                && matches!(c.fg, Color::Rgb(..))
+                && matches!(c.bg, Color::Rgb(..))),
+        "expected truecolor halfblocks:\n{text}"
+    );
+
+    // 256-colour mode maps halfblock RGB cells to indexed colours.
+    state.config.ui.colors = faro_core::config::ColorChoice::Colors256;
+    images.prepare_frame(&state);
+    let theme_256 = Theme::default().for_depth(ColorDepth::Indexed256);
+    let (buffer_256, _) = draw_with_images(&state, 100, 30, &theme_256, &images);
+    assert!(
+        buffer_256
+            .content()
+            .iter()
+            .all(|c| !matches!(c.fg, Color::Rgb(..)) && !matches!(c.bg, Color::Rgb(..))),
+        "expected no RGB cells in 256-colour mode"
+    );
+    assert!(
+        buffer_256
+            .content()
+            .iter()
+            .any(|c| c.symbol() == "▀" || c.symbol() == "▄")
+    );
+}
+
+#[test]
+fn image_viewer_popup_draws_over_the_screen() {
+    use std::path::PathBuf;
+
+    use faro_core::domain::AttachmentStatus;
+
+    use crate::app::images::Images;
+    use crate::app::state::Popup;
+
+    let mut state = loaded_state();
+    let path = PathBuf::from("/tmp/wall.jpg");
+    let target = {
+        let msg = state
+            .open
+            .as_mut()
+            .unwrap()
+            .messages
+            .iter_mut()
+            .find(|m| !m.attachments.is_empty())
+            .unwrap();
+        let att = &mut msg.attachments[0];
+        att.width = Some(800);
+        att.height = Some(600);
+        att.status = AttachmentStatus::Downloaded(path.clone());
+        msg.reference()
+    };
+    state.popup = Some(Popup::ImageViewer { target, index: 0 });
+    let mut images = Images::halfblocks();
+    images.prepare_frame(&state);
+    let (buffer, geometry) = draw_with_images(&state, 100, 30, &Theme::default(), &images);
+    let text = snapshot(&buffer);
+    assert!(text.contains("wall.jpg"), "{text}");
+    assert!(text.contains("800×600"), "{text}");
+    // Both the message pane and the popup request their respective box sizes.
+    assert!(geometry.images_wanted.iter().any(|k| k.path == path));
 }
