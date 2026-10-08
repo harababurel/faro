@@ -83,6 +83,14 @@ async fn execute(store: &Store, effect: Effect) -> Result<Option<AppEvent>, Stor
             store.apply(*event).await?;
             None
         }
+        Effect::SaveAttachment {
+            message,
+            index,
+            attachment,
+        } => {
+            store.set_attachment(message, index, attachment).await?;
+            None
+        }
         Effect::SaveConversationState(conversation, state) => {
             store.set_conversation_state(conversation, *state).await?;
             None
@@ -108,6 +116,8 @@ async fn execute(store: &Store, effect: Effect) -> Result<Option<AppEvent>, Stor
         Effect::Backend(_)
         | Effect::Copy(_)
         | Effect::OpenUrl(_)
+        | Effect::OpenFile(_)
+        | Effect::SaveToDownloads { .. }
         | Effect::CheckTerminal
         | Effect::Bell
         | Effect::SaveSetting(_) => {

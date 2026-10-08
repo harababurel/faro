@@ -220,6 +220,11 @@ impl AttachmentRef {
             AttachmentStatus::Remote | AttachmentStatus::Failed => None,
         }
     }
+
+    /// Whether the attachment has been downloaded to disk.
+    pub fn is_downloaded(&self) -> bool {
+        self.local_path().is_some()
+    }
 }
 
 /// Whether faro has an attachment's content (D75). "Downloading" is only

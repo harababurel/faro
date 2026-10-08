@@ -115,6 +115,7 @@ pub async fn run<B: Backend + 'static>(
 ) -> anyhow::Result<()> {
     let Startup {
         path: config_path,
+        attachments_dir,
         config: settings,
         mut problems,
         themes: theme_files,
@@ -123,7 +124,7 @@ pub async fn run<B: Backend + 'static>(
     let mut hangup = signal(SignalKind::hangup()).context("listening for SIGHUP")?;
     let (results_tx, mut results) = mpsc::unbounded_channel();
     let (effects, worker) = effects::spawn(store, results_tx.clone());
-    let (commands, command_task) = commands::spawn(backend, results_tx.clone());
+    let (commands, command_task) = commands::spawn(backend, attachments_dir, results_tx.clone());
     let (config_writer, config_task) =
         config::spawn_writer(config_path.clone(), results_tx.clone());
     // Hot reload (D48); without it, faro still works with what it read.
@@ -138,7 +139,6 @@ pub async fn run<B: Backend + 'static>(
 
     let mut state = initial_state(directory);
     sense_terminal(&mut state, detected);
-    // Before the config: its theme may be one of them.
     for problem in state.user_themes.load(theme_files) {
         problems.push(faro_core::config::Problem::warning(format!(
             "themes/{problem}"
@@ -254,6 +254,23 @@ impl Router {
                     system::open_url(url, self.results.clone());
                     true
                 }
+                Effect::OpenFile(path) => {
+                    system::open_file(path, self.results.clone());
+                    true
+                }
+                Effect::SaveToDownloads {
+                    source,
+                    file_name,
+                    content_type,
+                } => {
+                    system::save_to_downloads(
+                        source,
+                        file_name,
+                        content_type,
+                        self.results.clone(),
+                    );
+                    true
+                }
                 Effect::CheckTerminal => {
                     system::check_terminal(self.results.clone());
                     true
@@ -267,6 +284,7 @@ impl Router {
                 | Effect::LoadMessages(_)
                 | Effect::LoadOlder { .. }
                 | Effect::Persist(_)
+                | Effect::SaveAttachment { .. }
                 | Effect::MarkRead(_)
                 | Effect::ReadElsewhere(_)
                 | Effect::SaveConversationState(..)
@@ -354,6 +372,8 @@ fn affects_view(event: &AppEvent) -> bool {
         | AppEvent::OlderLoaded { .. }
         | AppEvent::SendResult { .. }
         | AppEvent::ReactResult { .. }
+        | AppEvent::Fetched { .. }
+        | AppEvent::SavedToDownloads(_)
         | AppEvent::OpenFailed(_)
         | AppEvent::TerminalChecked { .. }
         | AppEvent::ConfigRead(_)

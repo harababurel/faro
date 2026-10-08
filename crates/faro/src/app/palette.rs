@@ -8,7 +8,9 @@
 //! (`nucleo-matcher`): a few hundred short strings take well under a
 //! millisecond.
 
-use faro_core::config::{BubbleStyle, Choice as _, ColorChoice, EmojiChoice};
+use faro_core::config::{
+    AutoDownload, BubbleStyle, Choice as _, ColorChoice, EmojiChoice, InlineImages,
+};
 use faro_core::domain::{ConversationId, ServiceId};
 use faro_core::store::NotifyLevel;
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
@@ -60,6 +62,7 @@ pub enum SettingsGroup {
     Appearance,
     Notifications,
     Conversations,
+    Media,
     Input,
 }
 
@@ -75,6 +78,8 @@ pub enum Setting {
     Bell,
     Title,
     Allowlist,
+    InlineImages,
+    AutoDownload,
     Mouse,
 }
 
@@ -123,10 +128,11 @@ impl Level {
 }
 
 impl SettingsGroup {
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 5] = [
         Self::Appearance,
         Self::Notifications,
         Self::Conversations,
+        Self::Media,
         Self::Input,
     ];
 
@@ -135,6 +141,7 @@ impl SettingsGroup {
             Self::Appearance => "Appearance",
             Self::Notifications => "Notifications",
             Self::Conversations => "Conversations",
+            Self::Media => "Media",
             Self::Input => "Input",
         }
     }
@@ -152,6 +159,7 @@ impl SettingsGroup {
             ],
             Self::Notifications => &[Setting::Bell, Setting::Title],
             Self::Conversations => &[Setting::Allowlist],
+            Self::Media => &[Setting::InlineImages, Setting::AutoDownload],
             Self::Input => &[Setting::Mouse],
         }
     }
@@ -168,6 +176,8 @@ impl Setting {
             Self::Bell => "Bell",
             Self::Title => "Unread count in the window title",
             Self::Allowlist => "Allowlist mode",
+            Self::InlineImages => "Inline images",
+            Self::AutoDownload => "Auto-download media",
             Self::Mouse => "Mouse",
         }
     }
@@ -176,7 +186,12 @@ impl Setting {
     pub const fn is_switch(self) -> bool {
         match self {
             Self::ReduceMotion | Self::Bell | Self::Title | Self::Allowlist | Self::Mouse => true,
-            Self::Colors | Self::Emoji | Self::Layout | Self::BubbleStyle => false,
+            Self::Colors
+            | Self::Emoji
+            | Self::Layout
+            | Self::BubbleStyle
+            | Self::InlineImages
+            | Self::AutoDownload => false,
         }
     }
 
@@ -192,6 +207,8 @@ impl Setting {
             | Self::Bell
             | Self::Title
             | Self::Allowlist
+            | Self::InlineImages
+            | Self::AutoDownload
             | Self::Mouse => false,
         }
     }
@@ -215,6 +232,8 @@ pub enum PaletteCommand {
     MuteFor(usize),
     /// Hide every conversation inactive for `INACTIVE_CHOICES[i]`.
     HideInactive(usize),
+    /// Copy the local file path of a downloaded attachment on the selected message.
+    CopyAttachmentPath,
     /// Show the keybinding list.
     ShowKeys,
 }
@@ -228,6 +247,8 @@ pub enum SettingChoice {
     BubbleStyle(BubbleStyle),
     Allowlist(bool),
     Emoji(EmojiChoice),
+    InlineImages(InlineImages),
+    AutoDownload(AutoDownload),
     Mouse(bool),
     Bell(bool),
     Title(bool),
@@ -934,6 +955,26 @@ fn values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)>
         Setting::Bell => on_off(SettingChoice::Bell, state.config.notifications.bell),
         Setting::Title => on_off(SettingChoice::Title, state.config.notifications.title),
         Setting::Allowlist => on_off(SettingChoice::Allowlist, state.list.allowlist),
+        Setting::InlineImages => InlineImages::ALL
+            .iter()
+            .map(|mode| {
+                (
+                    SettingChoice::InlineImages(*mode),
+                    mode.name().to_owned(),
+                    state.config.media.inline_images == *mode,
+                )
+            })
+            .collect(),
+        Setting::AutoDownload => AutoDownload::ALL
+            .iter()
+            .map(|policy| {
+                (
+                    SettingChoice::AutoDownload(*policy),
+                    policy.name().to_owned(),
+                    state.config.media.auto_download == *policy,
+                )
+            })
+            .collect(),
         Setting::Mouse => on_off(SettingChoice::Mouse, state.config.mouse.enabled),
     }
 }
@@ -1030,10 +1071,18 @@ fn open_conversation_commands(state: &State) -> Vec<Item> {
 
 /// What the selected message offers, if one is selected.
 fn selected_message_commands(state: &State) -> Vec<Item> {
-    if state.open.as_ref().and_then(|o| o.selected).is_none() {
+    let Some(open) = state.open.as_ref() else {
         return vec![];
-    }
-    [
+    };
+    let Some(selection) = open.selected else {
+        return vec![];
+    };
+    let has_attachments = open
+        .messages
+        .iter()
+        .rfind(|m| m.reference() == selection.message)
+        .is_some_and(|m| !m.deleted && !m.attachments.is_empty());
+    let mut items: Vec<Item> = [
         (Action::Reply, "Reply"),
         (Action::ReactPicker, "React"),
         (Action::Copy, "Copy text"),
@@ -1049,7 +1098,30 @@ fn selected_message_commands(state: &State) -> Vec<Item> {
         item.path = Some("Message".to_owned());
         item
     })
-    .collect()
+    .collect();
+    if has_attachments {
+        for (action, title) in [
+            (Action::DownloadAttachment, "Download attachment"),
+            (Action::OpenAttachment, "View or open attachment"),
+            (Action::SaveAttachment, "Save attachment to Downloads"),
+        ] {
+            let mut item = command(
+                PaletteCommand::Action(action),
+                title,
+                state.keymap.hint(&[action], Focus::Messages),
+            );
+            item.path = Some("Message".to_owned());
+            items.push(item);
+        }
+        let mut copy_path = command(
+            PaletteCommand::CopyAttachmentPath,
+            "Copy attachment path",
+            None,
+        );
+        copy_path.path = Some("Message".to_owned());
+        items.push(copy_path);
+    }
+    items
 }
 
 /// Every conversation, including hidden, archived and empty ones, in list

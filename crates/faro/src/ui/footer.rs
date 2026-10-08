@@ -119,6 +119,7 @@ const REACT_HINTS: &[(&str, &str)] = &[
     ("enter", "react"),
     ("esc", "close"),
 ];
+const IMAGE_VIEWER_HINTS: &[(&str, &str)] = &[("s", "save"), ("y", "copy path"), ("esc", "close")];
 
 pub fn render(
     frame: &mut Frame<'_>,
@@ -204,6 +205,7 @@ fn hints(state: &State, geometry: &Geometry) -> Vec<(String, &'static str)> {
             Popup::Actions { .. } | Popup::Conversation { .. } => fixed(MENU_HINTS),
             Popup::React { .. } => fixed(REACT_HINTS),
             Popup::Mute { .. } => fixed(MUTE_HINTS),
+            Popup::ImageViewer { .. } => fixed(IMAGE_VIEWER_HINTS),
         };
     }
     let (focus, hints) = if focused(state, geometry, Focus::Messages) {

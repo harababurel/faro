@@ -301,6 +301,7 @@ fn run(state: &mut State, command: PaletteCommand) -> Vec<Effect> {
         (PaletteCommand::MuteFor(choice), Some(id)) => curation::mute_for(state, id, choice),
         (PaletteCommand::Conversation(_) | PaletteCommand::MuteFor(_), None) => vec![],
         (PaletteCommand::HideInactive(choice), _) => curation::hide_inactive(state, choice),
+        (PaletteCommand::CopyAttachmentPath, _) => super::selection::copy_attachment_path(state),
         (PaletteCommand::ShowKeys, _) => {
             open(state, Level::Keys);
             vec![]

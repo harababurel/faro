@@ -6,7 +6,8 @@
 use std::collections::BTreeMap;
 
 use faro_core::domain::{
-    BodyPart, DeliveryStatus, Direction, Message, MessageRef, Timestamp, mention_parts,
+    AttachmentStatus, BodyPart, DeliveryStatus, Direction, Message, MessageRef, Timestamp,
+    mention_parts,
 };
 use jiff::civil::Date;
 use ratatui::style::{Modifier, Style};
@@ -366,13 +367,24 @@ pub(super) fn content(
     } else if let Some(text) = &message.body {
         body.extend(text_lines(state, message, text.expose(), max, view));
     }
-    for attachment in &message.attachments {
+    let msg_ref = message.reference();
+    for (index, attachment) in message.attachments.iter().enumerate() {
         let name = attachment.file_name.as_deref().map_or_else(
             || attachment.content_type.clone(),
             |n| sanitize(n).into_owned(),
         );
         let size = attachment.size.map(format_size).unwrap_or_default();
-        let text = format!("📎 {name}{size}");
+        let status = match &attachment.status {
+            AttachmentStatus::Downloaded(_) => "",
+            AttachmentStatus::Remote | AttachmentStatus::Failed
+                if state.is_downloading(msg_ref, index) =>
+            {
+                " · downloading…"
+            }
+            AttachmentStatus::Remote => " · not downloaded (d)",
+            AttachmentStatus::Failed => " · download failed (d)",
+        };
+        let text = format!("📎 {name}{size}{status}");
         body.push(vec![Span::styled(
             truncate(&text, max).into_owned(),
             Style::new().fg(theme.secondary),

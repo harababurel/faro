@@ -32,6 +32,7 @@ const MOVED: [(&str, &str); 2] = [
 /// What `main` hands the app: the config read at startup and where it lives.
 pub struct Startup {
     pub path: PathBuf,
+    pub attachments_dir: PathBuf,
     pub config: Config,
     pub problems: Vec<Problem>,
     /// The user's theme files (D54).

@@ -134,6 +134,35 @@ choice! {
     }
 }
 
+choice! {
+    /// Which attachments download automatically when a conversation opens or a
+    /// message arrives in the open conversation (DESIGN.md §7.9, D75).
+    AutoDownload {
+        /// Images and stickers up to 25 MB.
+        #[default]
+        Images = "images",
+        /// Every attachment up to 25 MB.
+        All = "all",
+        /// Only when requested with `d`.
+        Off = "off",
+    }
+}
+
+choice! {
+    /// How downloaded images are rendered inline in the message list
+    /// (DESIGN.md §7.9, D76).
+    InlineImages {
+        /// Terminal graphics protocol when supported, Unicode half-blocks
+        /// elsewhere (off at 16 colours).
+        #[default]
+        Auto = "auto",
+        /// Always Unicode half-blocks (`▀`/`▄`), even in kitty/iTerm2/Sixel.
+        Halfblocks = "halfblocks",
+        /// Only the `📎` metadata line.
+        Off = "off",
+    }
+}
+
 /// Everything the config file sets. `Default` is what faro does without one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
@@ -142,6 +171,7 @@ pub struct Config {
     pub ui: Ui,
     pub conversations: Conversations,
     pub messages: Messages,
+    pub media: Media,
     pub notifications: Notifications,
     pub mouse: Mouse,
     /// `[keybindings.<context>]` entries in file order, unchecked.
@@ -164,6 +194,12 @@ pub struct Conversations {
 pub struct Messages {
     pub layout: MessageLayout,
     pub bubble_style: BubbleStyle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Media {
+    pub auto_download: AutoDownload,
+    pub inline_images: InlineImages,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -199,6 +235,7 @@ impl Default for Config {
             ui: Ui::default(),
             conversations: Conversations::default(),
             messages: Messages::default(),
+            media: Media::default(),
             notifications: Notifications {
                 bell: true,
                 title: true,
@@ -220,6 +257,8 @@ pub mod key {
     pub const ALLOWLIST: &str = "conversations.allowlist";
     pub const LAYOUT: &str = "messages.layout";
     pub const BUBBLE_STYLE: &str = "messages.bubble_style";
+    pub const AUTO_DOWNLOAD: &str = "media.auto_download";
+    pub const INLINE_IMAGES: &str = "media.inline_images";
     pub const MOUSE: &str = "mouse.enabled";
     pub const BELL: &str = "notifications.bell";
     pub const TITLE: &str = "notifications.title";
@@ -360,6 +399,26 @@ pub static SETTINGS: &[Setting] = &[
         get: |c| text(c.messages.bubble_style),
         set: |c, v| {
             c.messages.bubble_style = choice(v)?;
+            Ok(())
+        },
+    },
+    Setting {
+        path: key::AUTO_DOWNLOAD,
+        help: "Auto-download attachments in the open chat (up to 25 MB): \"images\", \"all\" or \
+               \"off\" (download on demand with d).",
+        get: |c| text(c.media.auto_download),
+        set: |c, v| {
+            c.media.auto_download = choice(v)?;
+            Ok(())
+        },
+    },
+    Setting {
+        path: key::INLINE_IMAGES,
+        help: "Inline images in the message list: \"auto\" (terminal graphics where supported, \
+               half-blocks elsewhere), \"halfblocks\" or \"off\".",
+        get: |c| text(c.media.inline_images),
+        set: |c, v| {
+            c.media.inline_images = choice(v)?;
             Ok(())
         },
     },

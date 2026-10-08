@@ -20,8 +20,8 @@ expression: "snapshot(&draw(&with_palette(\":\"), 100, 30))"
 │           │   Unread count in the window title                                    on │           │
 │           │ Conversations                                                            │           │
 │           │   Allowlist mode                                                     off │────────── │
-│           │ Input                                                                    │ast week   │
-│           │   Mouse                                                               on │bring your │
+│           │ Media                                                                    │ast week   │
+│           │   Inline images ›                                                   auto │bring your │
 │           ╰──────────────────────────────────────────────────────────────────────────╯for your   │
 │                            ││                  fingers.                                          │
 │                            ││ 17:54        You On my way ✓                                       │

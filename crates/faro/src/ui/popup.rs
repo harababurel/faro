@@ -75,7 +75,61 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &
                 .collect();
             menu(frame, anchor, "Mute", &labels, *selected, view);
         }
+        Popup::ImageViewer { target, index } => {
+            image_viewer(frame, state, *target, *index, geometry, view);
+        }
     }
+}
+
+fn image_viewer(
+    frame: &mut Frame<'_>,
+    state: &State,
+    target: MessageRef,
+    index: usize,
+    geometry: &Geometry,
+    view: &View<'_>,
+) {
+    let Some(attachment) = state
+        .open
+        .as_ref()
+        .and_then(|o| o.messages.iter().rfind(|m| m.reference() == target))
+        .and_then(|m| m.attachments.get(index))
+    else {
+        return;
+    };
+    let area = geometry.history.unwrap_or_else(|| frame.area());
+    let width = area.width.saturating_sub(4).max(20).min(area.width);
+    let height = area.height.saturating_sub(2).max(6).min(area.height);
+    let rect = Rect {
+        x: area.x + (area.width.saturating_sub(width)) / 2,
+        y: area.y + (area.height.saturating_sub(height)) / 2,
+        width,
+        height,
+    };
+    let name = attachment.file_name.as_deref().map_or_else(
+        || attachment.content_type.clone(),
+        |n| sanitize(n).into_owned(),
+    );
+    let dims = match (attachment.width, attachment.height) {
+        (Some(w), Some(h)) if w > 0 && h > 0 => format!(" ({w}×{h})"),
+        _ => String::new(),
+    };
+    let title = format!("{name}{dims}");
+    let inner = frame_box(frame, rect, &title, view);
+    let path_line = attachment
+        .local_path()
+        .map_or_else(String::new, |p| p.display().to_string());
+    let info = vec![
+        Line::from(Span::styled(
+            truncate(&sanitize(&path_line), usize::from(inner.width)).into_owned(),
+            view.theme.muted(),
+        )),
+        Line::from(Span::styled(
+            "s save to Downloads · y copy path · Esc close",
+            view.theme.muted(),
+        )),
+    ];
+    frame.render_widget(Paragraph::new(info), inner);
 }
 
 /// In the message area, next to the rows of the message `target` (so the

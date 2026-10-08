@@ -51,6 +51,9 @@ pub enum Action {
     ReactPicker,
     Copy,
     OpenLink,
+    DownloadAttachment,
+    OpenAttachment,
+    SaveAttachment,
     Popup(PopupKey),
     /// `Alt+1`…`Alt+9`: open the Nth pinned conversation.
     JumpToPinned(u8),

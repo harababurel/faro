@@ -1,14 +1,14 @@
 //! Everything the UI shows. Changed only by the reducer (`update.rs`); read by the
 //! views (`ui/`).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Duration;
 
 use faro_core::backend::BackendEvent;
 use faro_core::config::{BubbleStyle, ColorChoice, Config};
 use faro_core::domain::{
-    BodyPart, ConnectionState, Contact, ConversationId, Direction, Group, GroupId, Message,
-    MessageRef, Quote, ServiceId, Timestamp, mention_parts,
+    AttachmentRef, BodyPart, ConnectionState, Contact, ConversationId, Direction, Group, GroupId,
+    Message, MessageRef, Quote, ServiceId, Timestamp, mention_parts,
 };
 use faro_core::store::{ConversationSummary, NotifyLevel};
 use ratatui::layout::Rect;
@@ -34,6 +34,10 @@ pub const BELL_INTERVAL: Duration = Duration::from_secs(2);
 pub const INFO_NOTICE_TIME: Duration = Duration::from_secs(3);
 /// Signal's default reactions, in its order.
 pub const REACTIONS: [&str; 6] = ["❤️", "👍", "👎", "😂", "😮", "😢"];
+/// At most this many attachments download at the same time (D75).
+pub const MAX_DOWNLOADS_IN_FLIGHT: usize = 3;
+/// Auto-download size ceiling: 25 MB (D75). Larger files wait for `d`.
+pub const AUTO_DOWNLOAD_LIMIT: u64 = 25 * 1024 * 1024;
 /// The mute picker's choices: label and length (`None`: until unmuted).
 pub const MUTE_CHOICES: [(&str, Option<Duration>); 5] = [
     ("1 hour", Some(Duration::from_hours(1))),
@@ -42,6 +46,15 @@ pub const MUTE_CHOICES: [(&str, Option<Duration>); 5] = [
     ("1 week", Some(Duration::from_hours(7 * 24))),
     ("Until unmuted", None),
 ];
+
+/// An attachment queued to download (D75).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DownloadJob {
+    pub conversation: ConversationId,
+    pub message: MessageRef,
+    pub index: usize,
+    pub attachment: AttachmentRef,
+}
 
 #[derive(Debug)]
 pub struct State {
@@ -92,6 +105,13 @@ pub struct State {
     pub config_problems: Vec<String>,
     /// The user's theme files (D54), as last read.
     pub user_themes: UserThemes,
+    /// Attachments currently downloading (`<= MAX_DOWNLOADS_IN_FLIGHT`, D75).
+    pub downloading: HashSet<(MessageRef, usize)>,
+    /// Attachments waiting for a download slot (D75).
+    pub download_queue: VecDeque<DownloadJob>,
+    /// Attachments that should be copied to `~/Downloads/` as soon as their
+    /// download finishes (when `s` was pressed on an undownloaded attachment).
+    pub save_when_downloaded: HashSet<(MessageRef, usize)>,
     /// When the terminal bell last rang (`BELL_INTERVAL`, D49).
     pub last_bell: Option<Instant>,
     /// Ctrl+C was pressed once; a second press quits.
@@ -225,6 +245,8 @@ pub enum Popup {
     },
     /// Pick one of `REACTIONS`.
     React { target: MessageRef, selected: usize },
+    /// Larger inline preview of a downloaded image attachment (`v`, D75).
+    ImageViewer { target: MessageRef, index: usize },
     /// What can be done with a conversation (`Space` or right-click in the
     /// sidebar, D41).
     Conversation {
@@ -296,6 +318,11 @@ pub enum MessageAction {
     React,
     Copy,
     OpenLink(String),
+    DownloadAttachment { index: usize, name: String },
+    ViewAttachment { index: usize, name: String },
+    OpenAttachment { index: usize, name: String },
+    SaveAttachment { index: usize, name: String },
+    CopyAttachmentPath { index: usize, name: String },
     Retry,
 }
 
@@ -307,6 +334,11 @@ impl MessageAction {
             Self::React => ("React…".to_owned(), "+"),
             Self::Copy => ("Copy text".to_owned(), "y"),
             Self::OpenLink(url) => (format!("Open {url}"), "o"),
+            Self::DownloadAttachment { name, .. } => (format!("Download {name}"), "d"),
+            Self::ViewAttachment { name, .. } => (format!("View {name}"), "v"),
+            Self::OpenAttachment { name, .. } => (format!("Open {name} with system viewer"), "v"),
+            Self::SaveAttachment { name, .. } => (format!("Save {name} to Downloads"), "s"),
+            Self::CopyAttachmentPath { name, .. } => (format!("Copy path of {name}"), ""),
             Self::Retry => ("Retry sending".to_owned(), ""),
         }
     }
@@ -536,8 +568,11 @@ impl State {
             config: Config::default(),
             config_problems: Vec::new(),
             user_themes: UserThemes::default(),
+            downloading: HashSet::new(),
+            download_queue: VecDeque::new(),
+            save_when_downloaded: HashSet::new(),
             last_bell: None,
-            quit_armed: false,
+            quit_armed: bool::default(),
             quit: false,
             guard: Guard::On,
         };
@@ -857,6 +892,17 @@ impl State {
 
     pub fn typists(&self, id: ConversationId) -> &[Typist] {
         self.typing.get(&id).map_or(&[], Vec::as_slice)
+    }
+
+    /// Whether the `index`-th attachment on `message` is downloading or queued
+    /// to download (D75).
+    pub fn is_downloading(&self, message: MessageRef, index: usize) -> bool {
+        let key = (message, index);
+        self.downloading.contains(&key)
+            || self
+                .download_queue
+                .iter()
+                .any(|j| (j.message, j.index) == key)
     }
 
     /// When the reducer next needs a `Tick` (a typing indicator expiring, a

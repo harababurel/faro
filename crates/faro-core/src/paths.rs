@@ -247,12 +247,79 @@ pub fn write_private_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     result
 }
 
+/// Resolve the user's Downloads directory (`$XDG_DOWNLOAD_DIR` when non-empty,
+/// else `~/Downloads`).
+pub fn resolve_downloads_dir() -> Result<PathBuf, PathsError> {
+    let xdg = etcetera::base_strategy::Xdg::new().map_err(|_| PathsError::NoHomeDir)?;
+    downloads_dir(
+        std::env::var_os("XDG_DOWNLOAD_DIR").as_deref(),
+        Some(xdg.home_dir()),
+    )
+}
+
+/// Pure helper for [`resolve_downloads_dir`].
+pub fn downloads_dir(
+    xdg_download_dir: Option<&std::ffi::OsStr>,
+    home_dir: Option<&Path>,
+) -> Result<PathBuf, PathsError> {
+    if let Some(dir) = xdg_download_dir.filter(|d| !d.is_empty()) {
+        return Ok(PathBuf::from(dir));
+    }
+    let home = home_dir.ok_or(PathsError::NoHomeDir)?;
+    Ok(home.join("Downloads"))
+}
+
+/// Copy `source` into `dir` under a sanitized name derived from `file_name` /
+/// `content_type`, numbering collisions as `name (1).ext`, `name (2).ext`, …
+/// so an existing file is never overwritten (D75).
+///
+/// Blocking: call from `spawn_blocking`, never from the UI loop.
+#[expect(clippy::disallowed_methods, reason = "called from spawn_blocking")]
+pub fn save_to_downloads(
+    source: &Path,
+    dir: &Path,
+    file_name: Option<&str>,
+    content_type: &str,
+) -> io::Result<PathBuf> {
+    fs::create_dir_all(dir)?;
+    let bytes = fs::read(source)?;
+    let safe = sanitize_file_name(file_name, content_type);
+    let split = safe
+        .rsplit_once('.')
+        .filter(|(stem, ext)| !stem.is_empty() && !ext.is_empty());
+    for attempt in 0..10_000usize {
+        let candidate = if attempt == 0 {
+            safe.clone()
+        } else if let Some((stem, ext)) = split {
+            format!("{stem} ({attempt}).{ext}")
+        } else {
+            format!("{safe} ({attempt})")
+        };
+        let dest = dir.join(&candidate);
+        match OpenOptions::new().write(true).create_new(true).open(&dest) {
+            Ok(mut file) => {
+                file.write_all(&bytes)?;
+                file.flush()?;
+                return Ok(dest);
+            }
+            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(err) => return Err(err),
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "too many duplicate files in Downloads",
+    ))
+}
+
 #[cfg(test)]
 #[expect(
     clippy::disallowed_methods,
     reason = "tests set up files synchronously"
 )]
 mod tests {
+    use std::ffi::OsStr;
+
     use uuid::Uuid;
 
     use super::*;
@@ -340,6 +407,42 @@ mod tests {
             content_type_for(Path::new("/tmp/unknown")),
             "application/octet-stream"
         );
+    }
+
+    #[test]
+    fn downloads_dir_and_collision_numbering() {
+        assert_eq!(
+            downloads_dir(Some(OsStr::new("/custom/dl")), Some(Path::new("/home/u"))).unwrap(),
+            Path::new("/custom/dl")
+        );
+        assert_eq!(
+            downloads_dir(Some(OsStr::new("")), Some(Path::new("/home/u"))).unwrap(),
+            Path::new("/home/u/Downloads")
+        );
+        assert_eq!(
+            downloads_dir(None, Some(Path::new("/home/u"))).unwrap(),
+            Path::new("/home/u/Downloads")
+        );
+
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("src.bin");
+        fs::write(&src, b"payload").unwrap();
+        let dl = tmp.path().join("Downloads");
+
+        let first = save_to_downloads(&src, &dl, Some("crag.jpg"), "image/jpeg").unwrap();
+        assert_eq!(first, dl.join("crag.jpg"));
+        assert_eq!(fs::read(&first).unwrap(), b"payload");
+
+        let second = save_to_downloads(&src, &dl, Some("crag.jpg"), "image/jpeg").unwrap();
+        assert_eq!(second, dl.join("crag (1).jpg"));
+
+        let third = save_to_downloads(&src, &dl, Some("crag.jpg"), "image/jpeg").unwrap();
+        assert_eq!(third, dl.join("crag (2).jpg"));
+
+        let no_ext = save_to_downloads(&src, &dl, Some("README"), "text/plain").unwrap();
+        assert_eq!(no_ext, dl.join("README"));
+        let no_ext_dup = save_to_downloads(&src, &dl, Some("README"), "text/plain").unwrap();
+        assert_eq!(no_ext_dup, dl.join("README (1)"));
     }
 
     #[test]

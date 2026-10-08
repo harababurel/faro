@@ -222,6 +222,21 @@ pub const NAMES: &[(&str, &str, Action)] = &[
     ("message.react", "React", Action::ReactPicker),
     ("message.copy", "Copy text", Action::Copy),
     ("message.open_link", "Open link", Action::OpenLink),
+    (
+        "attachments.download",
+        "Download attachment",
+        Action::DownloadAttachment,
+    ),
+    (
+        "attachments.open",
+        "View or open attachment",
+        Action::OpenAttachment,
+    ),
+    (
+        "attachments.save",
+        "Save attachment to Downloads",
+        Action::SaveAttachment,
+    ),
 ];
 
 /// The default bindings, preferred key first for each action (hints show
@@ -329,5 +344,8 @@ pub const BINDINGS: &[(Context, &str, Action)] = &[
     (Messages, "+", Action::ReactPicker),
     (Messages, "y", Action::Copy),
     (Messages, "o", Action::OpenLink),
+    (Messages, "d", Action::DownloadAttachment),
+    (Messages, "v", Action::OpenAttachment),
+    (Messages, "s", Action::SaveAttachment),
     (Messages, "?", Action::Help),
 ];

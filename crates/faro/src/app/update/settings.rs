@@ -2,9 +2,11 @@
 //! whenever it changes, and settings changed in the app (palette `:`, the
 //! allowlist key) written back to it.
 
-use faro_core::config::{self, BubbleStyle, Config, EmojiChoice, Problem, Severity, key};
+use faro_core::config::{
+    self, AutoDownload, BubbleStyle, Config, EmojiChoice, InlineImages, Problem, Severity, key,
+};
 
-use super::{check_terminal, curation};
+use super::{check_terminal, curation, selection};
 use crate::app::event::Effect;
 use crate::app::keymap::Keymap;
 use crate::app::palette::SettingChoice;
@@ -57,6 +59,9 @@ fn apply(
         }
         if !startup && old.messages.bubble_style != state.config.messages.bubble_style {
             effects.extend(apply_bubble_style(state));
+        }
+        if !startup && old.media.auto_download != state.config.media.auto_download {
+            effects.extend(selection::queue_auto_downloads(state));
         }
         // The mouse, the theme and `reduce_motion` are read from
         // `state.config` by the app loop.
@@ -215,6 +220,27 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
                 ));
             }
             effects.extend(save(state, key::EMOJI));
+            effects
+        }
+        SettingChoice::InlineImages(mode) => {
+            state.config.media.inline_images = mode;
+            state.env.repaint = true;
+            state.notice = Some(Notice::info(match mode {
+                InlineImages::Auto => "Inline images: terminal graphics where supported",
+                InlineImages::Halfblocks => "Inline images: Unicode half-blocks",
+                InlineImages::Off => "Inline images off",
+            }));
+            save(state, key::INLINE_IMAGES)
+        }
+        SettingChoice::AutoDownload(policy) => {
+            state.config.media.auto_download = policy;
+            state.notice = Some(Notice::info(match policy {
+                AutoDownload::Images => "Auto-download: images and stickers (up to 25 MB)",
+                AutoDownload::All => "Auto-download: all attachments (up to 25 MB)",
+                AutoDownload::Off => "Auto-download off (press d to download)",
+            }));
+            let mut effects = selection::queue_auto_downloads(state);
+            effects.extend(save(state, key::AUTO_DOWNLOAD));
             effects
         }
         SettingChoice::Mouse(on) => {

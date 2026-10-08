@@ -1,12 +1,17 @@
 //! Runs the reducer's backend commands (sending, reactions, read receipts,
 //! typing) one at a time, in order, and reports results back to the app loop
-//! as `AppEvent`s (D39).
+//! as `AppEvent`s (D39). Attachment downloads (`Command::Fetch`, D75) are
+//! spawned as concurrent local tasks so they never block sends or receipts.
 //!
 //! Backend futures need not be `Send` (D30), so the task is local to the
 //! current-thread runtime (`spawn_local`, inside the `LocalSet` set up in `main`).
 
-use faro_core::backend::{Backend, OutgoingMessage, ReactionChange};
-use faro_core::domain::{ConversationId, MessageRef, TypingState};
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
+
+use faro_core::backend::{Backend, BackendError, OutgoingMessage, ReactionChange};
+use faro_core::domain::{AttachmentRef, AttachmentStatus, ConversationId, MessageRef, TypingState};
+use faro_core::paths;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
@@ -29,6 +34,14 @@ pub enum Command {
         change: ReactionChange,
         previous: Option<String>,
     },
+    /// Download an attachment and write it to `attachments/` (`0600`, D75).
+    /// Answered with `AppEvent::Fetched`.
+    Fetch {
+        conversation: ConversationId,
+        message: MessageRef,
+        index: usize,
+        attachment: AttachmentRef,
+    },
     /// Read receipts for messages that have been seen (D42). No answer;
     /// failures are only logged.
     MarkRead(Vec<MessageRef>),
@@ -39,31 +52,105 @@ pub enum Command {
     },
 }
 
+/// Abort spawned download tasks when the main command task is aborted.
+#[derive(Default)]
+struct InFlight(Vec<JoinHandle<()>>);
+
+impl InFlight {
+    fn spawn(&mut self, task: JoinHandle<()>) {
+        self.0.retain(|h| !h.is_finished());
+        self.0.push(task);
+    }
+}
+
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        for handle in &self.0 {
+            handle.abort();
+        }
+    }
+}
+
 /// Start the task; it owns the backend and drops it when the sender is dropped
 /// (or the `LocalSet` ends). Commands are queued without limit, like effects:
 /// the reducer must never wait.
 pub fn spawn<B: Backend + 'static>(
     backend: B,
+    attachments_dir: PathBuf,
     results: mpsc::UnboundedSender<AppEvent>,
 ) -> (mpsc::UnboundedSender<Command>, JoinHandle<()>) {
     let (commands, queue) = mpsc::unbounded_channel();
-    let task = tokio::task::spawn_local(run(backend, queue, results));
+    let task = tokio::task::spawn_local(run(Rc::new(backend), attachments_dir, queue, results));
     (commands, task)
 }
 
-async fn run<B: Backend>(
-    backend: B,
+async fn run<B: Backend + 'static>(
+    backend: Rc<B>,
+    attachments_dir: PathBuf,
     mut queue: mpsc::UnboundedReceiver<Command>,
     results: mpsc::UnboundedSender<AppEvent>,
 ) {
+    let mut in_flight = InFlight::default();
     while let Some(command) = queue.recv().await {
-        let Some(event) = execute(&backend, command).await else {
+        if let Command::Fetch {
+            conversation,
+            message,
+            index,
+            attachment,
+        } = command
+        {
+            let backend = Rc::clone(&backend);
+            let dir = attachments_dir.clone();
+            let tx = results.clone();
+            in_flight.spawn(tokio::task::spawn_local(async move {
+                let result = fetch(backend.as_ref(), &dir, message, index, attachment).await;
+                if let Err(error) = &result {
+                    tracing::warn!(%error, %conversation, "attachment download failed");
+                }
+                let _ = tx.send(AppEvent::Fetched {
+                    conversation,
+                    message,
+                    index,
+                    result,
+                });
+            }));
+            continue;
+        }
+        let Some(event) = execute(backend.as_ref(), command).await else {
             continue;
         };
         if results.send(event).is_err() {
             tracing::debug!("app loop stopped before a backend result arrived");
         }
     }
+}
+
+async fn fetch<B: Backend>(
+    backend: &B,
+    attachments_dir: &Path,
+    message: MessageRef,
+    index: usize,
+    mut attachment: AttachmentRef,
+) -> Result<AttachmentRef, BackendError> {
+    let bytes = backend.fetch_attachment(&attachment).await?;
+    let size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+    let name = paths::attachment_file_name(
+        message,
+        index,
+        attachment.file_name.as_deref(),
+        &attachment.content_type,
+    );
+    let path = attachments_dir.join(name);
+    let path = tokio::task::spawn_blocking(move || {
+        paths::write_private_atomic(&path, &bytes)
+            .map(|()| path)
+            .map_err(|e| BackendError::Storage(format!("writing attachment: {e}")))
+    })
+    .await
+    .map_err(|e| BackendError::Storage(format!("attachment writer task: {e}")))??;
+    attachment.size = Some(size);
+    attachment.status = AttachmentStatus::Downloaded(path);
+    Ok(attachment)
 }
 
 async fn execute<B: Backend>(backend: &B, command: Command) -> Option<AppEvent> {
@@ -96,6 +183,7 @@ async fn execute<B: Backend>(backend: &B, command: Command) -> Option<AppEvent> 
                 result,
             }
         }
+        Command::Fetch { .. } => return None,
         Command::MarkRead(messages) => {
             if let Err(error) = backend.mark_read(&messages).await {
                 tracing::warn!(%error, count = messages.len(), "sending read receipts failed");

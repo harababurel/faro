@@ -55,10 +55,7 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
         AppEvent::OlderLoaded {
             conversation,
             messages,
-        } => {
-            on_older_loaded(state, conversation, messages);
-            vec![]
-        }
+        } => on_older_loaded(state, conversation, messages),
         AppEvent::SendResult { sent_at, result } => sending::on_send_result(state, sent_at, result),
         AppEvent::ReactResult {
             conversation,
@@ -66,12 +63,22 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
             previous,
             result,
         } => selection::on_react_result(state, conversation, target, previous, result),
+        AppEvent::Fetched {
+            conversation,
+            message,
+            index,
+            result,
+        } => selection::on_fetched(state, conversation, message, index, result),
+        AppEvent::SavedToDownloads(result) => {
+            selection::on_saved_to_downloads(state, result);
+            vec![]
+        }
         AppEvent::TerminalChecked(terminal) => {
             terminal_checked(state, terminal);
             vec![]
         }
         AppEvent::OpenFailed(error) => {
-            state.notice = Some(Notice::error(format!("Couldn't open the link: {error}")));
+            state.notice = Some(Notice::error(format!("Couldn't open: {error}")));
             vec![]
         }
         AppEvent::ConfigRead(read) => settings::on_config_read(state, read),
@@ -306,20 +313,27 @@ fn on_messages_loaded(
     let unread = last_unread(&open.messages, open.unread_on_open);
     open.unread_marker = unread.first().copied().or(open.unread_marker);
     presence::on_history(state, &unread);
-    presence::catch_up(state)
+    let mut effects = presence::catch_up(state);
+    effects.extend(selection::queue_auto_downloads(state));
+    effects
 }
 
-fn on_older_loaded(state: &mut State, conversation: ConversationId, messages: Vec<Message>) {
+fn on_older_loaded(
+    state: &mut State,
+    conversation: ConversationId,
+    messages: Vec<Message>,
+) -> Vec<Effect> {
     let Some(open) = state
         .open
         .as_mut()
         .filter(|o| o.id == conversation && o.loading_older)
     else {
-        return;
+        return vec![];
     };
     open.loading_older = false;
     open.has_older = full_page(&messages);
     timeline::prepend(&mut open.messages, messages);
+    selection::queue_auto_downloads(state)
 }
 
 /// A full page means there may be more before it.
@@ -367,7 +381,7 @@ fn on_backend(state: &mut State, event: BackendEvent) -> Vec<Effect> {
             let phone = contact.phone.clone();
             state.contacts.insert(contact.service_id, contact.clone());
             // Someone new (a contact sync, a first message) is listed at
-            // once, as the store lists them after a restart.
+            // standalone, as the store lists them after a restart.
             let new = !state.conversations.iter().any(|c| c.id == id);
             if let Some(summary) = summary_entry(state, id) {
                 summary.title = title;
@@ -468,6 +482,7 @@ fn on_message(state: &mut State, message: &Message, effects: &mut Vec<Effect>) {
         // Persisted first (effects run in order), so a `MarkRead` here clears
         // the count the store just raised.
         effects.extend(presence::catch_up(state));
+        effects.extend(selection::queue_auto_downloads(state));
     }
 }
 

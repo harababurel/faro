@@ -1,10 +1,13 @@
 //! Effects on the machine faro runs on: the clipboard and the bell (through
 //! the terminal) and opening links. Run by the app loop, never the reducer.
 
+use std::ffi::OsString;
 use std::io::Write as _;
+use std::path::PathBuf;
 use std::process::Stdio;
 
 use crossterm::clipboard::CopyToClipboard;
+use faro_core::paths;
 use tokio::sync::mpsc;
 
 use super::event::AppEvent;
@@ -33,6 +36,16 @@ pub fn bell() {
 /// Open `url` with `open` (macOS) or `xdg-open` (elsewhere), without waiting.
 /// Failures come back as `AppEvent::OpenFailed`.
 pub fn open_url(url: String, results: mpsc::UnboundedSender<AppEvent>) {
+    open_with_system(OsString::from(url), results);
+}
+
+/// Open a local file with `open` (macOS) or `xdg-open` (elsewhere), without
+/// waiting (D75). Failures come back as `AppEvent::OpenFailed`.
+pub fn open_file(path: PathBuf, results: mpsc::UnboundedSender<AppEvent>) {
+    open_with_system(path.into_os_string(), results);
+}
+
+fn open_with_system(target: OsString, results: mpsc::UnboundedSender<AppEvent>) {
     let opener = if cfg!(target_os = "macos") {
         "open"
     } else {
@@ -40,7 +53,7 @@ pub fn open_url(url: String, results: mpsc::UnboundedSender<AppEvent>) {
     };
     tokio::spawn(async move {
         let status = tokio::process::Command::new(opener)
-            .arg(&url)
+            .arg(&target)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -52,9 +65,30 @@ pub fn open_url(url: String, results: mpsc::UnboundedSender<AppEvent>) {
             Ok(status) => format!("{opener} exited with {status}"),
             Err(error) => format!("couldn't run {opener}: {error}"),
         };
-        tracing::warn!(%failure, "opening a link failed");
+        tracing::warn!(%failure, "opening with system viewer failed");
         // The app may have quit meanwhile.
         let _ = results.send(AppEvent::OpenFailed(failure));
+    });
+}
+
+/// Copy `source` into `~/Downloads/` (or `$XDG_DOWNLOAD_DIR`), numbering
+/// collisions so an existing file is never overwritten (D75).
+pub fn save_to_downloads(
+    source: PathBuf,
+    file_name: Option<String>,
+    content_type: String,
+    results: mpsc::UnboundedSender<AppEvent>,
+) {
+    tokio::spawn(async move {
+        let outcome = tokio::task::spawn_blocking(move || {
+            let dir = paths::resolve_downloads_dir().map_err(|e| e.to_string())?;
+            paths::save_to_downloads(&source, &dir, file_name.as_deref(), &content_type)
+                .map_err(|e| e.to_string())
+        })
+        .await
+        .map_err(|e| e.to_string())
+        .and_then(|r| r);
+        let _ = results.send(AppEvent::SavedToDownloads(outcome));
     });
 }
 

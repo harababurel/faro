@@ -51,6 +51,8 @@ fn key_constants_name_settings() {
         key::EMOJI,
         key::ALLOWLIST,
         key::LAYOUT,
+        key::AUTO_DOWNLOAD,
+        key::INLINE_IMAGES,
         key::MOUSE,
     ] {
         assert!(setting(path).is_some(), "{path}");
@@ -64,6 +66,7 @@ fn settings_are_read() {
          [ui]\nemoji = \"compatible\"\n\
          [conversations]\nallowlist = true\n\
          [messages]\nlayout = \"irc\"\n\
+         [media]\nauto_download = \"all\"\ninline_images = \"halfblocks\"\n\
          [notifications]\nbell = false\ndesktop = \"osc\"\nprivacy = \"preview\"\n\
          [mouse]\nenabled = false\n",
     );
@@ -73,6 +76,8 @@ fn settings_are_read() {
     assert_eq!(c.ui.emoji, EmojiChoice::Compatible);
     assert!(c.conversations.allowlist);
     assert_eq!(c.messages.layout, MessageLayout::Irc);
+    assert_eq!(c.media.auto_download, AutoDownload::All);
+    assert_eq!(c.media.inline_images, InlineImages::Halfblocks);
     assert!(!c.notifications.bell);
     assert_eq!(c.notifications.desktop, DesktopNotifications::Osc);
     assert_eq!(c.notifications.privacy, NotificationPrivacy::Preview);

@@ -96,6 +96,7 @@ fn main() -> anyhow::Result<()> {
         let detected = terminal_setting(cli.emoji.map(Into::into), &settings).await;
         let startup = config::Startup {
             path: config_file,
+            attachments_dir: paths.attachments_dir(),
             config: settings,
             problems,
             themes,

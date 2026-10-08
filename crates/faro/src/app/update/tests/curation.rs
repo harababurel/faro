@@ -29,6 +29,7 @@ fn saved(effects: &[Effect], id: ConversationId) -> Option<ConversationState> {
         | Effect::LoadMessages(_)
         | Effect::LoadOlder { .. }
         | Effect::Persist(_)
+        | Effect::SaveAttachment { .. }
         | Effect::MarkRead(_)
         | Effect::ReadElsewhere(_)
         | Effect::RememberOpen(_)
@@ -37,6 +38,8 @@ fn saved(effects: &[Effect], id: ConversationId) -> Option<ConversationState> {
         | Effect::Backend(_)
         | Effect::Copy(_)
         | Effect::OpenUrl(_)
+        | Effect::OpenFile(_)
+        | Effect::SaveToDownloads { .. }
         | Effect::CheckTerminal
         | Effect::Bell => None,
     })

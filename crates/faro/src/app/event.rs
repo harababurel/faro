@@ -1,8 +1,10 @@
 //! What flows into the reducer (`AppEvent`) and out of it (`Effect`), D22.
 
+use std::path::PathBuf;
+
 use faro_core::backend::{BackendError, BackendEvent};
 use faro_core::config::SettingEdit;
-use faro_core::domain::{ConversationId, Message, MessageRef, ServiceId, Timestamp};
+use faro_core::domain::{AttachmentRef, ConversationId, Message, MessageRef, ServiceId, Timestamp};
 use faro_core::store::{ConversationState, ConversationSummary};
 
 use super::commands::Command;
@@ -40,7 +42,16 @@ pub enum AppEvent {
         previous: Option<String>,
         result: Result<(), BackendError>,
     },
-    /// Opening a link failed; the text is safe to show.
+    /// An attachment finished downloading (or failed) (D75).
+    Fetched {
+        conversation: ConversationId,
+        message: MessageRef,
+        index: usize,
+        result: Result<AttachmentRef, BackendError>,
+    },
+    /// Copying a downloaded attachment to `~/Downloads/` finished (D75).
+    SavedToDownloads(Result<PathBuf, String>),
+    /// Opening a link or attachment failed; the text is safe to show.
     OpenFailed(String),
     /// What's between faro and the user: mosh (D47), and who draws block
     /// glyphs (D58).
@@ -82,6 +93,12 @@ pub enum Effect {
         before: MessageRef,
     },
     Persist(Box<BackendEvent>),
+    /// Record an attachment's status and dimensions in the store (D75).
+    SaveAttachment {
+        message: MessageRef,
+        index: usize,
+        attachment: AttachmentRef,
+    },
     MarkRead(ConversationId),
     /// Apply messages read on another device to the unread counts (D70);
     /// answered with `AppEvent::UnreadCleared` if any count dropped.
@@ -100,6 +117,15 @@ pub enum Effect {
     Copy(String),
     /// Open an http(s) link with the system's opener.
     OpenUrl(String),
+    /// Open a local file with the system's opener (local session only, D75).
+    OpenFile(PathBuf),
+    /// Copy a downloaded attachment into `~/Downloads/`, numbering collisions
+    /// (D75). Answered with `AppEvent::SavedToDownloads`.
+    SaveToDownloads {
+        source: PathBuf,
+        file_name: Option<String>,
+        content_type: String,
+    },
     /// Look at the terminal (mosh, kitty); answered with
     /// `AppEvent::TerminalChecked` (D47, D58).
     CheckTerminal,

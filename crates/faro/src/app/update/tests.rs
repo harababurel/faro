@@ -1186,6 +1186,204 @@ fn clicking_a_message_selects_it_and_right_click_opens_the_menu() {
     assert_eq!(state.popup, None);
 }
 
+#[test]
+fn auto_downloads_respect_policy_size_and_concurrency_cap() {
+    use faro_core::config::AutoDownload;
+    use faro_core::domain::{AttachmentId, AttachmentRef, AttachmentStatus};
+    use std::path::PathBuf;
+
+    let mut state = loaded_state();
+    // Default is AutoDownload::Images: remote images under 25 MB are queued,
+    // non-images and >25 MB images are left Remote.
+    let mut msg = text(climbing(), BOB, fixtures::NOW_MS + 10, "files");
+    msg.attachments = vec![
+        AttachmentRef {
+            id: AttachmentId("att-1".into()),
+            content_type: "image/jpeg".into(),
+            file_name: Some("small.jpg".into()),
+            size: Some(1024),
+            width: Some(100),
+            height: Some(80),
+            status: AttachmentStatus::Remote,
+        },
+        AttachmentRef {
+            id: AttachmentId("att-2".into()),
+            content_type: "application/pdf".into(),
+            file_name: Some("doc.pdf".into()),
+            size: Some(1024),
+            width: None,
+            height: None,
+            status: AttachmentStatus::Remote,
+        },
+        AttachmentRef {
+            id: AttachmentId("att-3".into()),
+            content_type: "image/png".into(),
+            file_name: Some("huge.png".into()),
+            size: Some(30 * 1024 * 1024),
+            width: Some(4000),
+            height: Some(3000),
+            status: AttachmentStatus::Remote,
+        },
+    ];
+    let target = msg.reference();
+    let effects = update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::Message(msg.clone())),
+    );
+    assert!(effects.contains(&Effect::Backend(Command::Fetch {
+        conversation: climbing(),
+        message: target,
+        index: 0,
+        attachment: msg.attachments[0].clone(),
+    })));
+    assert!(state.is_downloading(target, 0));
+    assert!(!state.is_downloading(target, 1));
+    assert!(!state.is_downloading(target, 2));
+
+    // Completing the download updates state and emits SaveAttachment.
+    let local_path = PathBuf::from("/tmp/faro-test/small.jpg");
+    let fetched = AttachmentRef {
+        status: AttachmentStatus::Downloaded(local_path.clone()),
+        ..msg.attachments[0].clone()
+    };
+    let effects = update(
+        &mut state,
+        AppEvent::Fetched {
+            conversation: climbing(),
+            message: target,
+            index: 0,
+            result: Ok(fetched.clone()),
+        },
+    );
+    assert!(!state.is_downloading(target, 0));
+    assert!(effects.contains(&Effect::SaveAttachment {
+        message: target,
+        index: 0,
+        attachment: fetched,
+    }));
+
+    // AutoDownload::Off queues nothing.
+    state.config.media.auto_download = AutoDownload::Off;
+    let mut msg2 = text(climbing(), BOB, fixtures::NOW_MS + 11, "more");
+    msg2.attachments = vec![AttachmentRef {
+        id: AttachmentId("att-4".into()),
+        content_type: "image/jpeg".into(),
+        file_name: Some("off.jpg".into()),
+        size: Some(512),
+        width: None,
+        height: None,
+        status: AttachmentStatus::Remote,
+    }];
+    let effects = update(&mut state, AppEvent::Backend(BackendEvent::Message(msg2)));
+    assert!(
+        !effects
+            .iter()
+            .any(|e| matches!(e, Effect::Backend(Command::Fetch { .. })))
+    );
+}
+
+#[test]
+fn attachment_keys_download_view_open_and_save() {
+    use faro_core::config::AutoDownload;
+    use faro_core::domain::{AttachmentId, AttachmentRef, AttachmentStatus};
+    use std::path::PathBuf;
+
+    let mut state = loaded_state();
+    state.config.media.auto_download = AutoDownload::Off;
+    let mut msg = text(climbing(), BOB, fixtures::NOW_MS + 20, "photo");
+    msg.attachments = vec![AttachmentRef {
+        id: AttachmentId("att-wall".into()),
+        content_type: "image/png".into(),
+        file_name: Some("wall.png".into()),
+        size: Some(2048),
+        width: Some(640),
+        height: Some(480),
+        status: AttachmentStatus::Remote,
+    }];
+    let target = msg.reference();
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::Message(msg.clone())),
+    );
+    // Select the newest message (`Up` from Input enters Messages on the last message).
+    update(&mut state, key(KeyCode::Up, KeyModifiers::NONE));
+    assert_eq!(selected_ref(&state), Some(target));
+
+    // Pressing `s` on a remote attachment queues a download and remembers to save on completion.
+    let effects = press(&mut state, 's');
+    assert_eq!(effects.len(), 1);
+    assert!(matches!(
+        &effects[0],
+        Effect::Backend(Command::Fetch { index: 0, .. })
+    ));
+
+    let local_path = PathBuf::from("/tmp/faro-test/wall.png");
+    let fetched = AttachmentRef {
+        status: AttachmentStatus::Downloaded(local_path.clone()),
+        ..msg.attachments[0].clone()
+    };
+    let effects = update(
+        &mut state,
+        AppEvent::Fetched {
+            conversation: climbing(),
+            message: target,
+            index: 0,
+            result: Ok(fetched),
+        },
+    );
+    assert!(effects.contains(&Effect::SaveToDownloads {
+        source: local_path.clone(),
+        file_name: Some("wall.png".into()),
+        content_type: "image/png".into(),
+    }));
+
+    // Pressing `v` on a downloaded image opens the inline ImageViewer popup.
+    let effects = press(&mut state, 'v');
+    assert_eq!(effects, vec![]);
+    assert_eq!(state.popup, Some(Popup::ImageViewer { target, index: 0 }));
+    // Inside ImageViewer, `y` copies the local path and `Esc` closes.
+    assert_eq!(
+        press(&mut state, 'y'),
+        vec![Effect::Copy(local_path.display().to_string())]
+    );
+    update(&mut state, key(KeyCode::Esc, KeyModifiers::NONE));
+    assert_eq!(state.popup, None);
+
+    // For a non-image attachment, `v` opens locally with OpenFile, or saves + copies path over SSH.
+    let pdf_path = PathBuf::from("/tmp/faro-test/guide.pdf");
+    let mut pdf_msg = text(climbing(), BOB, fixtures::NOW_MS + 21, "guide");
+    pdf_msg.attachments = vec![AttachmentRef {
+        id: AttachmentId("att-pdf".into()),
+        content_type: "application/pdf".into(),
+        file_name: Some("guide.pdf".into()),
+        size: Some(4096),
+        width: None,
+        height: None,
+        status: AttachmentStatus::Downloaded(pdf_path.clone()),
+    }];
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::Message(pdf_msg)),
+    );
+    update(&mut state, key(KeyCode::Char('G'), KeyModifiers::SHIFT));
+    assert_eq!(
+        press(&mut state, 'v'),
+        vec![Effect::OpenFile(pdf_path.clone())]
+    );
+    state.env.over_ssh = true;
+    assert_eq!(
+        press(&mut state, 'v'),
+        vec![
+            Effect::Copy(pdf_path.display().to_string()),
+            Effect::SaveToDownloads {
+                source: pdf_path,
+                file_name: Some("guide.pdf".into()),
+                content_type: "application/pdf".into(),
+            }
+        ]
+    );
+}
+
 mod curation;
 mod notify;
 mod palette;
