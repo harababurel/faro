@@ -1181,6 +1181,7 @@ dependencies = [
  "futures",
  "presage",
  "presage-store-sqlite",
+ "rand 0.9.5",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",

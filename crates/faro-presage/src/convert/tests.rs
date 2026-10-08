@@ -363,3 +363,27 @@ fn kept_contents_yield_only_what_the_store_keeps() {
     let content = from(ALICE, text_from_alice("hi", 1000));
     assert_eq!(stored(&content, ME), events(&content, ME));
 }
+
+#[test]
+fn reads_here_are_synced_to_our_other_devices() {
+    let read = |sender, at| MessageRef {
+        sender,
+        sent_at: Timestamp::from_millis(at),
+    };
+    let pni = ServiceId::Pni(Uuid::from_u128(3));
+    let sync = read_sync(&[read(ALICE, 10), read(ME, 20), read(pni, 30)], ME);
+    assert_eq!(
+        sync.read,
+        vec![sync_message::Read {
+            sender_aci: Some(ALICE.to_string()),
+            timestamp: Some(10),
+            ..sync_message::Read::default()
+        }]
+    );
+    assert_eq!(sync.content, None);
+    // What the phone would make of it: the same messages, read elsewhere.
+    assert_eq!(
+        only(events(&from(ME, sync), ME)),
+        BackendEvent::ReadElsewhere(vec![read(ALICE, 10)])
+    );
+}

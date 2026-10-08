@@ -540,6 +540,7 @@ Refines the DESIGN.md §5.1 sketch:
 - **Presage backend (M7):** while testing, it refuses to start without `--allowlist`. This is lifted (or becomes an explicit opt-out) for the v0.1 release.
 - **Known gap to close in M7:** the guard works at the `Backend` trait. presage and libsignal-service may send protocol-level messages on their own, below the trait: delivery receipts on receive, retry receipts, profile keys, sync messages to our own devices. Check each one and suppress or filter it inside `faro-presage` where possible. Record here what can't be suppressed.
 - **presage's own store (owner, 2026-10-08):** presage saves every incoming message, and fetches and saves every sender's profile, in its own database, whoever the sender is. It sends nothing to anyone but our own devices on its own: no delivery or retry receipts; libsignal-service's `ServiceCipher` has no way to send. The owner accepted presage keeping what it receives, since nobody uses this account. No filtering store wrapper; the guard's job is that nothing is ever **sent** off the list, and that faro never shows or stores anyone else.
+- **Own read syncs (D71, 2026-10-08):** when faro sends read receipts it also sends a read sync to this account's own ACI, so only our other devices get it; it lists only messages the guard let through.
 - **Process (owner's agreement):** separate data dir for the test account; the owner scans the QR code; Signal's Contacts permission is denied on the phone; the device is unlinked after testing.
 
 ### D63. The presage backend: linking, IDs, mapping — Judgement (2026-10-08)
@@ -609,3 +610,11 @@ Refines the DESIGN.md §5.1 sketch:
 - **Guard:** read syncs carry no content and only point at messages; the store ignores messages it doesn't have and never stored anyone else's, so they can't reveal or change anything about others. Still, `Shared::admit` keeps only pointers to messages from listed people and members of allowed groups (dropping the event if none are left), so other people's IDs never reach the app. `stored_events` filters the same way.
 - **Mock:** an occasional "read on the phone" of a conversation's newest incoming message (`Activity::ReadElsewhere`).
 - **Limits:** a read sync that arrives before the message it points at (possible after a long time offline) is ignored; the message then counts as unread until read here. `viewed` syncs (view-once media, voice notes) aren't mapped. This closes D42's and D63's "read syncs" item.
+
+### D71. faro's reads are synced to the phone — Judgement (2026-10-08)
+
+- **Why:** D63's "not yet": a chat read in faro stayed unread on the phone.
+- **What:** `PresageBackend::mark_read` sends, after the read receipts, one `SyncMessage` whose `read` entries name each message read (sender ACI as a string, which every Signal client parses, and the message's timestamp), to this account's own ACI, as presage's `request_contacts` does; libsignal-service delivers it to our other devices only. Padded like presage's own sync messages (`SyncMessage::with_padding`, hence the `rand` 0.9 dependency, the version libsignal-service uses). Built by `convert::read_sync` (tested); our own messages and PNI senders are left out.
+- **Errors:** each receipt and the sync are tried even if an earlier one failed; the first error is returned (and only logged, D42).
+- **Guard (D62):** it only goes to our own devices, and lists only messages the guard passed: `Guarded::mark_read` drops receipts for people off the list before the inner backend sees them, so their messages are never in the sync either.
+- No echo: Signal doesn't deliver a device's sync messages back to it, and the phone doesn't answer them. This closes D63's "syncing faro's own read receipts to the phone".

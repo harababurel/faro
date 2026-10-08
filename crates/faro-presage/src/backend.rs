@@ -19,6 +19,7 @@ use presage::libsignal_service::content::ContentBody;
 use presage::libsignal_service::prelude::ServiceError;
 use presage::libsignal_service::zkgroup::profiles::ProfileKey;
 use presage::model::messages::Received;
+use presage::proto::SyncMessage;
 use presage::store::{ContentsStore as _, Thread};
 use presage_store_sqlite::SqliteStoreError;
 use tokio::sync::mpsc;
@@ -427,7 +428,9 @@ impl Backend for PresageBackend {
         self.deliver(conversation, message, now).await
     }
 
-    /// One read receipt per sender, for all their messages at once.
+    /// One read receipt per sender, for all their messages at once, and a
+    /// read sync to our own devices so the phone clears them too (D71).
+    /// Each is tried even if another failed; the first error is returned.
     async fn mark_read(&self, messages: &[MessageRef]) -> Result<()> {
         let mut by_sender: HashMap<ServiceId, Vec<u64>> = HashMap::new();
         for message in messages {
@@ -436,15 +439,31 @@ impl Backend for PresageBackend {
                 .or_default()
                 .push(message.sent_at.as_millis());
         }
+        let mut outcome = Ok(());
         for (sender, sent_at) in by_sender {
             if sender == self.me {
                 continue;
             }
             let receipt = convert::read_receipt(sent_at);
-            self.deliver(ConversationId::Direct(sender), receipt, now_millis())
-                .await?;
+            let sent = self
+                .deliver(ConversationId::Direct(sender), receipt, now_millis())
+                .await;
+            outcome = outcome.and(sent);
         }
-        Ok(())
+        let sync = convert::read_sync(messages, self.me);
+        if !sync.read.is_empty() {
+            let sync = SyncMessage {
+                // Padded like presage's own sync messages.
+                padding: SyncMessage::with_padding(&mut rand::rng()).padding,
+                ..sync
+            };
+            // To our own account: only our other devices get it.
+            let sent = self
+                .deliver(ConversationId::Direct(self.me), sync, now_millis())
+                .await;
+            outcome = outcome.and(sent);
+        }
+        outcome
     }
 
     async fn send_typing(&self, to: ConversationId, state: TypingState) -> Result<()> {

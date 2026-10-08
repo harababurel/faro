@@ -16,6 +16,8 @@ faro-core.workspace = true
 futures = "0.3"
 presage = { git = "https://github.com/whisperfish/presage", rev = "26dd2dc472c4f834b91479da368dc40e8b7fb1ea" }
 presage-store-sqlite = { git = "https://github.com/whisperfish/presage", rev = "26dd2dc472c4f834b91479da368dc40e8b7fb1ea" }
+# The same version libsignal-service uses, for padding sync messages.
+rand = "0.9"
 thiserror = "2.0.21"
 tokio = { version = "1.53.2", features = ["fs", "rt", "sync", "time"] }
 tracing = "0.1.44"

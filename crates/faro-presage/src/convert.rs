@@ -443,6 +443,27 @@ pub fn read_receipt(sent_at: Vec<u64>) -> ReceiptMessage {
     }
 }
 
+/// Tell this account's other devices (the phone) which messages were read
+/// here, so they stop counting them as unread (D71). Only others' messages
+/// by ACI: ours are never unread, and a read sync names senders by ACI.
+pub fn read_sync(messages: &[MessageRef], me: ServiceId) -> SyncMessage {
+    SyncMessage {
+        read: messages
+            .iter()
+            .filter(|m| m.sender != me)
+            .filter_map(|m| match m.sender {
+                ServiceId::Aci(aci) => Some(sync_message::Read {
+                    sender_aci: Some(aci.to_string()),
+                    timestamp: Some(m.sent_at.as_millis()),
+                    ..sync_message::Read::default()
+                }),
+                ServiceId::Pni(_) => None,
+            })
+            .collect(),
+        ..SyncMessage::default()
+    }
+}
+
 pub fn typing(state: TypingState, now: u64, group: Option<GroupId>) -> TypingMessage {
     TypingMessage {
         timestamp: Some(now),
