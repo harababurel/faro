@@ -79,6 +79,17 @@ async fn execute(store: &Store, effect: Effect) -> Result<Option<AppEvent>, Stor
                 messages,
             })
         }
+        Effect::LoadMessageReceipts {
+            conversation,
+            message,
+        } => {
+            let receipts = store.message_receipts(message).await?;
+            Some(AppEvent::MessageReceiptsLoaded {
+                conversation,
+                message,
+                receipts,
+            })
+        }
         Effect::Persist(event) => {
             store.apply(*event).await?;
             None

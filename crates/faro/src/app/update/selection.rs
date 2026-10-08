@@ -8,9 +8,9 @@ use faro_core::backend::{BackendError, BackendEvent, Capability, OutgoingMessage
 use faro_core::config::{AutoDownload, TranscribeMode};
 use faro_core::domain::{
     AttachmentRef, AttachmentStatus, ConversationId, DeliveryStatus, Direction, Message,
-    MessageBody, MessageRef, Quote, ServiceId, TranscriptSource,
+    MessageBody, MessageRef, Quote, ServiceId, Timestamp, TranscriptSource,
 };
-use faro_core::store::RemoteTranscription;
+use faro_core::store::{RecipientReceipt, RemoteTranscription};
 use tokio::time::Instant;
 
 use super::{curation, on_backend};
@@ -197,6 +197,7 @@ fn actions(state: &State, message: &Message) -> Vec<MessageAction> {
                 }
             }
         }
+        items.push(MessageAction::Info);
     }
     if matches!(message.direction, Direction::Outgoing(_)) && !message.deleted {
         if state.capabilities.supports(Capability::Edit) {
@@ -231,6 +232,7 @@ fn shortcut(c: char) -> Option<fn(&MessageAction) -> bool> {
         'r' => Some(|a| *a == MessageAction::Reply),
         '+' => Some(|a| *a == MessageAction::React),
         'y' => Some(|a| *a == MessageAction::Copy),
+        'i' => Some(|a| *a == MessageAction::Info),
         'e' => Some(|a| *a == MessageAction::Edit),
         'D' => Some(|a| *a == MessageAction::Delete),
         'o' => Some(|a| matches!(a, MessageAction::OpenLink(_))),
@@ -301,6 +303,13 @@ pub fn on_popup(state: &mut State, key: PopupKey) -> Vec<Effect> {
                 None => vec![],
             }
         }
+        Popup::MessageInfo { target, receipts } => match key {
+            PopupKey::Close | PopupKey::Choose | PopupKey::Char('q' | 'i') => vec![],
+            PopupKey::Previous | PopupKey::Next | PopupKey::Char(_) => {
+                state.popup = Some(Popup::MessageInfo { target, receipts });
+                vec![]
+            }
+        },
         Popup::ImageViewer { target, index } => match key {
             PopupKey::Char('s') => {
                 state.popup = Some(Popup::ImageViewer { target, index });
@@ -362,6 +371,7 @@ pub fn perform(state: &mut State, target: MessageRef, action: MessageAction) -> 
             vec![]
         }
         MessageAction::Copy => copy(state, target),
+        MessageAction::Info => message_info(state, target),
         MessageAction::Edit => edit_target(state, target),
         MessageAction::Delete => {
             delete_target(state, target);
@@ -387,6 +397,71 @@ pub fn perform(state: &mut State, target: MessageRef, action: MessageAction) -> 
         MessageAction::SaveAttachment { index, .. } => save_one(state, target, index),
         MessageAction::CopyAttachmentPath { index, .. } => copy_one_path(state, target, index),
         MessageAction::Retry => retry(state, target),
+    }
+}
+
+fn message_info(state: &mut State, target: MessageRef) -> Vec<Effect> {
+    let Some(open) = state.open.as_ref() else {
+        return vec![];
+    };
+    let conversation = open.id;
+    let Some(message) = find(state, target).filter(|m| !m.deleted) else {
+        return vec![];
+    };
+    let is_outgoing = matches!(message.direction, Direction::Outgoing(_));
+    state.popup = Some(Popup::MessageInfo {
+        target,
+        receipts: Vec::new(),
+    });
+    if is_outgoing {
+        vec![Effect::LoadMessageReceipts {
+            conversation,
+            message: target,
+        }]
+    } else {
+        vec![]
+    }
+}
+
+pub fn on_receipts_loaded(
+    state: &mut State,
+    conversation: ConversationId,
+    message: MessageRef,
+    loaded: Vec<RecipientReceipt>,
+) {
+    if state.open.as_ref().is_some_and(|o| o.id == conversation)
+        && let Some(Popup::MessageInfo { target, receipts }) = state.popup.as_mut()
+        && *target == message
+    {
+        *receipts = loaded;
+    }
+}
+
+pub fn on_delivery_update(
+    state: &mut State,
+    message: MessageRef,
+    status: DeliveryStatus,
+    by: Option<ServiceId>,
+    updated_at: Option<Timestamp>,
+) {
+    if let Some(Popup::MessageInfo { target, receipts }) = state.popup.as_mut()
+        && *target == message
+        && let (Some(recipient), Some(at)) = (by, updated_at)
+        && matches!(status, DeliveryStatus::Delivered | DeliveryStatus::Read)
+    {
+        if let Some(existing) = receipts.iter_mut().find(|r| r.recipient == recipient) {
+            if !(existing.status == DeliveryStatus::Read && status == DeliveryStatus::Delivered) {
+                existing.status = existing.status.update(status);
+                existing.updated_at = at;
+            }
+        } else {
+            receipts.push(RecipientReceipt {
+                recipient,
+                status,
+                updated_at: at,
+            });
+        }
+        receipts.sort_by_key(|r| (r.updated_at, r.recipient.to_string()));
     }
 }
 
@@ -707,6 +782,8 @@ fn retry(state: &mut State, target: MessageRef) -> Vec<Effect> {
         BackendEvent::DeliveryUpdate {
             message: target,
             status: DeliveryStatus::Sending,
+            by: None,
+            updated_at: None,
         },
     );
     effects.push(Effect::Backend(Command::Send {

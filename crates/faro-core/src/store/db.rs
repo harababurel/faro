@@ -11,7 +11,10 @@ use super::codec::{
     optional_timestamp_from_db, service_id_from_db, status_from_db, status_to_db,
     timestamp_from_db, timestamp_to_db,
 };
-use super::{ConversationState, ConversationSummary, NotifyLevel, Result, StoreError, StoreStats};
+use super::{
+    ConversationState, ConversationSummary, NotifyLevel, RecipientReceipt, Result, SearchHit,
+    StoreError, StoreStats,
+};
 use crate::backend::BackendEvent;
 use crate::domain::{
     Contact, ConversationId, DeliveryStatus, Direction, Group, Mention, Message, MessageBody,
@@ -21,6 +24,20 @@ use crate::domain::{
 mod attachments;
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!();
+
+type MessageRow = (
+    i64,
+    String,
+    i64,
+    Option<String>,
+    Option<String>,
+    Option<i64>,
+    Option<String>,
+    Option<i64>,
+    bool,
+    String,
+    Option<String>,
+);
 
 pub(super) struct Db {
     conn: SqliteConnection,
@@ -43,9 +60,12 @@ impl Db {
     pub(super) async fn apply(&mut self, event: BackendEvent) -> Result<()> {
         match event {
             BackendEvent::Message(message) => self.insert_message(&message).await,
-            BackendEvent::DeliveryUpdate { message, status } => {
-                self.update_status(message, status).await
-            }
+            BackendEvent::DeliveryUpdate {
+                message,
+                status,
+                by,
+                updated_at,
+            } => self.update_status(message, status, by, updated_at).await,
             BackendEvent::Reaction {
                 target,
                 sender,
@@ -260,13 +280,21 @@ impl Db {
     }
 
     /// Receipts arrive late, twice or out of order: never move a status backwards.
-    async fn update_status(&mut self, message: MessageRef, status: DeliveryStatus) -> Result<()> {
+    async fn update_status(
+        &mut self,
+        message: MessageRef,
+        status: DeliveryStatus,
+        by: Option<ServiceId>,
+        updated_at: Option<Timestamp>,
+    ) -> Result<()> {
+        let sender = message.sender.to_string();
+        let sent_at = timestamp_to_db(message.sent_at)?;
         let row: Option<(i64, Option<String>)> = sqlx::query_as(
             "SELECT id, status FROM messages
              WHERE sender = ?1 AND sent_at = ?2 AND direction = 'outgoing'",
         )
-        .bind(message.sender.to_string())
-        .bind(timestamp_to_db(message.sent_at)?)
+        .bind(&sender)
+        .bind(sent_at)
         .fetch_optional(&mut self.conn)
         .await?;
         let Some((id, current)) = row else {
@@ -284,6 +312,31 @@ impl Db {
                 .bind(id)
                 .execute(&mut self.conn)
                 .await?;
+        }
+        if let (Some(recipient), Some(at)) = (by, updated_at)
+            && matches!(status, DeliveryStatus::Delivered | DeliveryStatus::Read)
+        {
+            sqlx::query(
+                "INSERT INTO message_receipts (sender, sent_at, recipient, status, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(sender, sent_at, recipient) DO UPDATE SET
+                     status = CASE
+                         WHEN message_receipts.status = 'read' THEN 'read'
+                         ELSE excluded.status
+                     END,
+                     updated_at = CASE
+                         WHEN message_receipts.status = 'read' AND excluded.status = 'delivered'
+                             THEN message_receipts.updated_at
+                         ELSE excluded.updated_at
+                     END",
+            )
+            .bind(&sender)
+            .bind(sent_at)
+            .bind(recipient.to_string())
+            .bind(status_to_db(status))
+            .bind(timestamp_to_db(at)?)
+            .execute(&mut self.conn)
+            .await?;
         }
         Ok(())
     }
@@ -362,6 +415,11 @@ impl Db {
         ] {
             sqlx::query(table).bind(id).execute(&mut *tx).await?;
         }
+        sqlx::query("DELETE FROM message_receipts WHERE sender = ?1 AND sent_at = ?2")
+            .bind(target.sender.to_string())
+            .bind(timestamp_to_db(target.sent_at)?)
+            .execute(&mut *tx)
+            .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -451,21 +509,8 @@ impl Db {
         before: Option<MessageRef>,
         limit: u32,
     ) -> Result<Vec<Message>> {
-        type Row = (
-            i64,
-            String,
-            i64,
-            Option<String>,
-            Option<String>,
-            Option<i64>,
-            Option<String>,
-            Option<i64>,
-            bool,
-            String,
-            Option<String>,
-        );
         let key = conversation_key(conversation);
-        let rows: Vec<Row> = sqlx::query_as(
+        let rows: Vec<MessageRow> = sqlx::query_as(
             "SELECT id, sender, sent_at, body, quote_sender, quote_sent_at, quote_preview,
                     edited_at, deleted, direction, status
              FROM messages
@@ -484,61 +529,191 @@ impl Db {
         let mut ids = Vec::with_capacity(rows.len());
         let mut messages = Vec::with_capacity(rows.len());
         for row in rows.into_iter().rev() {
-            let (id, sender, sent_at, body, quote_sender, quote_sent_at, quote_preview) =
-                (row.0, row.1, row.2, row.3, row.4, row.5, row.6);
-            let (edited_at, deleted, direction, status) = (row.7, row.8, row.9, row.10);
-            let quote = match (quote_sender, quote_sent_at) {
-                (Some(sender), Some(sent_at)) => Some(Quote {
-                    target: MessageRef {
-                        sender: service_id_from_db(&sender, "quote_sender")?,
-                        sent_at: timestamp_from_db(sent_at, "quote_sent_at")?,
-                    },
-                    preview: quote_preview.map(MessageBody::new),
-                }),
-                (None, None) => None,
-                (Some(_), None) | (None, Some(_)) => return Err(StoreError::Corrupt("quote")),
-            };
+            let (id, message) = decode_message_row(conversation, row)?;
             ids.push(id);
-            messages.push(Message {
-                conversation,
-                sender: service_id_from_db(&sender, "sender")?,
-                sent_at: timestamp_from_db(sent_at, "sent_at")?,
-                direction: direction_from_db(&direction, status.as_deref())?,
-                body: body.map(MessageBody::new),
-                mentions: vec![],
-                quote,
-                attachments: vec![],
-                reactions: vec![],
-                edited_at: optional_timestamp_from_db(edited_at, "edited_at")?,
-                deleted,
-            });
+            messages.push(message);
         }
-        self.attach_extras(&key, &ids, &mut messages).await?;
+        self.attach_extras(&ids, &mut messages).await?;
         Ok(messages)
     }
 
-    /// Fill in reactions and attachments for a page of messages (`ids[i]` is the
-    /// row of `messages[i]`).
-    async fn attach_extras(
+    /// Up to `radius` messages at or before `target` plus up to `radius`
+    /// messages after `target` in `conversation`, ordered oldest first (M12).
+    pub(super) async fn messages_around(
         &mut self,
-        key: &str,
-        ids: &[i64],
-        messages: &mut [Message],
-    ) -> Result<()> {
+        conversation: ConversationId,
+        target: Timestamp,
+        radius: u32,
+    ) -> Result<Vec<Message>> {
+        let key = conversation_key(conversation);
+        let target_db = timestamp_to_db(target)?;
+        let limit = i64::from(radius);
+        let older: Vec<MessageRow> = sqlx::query_as(
+            "SELECT id, sender, sent_at, body, quote_sender, quote_sent_at, quote_preview,
+                    edited_at, deleted, direction, status
+             FROM messages
+             WHERE conversation_id = ?1 AND sent_at <= ?2
+             ORDER BY sent_at DESC, sender DESC
+             LIMIT ?3",
+        )
+        .bind(&key)
+        .bind(target_db)
+        .bind(limit)
+        .fetch_all(&mut self.conn)
+        .await?;
+        let newer: Vec<MessageRow> = sqlx::query_as(
+            "SELECT id, sender, sent_at, body, quote_sender, quote_sent_at, quote_preview,
+                    edited_at, deleted, direction, status
+             FROM messages
+             WHERE conversation_id = ?1 AND sent_at > ?2
+             ORDER BY sent_at ASC, sender ASC
+             LIMIT ?3",
+        )
+        .bind(&key)
+        .bind(target_db)
+        .bind(limit)
+        .fetch_all(&mut self.conn)
+        .await?;
+
+        let total = older.len().saturating_add(newer.len());
+        let mut ids = Vec::with_capacity(total);
+        let mut messages = Vec::with_capacity(total);
+        for row in older.into_iter().rev().chain(newer) {
+            let (id, message) = decode_message_row(conversation, row)?;
+            ids.push(id);
+            messages.push(message);
+        }
+        self.attach_extras(&ids, &mut messages).await?;
+        Ok(messages)
+    }
+
+    /// Search non-deleted messages matching all whitespace-separated tokens of
+    /// `query` in `body` or attachment `transcript`, ordered newest first (M12).
+    pub(super) async fn search_messages(
+        &mut self,
+        conversation: Option<ConversationId>,
+        query: &str,
+        limit: u32,
+    ) -> Result<Vec<SearchHit>> {
+        type SearchRow = (
+            String,
+            i64,
+            String,
+            i64,
+            Option<String>,
+            Option<String>,
+            Option<i64>,
+            Option<String>,
+            Option<i64>,
+            bool,
+            String,
+            Option<String>,
+        );
+        let tokens: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
+        if tokens.is_empty() || limit == 0 {
+            return Ok(vec![]);
+        }
+        let mut builder: sqlx::QueryBuilder<sqlx::Sqlite> = sqlx::QueryBuilder::new(
+            "SELECT m.conversation_id, m.id, m.sender, m.sent_at, m.body,
+                    m.quote_sender, m.quote_sent_at, m.quote_preview,
+                    m.edited_at, m.deleted, m.direction, m.status
+             FROM messages m
+             WHERE m.deleted = 0",
+        );
+        if let Some(conv) = conversation {
+            builder.push(" AND m.conversation_id = ");
+            builder.push_bind(conversation_key(conv));
+        }
+        for token in &tokens {
+            let pattern = like_pattern(token);
+            builder.push(" AND (lower(coalesce(m.body, '')) LIKE ");
+            builder.push_bind(pattern.clone());
+            builder.push(
+                " ESCAPE '\\' OR EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id AND lower(coalesce(a.transcript, '')) LIKE ",
+            );
+            builder.push_bind(pattern);
+            builder.push(" ESCAPE '\\'))");
+        }
+        builder.push(" ORDER BY m.sent_at DESC, m.sender ASC LIMIT ");
+        builder.push_bind(i64::from(limit));
+
+        let rows: Vec<SearchRow> = builder.build_query_as().fetch_all(&mut self.conn).await?;
+        let mut ids = Vec::with_capacity(rows.len());
+        let mut messages = Vec::with_capacity(rows.len());
+        for row in rows {
+            let conv = conversation_from_key(&row.0)?;
+            let msg_row = (
+                row.1, row.2, row.3, row.4, row.5, row.6, row.7, row.8, row.9, row.10, row.11,
+            );
+            let (id, message) = decode_message_row(conv, msg_row)?;
+            ids.push(id);
+            messages.push(message);
+        }
+        self.attach_extras(&ids, &mut messages).await?;
+        Ok(messages
+            .into_iter()
+            .map(|message| {
+                let matched_transcript = message.attachments.iter().find_map(|att| {
+                    let text = att.transcript.as_ref()?;
+                    let lower = text.to_lowercase();
+                    tokens
+                        .iter()
+                        .any(|token| lower.contains(token))
+                        .then(|| text.clone())
+                });
+                SearchHit {
+                    conversation: message.conversation,
+                    message,
+                    matched_transcript,
+                }
+            })
+            .collect())
+    }
+
+    /// Per-recipient delivery and read receipts for `message`, ordered by
+    /// `updated_at` ascending (M12).
+    pub(super) async fn message_receipts(
+        &mut self,
+        message: MessageRef,
+    ) -> Result<Vec<RecipientReceipt>> {
+        let rows: Vec<(String, String, i64)> = sqlx::query_as(
+            "SELECT recipient, status, updated_at
+             FROM message_receipts
+             WHERE sender = ?1 AND sent_at = ?2
+             ORDER BY updated_at ASC, recipient ASC",
+        )
+        .bind(message.sender.to_string())
+        .bind(timestamp_to_db(message.sent_at)?)
+        .fetch_all(&mut self.conn)
+        .await?;
+        rows.into_iter()
+            .map(|(recipient, status, updated_at)| {
+                Ok(RecipientReceipt {
+                    recipient: service_id_from_db(&recipient, "message_receipts.recipient")?,
+                    status: status_from_db(&status)?,
+                    updated_at: timestamp_from_db(updated_at, "message_receipts.updated_at")?,
+                })
+            })
+            .collect()
+    }
+
+    /// Fill in reactions, attachments and mentions for a slice of messages
+    /// (`ids[i]` is the row of `messages[i]`).
+    async fn attach_extras(&mut self, ids: &[i64], messages: &mut [Message]) -> Result<()> {
         let (Some(&first), Some(&last)) = (ids.first(), ids.last()) else {
             return Ok(());
         };
         let index: HashMap<i64, usize> = ids.iter().enumerate().map(|(i, id)| (*id, i)).collect();
-        let (low, high) = (first.min(last), first.max(last));
-        // Row IDs of a page aren't contiguous, but filtering by conversation and the
-        // page's row-ID range, then by `index`, avoids a variable-length IN list.
+        let (low, high) = ids
+            .iter()
+            .fold((first, last), |(lo, hi), &id| (lo.min(id), hi.max(id)));
+        // Row IDs of a batch aren't contiguous, but filtering by the row-ID
+        // range and then by `index` avoids a variable-length IN list.
         let reactions: Vec<(i64, String, String)> = sqlx::query_as(
             "SELECT r.message_id, r.sender, r.emoji FROM reactions r
-             JOIN messages m ON m.id = r.message_id
-             WHERE m.conversation_id = ?1 AND m.id BETWEEN ?2 AND ?3
+             WHERE r.message_id BETWEEN ?1 AND ?2
              ORDER BY r.rowid",
         )
-        .bind(key)
         .bind(low)
         .bind(high)
         .fetch_all(&mut self.conn)
@@ -550,15 +725,14 @@ impl Db {
             }
         }
 
-        attachments::load(&mut self.conn, key, low, high, &index, messages).await?;
+        attachments::load(&mut self.conn, low, high, &index, messages).await?;
 
         let mentions: Vec<(i64, i64, i64, String)> = sqlx::query_as(
             "SELECT n.message_id, n.start, n.length, n.service_id
-             FROM mentions n JOIN messages m ON m.id = n.message_id
-             WHERE m.conversation_id = ?1 AND m.id BETWEEN ?2 AND ?3
+             FROM mentions n
+             WHERE n.message_id BETWEEN ?1 AND ?2
              ORDER BY n.message_id, n.start",
         )
-        .bind(key)
         .bind(low)
         .bind(high)
         .fetch_all(&mut self.conn)
@@ -783,6 +957,50 @@ async fn insert_mentions(
         .await?;
     }
     Ok(())
+}
+
+fn decode_message_row(conversation: ConversationId, row: MessageRow) -> Result<(i64, Message)> {
+    let (id, sender, sent_at, body, quote_sender, quote_sent_at, quote_preview) =
+        (row.0, row.1, row.2, row.3, row.4, row.5, row.6);
+    let (edited_at, deleted, direction, status) = (row.7, row.8, row.9, row.10);
+    let quote = match (quote_sender, quote_sent_at) {
+        (Some(sender), Some(sent_at)) => Some(Quote {
+            target: MessageRef {
+                sender: service_id_from_db(&sender, "quote_sender")?,
+                sent_at: timestamp_from_db(sent_at, "quote_sent_at")?,
+            },
+            preview: quote_preview.map(MessageBody::new),
+        }),
+        (None, None) => None,
+        (Some(_), None) | (None, Some(_)) => return Err(StoreError::Corrupt("quote")),
+    };
+    let message = Message {
+        conversation,
+        sender: service_id_from_db(&sender, "sender")?,
+        sent_at: timestamp_from_db(sent_at, "sent_at")?,
+        direction: direction_from_db(&direction, status.as_deref())?,
+        body: body.map(MessageBody::new),
+        mentions: vec![],
+        quote,
+        attachments: vec![],
+        reactions: vec![],
+        edited_at: optional_timestamp_from_db(edited_at, "edited_at")?,
+        deleted,
+    };
+    Ok((id, message))
+}
+
+fn like_pattern(token: &str) -> String {
+    let mut out = String::with_capacity(token.len() + 2);
+    out.push('%');
+    for ch in token.chars() {
+        if matches!(ch, '%' | '_' | '\\') {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out.push('%');
+    out
 }
 
 fn now() -> Timestamp {

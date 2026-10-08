@@ -788,6 +788,8 @@ fn send_results_become_delivery_updates() {
             sent_at: first,
         },
         status: DeliveryStatus::Sent,
+        by: None,
+        updated_at: None,
     };
     assert_eq!(effects, vec![Effect::Persist(Box::new(sent))]);
     update(
@@ -1103,8 +1105,12 @@ fn the_menu_lists_what_a_message_offers() {
             MessageAction::Reply,
             MessageAction::React,
             MessageAction::Copy,
+<<<<<<< HEAD
             MessageAction::Edit,
             MessageAction::Delete,
+=======
+            MessageAction::Info,
+>>>>>>> m12-track-1b
         ]
     );
     // Shortcut letters work inside the menu; Esc closes it.
@@ -1146,6 +1152,8 @@ fn failed_messages_can_be_retried_from_the_menu() {
             Effect::Persist(Box::new(BackendEvent::DeliveryUpdate {
                 message: sent.reference(),
                 status: DeliveryStatus::Sending,
+                by: None,
+                updated_at: None,
             })),
             Effect::Backend(Command::Send {
                 conversation: climbing(),
@@ -1906,6 +1914,80 @@ fn typing_at_opens_mention_autocomplete_and_sends_mentions() {
             if message.body.expose() == "cc \u{FFFC} for beta"
                 && message.mentions == expected_mentions
     )));
+}
+
+#[test]
+fn message_info_popup_loads_and_updates_receipts() {
+    use faro_core::store::RecipientReceipt;
+
+    let mut state = loaded_state();
+    // Select the last outgoing message in climbing_history (index 7, `sent`, from ME).
+    select_last_but(&mut state, 1);
+    let target = selected_ref(&state).unwrap();
+    assert_eq!(target.sender, ME);
+
+    let effects = press(&mut state, 'i');
+    assert_eq!(
+        effects,
+        vec![Effect::LoadMessageReceipts {
+            conversation: climbing(),
+            message: target,
+        }]
+    );
+    assert_eq!(
+        state.popup,
+        Some(Popup::MessageInfo {
+            target,
+            receipts: vec![],
+        })
+    );
+
+    let r1 = RecipientReceipt {
+        recipient: ALICE,
+        status: DeliveryStatus::Delivered,
+        updated_at: Timestamp::from_millis(fixtures::NOW_MS + 100),
+    };
+    update(
+        &mut state,
+        AppEvent::MessageReceiptsLoaded {
+            conversation: climbing(),
+            message: target,
+            receipts: vec![r1],
+        },
+    );
+    assert_eq!(
+        state.popup,
+        Some(Popup::MessageInfo {
+            target,
+            receipts: vec![r1],
+        })
+    );
+
+    // Live DeliveryUpdate with provenance updates the open popup's receipts in place.
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::DeliveryUpdate {
+            message: target,
+            status: DeliveryStatus::Read,
+            by: Some(ALICE),
+            updated_at: Some(Timestamp::from_millis(fixtures::NOW_MS + 200)),
+        }),
+    );
+    assert_eq!(
+        state.popup,
+        Some(Popup::MessageInfo {
+            target,
+            receipts: vec![RecipientReceipt {
+                recipient: ALICE,
+                status: DeliveryStatus::Read,
+                updated_at: Timestamp::from_millis(fixtures::NOW_MS + 200),
+            }],
+        })
+    );
+
+    // Esc closes the popup.
+    update(&mut state, key(KeyCode::Esc, KeyModifiers::NONE));
+    assert_eq!(state.popup, None);
 }
 
 mod curation;

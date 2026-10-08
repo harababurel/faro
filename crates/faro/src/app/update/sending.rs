@@ -261,7 +261,15 @@ pub fn on_send_result(
         sender: state.me,
         sent_at,
     };
-    on_backend(state, BackendEvent::DeliveryUpdate { message, status })
+    on_backend(
+        state,
+        BackendEvent::DeliveryUpdate {
+            message,
+            status,
+            by: None,
+            updated_at: None,
+        },
+    )
 }
 
 /// A sent message's draft is gone; store that if there was one.

@@ -10,7 +10,9 @@ use faro_core::domain::{Direction, Message, MessageRef};
 pub fn apply(messages: &mut Vec<Message>, event: &BackendEvent) {
     match event {
         BackendEvent::Message(message) => insert(messages, message),
-        BackendEvent::DeliveryUpdate { message, status } => {
+        BackendEvent::DeliveryUpdate {
+            message, status, ..
+        } => {
             if let Some(m) = find(messages, *message)
                 && let Direction::Outgoing(current) = m.direction
             {
@@ -162,6 +164,8 @@ mod tests {
                 &BackendEvent::DeliveryUpdate {
                     message: mine.reference(),
                     status,
+                    by: None,
+                    updated_at: None,
                 },
             );
         }

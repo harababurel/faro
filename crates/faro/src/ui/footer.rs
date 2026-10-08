@@ -121,6 +121,7 @@ const REACT_HINTS: &[(&str, &str)] = &[
 ];
 const IMAGE_VIEWER_HINTS: &[(&str, &str)] = &[("s", "save"), ("y", "copy path"), ("esc", "close")];
 const CONFIRM_DELETE_HINTS: &[(&str, &str)] = &[("enter/y", "delete"), ("esc/n", "cancel")];
+const MESSAGE_INFO_HINTS: &[(&str, &str)] = &[("esc", "close")];
 
 pub fn render(
     frame: &mut Frame<'_>,
@@ -212,6 +213,7 @@ fn hints(state: &State, geometry: &Geometry) -> Vec<(String, &'static str)> {
             Popup::ConfirmDelete { .. } => fixed(CONFIRM_DELETE_HINTS),
             Popup::React { .. } => fixed(REACT_HINTS),
             Popup::Mute { .. } => fixed(MUTE_HINTS),
+            Popup::MessageInfo { .. } => fixed(MESSAGE_INFO_HINTS),
             Popup::ImageViewer { .. } => fixed(IMAGE_VIEWER_HINTS),
         };
     }

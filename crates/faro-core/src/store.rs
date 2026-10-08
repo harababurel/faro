@@ -16,8 +16,8 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::backend::BackendEvent;
 use crate::domain::{
-    AttachmentRef, Contact, ConversationId, Group, Message, MessageBody, MessageRef, PhoneNumber,
-    ServiceId, Timestamp,
+    AttachmentRef, Contact, ConversationId, DeliveryStatus, Group, Message, MessageBody,
+    MessageRef, PhoneNumber, ServiceId, Timestamp,
 };
 use crate::paths;
 
@@ -154,6 +154,22 @@ pub struct StoreStats {
     pub messages: u64,
 }
 
+/// Per-recipient delivery or read receipt for an outgoing message (M12).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RecipientReceipt {
+    pub recipient: ServiceId,
+    pub status: DeliveryStatus,
+    pub updated_at: Timestamp,
+}
+
+/// One full-text search hit across message bodies and voice note transcripts (M12).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchHit {
+    pub conversation: ConversationId,
+    pub message: Message,
+    pub matched_transcript: Option<String>,
+}
+
 /// Handle to the store task. Cheap to clone; the task stops when [`Store::close`]
 /// is called or every handle is dropped.
 #[derive(Debug, Clone)]
@@ -177,6 +193,19 @@ enum Request {
         limit: u32,
         reply: Reply<Vec<Message>>,
     },
+    MessagesAround {
+        conversation: ConversationId,
+        target: Timestamp,
+        radius: u32,
+        reply: Reply<Vec<Message>>,
+    },
+    SearchMessages {
+        conversation: Option<ConversationId>,
+        query: String,
+        limit: u32,
+        reply: Reply<Vec<SearchHit>>,
+    },
+    MessageReceipts(MessageRef, Reply<Vec<RecipientReceipt>>),
     SetConversationState(ConversationId, Box<ConversationState>, Reply<()>),
     SetAttachment(MessageRef, usize, Box<AttachmentRef>, Reply<()>),
     MarkRead(ConversationId, Reply<()>),
@@ -261,6 +290,48 @@ impl Store {
             reply,
         })
         .await
+    }
+
+    /// Up to `radius` messages at or before `target` plus up to `radius`
+    /// messages after `target` in `conversation`, ordered oldest first (M12).
+    pub async fn messages_around(
+        &self,
+        conversation: ConversationId,
+        target: Timestamp,
+        radius: u32,
+    ) -> Result<Vec<Message>> {
+        self.call(|reply| Request::MessagesAround {
+            conversation,
+            target,
+            radius,
+            reply,
+        })
+        .await
+    }
+
+    /// Search non-deleted messages matching all whitespace-separated tokens of
+    /// `query` in `body` or attachment `transcript`, ordered newest first (M12).
+    pub async fn search_messages(
+        &self,
+        conversation: Option<ConversationId>,
+        query: &str,
+        limit: u32,
+    ) -> Result<Vec<SearchHit>> {
+        let query = query.to_owned();
+        self.call(|reply| Request::SearchMessages {
+            conversation,
+            query,
+            limit,
+            reply,
+        })
+        .await
+    }
+
+    /// Per-recipient delivery and read receipts for `message`, ordered by
+    /// `updated_at` ascending (M12).
+    pub async fn message_receipts(&self, message: MessageRef) -> Result<Vec<RecipientReceipt>> {
+        self.call(|reply| Request::MessageReceipts(message, reply))
+            .await
     }
 
     pub async fn set_conversation_state(
@@ -397,6 +468,25 @@ async fn handle(db: &mut Db, request: Request) -> Option<Reply<()>> {
             reply,
         } => {
             let _ = reply.send(db.messages(conversation, before, limit).await);
+        }
+        Request::MessagesAround {
+            conversation,
+            target,
+            radius,
+            reply,
+        } => {
+            let _ = reply.send(db.messages_around(conversation, target, radius).await);
+        }
+        Request::SearchMessages {
+            conversation,
+            query,
+            limit,
+            reply,
+        } => {
+            let _ = reply.send(db.search_messages(conversation, &query, limit).await);
+        }
+        Request::MessageReceipts(message, reply) => {
+            let _ = reply.send(db.message_receipts(message).await);
         }
         Request::SetConversationState(conversation, state, reply) => {
             let _ = reply.send(db.set_conversation_state(conversation, &state).await);

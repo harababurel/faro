@@ -108,6 +108,8 @@ fn only_events_about_allowed_conversations_get_through() {
             sent_at: Timestamp::from_millis(1),
         },
         status: DeliveryStatus::Delivered,
+        by: None,
+        updated_at: None,
     }));
     assert!(shared.admits(&message(direct(ALLOWED), person(ALLOWED))));
     assert!(!shared.admits(&message(direct(STRANGER), person(STRANGER))));

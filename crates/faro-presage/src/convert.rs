@@ -95,7 +95,12 @@ pub fn events(content: &Content, me: ServiceId) -> Vec<BackendEvent> {
         ),
         ContentBody::EditMessage(edit) => edited(edit, sender, direct).into_iter().collect(),
         ContentBody::SynchronizeMessage(sync) => synced(sync, me),
-        ContentBody::ReceiptMessage(receipt) => receipts(receipt, me),
+        ContentBody::ReceiptMessage(receipt) => receipts(
+            receipt,
+            sender,
+            u64::try_from(content.metadata.client_timestamp.timestamp_millis()).unwrap_or(0),
+            me,
+        ),
         ContentBody::TypingMessage(typing) => vec![typed(typing, sender)],
         ContentBody::NullMessage(_)
         | ContentBody::CallMessage(_)
@@ -440,11 +445,17 @@ fn sent_to(sent: &Sent) -> Option<ServiceId> {
     sent.parse_destination_service_id().as_ref().map(service_id)
 }
 
-fn receipts(receipt: &ReceiptMessage, me: ServiceId) -> Vec<BackendEvent> {
+fn receipts(
+    receipt: &ReceiptMessage,
+    sender: ServiceId,
+    at: u64,
+    me: ServiceId,
+) -> Vec<BackendEvent> {
     let status = match receipt.r#type() {
         receipt_message::Type::Delivery => DeliveryStatus::Delivered,
         receipt_message::Type::Read | receipt_message::Type::Viewed => DeliveryStatus::Read,
     };
+    let updated_at = Some(Timestamp::from_millis(at));
     receipt
         .timestamp
         .iter()
@@ -454,6 +465,8 @@ fn receipts(receipt: &ReceiptMessage, me: ServiceId) -> Vec<BackendEvent> {
                 sent_at: Timestamp::from_millis(*sent_at),
             },
             status,
+            by: Some(sender),
+            updated_at,
         })
         .collect()
 }

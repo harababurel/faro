@@ -331,6 +331,8 @@ fn receipts_update_our_messages() {
                     sent_at: Timestamp::from_millis(t)
                 },
                 status: DeliveryStatus::Read,
+                by: Some(ALICE),
+                updated_at: Some(Timestamp::from_millis(0)),
             })
             .to_vec()
     );

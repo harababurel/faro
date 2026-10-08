@@ -737,7 +737,7 @@ pub(super) fn delivery(message: &Message, view: &View<'_>) -> Option<Span<'stati
         DeliveryStatus::Sending => (" ◌", theme.muted()),
         DeliveryStatus::Sent => (" ✓", theme.muted()),
         DeliveryStatus::Delivered => (" ✓✓", theme.muted()),
-        DeliveryStatus::Read => (" ✓✓", Style::new().fg(theme.secondary)),
+        DeliveryStatus::Read => (" ✓✓", Style::new().fg(theme.accent)),
         DeliveryStatus::Failed => (" ! not sent", Style::new().fg(theme.error)),
     };
     Some(Span::styled(glyph, style))

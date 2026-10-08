@@ -7,7 +7,7 @@ use faro_core::config::SettingEdit;
 use faro_core::domain::{
     AttachmentRef, ConversationId, Message, MessageRef, ServiceId, Timestamp, TranscriptSource,
 };
-use faro_core::store::{ConversationState, ConversationSummary};
+use faro_core::store::{ConversationState, ConversationSummary, RecipientReceipt};
 
 use super::commands::Command;
 use super::state::Geometry;
@@ -30,6 +30,12 @@ pub enum AppEvent {
     OlderLoaded {
         conversation: ConversationId,
         messages: Vec<Message>,
+    },
+    /// Per-recipient receipts loaded for `Popup::MessageInfo` (M12).
+    MessageReceiptsLoaded {
+        conversation: ConversationId,
+        message: MessageRef,
+        receipts: Vec<RecipientReceipt>,
     },
     /// The backend finished (or gave up) sending our message `sent_at`.
     SendResult {
@@ -125,6 +131,11 @@ pub enum Effect {
     LoadOlder {
         conversation: ConversationId,
         before: MessageRef,
+    },
+    /// Answered with `AppEvent::MessageReceiptsLoaded` (M12).
+    LoadMessageReceipts {
+        conversation: ConversationId,
+        message: MessageRef,
     },
     Persist(Box<BackendEvent>),
     /// Record an attachment's status and dimensions in the store (D75).
