@@ -187,12 +187,16 @@ impl App {
         }
         self.log.line(&format!(
             "RESULT approach={approach} goal={goal:?} status={} types={types:?} mime={} bytes={} \
-             packets={} corrupt={} ms={} {extra} file={file}",
+             packets={} corrupt={} png_complete={} ms={} {extra} file={file}",
             reply.status(),
             reply.data.first().map_or("-", |(m, _)| m.as_str()),
             reply.data.first().map_or(0, |(_, b)| b.len()),
             reply.packets,
             reply.corrupt,
+            reply
+                .data
+                .first()
+                .map_or("-", |(_, b)| if png_complete(b) { "yes" } else { "no" }),
             elapsed.as_millis(),
         ));
     }
@@ -228,6 +232,11 @@ fn describe_key(key: &KeyEvent) -> String {
 /// Same as faro's `tui::wrap_tmux_passthrough`.
 fn wrap_tmux_passthrough(sequence: &str) -> String {
     format!("\x1bPtmux;{}\x1b\\", sequence.replace('\x1b', "\x1b\x1b"))
+}
+
+/// A PNG ends with an empty `IEND` chunk (`IEND` + its fixed CRC).
+fn png_complete(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"\x89PNG\r\n\x1a\n") && bytes.ends_with(b"IEND\xae\x42\x60\x82")
 }
 
 fn best_image_type(types: &[String]) -> Option<&'static str> {

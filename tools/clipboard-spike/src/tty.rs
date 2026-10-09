@@ -24,6 +24,8 @@ pub struct DirectRead {
     pub reply: Reply,
     /// Bytes outside packets (keys typed during the read; lost to the app).
     pub stray: Vec<u8>,
+    /// Sequences cut out of packets (see `reply::strip_csi`).
+    pub interleaved: Vec<Vec<u8>>,
     /// crossterm already had events queued when we took over.
     pub queued_before: bool,
     pub wakeups: usize,
@@ -33,11 +35,15 @@ pub struct DirectRead {
 impl DirectRead {
     pub fn stats(&self) -> String {
         format!(
-            "wakeups={} tty_bytes={} stray_bytes={} stray={:?} queued_before={}",
+            "wakeups={} tty_bytes={} stray_bytes={} stray={:?} interleaved={:?} queued_before={}",
             self.wakeups,
             self.bytes_read,
             self.stray.len(),
             String::from_utf8_lossy(&self.stray),
+            self.interleaved
+                .iter()
+                .map(|s| String::from_utf8_lossy(s).into_owned())
+                .collect::<Vec<_>>(),
             self.queued_before
         )
     }
@@ -66,6 +72,7 @@ pub fn read_reply(request: &str, _list: bool) -> io::Result<DirectRead> {
     let mut read = DirectRead {
         reply: Reply::default(),
         stray: Vec::new(),
+        interleaved: Vec::new(),
         queued_before,
         wakeups: 0,
         bytes_read: 0,
@@ -115,6 +122,7 @@ pub fn read_reply(request: &str, _list: bool) -> io::Result<DirectRead> {
     }
     let _ = poll.registry().deregister(&mut SourceFd(&raw));
     read.stray = scanner.stray;
+    read.interleaved = scanner.interleaved;
     Ok(read)
 }
 

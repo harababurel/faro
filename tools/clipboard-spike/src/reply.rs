@@ -22,6 +22,9 @@ pub enum Packet {
 pub struct Scanner {
     buf: Vec<u8>,
     pub stray: Vec<u8>,
+    /// Escape sequences found inside packets (e.g. a focus report tmux slipped
+    /// into the middle of the reply), cut out before decoding.
+    pub interleaved: Vec<Vec<u8>>,
 }
 
 impl Scanner {
@@ -44,12 +47,39 @@ impl Scanner {
             let Some((end, terminator)) = find_terminator(&self.buf[body_start..]) else {
                 break;
             };
-            let body = self.buf[body_start..body_start + end].to_vec();
+            let body = strip_csi(
+                &self.buf[body_start..body_start + end],
+                &mut self.interleaved,
+            );
             self.buf.drain(..body_start + end + terminator);
             packets.push(parse(&body));
         }
         packets
     }
+}
+
+/// Packet bodies never contain `ESC` (base64 and `key=value` text), so any
+/// `ESC [ … final` inside one is another sequence that got mixed in: move it to
+/// `cut`. A lone `ESC` that doesn't start a CSI is left for the parser to reject.
+fn strip_csi(body: &[u8], cut: &mut Vec<Vec<u8>>) -> Vec<u8> {
+    let mut out = Vec::with_capacity(body.len());
+    let mut i = 0;
+    while i < body.len() {
+        if body[i] == 0x1b && body.get(i + 1) == Some(&b'[') {
+            let mut j = i + 2;
+            while j < body.len() && (0x20..=0x3f).contains(&body[j]) {
+                j += 1;
+            }
+            if j < body.len() && (0x40..=0x7e).contains(&body[j]) {
+                cut.push(body[i..=j].to_vec());
+                i = j + 1;
+                continue;
+            }
+        }
+        out.push(body[i]);
+        i += 1;
+    }
+    out
 }
 
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -197,6 +227,20 @@ mod tests {
             assert_eq!(reply.types(), ["image/png", "text/html"]);
             assert_eq!(scanner.stray, b"");
         }
+    }
+
+    /// Seen on the owner's machine: tmux put kitty's focus-in report inside
+    /// a data packet.
+    #[test]
+    fn cuts_focus_reports_out_of_packets() {
+        let input = b"\x1b]5522;type=read:status=DATA:mime=aW1hZ2UvcG5n;aGVs\x1b[IbG8=\x1b\\";
+        let mut scanner = Scanner::default();
+        let packets = scanner.push(input);
+        let [Packet::Data { bytes, .. }] = packets.as_slice() else {
+            panic!("{packets:?}")
+        };
+        assert_eq!(bytes, b"hello");
+        assert_eq!(scanner.interleaved, [b"\x1b[I".to_vec()]);
     }
 
     #[test]

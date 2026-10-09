@@ -105,6 +105,9 @@ class Harness:
             self.requests.append((meta.decode(), want))
             if want != "." and self.args.prompt_delay:
                 self.pump_quiet(self.args.prompt_delay)
+            if want != "." and self.args.focus_inside:
+                at = reply.find(b"status=DATA", len(reply) // 2) + 20
+                reply = reply[:at] + b"\x1b[I" + reply[at:]
             self.send_split(reply)
 
     def pump_quiet(self, seconds):
@@ -170,6 +173,7 @@ def main():
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--rounds", type=int, default=2)
     p.add_argument("--keys", default="1234")
+    p.add_argument("--focus-inside", action="store_true", help="put ESC [ I inside a data packet")
     p.add_argument("--spike-args", default="", help="extra arguments for the spike")
     p.add_argument("--expect-images", type=int, default=None)
     p.add_argument("--pace", type=float, default=0.0, help="seconds to sleep after each write")
