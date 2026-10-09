@@ -105,6 +105,8 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 
 - 2026-10-09: explicit image protocols (D84): `[media] inline_images` / palette now offers `auto`, `kitty`, `sixel`, `iterm2`, `halfblocks`, `off`. Forced graphics bypass automatic hop/colour fallback rules and work live without stdin queries. `Environment::image_protocol` records the optional startup result for Auto's explanatory note; image resources remain in `Images`. Hands-on checks in MANUAL_TESTS "Explicit protocols (D84)".
 
+- 2026-10-09: package names (D85): `faro` everywhere, `faro-chat` only on crates.io (binary still `faro`); website `getfaro.dev`.
+
 ### Gotchas found so far
 
 - `#[expect(...)]` on a macro call (`println!`) is ignored; put it on the enclosing `fn`.

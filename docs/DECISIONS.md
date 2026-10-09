@@ -74,7 +74,7 @@ All entries below were made on 2026-10-07 unless stated otherwise.
 - **Meaning:** Italian/Spanish/Portuguese for "lighthouse" (descends from Pharos, the Lighthouse of Alexandria). Pronounced FAH-ro.
 - **Availability (checked 2026-10-07):** free on Homebrew (formula + cask), Arch, AUR, Debian, Nixpkgs, Flathub, Docker Hub. Taken on crates.io (a tiny web-search CLI that also installs a `faro` binary), PyPI (small inactive library), npm (tiny 2022 package).
 - **Known neighbours:** Grafana Faro (frontend observability, ~1.3M weekly npm downloads; dominates "faro" in developer search results); FARO Technologies (3D measurement; holds the FARO trademark in a different market; acquired by AMETEK in 2025 as far as we know; no registry search was done); Faro, the city in Portugal.
-- **Plan:** command is `faro`. If needed when going public, repo/packages can use `faro-chat`. Not a trademark/legal assessment.
+- **Plan:** command is `faro`. If needed when going public, repo/packages can use `faro-chat`. Not a trademark/legal assessment. *(Package names settled by D85.)*
 - **Rejected names:** see BACKGROUND.md (naming history).
 
 ### D12. Logo direction: lighthouse with a rotating beam — Accepted
@@ -754,3 +754,12 @@ Refines the DESIGN.md §5.1 sketch:
 - **Overrides:** explicit graphics modes select that protocol immediately, without a capability query or confirmation dialog. They override mixed/detached tmux, mosh and colour-depth fallback decisions. **Judgement:** colour depth limits text-cell colours, not graphics payloads, so forced graphics remain available at 256/16 colours. These choices cannot make an incompatible terminal or mosh carry graphics; the values page says that compatibility and tmux passthrough are required.
 - **Explanation:** the values page shows Auto's selected mode and reason (colour depth, mosh, mixed/detached tmux clients, startup detection, or restart needed to query). The app records only the query result in State; encoded images remain in the app-loop cache. The renderer refreshes the note while the page stays open.
 - **Lifecycle:** no new stdin queries after EventStream starts. Explicit modes work live even if startup skipped detection; without a query they use the existing picker's estimated cell pixel size. Returning to Auto uses the saved startup result, or half-blocks until restart if there was no query. Protocol changes invalidate cached/in-flight encodes; overlay placeholders and frame safeguards are retained.
+
+### D85. Package names: `faro` everywhere, `faro-chat` on crates.io — Accepted (owner, 2026-10-09)
+
+- **Why:** settles the open question "repo/package name `faro` vs `faro-chat`" (D11) before going public.
+- **Availability (rechecked 2026-10-09):** `faro` is free on Homebrew (formula + cask), Arch, AUR and every repo Repology tracks (Debian, Fedora, Nixpkgs, Alpine, MacPorts…). On crates.io it belongs to `eddraz/faro`, a small web-search CLI (0.3.0, active, also installs a `faro` binary). `faro-chat` and `farochat` are free everywhere checked.
+- **Decision:** the project, repo, command and every package are `faro` (Homebrew tap, AUR `faro-bin`/`faro-git`, `.deb`, Nix flake). Only the crates.io package is `faro-chat`, still installing a `faro` binary (`[[bin]] name = "faro"`), as `fd` does with `fd-find`. The README lists the install command per package manager.
+- **Consequences:** distros that already have (or later get) another `faro` may rename ours (as Debian ships `fd` as `fd-find`); that's their call. Claim the AUR names with the first release. crates.io publishing still waits for presage's git-only dependencies (§13 in DESIGN.md); until then `faro-chat` is only reserved.
+- **Website (owner's preference):** `getfaro.dev` as the main domain, optionally `farochat.dev` redirecting to it. `faro.chat` is taken.
+- **Rejected:** `faro-chat` everywhere (consistent but longer to type, and the name people see would differ from the command); bare `faro` on crates.io (taken).

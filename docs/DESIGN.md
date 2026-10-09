@@ -445,13 +445,13 @@ Sketch:
 
 ## 13. Packaging and distribution
 
-- **Not on crates.io** (presage depends on Signal's git-only crates). `cargo install --git` works; build needs `protoc`.
+- **Not on crates.io yet** (presage depends on Signal's git-only crates). `cargo install --git` works; build needs `protoc`. When it can be published, the crate is `faro-chat` (installing the `faro` binary), since `faro` is taken there (D85).
 - **Release binaries** via cargo-dist / GitHub Actions: `x86_64` and `aarch64` for Linux (glibc; musl if feasible) and macOS.
 - **Homebrew:** own tap first (`harababurel/tap`), homebrew-core later.
 - **Arch:** AUR `faro-bin` and `faro-git`.
 - **Debian/Ubuntu:** `.deb` via `cargo-deb` attached to releases.
 - **Nix:** flake in the repo.
-- Package name `faro` where free; `faro-chat` as the fallback name.
+- **Names (D85):** `faro` everywhere (repo, command, Homebrew, AUR, `.deb`, Nix); `faro-chat` only on crates.io. Website: `getfaro.dev`.
 
 ## 14. Release plan (confirmed, D14)
 
@@ -530,5 +530,5 @@ Still open:
 1. Does presage support importing message history from the phone when linking? Investigate in M7.
 2. Final logo artwork and colours.
 3. ~~Licences of bundled themes~~: OpenCode's themes are MIT; notice shipped (D54).
-4. Repo/package name `faro` vs `faro-chat` before going public.
+4. ~~Repo/package name `faro` vs `faro-chat`~~: `faro` everywhere, `faro-chat` on crates.io (D85).
 5. Optional sync of hidden/allowlist state via the config file (backlog).
