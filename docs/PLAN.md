@@ -343,6 +343,7 @@ Start after Wave 2 is merged to `origin/main`. Run **Tracks 3A and 3B in paralle
 - Optional sync of hidden/allowlist state via config
 - Recording and sending voice notes
 - Packaging (cargo-dist binaries, Homebrew tap, AUR `faro-bin`/`faro-git`, `.deb`, Nix flake)
+- Paste images from the local clipboard over SSH (kitty OSC 5522, tmux passthrough, not mosh; D89). Tested by hand on the owner's setup; phased plan starting with an input-handling spike in [research/clipboard-image-paste.md](research/clipboard-image-paste.md)
 
 ---
 
