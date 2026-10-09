@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::parser::ValueSource;
 use clap::{CommandFactory as _, FromArgMatches as _, Parser};
@@ -62,6 +62,9 @@ pub struct Invocation {
     /// `--data-dir` was typed (rather than read from `FARO_DATA_DIR`).
     /// `faro demo` refuses the first and ignores the second (D87).
     pub data_dir_typed: bool,
+    /// `--allowlist` was typed (rather than read from `FARO_ALLOWLIST`).
+    /// `faro demo` takes only the first (D87).
+    pub allowlist_typed: bool,
 }
 
 impl Invocation {
@@ -83,7 +86,27 @@ impl Invocation {
         Ok(Self {
             cli: Cli::from_arg_matches(matches)?,
             data_dir_typed: matches.value_source("data_dir") == Some(ValueSource::CommandLine),
+            allowlist_typed: matches.value_source("allowlist") == Some(ValueSource::CommandLine),
         })
+    }
+
+    fn is_demo(&self) -> bool {
+        matches!(self.cli.command, Some(Command::Demo(_)))
+    }
+
+    /// The allowlist this run uses. The demo takes only a typed one:
+    /// `FARO_ALLOWLIST` is for a real account, and would leave the demo's
+    /// fake world empty (D87).
+    pub fn allowlist(&self) -> Option<&Path> {
+        self.cli
+            .allowlist
+            .as_deref()
+            .filter(|_| !self.is_demo() || self.allowlist_typed)
+    }
+
+    /// `FARO_ALLOWLIST` is set but this demo run ignores it (worth a log line).
+    pub fn ignores_env_allowlist(&self) -> bool {
+        self.cli.allowlist.is_some() && self.allowlist().is_none()
     }
 
     /// Why the flags can't go with `faro demo`, if they can't.
@@ -304,6 +327,60 @@ mod tests {
                 "{args:?}"
             );
         }
+    }
+
+    #[test]
+    fn the_demo_takes_a_typed_allowlist() {
+        for args in [
+            &["faro", "demo", "--allowlist", "/tmp/a.toml"][..],
+            &["faro", "--allowlist", "/tmp/a.toml", "demo"],
+        ] {
+            let typed = Invocation::try_parse_from(args).unwrap();
+            assert!(typed.allowlist_typed, "{args:?}");
+            assert_eq!(typed.allowlist(), Some(Path::new("/tmp/a.toml")));
+            assert!(!typed.ignores_env_allowlist());
+        }
+    }
+
+    /// Values from the environment don't count as typed, so the demo ignores
+    /// `FARO_DATA_DIR` and `FARO_ALLOWLIST` (D87). Checked in a child
+    /// process: tests can't set environment variables safely.
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a test waiting for its own child process"
+    )]
+    fn environment_values_are_not_typed() {
+        const CHILD: &str = "FARO_CLI_TEST_CHILD";
+        const NAME: &str = "cli::tests::environment_values_are_not_typed";
+        if std::env::var_os(CHILD).is_some() {
+            let demo = Invocation::try_parse_from(["faro", "demo"]).unwrap();
+            assert_eq!(demo.cli.data_dir, Some(PathBuf::from("/env/data")));
+            assert!(!demo.data_dir_typed);
+            assert_eq!(demo.demo_conflict(), None);
+            assert_eq!(demo.cli.allowlist, Some(PathBuf::from("/env/allow.toml")));
+            assert!(!demo.allowlist_typed);
+            assert_eq!(demo.allowlist(), None);
+            assert!(demo.ignores_env_allowlist());
+            // A real run still uses it.
+            let real = Invocation::try_parse_from(["faro"]).unwrap();
+            assert_eq!(real.allowlist(), Some(Path::new("/env/allow.toml")));
+            assert!(!real.ignores_env_allowlist());
+            return;
+        }
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", NAME, "--test-threads", "1"])
+            .env(CHILD, "1")
+            .env("FARO_DATA_DIR", "/env/data")
+            .env("FARO_ALLOWLIST", "/env/allow.toml")
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(output.status.success(), "{stdout}");
+        assert!(
+            stdout.contains("1 passed"),
+            "the child ran the test: {stdout}"
+        );
     }
 
     #[test]

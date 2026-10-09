@@ -589,14 +589,14 @@ async fn a_mute_without_end_round_trips() {
 async fn file_store_is_private_and_reopens() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("faro.db");
-    let store = Store::open(&path).await.unwrap();
+    let store = Store::open(&path, Profile::Signal).await.unwrap();
     store.set_app_state("k", "v").await.unwrap();
     store.close().await.unwrap();
     let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode, paths::FILE_MODE);
 
     // Migrations are idempotent and the data survived.
-    let store = Store::open(&path).await.unwrap();
+    let store = Store::open(&path, Profile::Signal).await.unwrap();
     assert_eq!(store.app_state("k").await.unwrap().as_deref(), Some("v"));
     store.close().await.unwrap();
 }
@@ -682,19 +682,83 @@ async fn profiles_never_cross() {
 }
 
 #[tokio::test]
-async fn the_profile_survives_a_restart() {
+async fn opening_marks_the_profile_and_it_survives_a_restart() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("faro.db");
-    let store = Store::open(&path).await.unwrap();
-    store.claim_profile(Profile::Demo).await.unwrap();
-    store.close().await.unwrap();
-    let store = Store::open(&path).await.unwrap();
+    let store = Store::open(&path, Profile::Demo).await.unwrap();
     assert_eq!(
-        mismatch(store.claim_profile(Profile::Signal).await),
+        store.app_state(PROFILE_KEY).await.unwrap().as_deref(),
+        Some("demo")
+    );
+    // Read while it's open (with its `-wal` file), then after closing.
+    assert_eq!(Store::profile_of(&path).await.unwrap(), Some(Profile::Demo));
+    store.close().await.unwrap();
+    assert_eq!(Store::profile_of(&path).await.unwrap(), Some(Profile::Demo));
+    assert_eq!(
+        mismatch(Store::open(&path, Profile::Signal).await.map(|_| ())),
         ProfileMismatch::DemoDatabase
     );
-    store.claim_profile(Profile::Demo).await.unwrap();
+    let store = Store::open(&path, Profile::Demo).await.unwrap();
     store.close().await.unwrap();
+}
+
+fn file_state(path: &std::path::Path) -> (Vec<u8>, u32) {
+    let bytes = std::fs::read(path).unwrap();
+    let mode = std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+    (bytes, mode)
+}
+
+/// Refused before anything touches the file: no permission change, no
+/// journal files, no migrations (D87).
+#[tokio::test]
+async fn a_refused_database_is_left_untouched() {
+    use sqlx::{ConnectOptions as _, Connection as _};
+
+    let dir = tempfile::tempdir().unwrap();
+    // A real account's database.
+    let real = dir.path().join("faro.db");
+    let store = Store::open(&real, Profile::Signal).await.unwrap();
+    store
+        .apply(BackendEvent::Message(incoming(
+            direct(ALICE),
+            ALICE,
+            1,
+            "hi",
+        )))
+        .await
+        .unwrap();
+    store.close().await.unwrap();
+    std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let before = file_state(&real);
+    assert_eq!(
+        mismatch(Store::open(&real, Profile::Demo).await.map(|_| ())),
+        ProfileMismatch::SignalDatabase
+    );
+    assert_eq!(file_state(&real), before);
+    for side in ["faro.db-wal", "faro.db-shm"] {
+        assert!(!dir.path().join(side).exists(), "{side}");
+    }
+
+    // Something faro never migrated (an older or foreign schema).
+    let old = dir.path().join("old.db");
+    let mut conn = SqliteConnectOptions::new()
+        .filename(&old)
+        .create_if_missing(true)
+        .connect()
+        .await
+        .unwrap();
+    sqlx::query("CREATE TABLE notes (text TEXT)")
+        .execute(&mut conn)
+        .await
+        .unwrap();
+    conn.close().await.unwrap();
+    let before = file_state(&old);
+    assert_eq!(
+        mismatch(Store::open(&old, Profile::Demo).await.map(|_| ())),
+        ProfileMismatch::UnmarkedHistory
+    );
+    assert_eq!(file_state(&old), before, "not migrated");
+    assert_eq!(Store::profile_of(&old).await.unwrap(), None);
 }
 
 /// M2 acceptance: a restart keeps history (with the mock backend).
@@ -703,7 +767,7 @@ async fn restart_keeps_mock_history() {
     const BACKLOG: usize = 30;
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("faro.db");
-    let store = Store::open(&path).await.unwrap();
+    let store = Store::open(&path, Profile::Demo).await.unwrap();
 
     let config = MockConfig {
         activity: None,
@@ -741,7 +805,7 @@ async fn restart_keeps_mock_history() {
     assert_eq!(before.messages, BACKLOG as u64);
     assert_ne!(history, vec![]);
 
-    let store = Store::open(&path).await.unwrap();
+    let store = Store::open(&path, Profile::Demo).await.unwrap();
     assert_eq!(store.stats().await.unwrap(), before);
     assert_eq!(store.conversations().await.unwrap(), conversations);
     assert_eq!(store.messages(busiest, None, 100).await.unwrap(), history);

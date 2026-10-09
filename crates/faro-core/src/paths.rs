@@ -135,12 +135,32 @@ pub fn current_uid() -> u32 {
     rustix::process::getuid().as_raw()
 }
 
-/// Whether `dir` carries the [`DEMO_MARKER`]: real runs, `faro link` and
-/// `faro ids` refuse such a directory (D87).
+/// faro's own database file name, in a demo directory as anywhere.
+const FARO_DB: &str = "faro.db";
+
+/// Where a real run's `dir` meets a demo directory (D87): `dir` itself or
+/// the nearest ancestor that carries the [`DEMO_MARKER`], checked on the path
+/// as given and after resolving symlinks. Real runs, `faro link` and `faro
+/// ids` refuse to keep data there, so `--fresh` can never wipe it.
 ///
 /// Blocking: call at startup, before the UI.
-pub fn is_demo_dir(dir: &Path) -> bool {
-    matches!(symlink_metadata(&dir.join(DEMO_MARKER)), Ok(Some(_)))
+pub fn demo_dir_around(dir: &Path) -> io::Result<Option<PathBuf>> {
+    for path in [absolute(dir)?, resolve(dir)?] {
+        for ancestor in path.ancestors() {
+            if matches!(symlink_metadata(&ancestor.join(DEMO_MARKER)), Ok(Some(_))) {
+                return Ok(Some(ancestor.to_owned()));
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// Whether `path` exists (following symlinks).
+///
+/// Blocking: call at startup or from a blocking task, never from the UI loop.
+#[expect(clippy::disallowed_methods, reason = "startup, or a blocking task")]
+pub fn exists(path: &Path) -> io::Result<bool> {
+    path.try_exists()
 }
 
 /// Why a directory can't hold the demo's data (D87).
@@ -151,10 +171,12 @@ pub enum DemoDirError {
          (pick another with --dir)"
     )]
     OverlapsRealData { dir: PathBuf, data_dir: PathBuf },
-    #[error("{0} is a symbolic link; the demo only uses a directory it made itself")]
+    #[error("{0} is a symbolic link; the demo only uses files and directories it made itself")]
     Symlink(PathBuf),
     #[error("{0} is not a directory")]
     NotADirectory(PathBuf),
+    #[error("{0} is not a regular file; the demo only uses files it made itself")]
+    NotAFile(PathBuf),
     #[error("{dir} belongs to another user (uid {owner}); the demo only uses its own directory")]
     NotOwned { dir: PathBuf, owner: u32 },
     #[error("{dir} has mode {mode:04o}, not 0700; the demo only uses a private directory")]
@@ -166,6 +188,12 @@ pub enum DemoDirError {
          pick another with --dir"
     )]
     NotMarked(PathBuf),
+    #[error("--fresh won't delete {dir}: {found} {why}")]
+    FreshRefused {
+        dir: PathBuf,
+        found: PathBuf,
+        why: &'static str,
+    },
     #[error("preparing the demo directory {dir}: {source}")]
     Io { dir: PathBuf, source: io::Error },
 }
@@ -188,10 +216,14 @@ pub enum DemoDir {
 ///   (compared after resolving symlinks).
 /// - A missing `dir` is created `0700` with the [`DEMO_MARKER`] file.
 /// - An existing `dir` must be a real directory (not a symlink) owned by
-///   `uid`, must not hold `presage.db`, and must either be marked and `0700`
-///   or be empty (it's then tightened to `0700` and marked).
-/// - `fresh` deletes `dir` and starts over only if it passed every check and
-///   was already marked: never an arbitrary directory.
+///   `uid`, must not hold `presage.db` or a symlink, its `faro.db` must be a
+///   regular file, and it must either be marked and `0700` or be empty (it's
+///   then tightened to `0700` and marked).
+/// - `fresh` deletes `dir` and starts over only if it passed every check,
+///   was already marked, holds no `presage.db` and no `faro.db` anywhere
+///   below the top (walked without following symlinks), and its own
+///   `faro.db`, if any, passes `is_demo_db` (marked `demo`). Never an
+///   arbitrary directory.
 ///
 /// Blocking: call at startup, before the UI.
 pub fn prepare_demo_dir(
@@ -199,6 +231,7 @@ pub fn prepare_demo_dir(
     fresh: bool,
     real_data_dirs: &[PathBuf],
     uid: u32,
+    is_demo_db: impl FnOnce(&Path) -> bool,
 ) -> Result<DemoDir, DemoDirError> {
     let io = |source| DemoDirError::Io {
         dir: dir.to_owned(),
@@ -231,13 +264,21 @@ pub fn prepare_demo_dir(
             owner: metadata.uid(),
         });
     }
-    let entries = entry_names(dir).map_err(io)?;
-    if entries.iter().any(|name| name == PRESAGE_DB) {
+    let entries = entries(dir).map_err(io)?;
+    if entries.iter().any(|(name, _)| name == PRESAGE_DB) {
         return Err(DemoDirError::SignalAccount(dir.to_owned()));
     }
-    let marked = symlink_metadata(&dir.join(DEMO_MARKER))
-        .map_err(io)?
-        .is_some_and(|m| m.file_type().is_file());
+    for (name, kind) in &entries {
+        if kind.is_symlink() {
+            return Err(DemoDirError::Symlink(dir.join(name)));
+        }
+        if name == FARO_DB && !kind.is_file() {
+            return Err(DemoDirError::NotAFile(dir.join(name)));
+        }
+    }
+    let marked = entries
+        .iter()
+        .any(|(name, kind)| name == DEMO_MARKER && kind.is_file());
     let mode = metadata.permissions().mode() & 0o777;
     if marked {
         if mode != DIR_MODE {
@@ -247,6 +288,7 @@ pub fn prepare_demo_dir(
             });
         }
         if fresh {
+            check_wipeable(dir, &entries, is_demo_db)?;
             wipe_demo_dir(dir).map_err(io)?;
             create_demo_dir(dir).map_err(io)?;
             return Ok(DemoDir::Wiped);
@@ -261,15 +303,64 @@ pub fn prepare_demo_dir(
     Ok(DemoDir::Created)
 }
 
+/// Refuse to wipe a marked demo directory that holds anything a real run
+/// could have left there: a `presage.db` or a `faro.db` anywhere below the
+/// top, or a top-level `faro.db` not marked `demo` (D87).
+fn check_wipeable(
+    dir: &Path,
+    top: &[(std::ffi::OsString, fs::FileType)],
+    is_demo_db: impl FnOnce(&Path) -> bool,
+) -> Result<(), DemoDirError> {
+    let refuse = |found: PathBuf, why| DemoDirError::FreshRefused {
+        dir: dir.to_owned(),
+        found,
+        why,
+    };
+    // Below the top, without following symlinks.
+    let mut pending: Vec<PathBuf> = top
+        .iter()
+        .filter(|(_, kind)| kind.is_dir())
+        .map(|(name, _)| dir.join(name))
+        .collect();
+    while let Some(sub) = pending.pop() {
+        let found = entries(&sub).map_err(|source| DemoDirError::Io {
+            dir: dir.to_owned(),
+            source,
+        })?;
+        for (name, kind) in found {
+            let path = sub.join(&name);
+            if name == PRESAGE_DB {
+                return Err(refuse(path, "is a Signal account's database"));
+            }
+            if name == FARO_DB {
+                return Err(refuse(path, "is another faro database"));
+            }
+            if kind.is_dir() {
+                pending.push(path);
+            }
+        }
+    }
+    let db = dir.join(FARO_DB);
+    if top.iter().any(|(name, _)| name == FARO_DB) && !is_demo_db(&db) {
+        return Err(refuse(db, "isn't marked as a demo database"));
+    }
+    Ok(())
+}
+
+/// `path` made absolute (against the current directory), as written.
+fn absolute(path: &Path) -> io::Result<PathBuf> {
+    Ok(if path.is_absolute() {
+        path.to_owned()
+    } else {
+        std::env::current_dir()?.join(path)
+    })
+}
+
 /// `path` made absolute with symlinks resolved, as far as it exists; the
 /// missing rest is appended as written.
 #[expect(clippy::disallowed_methods, reason = "startup, before the UI")]
 fn resolve(path: &Path) -> io::Result<PathBuf> {
-    let absolute = if path.is_absolute() {
-        path.to_owned()
-    } else {
-        std::env::current_dir()?.join(path)
-    };
+    let absolute = absolute(path)?;
     let mut existing = absolute.as_path();
     let mut missing = Vec::new();
     loop {
@@ -303,11 +394,12 @@ fn symlink_metadata(path: &Path) -> io::Result<Option<fs::Metadata>> {
     }
 }
 
-/// The names in directory `dir`.
+/// The names in directory `dir` and what each is (a symlink is reported as
+/// one, not followed).
 #[expect(clippy::disallowed_methods, reason = "startup, before the UI")]
-fn entry_names(dir: &Path) -> io::Result<Vec<std::ffi::OsString>> {
+fn entries(dir: &Path) -> io::Result<Vec<(std::ffi::OsString, fs::FileType)>> {
     fs::read_dir(dir)?
-        .map(|entry| entry.map(|e| e.file_name()))
+        .map(|entry| entry.and_then(|e| Ok((e.file_name(), e.file_type()?))))
         .collect()
 }
 
@@ -723,6 +815,11 @@ mod tests {
         vec![real]
     }
 
+    /// Every top-level `faro.db` is a demo one (the store decides in faro).
+    fn demo_db(_: &Path) -> bool {
+        true
+    }
+
     fn marked(dir: &Path) -> bool {
         fs::symlink_metadata(dir.join(DEMO_MARKER)).is_ok_and(|m| m.is_file())
     }
@@ -754,19 +851,19 @@ mod tests {
         let real = real_dir(tmp.path());
         let dir = tmp.path().join("nested").join("demo");
         let uid = current_uid();
-        assert!(!is_demo_dir(&dir));
-        assert!(!is_demo_dir(&real[0]));
+        assert_eq!(demo_dir_around(&dir).unwrap(), None);
+        assert_eq!(demo_dir_around(&real[0]).unwrap(), None);
         assert_eq!(
-            prepare_demo_dir(&dir, false, &real, uid).unwrap(),
+            prepare_demo_dir(&dir, false, &real, uid, demo_db).unwrap(),
             DemoDir::Created
         );
-        assert!(is_demo_dir(&dir));
+        assert_eq!(demo_dir_around(&dir).unwrap(), Some(dir.clone()));
         assert_eq!(mode(&dir), DIR_MODE);
         assert!(marked(&dir));
         assert_eq!(mode(&dir.join(DEMO_MARKER)), FILE_MODE);
         fs::write(dir.join("faro.db"), "demo").unwrap();
         assert_eq!(
-            prepare_demo_dir(&dir, false, &real, uid).unwrap(),
+            prepare_demo_dir(&dir, false, &real, uid, demo_db).unwrap(),
             DemoDir::Reused
         );
         assert!(dir.join("faro.db").exists(), "reused, not wiped");
@@ -781,7 +878,7 @@ mod tests {
         fs::create_dir(&empty).unwrap();
         fs::set_permissions(&empty, fs::Permissions::from_mode(0o755)).unwrap();
         assert_eq!(
-            prepare_demo_dir(&empty, false, &real, uid).unwrap(),
+            prepare_demo_dir(&empty, false, &real, uid, demo_db).unwrap(),
             DemoDir::Created
         );
         assert_eq!(mode(&empty), DIR_MODE, "tightened");
@@ -792,7 +889,7 @@ mod tests {
         fs::write(full.join("notes.txt"), "mine").unwrap();
         for fresh in [false, true] {
             assert!(matches!(
-                prepare_demo_dir(&full, fresh, &real, uid),
+                prepare_demo_dir(&full, fresh, &real, uid, demo_db),
                 Err(DemoDirError::NotMarked(_))
             ));
         }
@@ -806,11 +903,11 @@ mod tests {
         let real = real_dir(tmp.path());
         let uid = current_uid();
         let dir = tmp.path().join("demo");
-        prepare_demo_dir(&dir, false, &real, uid).unwrap();
+        prepare_demo_dir(&dir, false, &real, uid, demo_db).unwrap();
         fs::write(dir.join("presage.db"), "keys").unwrap();
         for fresh in [false, true] {
             assert!(matches!(
-                prepare_demo_dir(&dir, fresh, &real, uid),
+                prepare_demo_dir(&dir, fresh, &real, uid, demo_db),
                 Err(DemoDirError::SignalAccount(_))
             ));
         }
@@ -823,12 +920,12 @@ mod tests {
         let real = real_dir(tmp.path());
         let uid = current_uid();
         let dir = tmp.path().join("demo");
-        prepare_demo_dir(&dir, false, &real, uid).unwrap();
+        prepare_demo_dir(&dir, false, &real, uid, demo_db).unwrap();
 
         let link = tmp.path().join("link");
         std::os::unix::fs::symlink(&dir, &link).unwrap();
         assert!(matches!(
-            prepare_demo_dir(&link, true, &real, uid),
+            prepare_demo_dir(&link, true, &real, uid, demo_db),
             Err(DemoDirError::Symlink(_))
         ));
         assert!(marked(&dir), "the link's target is left alone");
@@ -836,19 +933,19 @@ mod tests {
         let file = tmp.path().join("file");
         fs::write(&file, "x").unwrap();
         assert!(matches!(
-            prepare_demo_dir(&file, false, &real, uid),
+            prepare_demo_dir(&file, false, &real, uid, demo_db),
             Err(DemoDirError::NotADirectory(_))
         ));
 
         assert!(matches!(
-            prepare_demo_dir(&dir, true, &real, uid.wrapping_add(1)),
+            prepare_demo_dir(&dir, true, &real, uid.wrapping_add(1), demo_db),
             Err(DemoDirError::NotOwned { .. })
         ));
         assert!(marked(&dir), "not wiped");
 
         fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
         assert!(matches!(
-            prepare_demo_dir(&dir, true, &real, uid),
+            prepare_demo_dir(&dir, true, &real, uid, demo_db),
             Err(DemoDirError::NotPrivate { mode: 0o755, .. })
         ));
         assert!(marked(&dir), "not wiped");
@@ -870,7 +967,7 @@ mod tests {
         ] {
             assert!(
                 matches!(
-                    prepare_demo_dir(&dir, true, &real, uid),
+                    prepare_demo_dir(&dir, true, &real, uid, demo_db),
                     Err(DemoDirError::OverlapsRealData { .. })
                 ),
                 "{}",
@@ -883,7 +980,7 @@ mod tests {
         // Marking it by hand doesn't help.
         fs::write(real[0].join(DEMO_MARKER), "").unwrap();
         assert!(matches!(
-            prepare_demo_dir(&real[0], true, &real, uid),
+            prepare_demo_dir(&real[0], true, &real, uid, demo_db),
             Err(DemoDirError::OverlapsRealData { .. })
         ));
         assert!(real[0].join("faro.db").exists());
@@ -896,18 +993,154 @@ mod tests {
         let uid = current_uid();
         let dir = tmp.path().join("demo");
         assert_eq!(
-            prepare_demo_dir(&dir, true, &real, uid).unwrap(),
+            prepare_demo_dir(&dir, true, &real, uid, demo_db).unwrap(),
             DemoDir::Created
         );
         fs::create_dir(dir.join("logs")).unwrap();
         fs::write(dir.join("faro.db"), "demo").unwrap();
         assert_eq!(
-            prepare_demo_dir(&dir, true, &real, uid).unwrap(),
+            prepare_demo_dir(&dir, true, &real, uid, demo_db).unwrap(),
             DemoDir::Wiped
         );
         assert!(!dir.join("faro.db").exists());
         assert!(!dir.join("logs").exists());
         assert!(marked(&dir));
         assert_eq!(mode(&dir), DIR_MODE);
+    }
+
+    #[test]
+    fn demo_dir_refuses_symlinks_and_odd_files_at_the_top() {
+        let tmp = tempfile::tempdir().unwrap();
+        let real = real_dir(tmp.path());
+        let uid = current_uid();
+        let dir = tmp.path().join("demo");
+        prepare_demo_dir(&dir, false, &real, uid, demo_db).unwrap();
+
+        fs::create_dir(dir.join("faro.db")).unwrap();
+        assert!(matches!(
+            prepare_demo_dir(&dir, false, &real, uid, demo_db),
+            Err(DemoDirError::NotAFile(_))
+        ));
+        fs::remove_dir(dir.join("faro.db")).unwrap();
+
+        // A database or log directory that leads to real data.
+        for name in ["faro.db", "logs"] {
+            let target = real[0].join(if name == "logs" { "." } else { "faro.db" });
+            std::os::unix::fs::symlink(&target, dir.join(name)).unwrap();
+            for fresh in [false, true] {
+                assert!(matches!(
+                    prepare_demo_dir(&dir, fresh, &real, uid, demo_db),
+                    Err(DemoDirError::Symlink(_))
+                ));
+            }
+            fs::remove_file(dir.join(name)).unwrap();
+        }
+        assert!(real[0].join("faro.db").exists());
+    }
+
+    #[test]
+    fn fresh_refuses_other_data_below_the_top() {
+        let tmp = tempfile::tempdir().unwrap();
+        let real = real_dir(tmp.path());
+        let uid = current_uid();
+        let dir = tmp.path().join("demo");
+        prepare_demo_dir(&dir, false, &real, uid, demo_db).unwrap();
+        let nested = dir.join("acct").join("deeper");
+        fs::create_dir_all(&nested).unwrap();
+        for name in ["presage.db", "faro.db"] {
+            let file = nested.join(name);
+            fs::write(&file, "real").unwrap();
+            assert!(
+                matches!(
+                    prepare_demo_dir(&dir, true, &real, uid, demo_db),
+                    Err(DemoDirError::FreshRefused { ref found, .. }) if *found == file
+                ),
+                "{name}"
+            );
+            assert!(file.exists(), "{name} kept");
+            // Without --fresh nothing is deleted, so it may carry on.
+            assert_eq!(
+                prepare_demo_dir(&dir, false, &real, uid, demo_db).unwrap(),
+                DemoDir::Reused
+            );
+            fs::remove_file(&file).unwrap();
+        }
+        assert_eq!(
+            prepare_demo_dir(&dir, true, &real, uid, demo_db).unwrap(),
+            DemoDir::Wiped
+        );
+    }
+
+    #[test]
+    fn fresh_refuses_a_database_not_marked_demo() {
+        let tmp = tempfile::tempdir().unwrap();
+        let real = real_dir(tmp.path());
+        let uid = current_uid();
+        let dir = tmp.path().join("demo");
+        prepare_demo_dir(&dir, false, &real, uid, demo_db).unwrap();
+        let db = dir.join("faro.db");
+        fs::write(&db, "history").unwrap();
+        let mut asked = None;
+        assert!(matches!(
+            prepare_demo_dir(&dir, true, &real, uid, |path: &Path| {
+                asked = Some(path.to_owned());
+                false
+            }),
+            Err(DemoDirError::FreshRefused { .. })
+        ));
+        assert_eq!(asked, Some(db.clone()));
+        assert!(db.exists());
+        assert_eq!(
+            prepare_demo_dir(&dir, true, &real, uid, demo_db).unwrap(),
+            DemoDir::Wiped
+        );
+        assert!(!db.exists());
+    }
+
+    #[test]
+    fn fresh_never_follows_symlinks_below_the_top() {
+        let tmp = tempfile::tempdir().unwrap();
+        let real = real_dir(tmp.path());
+        let uid = current_uid();
+        let elsewhere = tmp.path().join("elsewhere");
+        fs::create_dir(&elsewhere).unwrap();
+        fs::write(elsewhere.join("presage.db"), "keys").unwrap();
+        let dir = tmp.path().join("demo");
+        prepare_demo_dir(&dir, false, &real, uid, demo_db).unwrap();
+        fs::create_dir(dir.join("logs")).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, dir.join("logs").join("away")).unwrap();
+        assert_eq!(
+            prepare_demo_dir(&dir, true, &real, uid, demo_db).unwrap(),
+            DemoDir::Wiped
+        );
+        assert!(elsewhere.join("presage.db").exists());
+    }
+
+    #[test]
+    fn a_data_dir_inside_a_demo_dir_is_found() {
+        let tmp = tempfile::tempdir().unwrap();
+        let real = real_dir(tmp.path());
+        let uid = current_uid();
+        let dir = tmp.path().join("demo");
+        prepare_demo_dir(&dir, false, &real, uid, demo_db).unwrap();
+        // Not there yet, and deeper down.
+        assert_eq!(
+            demo_dir_around(&dir.join("acct")).unwrap(),
+            Some(dir.clone())
+        );
+        fs::create_dir_all(dir.join("acct").join("sub")).unwrap();
+        assert_eq!(
+            demo_dir_around(&dir.join("acct").join("sub")).unwrap(),
+            Some(dir.clone())
+        );
+        // Through a symlink from outside.
+        let link = tmp.path().join("link");
+        std::os::unix::fs::symlink(dir.join("acct"), &link).unwrap();
+        assert_eq!(
+            demo_dir_around(&link).unwrap(),
+            Some(fs::canonicalize(&dir).unwrap())
+        );
+        assert_eq!(demo_dir_around(&real[0]).unwrap(), None);
+        assert_eq!(demo_dir_around(&tmp.path().join("other")).unwrap(), None);
     }
 }

@@ -32,7 +32,15 @@ fn main() -> anyhow::Result<()> {
     } else {
         Profile::Signal
     };
-    let (paths, demo_dir) = resolve_paths(&invocation, demo.as_ref())?;
+    // Before any check: `--fresh` asks the store whether a database is a
+    // demo one.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("starting the async runtime")?;
+    let (paths, demo_dir) = resolve_paths(&invocation, demo.as_ref(), &runtime)?;
+    let allowlist_file = invocation.allowlist().map(std::path::Path::to_owned);
+    let ignored_allowlist = invocation.ignores_env_allowlist();
     let cli = invocation.cli;
     paths
         .ensure_data_dirs()
@@ -43,7 +51,7 @@ fn main() -> anyhow::Result<()> {
     let config_file = paths.config_file().to_owned();
     let (mut settings, mut problems) = config::load(&config_file);
     let themes = config::load_themes(&config::themes_dir(&config_file));
-    let allowlist = read_allowlist(cli.allowlist.as_deref())?;
+    let allowlist = read_allowlist(allowlist_file.as_deref())?;
 
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "faro starting");
     if let Some(outcome) = demo_dir {
@@ -52,11 +60,10 @@ fn main() -> anyhow::Result<()> {
             // Only the environment can have set it: a typed one was refused.
             tracing::info!("FARO_DATA_DIR ignored: the demo never uses it (D87)");
         }
+        if ignored_allowlist {
+            tracing::info!("FARO_ALLOWLIST ignored: the demo only takes a typed --allowlist (D87)");
+        }
     }
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .context("starting the async runtime")?;
     // presage's futures aren't `Send` (D30) and it spawns local tasks, so
     // everything runs inside a `LocalSet`.
     let local = tokio::task::LocalSet::new();
@@ -80,12 +87,8 @@ fn main() -> anyhow::Result<()> {
     let db_file = paths.db_file();
     let data_dir = paths.data_dir().to_owned();
     local.block_on(&runtime, async {
-        let store = Store::open(&db_file)
-            .await
-            .with_context(|| format!("opening the database {}", db_file.display()))?;
-        // Before anything writes to it (D87).
-        store
-            .claim_profile(profile)
+        // Refused before anything touches it if it's the other profile's (D87).
+        let store = Store::open(&db_file, profile)
             .await
             .with_context(|| format!("opening the database {}", db_file.display()))?;
         let unsent = store.fail_unsent().await?;
@@ -130,18 +133,24 @@ fn main() -> anyhow::Result<()> {
 fn resolve_paths(
     invocation: &cli::Invocation,
     demo: Option<&cli::DemoArgs>,
+    runtime: &tokio::runtime::Runtime,
 ) -> anyhow::Result<(Paths, Option<DemoDir>)> {
     if let Some(args) = demo {
-        let (paths, outcome) = demo_paths(invocation, args)?;
+        let (paths, outcome) = demo_paths(invocation, args, runtime)?;
         return Ok((paths, Some(outcome)));
     }
     let cli = &invocation.cli;
     let paths = Paths::resolve(cli.config.clone(), cli.data_dir.clone())
         .context("resolving faro's directories")?;
-    if paths::is_demo_dir(paths.data_dir()) {
+    // Inside a demo directory, `faro demo --fresh` could wipe it.
+    let around = paths::demo_dir_around(paths.data_dir())
+        .with_context(|| format!("checking {}", paths.data_dir().display()))?;
+    if let Some(demo_dir) = around {
         anyhow::bail!(
-            "{} is a demo directory (it has {}): run `faro demo` to use it",
+            "{} is inside a demo directory ({} has {}): run `faro demo` for the demo, \
+             or keep your data elsewhere",
             paths.data_dir().display(),
+            demo_dir.display(),
             paths::DEMO_MARKER
         );
     }
@@ -169,9 +178,14 @@ fn read_allowlist(path: Option<&std::path::Path>) -> anyhow::Result<Option<Allow
 /// `<temp>/faro-demo-<uid>/`, never `--data-dir` or `FARO_DATA_DIR`, and
 /// never overlapping either real data directory (the default one or
 /// `FARO_DATA_DIR`'s). The config file is the real one.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "startup, before the UI: `--fresh` waits for the store's read-only peek"
+)]
 fn demo_paths(
     invocation: &cli::Invocation,
     args: &cli::DemoArgs,
+    runtime: &tokio::runtime::Runtime,
 ) -> anyhow::Result<(Paths, DemoDir)> {
     if let Some(conflict) = invocation.demo_conflict() {
         anyhow::bail!(conflict);
@@ -185,7 +199,14 @@ fn demo_paths(
         .dir
         .clone()
         .unwrap_or_else(|| paths::default_demo_dir(&std::env::temp_dir(), uid));
-    let outcome = paths::prepare_demo_dir(&dir, args.fresh, &real_data_dirs, uid)?;
+    // `--fresh` deletes a `faro.db` only if it's marked as the demo's.
+    let is_demo_db = |db: &std::path::Path| {
+        matches!(
+            runtime.block_on(Store::profile_of(db)),
+            Ok(Some(Profile::Demo))
+        )
+    };
+    let outcome = paths::prepare_demo_dir(&dir, args.fresh, &real_data_dirs, uid, is_demo_db)?;
     Ok((real.demo(dir), outcome))
 }
 

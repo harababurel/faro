@@ -277,9 +277,22 @@ enum Request {
 }
 
 impl Store {
-    /// Open (creating if needed) the database at `path` and start the store task.
-    /// The parent directory must exist. A new file is created as `0600`.
-    pub async fn open(path: &Path) -> Result<Self> {
+    /// Open (creating if needed) the database at `path` for `profile` and
+    /// start the store task. The parent directory must exist. A new file is
+    /// created as `0600`.
+    ///
+    /// An existing database that belongs to the other profile is refused
+    /// before anything touches it (no permission change, journal mode switch
+    /// or migration); one that fits is marked as `profile` once it's up to
+    /// date ([`Store::claim_profile`], D87).
+    pub async fn open(path: &Path, profile: Profile) -> Result<Self> {
+        let owned: PathBuf = path.to_owned();
+        let exists = tokio::task::spawn_blocking(move || paths::exists(&owned))
+            .await
+            .map_err(|e| StoreError::Io(std::io::Error::other(e)))??;
+        if exists {
+            Db::check_profile(path, profile).await?;
+        }
         let owned: PathBuf = path.to_owned();
         // SQLite creates its `-wal`/`-shm` files with the database file's mode, so
         // creating the file ourselves keeps all three private.
@@ -291,7 +304,16 @@ impl Store {
             .journal_mode(SqliteJournalMode::Wal)
             .synchronous(SqliteSynchronous::Normal)
             .foreign_keys(true);
-        Self::start(&options).await
+        let store = Self::start(&options).await?;
+        store.claim_profile(profile).await?;
+        Ok(store)
+    }
+
+    /// The profile the database at `path` is marked with, read without
+    /// changing anything; `None` if it isn't marked (D87). For `faro demo
+    /// --fresh`, which only deletes a demo database.
+    pub async fn profile_of(path: &Path) -> Result<Option<Profile>> {
+        db::profile_of(path).await
     }
 
     /// A throwaway in-memory store, for tests and the mock.
@@ -436,8 +458,8 @@ impl Store {
     }
 
     /// Check that the database belongs to `profile`, marking it if it isn't
-    /// marked yet (D87). Call right after [`Store::open`], before anything
-    /// else writes.
+    /// marked yet (D87). [`Store::open`] does this (after a read-only check
+    /// before migrating); in-memory stores can call it directly.
     ///
     /// - [`Profile::Signal`]: refuses a demo database; an unmarked one is
     ///   real history (from before profiles existed) and is marked `signal`.

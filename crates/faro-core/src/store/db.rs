@@ -2,6 +2,7 @@
 //! the connection (D22).
 
 use std::collections::HashMap;
+use std::path::Path;
 
 use sqlx::sqlite::{SqliteConnectOptions, SqliteConnection};
 use sqlx::{ConnectOptions as _, Connection as _};
@@ -49,6 +50,14 @@ impl Db {
         let mut conn = options.connect().await?;
         MIGRATOR.run(&mut conn).await?;
         Ok(Self { conn })
+    }
+
+    /// Refuse the existing database at `path` if it belongs to the other
+    /// profile, without changing it: read-only, no journal mode switch, no
+    /// migrations (D87). [`Db::claim_profile`] marks it after migrating.
+    pub(super) async fn check_profile(path: &Path, wanted: Profile) -> Result<()> {
+        decide(wanted, peek_profile(path).await?)?;
+        Ok(())
     }
 
     pub(super) async fn close(self) -> Result<()> {
@@ -809,45 +818,14 @@ impl Db {
     /// and marking happen in one transaction.
     pub(super) async fn claim_profile(&mut self, wanted: Profile) -> Result<()> {
         let mut tx = self.conn.begin().await?;
-        let stored: Option<(String,)> =
-            sqlx::query_as("SELECT value FROM app_state WHERE key = ?1")
+        let stored = stored_profile(&mut tx).await?;
+        if decide(wanted, stored)? {
+            sqlx::query("INSERT INTO app_state (key, value) VALUES (?1, ?2)")
                 .bind(PROFILE_KEY)
-                .fetch_optional(&mut *tx)
+                .bind(wanted.as_str())
+                .execute(&mut *tx)
                 .await?;
-        let found = match stored {
-            Some((text,)) => Some(Profile::parse(&text).ok_or(ProfileMismatch::Unknown(text))?),
-            None => None,
-        };
-        match (wanted, found) {
-            (Profile::Demo, Some(Profile::Demo)) | (Profile::Signal, Some(Profile::Signal)) => {
-                return Ok(());
-            }
-            (Profile::Signal, Some(Profile::Demo)) => {
-                return Err(ProfileMismatch::DemoDatabase.into());
-            }
-            (Profile::Demo, Some(Profile::Signal)) => {
-                return Err(ProfileMismatch::SignalDatabase.into());
-            }
-            (Profile::Demo, None) => {
-                // Every other table hangs off these.
-                let (rows,): (i64,) = sqlx::query_as(
-                    "SELECT (SELECT count(*) FROM app_state) + (SELECT count(*) FROM recipients)
-                          + (SELECT count(*) FROM conversations) + (SELECT count(*) FROM messages)",
-                )
-                .fetch_one(&mut *tx)
-                .await?;
-                if rows != 0 {
-                    return Err(ProfileMismatch::UnmarkedHistory.into());
-                }
-            }
-            // History from before profiles existed is a real account's.
-            (Profile::Signal, None) => {}
         }
-        sqlx::query("INSERT INTO app_state (key, value) VALUES (?1, ?2)")
-            .bind(PROFILE_KEY)
-            .bind(wanted.as_str())
-            .execute(&mut *tx)
-            .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -921,6 +899,98 @@ impl Db {
             messages: u64::try_from(messages).map_err(|_| StoreError::Corrupt("count"))?,
         })
     }
+}
+
+/// What a database says about its [`Profile`] (D87).
+enum StoredProfile {
+    /// No tables at all: a brand-new (or empty) file.
+    New,
+    /// No profile yet; `empty` if it holds no history or app state either.
+    Unmarked { empty: bool },
+    /// The stored value, possibly one this version doesn't know.
+    Marked(String),
+}
+
+/// Read the profile without changing anything; works before migrations.
+async fn stored_profile(conn: &mut SqliteConnection) -> Result<StoredProfile> {
+    let tables: Vec<(String,)> =
+        sqlx::query_as("SELECT name FROM sqlite_master WHERE type = 'table'")
+            .fetch_all(&mut *conn)
+            .await?;
+    if tables.is_empty() {
+        return Ok(StoredProfile::New);
+    }
+    if !tables.iter().any(|(name,)| name == "app_state") {
+        // Some other SQLite file, or one faro never finished creating.
+        return Ok(StoredProfile::Unmarked { empty: false });
+    }
+    let stored: Option<(String,)> = sqlx::query_as("SELECT value FROM app_state WHERE key = ?1")
+        .bind(PROFILE_KEY)
+        .fetch_optional(&mut *conn)
+        .await?;
+    if let Some((text,)) = stored {
+        return Ok(StoredProfile::Marked(text));
+    }
+    // `app_state` came with the first migration, as did these; every other
+    // table hangs off them.
+    let (rows,): (i64,) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM app_state) + (SELECT count(*) FROM recipients)
+              + (SELECT count(*) FROM conversations) + (SELECT count(*) FROM messages)",
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    Ok(StoredProfile::Unmarked { empty: rows == 0 })
+}
+
+/// Read the profile of the database file at `path` leaving no trace: read
+/// only, and with no `-wal` file around (everything is in the main file)
+/// also immutable, so SQLite doesn't create `-wal`/`-shm` files beside it.
+async fn peek_profile(path: &Path) -> Result<StoredProfile> {
+    let mut wal = path.as_os_str().to_owned();
+    wal.push("-wal");
+    let wal = std::path::PathBuf::from(wal);
+    let wal_exists = tokio::task::spawn_blocking(move || crate::paths::exists(&wal))
+        .await
+        .map_err(|e| StoreError::Io(std::io::Error::other(e)))??;
+    let mut conn = SqliteConnectOptions::new()
+        .filename(path)
+        .read_only(true)
+        .immutable(!wal_exists)
+        .connect()
+        .await?;
+    let stored = stored_profile(&mut conn).await;
+    conn.close().await?;
+    stored
+}
+
+/// Whether a database may be used as `wanted`: `Ok(true)` if it still has to
+/// be marked, `Ok(false)` if it already is (D87).
+fn decide(wanted: Profile, stored: StoredProfile) -> Result<bool, ProfileMismatch> {
+    match stored {
+        StoredProfile::Marked(text) => match (wanted, Profile::parse(&text)) {
+            (Profile::Demo, Some(Profile::Demo)) | (Profile::Signal, Some(Profile::Signal)) => {
+                Ok(false)
+            }
+            (Profile::Signal, Some(Profile::Demo)) => Err(ProfileMismatch::DemoDatabase),
+            (Profile::Demo, Some(Profile::Signal)) => Err(ProfileMismatch::SignalDatabase),
+            (Profile::Demo | Profile::Signal, None) => Err(ProfileMismatch::Unknown(text)),
+        },
+        // History from before profiles existed is a real account's; the demo
+        // only takes a database with nothing in it.
+        StoredProfile::Unmarked { empty: false } if wanted == Profile::Demo => {
+            Err(ProfileMismatch::UnmarkedHistory)
+        }
+        StoredProfile::New | StoredProfile::Unmarked { .. } => Ok(true),
+    }
+}
+
+/// The profile the database at `path` is marked with, read without
+/// changing it; `None` if it isn't marked (or with one unknown here).
+pub(super) async fn profile_of(path: &Path) -> Result<Option<Profile>> {
+    Ok(match peek_profile(path).await? {
+        StoredProfile::Marked(text) => Profile::parse(&text),
+        StoredProfile::New | StoredProfile::Unmarked { .. } => None,
+    })
 }
 
 /// Make sure a `recipients` row exists (names unknown until a contact update).
