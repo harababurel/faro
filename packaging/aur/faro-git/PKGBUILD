@@ -44,6 +44,8 @@ build() {
   cd "$_pkgname"
   export RUSTUP_TOOLCHAIN=stable
   export CARGO_TARGET_DIR=target
+  # Keep the build directory out of the binary (panic messages embed source paths).
+  export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$srcdir=/"
   cargo build --frozen --release --package faro
 }
 
@@ -51,6 +53,8 @@ check() {
   cd "$_pkgname"
   export RUSTUP_TOOLCHAIN=stable
   export CARGO_TARGET_DIR=target
+  # Keep the build directory out of the binary (panic messages embed source paths).
+  export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$srcdir=/"
   cargo test --frozen --workspace
 }
 
