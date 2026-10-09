@@ -131,7 +131,9 @@ fn prefixes_jump_into_a_category() {
     assert!(kinds(&state).iter().all(|k| matches!(
         k,
         ItemKind::Command(_)
-            | ItemKind::Level(Level::People | Level::Nickname(_) | Level::AttachFile)
+            | ItemKind::Level(
+                Level::People | Level::Nickname(_) | Level::AttachFile | Level::ChatLinks
+            )
     )));
     // Backspace on an empty query goes back up.
     press(&mut state, KeyCode::Backspace);

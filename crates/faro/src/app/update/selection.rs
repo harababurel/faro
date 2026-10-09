@@ -874,6 +874,10 @@ pub fn open_link(state: &mut State) -> Vec<Effect> {
 }
 
 /// Over SSH a browser would open on the far side (if at all), so copy instead.
+pub fn open_shared_url(state: &mut State, url: String) -> Vec<Effect> {
+    open_url(state, url)
+}
+
 fn open_url(state: &mut State, url: String) -> Vec<Effect> {
     if state.env.over_ssh {
         state.notice = Some(Notice::info(
@@ -883,6 +887,34 @@ fn open_url(state: &mut State, url: String) -> Vec<Effect> {
     } else {
         state.notice = Some(Notice::info("Opening the link…"));
         vec![Effect::OpenUrl(url)]
+    }
+}
+
+/// Activate a specific attachment on `target` (chosen from `Level::ChatLinks`):
+/// download if remote or failed, play/stop if a downloaded voice note, view in
+/// `Popup::ImageViewer` if a downloaded image, or open with the system viewer
+/// (saving and copying the path over SSH).
+pub fn activate_attachment(state: &mut State, target: MessageRef, index: usize) -> Vec<Effect> {
+    let Some(att) = find(state, target)
+        .filter(|m| !m.deleted)
+        .and_then(|m| m.attachments.get(index))
+    else {
+        return vec![];
+    };
+    match &att.status {
+        AttachmentStatus::Remote | AttachmentStatus::Failed => {
+            download_one(state, target, index, true)
+        }
+        AttachmentStatus::Downloaded(_) => {
+            if att.is_voice_note() {
+                play_one_voice_note(state, target, index)
+            } else if att.is_image() {
+                state.popup = Some(Popup::ImageViewer { target, index });
+                vec![]
+            } else {
+                open_one_with_system(state, target, index)
+            }
+        }
     }
 }
 

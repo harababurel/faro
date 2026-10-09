@@ -146,7 +146,8 @@ fn draw_query(frame: &mut Frame<'_>, area: Rect, palette: &Palette, view: &View<
         | Level::Keys
         | Level::People
         | Level::Nickname(_)
-        | Level::AttachFile => BACK_HINT,
+        | Level::AttachFile
+        | Level::ChatLinks => BACK_HINT,
     };
     if text.is_empty() && usize::from(area.width) > width(hint) + 20 {
         let gap = usize::from(area.width) - 3 - width(hint) - 1;
@@ -241,6 +242,8 @@ fn result_line(
             | ItemKind::EnterDir(_)
             | ItemKind::AttachFile(_)
             | ItemKind::SearchHit { .. }
+            | ItemKind::ChatLink { .. }
+            | ItemKind::ChatAttachment { .. }
             | ItemKind::Command(_)
             | ItemKind::Setting(_)
             | ItemKind::Theme(_)

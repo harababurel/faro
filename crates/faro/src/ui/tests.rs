@@ -1583,3 +1583,32 @@ fn shortcode_autocomplete_and_reaction_search_render_and_are_drawable() {
     assert!(react_text.contains("🔥"), "{react_text}");
     assert_drawable(&compatible(react_state), 100, 24);
 }
+
+#[test]
+fn info_sidebar_renders_files_and_links() {
+    use faro_core::domain::{AttachmentRef, AttachmentStatus};
+    use std::path::PathBuf;
+
+    let mut state = loaded_state();
+    state.panels.right = true;
+    let mut msg = fixtures::text(
+        climbing(),
+        ALICE,
+        NOW_MS + 10,
+        "Read https://signal.org/docs before Thursday",
+    );
+    msg.attachments = vec![AttachmentRef {
+        file_name: Some("map.pdf".into()),
+        size: Some(512_000),
+        status: AttachmentStatus::Downloaded(PathBuf::from("/tmp/map.pdf")),
+        ..AttachmentRef::remote("att-map", "application/pdf")
+    }];
+    update(&mut state, AppEvent::Backend(BackendEvent::Message(msg)));
+
+    let text = snapshot(&draw(&state, 140, 36));
+    assert!(text.contains("Files & media"), "{text}");
+    assert!(text.contains("map.pdf · 500.0 KB"), "{text}");
+    assert!(text.contains("Links"), "{text}");
+    assert!(text.contains("https://signal.org/docs"), "{text}");
+    assert_drawable(&compatible(state), 140, 36);
+}

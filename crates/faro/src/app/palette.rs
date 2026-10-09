@@ -61,6 +61,8 @@ pub enum Level {
     Nickname(ServiceId),
     /// Browsing a directory to attach a file to the open conversation (D77).
     AttachFile,
+    /// Shared links and files in the open conversation (M12).
+    ChatLinks,
 }
 
 /// The sections of `Settings ›`, each under a header.
@@ -122,6 +124,7 @@ impl Level {
             Self::People => "Nicknames",
             Self::Nickname(_) => "Nickname",
             Self::AttachFile => "Send a file",
+            Self::ChatLinks => "Links & files",
         }
     }
 
@@ -138,7 +141,8 @@ impl Level {
             | Self::Setting(_)
             | Self::People
             | Self::Nickname(_)
-            | Self::AttachFile => None,
+            | Self::AttachFile
+            | Self::ChatLinks => None,
         }
     }
 
@@ -342,6 +346,16 @@ pub enum ItemKind {
     SearchHit {
         conversation: ConversationId,
         message: MessageRef,
+    },
+    /// A shared URL in the open conversation (`Level::ChatLinks`, M12).
+    ChatLink {
+        message: MessageRef,
+        url: String,
+    },
+    /// An attachment in the open conversation (`Level::ChatLinks`, M12).
+    ChatAttachment {
+        message: MessageRef,
+        index: usize,
     },
 }
 
@@ -710,7 +724,84 @@ pub fn items(state: &State, level: Level, recent: &[PaletteCommand]) -> Vec<Item
         Level::People => people(state),
         Level::Nickname(id) => nickname_actions(state, id),
         Level::AttachFile => Vec::new(),
+        Level::ChatLinks => chat_links_and_files(state),
     }
+}
+
+/// `Level::ChatLinks`: attachments and URLs shared in the open conversation,
+/// newest first, grouped under `Files & media` and `Links` headers.
+fn chat_links_and_files(state: &State) -> Vec<Item> {
+    let Some(open) = state.open.as_ref() else {
+        return Vec::new();
+    };
+    let mut media = Vec::new();
+    let mut links = Vec::new();
+    let mut seen_urls: Vec<String> = Vec::new();
+    for message in open.messages.iter().rev().filter(|m| !m.deleted) {
+        let sender = state.sender_name(message);
+        let msg_ref = message.reference();
+        for (index, att) in message.attachments.iter().enumerate() {
+            let title = if att.is_voice_note() {
+                "voice note".to_owned()
+            } else {
+                att.file_name
+                    .clone()
+                    .unwrap_or_else(|| att.content_type.clone())
+            };
+            let status_or_size = match &att.status {
+                faro_core::domain::AttachmentStatus::Downloaded(_) => att
+                    .size
+                    .map(faro_core::domain::format_byte_size)
+                    .or_else(|| att.duration_secs.map(faro_core::audio::format_duration))
+                    .unwrap_or_else(|| "downloaded".to_owned()),
+                faro_core::domain::AttachmentStatus::Remote => match att.size {
+                    Some(size) => format!(
+                        "{} · not downloaded",
+                        faro_core::domain::format_byte_size(size)
+                    ),
+                    None => "not downloaded".to_owned(),
+                },
+                faro_core::domain::AttachmentStatus::Failed => "download failed".to_owned(),
+            };
+            media.push(
+                Item::new(
+                    ItemKind::ChatAttachment {
+                        message: msg_ref,
+                        index,
+                    },
+                    title,
+                )
+                .detail(format!("{sender} · {status_or_size}")),
+            );
+        }
+        if let Some(body) = &message.body {
+            for url in super::update::selection::find_links(body.expose()) {
+                if !seen_urls.contains(&url) {
+                    seen_urls.push(url.clone());
+                    links.push(
+                        Item::new(
+                            ItemKind::ChatLink {
+                                message: msg_ref,
+                                url: url.clone(),
+                            },
+                            url,
+                        )
+                        .detail(sender.clone()),
+                    );
+                }
+            }
+        }
+    }
+    let mut items = Vec::new();
+    if !media.is_empty() {
+        items.push(Item::new(ItemKind::Header, "Files & media"));
+        items.extend(media);
+    }
+    if !links.is_empty() {
+        items.push(Item::new(ItemKind::Header, "Links"));
+        items.extend(links);
+    }
+    items
 }
 
 /// `Level::Search(scope)`: a toggle between the open chat and all
@@ -842,7 +933,8 @@ fn categories(state: &State) -> Vec<Item> {
                 | Level::Keys
                 | Level::People
                 | Level::Nickname(_)
-                | Level::AttachFile => level.prefix().map(String::from).unwrap_or_default(),
+                | Level::AttachFile
+                | Level::ChatLinks => level.prefix().map(String::from).unwrap_or_default(),
             };
             Item::new(ItemKind::Level(level), level.title()).detail(detail)
         })
@@ -1048,6 +1140,18 @@ pub fn note(state: &State, level: Level) -> Option<String> {
                 .to_owned(),
         );
     }
+    if level == Level::ChatLinks {
+        let has_any = state.open.as_ref().is_some_and(|open| {
+            open.messages.iter().filter(|m| !m.deleted).any(|m| {
+                !m.attachments.is_empty()
+                    || m.body.as_ref().is_some_and(|b| {
+                        !super::update::selection::find_links(b.expose()).is_empty()
+                    })
+            })
+        });
+        return (!has_any)
+            .then(|| "No shared links or files in the loaded history of this chat.".to_owned());
+    }
     if level != Level::Themes {
         return None;
     }
@@ -1192,10 +1296,13 @@ fn open_conversation_commands(state: &State) -> Vec<Item> {
             .hint(&[Action::Curate(curate)], Focus::Conversations);
         command(PaletteCommand::Conversation(action), title, hint)
     };
-    let mut items = vec![Item::new(
-        ItemKind::Level(Level::AttachFile),
-        "Send a file…",
-    )];
+    let mut items = vec![
+        Item::new(ItemKind::Level(Level::AttachFile), "Send a file…"),
+        Item::new(
+            ItemKind::Level(Level::ChatLinks),
+            "Links & files in this chat…",
+        ),
+    ];
     if state.open.as_ref().and_then(|o| o.unread_marker).is_some() {
         items.push(command(
             PaletteCommand::JumpUnread,

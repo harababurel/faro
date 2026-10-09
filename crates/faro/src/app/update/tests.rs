@@ -2117,6 +2117,102 @@ fn reaction_picker_search_mode_filters_and_reacts() {
     })));
 }
 
+#[test]
+fn palette_chat_links_lists_and_activates_links_and_attachments() {
+    use crate::app::palette::{ItemKind, Level};
+    use faro_core::domain::{AttachmentRef, AttachmentStatus};
+    use std::path::PathBuf;
+
+    let mut state = loaded_state();
+    let mut link_msg = text(
+        climbing(),
+        ALICE,
+        fixtures::NOW_MS + 10,
+        "Docs at https://signal.org/docs for reference",
+    );
+    link_msg.attachments = vec![AttachmentRef {
+        file_name: Some("wall.png".into()),
+        size: Some(4096),
+        width: Some(800),
+        height: Some(600),
+        status: AttachmentStatus::Downloaded(PathBuf::from("/tmp/wall.png")),
+        ..AttachmentRef::remote("att-wall", "image/png")
+    }];
+    let msg_ref = link_msg.reference();
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::Message(link_msg)),
+    );
+
+    // Open Ctrl+P > Commands > "Links & files in this chat…".
+    update(&mut state, key(KeyCode::Char('p'), KeyModifiers::CONTROL));
+    typed(&mut state, ">links & files");
+    update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(
+        state
+            .palette
+            .as_ref()
+            .map(crate::app::palette::Palette::level),
+        Some(Level::ChatLinks)
+    );
+
+    let items: Vec<ItemKind> = state
+        .palette
+        .as_ref()
+        .unwrap()
+        .items
+        .iter()
+        .map(|i| i.kind.clone())
+        .collect();
+    assert!(items.contains(&ItemKind::ChatAttachment {
+        message: msg_ref,
+        index: 0,
+    }));
+    assert!(items.contains(&ItemKind::ChatLink {
+        message: msg_ref,
+        url: "https://signal.org/docs".into(),
+    }));
+
+    // Choosing the image attachment selects its message and opens Popup::ImageViewer.
+    typed(&mut state, "wall.png");
+    let effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(effects, vec![]);
+    assert!(state.palette.is_none());
+    assert_eq!(state.focus, Focus::Messages);
+    assert_eq!(selected_ref(&state), Some(msg_ref));
+    assert_eq!(
+        state.popup,
+        Some(Popup::ImageViewer {
+            target: msg_ref,
+            index: 0,
+        })
+    );
+    update(&mut state, key(KeyCode::Esc, KeyModifiers::NONE));
+
+    // Choosing the link emits Effect::OpenUrl locally, and Effect::Copy over SSH.
+    update(&mut state, key(KeyCode::Char('p'), KeyModifiers::CONTROL));
+    typed(&mut state, ">links & files");
+    update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    typed(&mut state, "signal.org");
+    let effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(
+        effects,
+        vec![Effect::OpenUrl("https://signal.org/docs".into())]
+    );
+    assert_eq!(selected_ref(&state), Some(msg_ref));
+
+    state.env.over_ssh = true;
+    update(&mut state, key(KeyCode::Char('p'), KeyModifiers::CONTROL));
+    typed(&mut state, ">links & files");
+    update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    typed(&mut state, "signal.org");
+    let effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(
+        effects,
+        vec![Effect::Copy("https://signal.org/docs".into())]
+    );
+}
+
 mod curation;
 mod notify;
 mod palette;

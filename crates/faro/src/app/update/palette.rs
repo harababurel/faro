@@ -145,7 +145,9 @@ fn selected_setting(palette: &Palette) -> Option<Setting> {
             | ItemKind::ClearNickname(_)
             | ItemKind::EnterDir(_)
             | ItemKind::AttachFile(_)
-            | ItemKind::SearchHit { .. },
+            | ItemKind::SearchHit { .. }
+            | ItemKind::ChatLink { .. }
+            | ItemKind::ChatAttachment { .. },
         )
         | None => None,
     }
@@ -311,7 +313,8 @@ fn up(state: &mut State) {
         | Level::Keys
         | Level::People
         | Level::Nickname(_)
-        | Level::AttachFile => ItemKind::Level(level),
+        | Level::AttachFile
+        | Level::ChatLinks => ItemKind::Level(level),
     });
     let parent = path.last().copied().unwrap_or(Level::Root);
     if let Some(palette) = state.palette.as_mut() {
@@ -372,30 +375,7 @@ fn choose(state: &mut State) -> Vec<Effect> {
         return vec![];
     };
     if let ItemKind::Level(level) = kind {
-        if let (Some(Level::Search(_)), Level::Search(scope)) =
-            (state.palette.as_ref().map(Palette::level), level)
-        {
-            return switch_search_scope(state, scope);
-        }
-        // Typing a nickname starts from the one there is; AttachFile starts at ~/.
-        let query = match level {
-            Level::Nickname(id) => state.nicknames.get(&id).cloned().unwrap_or_default(),
-            Level::AttachFile => "~/".to_owned(),
-            Level::Root
-            | Level::Chats
-            | Level::Search(_)
-            | Level::Themes
-            | Level::Settings
-            | Level::Setting(_)
-            | Level::Commands
-            | Level::Keys
-            | Level::People => String::new(),
-        };
-        enter(state, level, &query);
-        if level == Level::AttachFile {
-            return vec![Effect::ListFiles(query)];
-        }
-        return vec![];
+        return choose_level(state, level);
     }
     if let ItemKind::EnterDir(dir_query) = kind {
         if let Some(palette) = state.palette.as_mut() {
@@ -430,6 +410,25 @@ fn choose(state: &mut State) -> Vec<Effect> {
             conversation,
             message,
         } => jump_to_message(state, conversation, message),
+        ItemKind::ChatLink { message, url } => {
+            if let Some(open) = state.open.as_mut() {
+                open.selected = Some(Selection {
+                    message,
+                    reveal: true,
+                });
+            }
+            super::selection::open_shared_url(state, url)
+        }
+        ItemKind::ChatAttachment { message, index } => {
+            if let Some(open) = state.open.as_mut() {
+                open.selected = Some(Selection {
+                    message,
+                    reveal: true,
+                });
+            }
+            state.focus = Focus::Messages;
+            super::selection::activate_attachment(state, message, index)
+        }
         ItemKind::Command(command) => {
             remember(state, command);
             run(state, command)
@@ -445,6 +444,34 @@ fn choose(state: &mut State) -> Vec<Effect> {
         | ItemKind::Switch(_)
         | ItemKind::Header => vec![],
     }
+}
+
+fn choose_level(state: &mut State, level: Level) -> Vec<Effect> {
+    if let (Some(Level::Search(_)), Level::Search(scope)) =
+        (state.palette.as_ref().map(Palette::level), level)
+    {
+        return switch_search_scope(state, scope);
+    }
+    // Typing a nickname starts from the one there is; AttachFile starts at ~/.
+    let query = match level {
+        Level::Nickname(id) => state.nicknames.get(&id).cloned().unwrap_or_default(),
+        Level::AttachFile => "~/".to_owned(),
+        Level::Root
+        | Level::Chats
+        | Level::Search(_)
+        | Level::Themes
+        | Level::Settings
+        | Level::Setting(_)
+        | Level::Commands
+        | Level::Keys
+        | Level::People
+        | Level::ChatLinks => String::new(),
+    };
+    enter(state, level, &query);
+    if level == Level::AttachFile {
+        return vec![Effect::ListFiles(query)];
+    }
+    vec![]
 }
 
 fn switch_search_scope(state: &mut State, scope: Option<ConversationId>) -> Vec<Effect> {

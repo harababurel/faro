@@ -1,6 +1,6 @@
 //! Right sidebar: about the open conversation (DESIGN.md §7.1). Toggled with Alt+I.
 
-use faro_core::domain::ConversationId;
+use faro_core::domain::{AttachmentRef, ConversationId, format_byte_size};
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
@@ -13,6 +13,10 @@ use super::View;
 use super::messages::{to_jiff, zoned};
 use super::text::{sanitize, truncate};
 use crate::app::state::{Section, State};
+use crate::app::update::selection::find_links;
+
+/// Maximum number of recent files/media or links shown in the info sidebar.
+const MAX_INFO_ITEMS: usize = 5;
 
 pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, view: &View<'_>) {
     let theme = view.theme;
@@ -76,7 +80,68 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, view: &View<'_>)
         lines.push(label("List"));
         lines.push(value(place.to_owned(), plain));
     }
+
+    let media_items: Vec<String> = open
+        .messages
+        .iter()
+        .rev()
+        .filter(|m| !m.deleted)
+        .flat_map(|m| m.attachments.iter().map(format_media_item))
+        .take(MAX_INFO_ITEMS)
+        .collect();
+    if !media_items.is_empty() {
+        lines.push(Line::default());
+        lines.push(label("Files & media"));
+        for item in media_items {
+            lines.push(value(item, plain));
+        }
+    }
+
+    let mut recent_links: Vec<String> = Vec::new();
+    for message in open.messages.iter().rev().filter(|m| !m.deleted) {
+        if let Some(body) = &message.body {
+            for url in find_links(body.expose()) {
+                if !recent_links.contains(&url) {
+                    recent_links.push(url);
+                    if recent_links.len() >= MAX_INFO_ITEMS {
+                        break;
+                    }
+                }
+            }
+        }
+        if recent_links.len() >= MAX_INFO_ITEMS {
+            break;
+        }
+    }
+    if !recent_links.is_empty() {
+        lines.push(Line::default());
+        lines.push(label("Links"));
+        for url in recent_links {
+            lines.push(value(url, Style::new().fg(theme.accent)));
+        }
+    }
+
     frame.render_widget(Paragraph::new(lines), inner);
+}
+
+fn format_media_item(att: &AttachmentRef) -> String {
+    if att.is_voice_note() {
+        if let Some(secs) = att.duration_secs {
+            return format!("voice note · {}", faro_core::audio::format_duration(secs));
+        }
+        if let Some(size) = att.size {
+            return format!("voice note · {}", format_byte_size(size));
+        }
+        return "voice note".to_owned();
+    }
+    let name = att
+        .file_name
+        .as_deref()
+        .unwrap_or(att.content_type.as_str());
+    match att.size {
+        Some(size) => format!("{name} · {}", format_byte_size(size)),
+        None => name.to_owned(),
+    }
 }
 
 /// "On", "Mentions only", "Muted", or "Muted until Thu 19:00".
