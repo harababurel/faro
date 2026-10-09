@@ -12,8 +12,8 @@ use super::codec::{
     timestamp_from_db, timestamp_to_db,
 };
 use super::{
-    ConversationState, ConversationSummary, NotifyLevel, RecipientReceipt, Result, SearchHit,
-    StoreError, StoreStats,
+    ConversationState, ConversationSummary, NotifyLevel, PROFILE_KEY, Profile, ProfileMismatch,
+    RecipientReceipt, Result, SearchHit, StoreError, StoreStats,
 };
 use crate::backend::BackendEvent;
 use crate::domain::{
@@ -803,6 +803,53 @@ impl Db {
         .execute(&mut self.conn)
         .await?;
         Ok(done.rows_affected())
+    }
+
+    /// See [`Store::claim_profile`](super::Store::claim_profile). Reading
+    /// and marking happen in one transaction.
+    pub(super) async fn claim_profile(&mut self, wanted: Profile) -> Result<()> {
+        let mut tx = self.conn.begin().await?;
+        let stored: Option<(String,)> =
+            sqlx::query_as("SELECT value FROM app_state WHERE key = ?1")
+                .bind(PROFILE_KEY)
+                .fetch_optional(&mut *tx)
+                .await?;
+        let found = match stored {
+            Some((text,)) => Some(Profile::parse(&text).ok_or(ProfileMismatch::Unknown(text))?),
+            None => None,
+        };
+        match (wanted, found) {
+            (Profile::Demo, Some(Profile::Demo)) | (Profile::Signal, Some(Profile::Signal)) => {
+                return Ok(());
+            }
+            (Profile::Signal, Some(Profile::Demo)) => {
+                return Err(ProfileMismatch::DemoDatabase.into());
+            }
+            (Profile::Demo, Some(Profile::Signal)) => {
+                return Err(ProfileMismatch::SignalDatabase.into());
+            }
+            (Profile::Demo, None) => {
+                // Every other table hangs off these.
+                let (rows,): (i64,) = sqlx::query_as(
+                    "SELECT (SELECT count(*) FROM app_state) + (SELECT count(*) FROM recipients)
+                          + (SELECT count(*) FROM conversations) + (SELECT count(*) FROM messages)",
+                )
+                .fetch_one(&mut *tx)
+                .await?;
+                if rows != 0 {
+                    return Err(ProfileMismatch::UnmarkedHistory.into());
+                }
+            }
+            // History from before profiles existed is a real account's.
+            (Profile::Signal, None) => {}
+        }
+        sqlx::query("INSERT INTO app_state (key, value) VALUES (?1, ?2)")
+            .bind(PROFILE_KEY)
+            .bind(wanted.as_str())
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
     }
 
     pub(super) async fn app_state(&mut self, key: &str) -> Result<Option<String>> {

@@ -609,6 +609,94 @@ async fn handles_fail_cleanly_after_close() {
     assert!(matches!(other.stats().await, Err(StoreError::Closed)));
 }
 
+fn mismatch(result: Result<()>) -> ProfileMismatch {
+    match result {
+        Err(StoreError::Profile(mismatch)) => mismatch,
+        other => panic!("expected a profile mismatch, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_new_database_takes_either_profile_and_keeps_it() {
+    for profile in [Profile::Demo, Profile::Signal] {
+        let store = Store::open_in_memory().await.unwrap();
+        store.claim_profile(profile).await.unwrap();
+        assert_eq!(
+            store.app_state(PROFILE_KEY).await.unwrap().as_deref(),
+            Some(profile.as_str())
+        );
+        store.claim_profile(profile).await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn an_unmarked_database_with_history_is_a_real_account() {
+    let history = [incoming(direct(ALICE), ALICE, 100, "hi")];
+    let store = store_with(&history).await;
+    assert_eq!(
+        mismatch(store.claim_profile(Profile::Demo).await),
+        ProfileMismatch::UnmarkedHistory
+    );
+    assert_eq!(
+        store.app_state(PROFILE_KEY).await.unwrap(),
+        None,
+        "unmarked"
+    );
+    store.claim_profile(Profile::Signal).await.unwrap();
+    assert_eq!(
+        store.app_state(PROFILE_KEY).await.unwrap().as_deref(),
+        Some("signal")
+    );
+
+    // Any app state at all counts as history, too.
+    let store = Store::open_in_memory().await.unwrap();
+    store.set_app_state("ui.last_open", "x").await.unwrap();
+    assert_eq!(
+        mismatch(store.claim_profile(Profile::Demo).await),
+        ProfileMismatch::UnmarkedHistory
+    );
+}
+
+#[tokio::test]
+async fn profiles_never_cross() {
+    let demo = Store::open_in_memory().await.unwrap();
+    demo.claim_profile(Profile::Demo).await.unwrap();
+    assert_eq!(
+        mismatch(demo.claim_profile(Profile::Signal).await),
+        ProfileMismatch::DemoDatabase
+    );
+    let real = Store::open_in_memory().await.unwrap();
+    real.claim_profile(Profile::Signal).await.unwrap();
+    assert_eq!(
+        mismatch(real.claim_profile(Profile::Demo).await),
+        ProfileMismatch::SignalDatabase
+    );
+    let odd = Store::open_in_memory().await.unwrap();
+    odd.set_app_state(PROFILE_KEY, "staging").await.unwrap();
+    for profile in [Profile::Demo, Profile::Signal] {
+        assert_eq!(
+            mismatch(odd.claim_profile(profile).await),
+            ProfileMismatch::Unknown("staging".into())
+        );
+    }
+}
+
+#[tokio::test]
+async fn the_profile_survives_a_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("faro.db");
+    let store = Store::open(&path).await.unwrap();
+    store.claim_profile(Profile::Demo).await.unwrap();
+    store.close().await.unwrap();
+    let store = Store::open(&path).await.unwrap();
+    assert_eq!(
+        mismatch(store.claim_profile(Profile::Signal).await),
+        ProfileMismatch::DemoDatabase
+    );
+    store.claim_profile(Profile::Demo).await.unwrap();
+    store.close().await.unwrap();
+}
+
 /// M2 acceptance: a restart keeps history (with the mock backend).
 #[tokio::test]
 async fn restart_keeps_mock_history() {

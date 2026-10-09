@@ -47,6 +47,61 @@ pub enum StoreError {
     /// The store task has stopped (closed, or failed to start).
     #[error("the store is closed")]
     Closed,
+    /// The database belongs to the other profile (D87).
+    #[error(transparent)]
+    Profile(#[from] ProfileMismatch),
+}
+
+/// Which world a database belongs to (D87): kept in `app_state` under
+/// [`PROFILE_KEY`] so a demo never opens real history and a real run never
+/// opens demo data, whatever paths they were given.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Profile {
+    /// `faro demo`: the mock backend's fake world.
+    Demo,
+    /// A linked Signal account.
+    Signal,
+}
+
+/// `app_state` key of the database's [`Profile`].
+pub const PROFILE_KEY: &str = "profile";
+
+impl Profile {
+    /// The database form.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Demo => "demo",
+            Self::Signal => "signal",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "demo" => Some(Self::Demo),
+            "signal" => Some(Self::Signal),
+            _ => None,
+        }
+    }
+}
+
+/// Why [`Store::claim_profile`] refused a database (D87).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ProfileMismatch {
+    /// A real run was pointed at the demo's database.
+    #[error("this is a demo database: run `faro demo` to use it")]
+    DemoDatabase,
+    /// The demo was pointed at a Signal account's database.
+    #[error("this database belongs to a Signal account; `faro demo` never opens it")]
+    SignalDatabase,
+    /// The demo was pointed at a database with history from before profiles.
+    #[error(
+        "this database already has history and isn't marked as a demo database; \
+         `faro demo` never opens it"
+    )]
+    UnmarkedHistory,
+    /// Marked by something this version doesn't know.
+    #[error("this database is marked as `{0}`, which this version of faro doesn't know")]
+    Unknown(String),
 }
 
 /// One row of the conversation list.
@@ -211,6 +266,7 @@ enum Request {
     MarkRead(ConversationId, Reply<()>),
     ReadElsewhere(Vec<MessageRef>, Reply<Vec<(ConversationId, u32)>>),
     FailUnsent(Reply<u64>),
+    ClaimProfile(Profile, Reply<()>),
     AppState(String, Reply<Option<String>>),
     SetAppState(String, String, Reply<()>),
     RemoveAppState(String, Reply<()>),
@@ -379,6 +435,21 @@ impl Store {
         self.call(Request::FailUnsent).await
     }
 
+    /// Check that the database belongs to `profile`, marking it if it isn't
+    /// marked yet (D87). Call right after [`Store::open`], before anything
+    /// else writes.
+    ///
+    /// - [`Profile::Signal`]: refuses a demo database; an unmarked one is
+    ///   real history (from before profiles existed) and is marked `signal`.
+    /// - [`Profile::Demo`]: refuses anything not marked `demo`, except a
+    ///   brand-new empty database, which it marks `demo`.
+    ///
+    /// A refusal is [`StoreError::Profile`].
+    pub async fn claim_profile(&self, profile: Profile) -> Result<()> {
+        self.call(|reply| Request::ClaimProfile(profile, reply))
+            .await
+    }
+
     /// A small piece of app state (last open conversation, panel sizes…).
     pub async fn app_state(&self, key: &str) -> Result<Option<String>> {
         let key = key.to_owned();
@@ -502,6 +573,9 @@ async fn handle(db: &mut Db, request: Request) -> Option<Reply<()>> {
         }
         Request::FailUnsent(reply) => {
             let _ = reply.send(db.fail_unsent().await);
+        }
+        Request::ClaimProfile(profile, reply) => {
+            let _ = reply.send(db.claim_profile(profile).await);
         }
         Request::AppState(key, reply) => {
             let _ = reply.send(db.app_state(&key).await);
