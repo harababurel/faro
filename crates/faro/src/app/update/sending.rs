@@ -112,6 +112,84 @@ pub fn send(state: &mut State) -> Vec<Effect> {
     effects
 }
 
+/// Forward `text` and `source_attachments` as a new outgoing message to `conversation`.
+pub fn forward(
+    state: &mut State,
+    conversation: ConversationId,
+    text: &str,
+    source_attachments: &[AttachmentRef],
+) -> Vec<Effect> {
+    if let Some(open) = state.open.as_mut().filter(|o| o.id == conversation) {
+        open.scroll = None;
+        open.unseen = 0;
+    }
+    let sent_at = next_sent_at(state.last_sent_at, wall_clock());
+    state.last_sent_at = sent_at;
+    let msg_ref = MessageRef {
+        sender: state.me,
+        sent_at,
+    };
+    let mut attachments = Vec::new();
+    let mut outgoing_attachments = Vec::new();
+    for (idx, src) in source_attachments.iter().enumerate() {
+        let Some(src_path) = src.local_path() else {
+            continue;
+        };
+        let file_name =
+            paths::attachment_file_name(msg_ref, idx, src.file_name.as_deref(), &src.content_type);
+        let dest = state.attachments_dir.join(file_name);
+        attachments.push(AttachmentRef {
+            file_name: src.file_name.clone(),
+            size: src.size,
+            width: src.width,
+            height: src.height,
+            status: AttachmentStatus::Downloaded(dest),
+            voice_note: src.voice_note,
+            duration_secs: src.duration_secs,
+            waveform: src.waveform.clone(),
+            ..AttachmentRef::remote(String::new(), src.content_type.clone())
+        });
+        outgoing_attachments.push(OutgoingAttachment {
+            path: src_path.to_path_buf(),
+            content_type: src.content_type.clone(),
+            file_name: src.file_name.clone(),
+            size: src.size.unwrap_or(0),
+            width: src.width,
+            height: src.height,
+        });
+    }
+    let body = MessageBody::new(text);
+    let message = Message {
+        conversation,
+        sender: state.me,
+        sent_at,
+        direction: Direction::Outgoing(DeliveryStatus::Sending),
+        body: (!text.is_empty()).then(|| body.clone()),
+        mentions: vec![],
+        quote: None,
+        attachments,
+        reactions: vec![],
+        edited_at: None,
+        deleted: false,
+    };
+    state.notice = Some(Notice::info(format!(
+        "Forwarded to {}",
+        state.conversation_title(conversation)
+    )));
+    let mut effects = on_backend(state, BackendEvent::Message(message));
+    effects.push(Effect::Backend(Command::Send {
+        conversation,
+        message: OutgoingMessage {
+            sent_at,
+            body,
+            mentions: vec![],
+            quote: None,
+            attachments: outgoing_attachments,
+        },
+    }));
+    effects
+}
+
 fn send_edit(state: &mut State, target_sent_at: Timestamp, text: &str) -> Vec<Effect> {
     if text.is_empty() {
         return vec![];

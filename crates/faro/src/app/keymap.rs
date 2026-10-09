@@ -51,6 +51,7 @@ pub enum Action {
     Reply,
     ReactPicker,
     Copy,
+    ForwardMessage,
     EditMessage,
     DeleteMessage,
     OpenLink,

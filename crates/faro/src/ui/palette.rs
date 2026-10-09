@@ -147,7 +147,8 @@ fn draw_query(frame: &mut Frame<'_>, area: Rect, palette: &Palette, view: &View<
         | Level::People
         | Level::Nickname(_)
         | Level::AttachFile
-        | Level::ChatLinks => BACK_HINT,
+        | Level::ChatLinks
+        | Level::ForwardTo(_) => BACK_HINT,
     };
     if text.is_empty() && usize::from(area.width) > width(hint) + 20 {
         let gap = usize::from(area.width) - 3 - width(hint) - 1;
@@ -235,8 +236,22 @@ fn result_line(
     let glyph = match (&item.kind, item.current) {
         (_, Some(true)) => "● ",
         (_, Some(false)) => "○ ",
-        (ItemKind::Conversation(ConversationId::Group(_)), None) => "# ",
-        (ItemKind::Conversation(ConversationId::Direct(_)), None) => "@ ",
+        (
+            ItemKind::Conversation(ConversationId::Group(_))
+            | ItemKind::ForwardTo {
+                destination: ConversationId::Group(_),
+                ..
+            },
+            None,
+        ) => "# ",
+        (
+            ItemKind::Conversation(ConversationId::Direct(_))
+            | ItemKind::ForwardTo {
+                destination: ConversationId::Direct(_),
+                ..
+            },
+            None,
+        ) => "@ ",
         (
             ItemKind::Level(_)
             | ItemKind::EnterDir(_)

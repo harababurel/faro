@@ -1115,6 +1115,7 @@ fn the_menu_lists_what_a_message_offers() {
             MessageAction::Reply,
             MessageAction::React,
             MessageAction::Copy,
+            MessageAction::Forward,
             MessageAction::Info,
             MessageAction::Edit,
             MessageAction::Delete,
@@ -2210,6 +2211,99 @@ fn palette_chat_links_lists_and_activates_links_and_attachments() {
     assert_eq!(
         effects,
         vec![Effect::Copy("https://signal.org/docs".into())]
+    );
+}
+
+#[test]
+fn forward_message_opens_destination_picker_and_sends_copy() {
+    let mut state = loaded_state();
+    let source = climbing_history().last().unwrap().clone();
+    let target = source.reference();
+
+    // Select the newest message and press `f`.
+    update(&mut state, key(KeyCode::Up, KeyModifiers::NONE));
+    assert_eq!(state.focus, Focus::Messages);
+    let effects = press(&mut state, 'f');
+    assert_eq!(effects, vec![]);
+    assert_eq!(
+        state
+            .palette
+            .as_ref()
+            .map(crate::app::palette::Palette::level),
+        Some(crate::app::palette::Level::ForwardTo(target))
+    );
+
+    // Filter to Bob and press Enter to forward.
+    typed(&mut state, "Bob");
+    let effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(state.palette.is_none());
+    assert_eq!(open_id(&state), Some(bob()));
+    assert_eq!(
+        state.notice.as_ref().map(|n| n.text.as_str()),
+        Some("Forwarded to Bob")
+    );
+
+    let sent_cmd = effects.iter().find_map(|e| {
+        if let Effect::Backend(Command::Send {
+            conversation,
+            message,
+        }) = e
+        {
+            Some((*conversation, message.clone()))
+        } else {
+            None
+        }
+    });
+    let (dest, outgoing) = sent_cmd.expect("expected Command::Send");
+    assert_eq!(dest, bob());
+    assert_eq!(Some(&outgoing.body), source.body.as_ref());
+    assert!(outgoing.quote.is_none());
+}
+
+#[test]
+fn forward_attachment_only_message_requires_download_first() {
+    let mut state = loaded_state();
+    let mut msg = text(climbing(), ALICE, fixtures::NOW_MS + 500, "");
+    msg.attachments = vec![faro_core::domain::AttachmentRef {
+        file_name: Some("climb.jpg".to_owned()),
+        size: Some(1024),
+        ..faro_core::domain::AttachmentRef::remote("att-remote", "image/jpeg")
+    }];
+    update(&mut state, AppEvent::Backend(BackendEvent::Message(msg)));
+
+    update(&mut state, key(KeyCode::Up, KeyModifiers::NONE));
+    press(&mut state, 'f');
+    assert!(state.palette.is_none());
+    assert_eq!(
+        state.notice.as_ref().map(|n| n.text.as_str()),
+        Some("Press d to download the attachment before forwarding")
+    );
+
+    // Forwarding the downloaded photo message (`Route map from last time`) attaches its file.
+    let mut state = loaded_state();
+    // Select `photo` (index 5 out of 9 messages: 4 steps up from the newest).
+    update(&mut state, key(KeyCode::Up, KeyModifiers::NONE));
+    for _ in 0..3 {
+        press(&mut state, 'k');
+    }
+    press(&mut state, 'f');
+    typed(&mut state, "Bob");
+    let effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    let outgoing = effects
+        .iter()
+        .find_map(|e| {
+            if let Effect::Backend(Command::Send { message, .. }) = e {
+                Some(message.clone())
+            } else {
+                None
+            }
+        })
+        .expect("expected Command::Send");
+    assert_eq!(outgoing.body.expose(), "Route map from last time");
+    assert_eq!(outgoing.attachments.len(), 1);
+    assert_eq!(
+        outgoing.attachments[0].file_name.as_deref(),
+        Some("route-map.jpg")
     );
 }
 

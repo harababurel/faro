@@ -63,6 +63,7 @@ pub fn on_action(state: &mut State, action: Action) -> Vec<Effect> {
         Action::Reply => return selection::on_selected(state, MessageAction::Reply),
         Action::ReactPicker => return selection::on_selected(state, MessageAction::React),
         Action::Copy => return selection::on_selected(state, MessageAction::Copy),
+        Action::ForwardMessage => return selection::forward_message(state),
         Action::EditMessage => return selection::edit_message(state),
         Action::DeleteMessage => return selection::delete_message(state),
         Action::OpenLink => return selection::open_link(state),
