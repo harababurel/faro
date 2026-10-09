@@ -103,7 +103,7 @@ impl Asset {
         match self {
             Self::Stapler => photo("mock:stapler-jello", "stapler-jello.jpg"),
             Self::OfficePark => photo("mock:office-park", "office-park-watercolour.jpg"),
-            Self::Cat => photo("mock:grey-cat", "princess-lady.jpg"),
+            Self::Cat => photo("mock:grey-cat", "duchess.jpg"),
             Self::BeetField => photo("mock:beet-field", "beet-field.jpg"),
             Self::Chili => photo("mock:chili-pot", "chili-pot.jpg"),
             Self::Pretzel => photo("mock:pretzel", "pretzel.jpg"),

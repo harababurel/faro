@@ -199,6 +199,132 @@ mod tests {
         assert!(a.active.iter().all(|c| !a.others_in(*c).is_empty()));
     }
 
+    /// Every case the UI has to cope with appears somewhere in the cast or in
+    /// what it says.
+    #[test]
+    fn world_stresses_the_ui() {
+        use super::super::scenes::{SCENES, Then};
+
+        let w = World::build();
+
+        // Names.
+        let names: Vec<&str> = w
+            .contacts
+            .iter()
+            .filter_map(Contact::display_name)
+            .collect();
+        assert!(
+            names.iter().any(|n| n.chars().count() > 40),
+            "a very long name"
+        );
+        assert!(names.iter().any(|n| n.contains('\u{200d}')), "a ZWJ name");
+        assert!(
+            w.contacts.iter().any(|c| c.display_name().is_none()),
+            "a nameless contact"
+        );
+
+        // Conversations.
+        let quiet = w
+            .contacts
+            .iter()
+            .filter(|c| !w.active.contains(&ConversationId::Direct(c.service_id)))
+            .count();
+        assert!(quiet >= 30, "many quiet conversations ({quiet})");
+        assert!(w.groups.iter().any(|g| g.members.len() > 40), "a big group");
+        assert!(
+            w.groups.iter().any(|g| g.title.chars().count() > 50),
+            "a very long group title"
+        );
+
+        // Scripts, in names, titles and everything said.
+        let lines = || SCENES.iter().flat_map(|s| s.lines);
+        let edits = lines().filter_map(|l| match l.then {
+            Then::EditTo(text) => Some(text),
+            Then::Stay | Then::Delete => None,
+        });
+        let text: String = names
+            .iter()
+            .copied()
+            .chain(w.groups.iter().map(|g| g.title.as_str()))
+            .chain(lines().map(|l| l.text))
+            .chain(edits)
+            .collect::<Vec<_>>()
+            .join("\n");
+        let has = |range: std::ops::RangeInclusive<char>| text.chars().any(|c| range.contains(&c));
+        assert!(has('\u{0600}'..='\u{06ff}'), "right-to-left text");
+        assert!(has('\u{0660}'..='\u{0669}'), "Arabic-Indic digits");
+        assert!(
+            has('\u{3040}'..='\u{30ff}') && has('\u{4e00}'..='\u{9fff}'),
+            "CJK"
+        );
+        assert!(has('\u{0900}'..='\u{097f}'), "Devanagari");
+        assert!(has('\u{0300}'..='\u{036f}'), "a combining mark");
+        assert!(has('\u{1f1e6}'..='\u{1f1ff}'), "a flag");
+        let flags = |t: &str| {
+            t.chars()
+                .filter(|c| ('\u{1f1e6}'..='\u{1f1ff}').contains(c))
+                .count()
+                / 2
+        };
+        assert!(
+            lines().any(|l| flags(l.text) >= 3),
+            "several flags in one message"
+        );
+        assert!(
+            lines().any(|l| l.text.contains("🏳️‍🌈") || l.text.contains("🏴‍☠️")),
+            "a ZWJ flag"
+        );
+        assert!(has('\u{1f3fb}'..='\u{1f3ff}'), "a skin tone");
+        assert!(has('\u{fe0f}'..='\u{fe0f}'), "a variation selector");
+        assert!(
+            text.contains('ß') && text.contains('ñ'),
+            "German and Spanish"
+        );
+    }
+
+    /// Every message shape, event and attachment kind appears in some scene.
+    #[test]
+    fn scenes_stress_the_ui() {
+        use super::super::assets::Kind;
+        use super::super::scenes::{SCENES, Then};
+
+        let lines = || SCENES.iter().flat_map(|s| s.lines);
+        // Message shapes.
+        assert!(
+            lines().any(|l| l.text.contains('\n')),
+            "a multi-line message"
+        );
+        assert!(lines().any(|l| l.text.contains("https://")), "a link");
+        assert!(
+            lines().any(|l| l.text.chars().count() > 200),
+            "a message long enough to wrap"
+        );
+
+        // Events and attachments.
+        assert!(
+            lines().any(|l| matches!(l.then, Then::EditTo(_))),
+            "an edit"
+        );
+        assert!(lines().any(|l| l.then == Then::Delete), "a delete");
+        assert!(lines().any(|l| l.reply_to.is_some()), "a reply");
+        assert!(
+            lines().any(|l| l.mention == Some(Who::Me)),
+            "a mention of me"
+        );
+        assert!(lines().any(|l| !l.reactions.is_empty()), "a reaction");
+        assert!(
+            lines().any(|l| l.who == Who::Me),
+            "a line from this account"
+        );
+        let kinds: Vec<Kind> = lines()
+            .filter_map(|l| l.attach)
+            .map(|a| a.spec().kind)
+            .collect();
+        for kind in [Kind::Voice, Kind::Photo, Kind::File, Kind::Sticker] {
+            assert!(kinds.contains(&kind), "a {kind:?} attachment");
+        }
+    }
+
     #[test]
     fn uuids_are_not_nil() {
         assert_ne!(World::build().me().uuid(), Uuid::nil());

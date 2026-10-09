@@ -47,6 +47,8 @@ const ISSUED_CAP: usize = 256;
 const MAX_RUNNING: usize = 2;
 /// How often an answer in a group mentions the temp.
 const MENTION_PERCENT: u32 = 25;
+/// Scenes started this recently go to the back of the next shuffled order.
+const RECENT_SCENES: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Activity {
@@ -184,6 +186,8 @@ pub(super) struct Sim {
     /// Scene indices in playing order; reshuffled when `cursor` reaches the end.
     order: Vec<usize>,
     cursor: usize,
+    /// The last [`RECENT_SCENES`] scenes started, oldest first.
+    started: VecDeque<usize>,
     running: Vec<Running>,
     /// Answers from reply pools (generic deletes only take back these).
     answers: VecDeque<MessageRef>,
@@ -216,6 +220,7 @@ impl Sim {
             issued: VecDeque::new(),
             order,
             cursor: 0,
+            started: VecDeque::new(),
             running: Vec::new(),
             answers: VecDeque::new(),
             kelly_profile: 0,
@@ -563,7 +568,10 @@ impl Sim {
     /// The next scene in the seeded order whose chat has no scene running.
     fn next_scene(&mut self) -> Option<usize> {
         if self.cursor >= self.order.len() {
+            // Reshuffle, keeping what just played away from the front.
             self.rng.shuffle(&mut self.order);
+            let started = &self.started;
+            self.order.sort_by_key(|s| started.contains(s));
             self.cursor = 0;
         }
         let busy: Vec<Chat> = self
@@ -578,9 +586,13 @@ impl Sim {
                 .is_some_and(|scene| !busy.contains(&scene.chat))
         })?;
         self.order.swap(self.cursor, self.cursor + offset);
-        let scene = self.order.get(self.cursor).copied();
+        let scene = self.order.get(self.cursor).copied()?;
         self.cursor += 1;
-        scene
+        if self.started.len() >= RECENT_SCENES {
+            self.started.pop_front();
+        }
+        self.started.push_back(scene);
+        Some(scene)
     }
 
     /// Which running scene the next line comes from, starting one if needed.
@@ -870,19 +882,26 @@ impl Sim {
     }
 
     /// Sent by the temp from their phone: the scene's line if it's theirs,
-    /// otherwise a short answer to the last person who wrote.
+    /// otherwise a short answer in a quiet chat where someone else spoke last.
     fn sync_message(&mut self, now: Millis) -> Option<()> {
         if let Some(slot) = self.running_where(now, |l| l.who == Who::Me) {
             return self.play_next(now, slot);
         }
         let me = self.world.me();
-        let busy = self.busy();
-        let conversation = self
-            .recent
-            .iter()
-            .rev()
-            .find(|r| r.target.sender != me && !busy.contains(&r.conversation))?
-            .conversation;
+        let mut seen = self.busy();
+        let mut conversation = None;
+        for r in self.recent.iter().rev() {
+            if seen.contains(&r.conversation) {
+                continue;
+            }
+            if r.target.sender != me {
+                conversation = Some(r.conversation);
+                break;
+            }
+            // The temp spoke last here: nothing to answer.
+            seen.push(r.conversation);
+        }
+        let conversation = conversation?;
         let text = self
             .rng
             .choice(scenes::replies(Some(Who::Me)))
