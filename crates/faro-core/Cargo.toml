@@ -12,6 +12,8 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+# Already in the lock file (0.22.1); OSC 5522 payloads (D89).
+base64 = "0.22.1"
 etcetera = "0.11.0"
 fastrand = "2.5.0"
 # Already in the lock file; `process` adds `getuid` for the demo directory checks (D87).

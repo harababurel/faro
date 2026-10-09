@@ -3,6 +3,7 @@
 
 pub mod audio;
 pub mod backend;
+pub mod clipboard;
 pub mod config;
 pub mod domain;
 pub mod guard;

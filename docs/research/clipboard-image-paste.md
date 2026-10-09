@@ -114,6 +114,14 @@ Try, in order, on a scratch branch:
 
 ### Phase 1: protocol module (pure, testable)
 
+**Done (2026-10-09):** `crates/faro-core/src/clipboard.rs`:
+- `list_request` / `read_request` (optional `id` and `Credentials` for `pw`/`name`);
+- `Reader`: fed in pieces of any size. It cuts sequences out of packets, reports `Focus` events, ignores packets for another `id` or `type`, applies the size limit and keeps reading to `DONE`, and returns `finish() -> Result<Contents, ReadError>`;
+- `best_image_type`, `image_extension`.
+
+The tests use the bytes from test 4, a multi-chunk image, the owner's focus case and fuzz-style corruption. Not done yet: `wrap_tmux_passthrough` stays in `crates/faro/src/tui.rs` and Phase 2 wraps the request. The spec has two more things Phase 2 can use: the `id` key is echoed back in every reply packet (tells a late reply from the current one), and `CSI ? 5522 $ p` asks whether the terminal supports the protocol (reply `CSI ? 5522 ; Ps $ y`, where 0 or 4 means no).
+
+
 `faro-core::clipboard` (no terminal crates, per the architecture test):
 - request builders (list, read with MIME list, `pw`/`name`), incremental reply parser (packets split across reads, `OK`/`DATA`/`DONE`/errors, base64 validation per chunk, size cap), MIME choice.
 - Unit tests, including the exact bytes captured in test 4 and a synthetic multi-chunk PNG; malformed and truncated input never panics (D28).
