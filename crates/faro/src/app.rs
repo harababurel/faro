@@ -148,14 +148,9 @@ pub async fn run<B: Backend + 'static>(
         results: results_tx,
         audio: std::cell::RefCell::new(system::AudioPlayer::default()),
     };
-    let dispatch = |list: Vec<Effect>| router.dispatch(list);
-
     let mut state = initial_state(directory, detected, &mut startup);
-    dispatch(update::configure(
-        &mut state,
-        startup.config,
-        startup.problems,
-    ));
+    let configured = update::configure(&mut state, startup.config, startup.problems);
+    router.dispatch(configured, &state);
     let mut tui = Tui::enter(state.config.mouse.enabled).context("setting up the terminal")?;
     let mut images =
         images::Images::detect(state.config.media.inline_images, state.env.graphics).await;
@@ -164,7 +159,7 @@ pub async fn run<B: Backend + 'static>(
         task
     });
     let mut input = EventStream::new();
-    dispatch(vec![Effect::LoadConversations]);
+    router.dispatch(vec![Effect::LoadConversations], &state);
 
     let mut themes = Themes::default();
     let mut dirty = true;
@@ -182,7 +177,8 @@ pub async fn run<B: Backend + 'static>(
             last_draw = Some(Instant::now());
             dirty = false;
             // Same picture; only bookkeeping (and maybe loading older messages).
-            dispatch(update::update(&mut state, AppEvent::Drawn(geometry)));
+            let drawn_effects = update::update(&mut state, AppEvent::Drawn(geometry));
+            router.dispatch(drawn_effects, &state);
         }
         if state.quit {
             break;
@@ -217,7 +213,8 @@ pub async fn run<B: Backend + 'static>(
             images.insert(decoded);
             continue;
         }
-        dispatch(update::update(&mut state, event));
+        let effects = update::update(&mut state, event);
+        router.dispatch(effects, &state);
     }
 
     drop(tui);
@@ -273,7 +270,7 @@ struct Router {
 }
 
 impl Router {
-    fn dispatch(&self, list: Vec<Effect>) {
+    fn dispatch(&self, list: Vec<Effect>, state: &State) {
         for effect in list {
             let delivered = match effect {
                 Effect::Backend(command) => self.commands.send(command).is_ok(),
@@ -339,6 +336,16 @@ impl Router {
                 }
                 Effect::Bell => {
                     system::bell();
+                    true
+                }
+                Effect::DesktopNotify { title, body } => {
+                    system::desktop_notify(
+                        title,
+                        body,
+                        state.config.notifications.desktop,
+                        state.env.glyphs,
+                        state.env.is_remote(),
+                    );
                     true
                 }
                 Effect::SaveSetting(edit) => self.config.send(edit).is_ok(),

@@ -6,11 +6,11 @@ expression: "snapshot(&draw(&state, 100, 20))"
 │ ▾ Pinned                   ││ 17:20        Bob ▎ Alice 🌸: Anyone up for the wall on Thursday?   │
 │   Bob                      ││                  Count me in, I'll bring the spare harness         │
 │ ▾ Recent                   ││ 17:22            and chalk (edited)                                │
-│   Climbing 🧗              ││ 17:40 Carol Bar… This message was deleted                          │
-│ ● Alice 🌸               1 ││ ╭ Message ─────────────────╮rom last time                          │
-│                            ││ │ › Reply                 r│p.jpg · 2.3 MB                         │
-│                            ││ │   React…                +│ew messages ────────────────────────── │
-│                            ││ │   Copy text             y│ew overhang section opened last week   │
+│   Climbing 🧗              ││ ╭ Message ─────────────────╮e was deleted                          │
+│ ● Alice 🌸               1 ││ │ › Reply                 r│rom last time                          │
+│                            ││ │   React…                +│p.jpg · 2.3 MB                         │
+│                            ││ │   Copy text             y│ew messages ────────────────────────── │
+│                            ││ │   Message info          i│ew overhang section opened last week   │
 │                            ││ │   Edit message          e│tly the grades are soft, so bring your │
 │                            ││ │   Delete for everyone   D│es 🧗‍♀️🧗‍♂️ and maybe some tape for your   │
 │                            ││ ╰──────────────────────────╯                                       │

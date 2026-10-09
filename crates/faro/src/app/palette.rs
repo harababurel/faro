@@ -11,7 +11,8 @@
 use std::path::PathBuf;
 
 use faro_core::config::{
-    AutoDownload, BubbleStyle, Choice as _, ColorChoice, EmojiChoice, InlineImages, TranscribeMode,
+    AutoDownload, BubbleStyle, Choice as _, ColorChoice, DesktopNotifications, EmojiChoice,
+    InlineImages, NotificationPrivacy, TranscribeMode,
 };
 use faro_core::domain::{ConversationId, ServiceId};
 use faro_core::store::{NotifyLevel, RemoteTranscription};
@@ -81,6 +82,8 @@ pub enum Setting {
     ReduceMotion,
     Bell,
     Title,
+    Desktop,
+    Privacy,
     Allowlist,
     InlineImages,
     AutoDownload,
@@ -168,7 +171,12 @@ impl SettingsGroup {
                 Setting::BubbleStyle,
                 Setting::ReduceMotion,
             ],
-            Self::Notifications => &[Setting::Bell, Setting::Title],
+            Self::Notifications => &[
+                Setting::Bell,
+                Setting::Title,
+                Setting::Desktop,
+                Setting::Privacy,
+            ],
             Self::Conversations => &[Setting::Allowlist],
             Self::Media => &[
                 Setting::InlineImages,
@@ -190,6 +198,8 @@ impl Setting {
             Self::ReduceMotion => "Reduce motion",
             Self::Bell => "Bell",
             Self::Title => "Unread count in the window title",
+            Self::Desktop => "Desktop notifications",
+            Self::Privacy => "Notification privacy",
             Self::Allowlist => "Allowlist mode",
             Self::InlineImages => "Inline images",
             Self::AutoDownload => "Auto-download media",
@@ -206,6 +216,8 @@ impl Setting {
             | Self::Emoji
             | Self::Layout
             | Self::BubbleStyle
+            | Self::Desktop
+            | Self::Privacy
             | Self::InlineImages
             | Self::AutoDownload
             | Self::Transcribe => false,
@@ -223,6 +235,8 @@ impl Setting {
             | Self::ReduceMotion
             | Self::Bell
             | Self::Title
+            | Self::Desktop
+            | Self::Privacy
             | Self::Allowlist
             | Self::InlineImages
             | Self::AutoDownload
@@ -265,6 +279,8 @@ pub enum SettingChoice {
     BubbleStyle(BubbleStyle),
     Allowlist(bool),
     Emoji(EmojiChoice),
+    Desktop(DesktopNotifications),
+    Privacy(NotificationPrivacy),
     InlineImages(InlineImages),
     AutoDownload(AutoDownload),
     Transcribe(TranscribeMode),
@@ -884,6 +900,27 @@ pub fn flipped(state: &State, setting: Setting) -> Option<SettingChoice> {
         .map(|(choice, _, _)| choice)
 }
 
+/// The next (`forward`) or previous value of `setting`, wrapping around.
+pub fn cycled(state: &State, setting: Setting, forward: bool) -> Option<SettingChoice> {
+    let list = values(state, setting);
+    let len = list.len();
+    if len == 0 {
+        return None;
+    }
+    let current = list
+        .iter()
+        .position(|(_, _, current)| *current)
+        .unwrap_or(0);
+    let next = if forward {
+        (current + 1) % len
+    } else if current == 0 {
+        len - 1
+    } else {
+        current - 1
+    };
+    list.into_iter().nth(next).map(|(choice, _, _)| choice)
+}
+
 /// A line about `level` shown above its results: at Themes, how the
 /// terminal's colours change what's drawn (D57).
 pub fn note(state: &State, level: Level) -> Option<String> {
@@ -933,6 +970,16 @@ fn setting_values(state: &State, setting: Setting) -> Vec<Item> {
         .collect()
 }
 
+fn choice_values<C: faro_core::config::Choice + Copy + PartialEq>(
+    all: &[C],
+    current: C,
+    make: fn(C) -> SettingChoice,
+) -> Vec<(SettingChoice, String, bool)> {
+    all.iter()
+        .map(|&v| (make(v), v.name().into(), v == current))
+        .collect()
+}
+
 /// Every value of `setting`: what choosing it does, its name, and whether
 /// it's the one in use.
 fn values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)> {
@@ -961,16 +1008,11 @@ fn values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)>
                 (SettingChoice::Colors(c), title, state.config.ui.colors == c)
             })
             .collect(),
-        Setting::Emoji => EmojiChoice::ALL
-            .iter()
-            .map(|&e| {
-                (
-                    SettingChoice::Emoji(e),
-                    e.name().into(),
-                    state.config.ui.emoji == e,
-                )
-            })
-            .collect(),
+        Setting::Emoji => choice_values(
+            EmojiChoice::ALL,
+            state.config.ui.emoji,
+            SettingChoice::Emoji,
+        ),
         Setting::Layout => MessageLayout::ALL
             .iter()
             .map(|&l| {
@@ -981,56 +1023,40 @@ fn values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)>
                 (SettingChoice::Layout(l), name.into(), state.layout == l)
             })
             .collect(),
-        Setting::BubbleStyle => BubbleStyle::ALL
-            .iter()
-            .map(|&s| {
-                let name = match s {
-                    BubbleStyle::Auto => "auto",
-                    BubbleStyle::Rounded => "rounded",
-                    BubbleStyle::Bar => "bar",
-                    BubbleStyle::Mixed => "mixed",
-                };
-                (
-                    SettingChoice::BubbleStyle(s),
-                    name.into(),
-                    state.config.messages.bubble_style == s,
-                )
-            })
-            .collect(),
+        Setting::BubbleStyle => choice_values(
+            BubbleStyle::ALL,
+            state.config.messages.bubble_style,
+            SettingChoice::BubbleStyle,
+        ),
         Setting::ReduceMotion => on_off(SettingChoice::ReduceMotion, state.config.reduce_motion),
         Setting::Bell => on_off(SettingChoice::Bell, state.config.notifications.bell),
         Setting::Title => on_off(SettingChoice::Title, state.config.notifications.title),
+        Setting::Desktop => choice_values(
+            DesktopNotifications::ALL,
+            state.config.notifications.desktop,
+            SettingChoice::Desktop,
+        ),
+        Setting::Privacy => choice_values(
+            NotificationPrivacy::ALL,
+            state.config.notifications.privacy,
+            SettingChoice::Privacy,
+        ),
         Setting::Allowlist => on_off(SettingChoice::Allowlist, state.list.allowlist),
-        Setting::InlineImages => InlineImages::ALL
-            .iter()
-            .map(|&m| {
-                (
-                    SettingChoice::InlineImages(m),
-                    m.name().into(),
-                    state.config.media.inline_images == m,
-                )
-            })
-            .collect(),
-        Setting::AutoDownload => AutoDownload::ALL
-            .iter()
-            .map(|&p| {
-                (
-                    SettingChoice::AutoDownload(p),
-                    p.name().into(),
-                    state.config.media.auto_download == p,
-                )
-            })
-            .collect(),
-        Setting::Transcribe => TranscribeMode::ALL
-            .iter()
-            .map(|&m| {
-                (
-                    SettingChoice::Transcribe(m),
-                    m.name().into(),
-                    state.config.voice.transcribe == m,
-                )
-            })
-            .collect(),
+        Setting::InlineImages => choice_values(
+            InlineImages::ALL,
+            state.config.media.inline_images,
+            SettingChoice::InlineImages,
+        ),
+        Setting::AutoDownload => choice_values(
+            AutoDownload::ALL,
+            state.config.media.auto_download,
+            SettingChoice::AutoDownload,
+        ),
+        Setting::Transcribe => choice_values(
+            TranscribeMode::ALL,
+            state.config.voice.transcribe,
+            SettingChoice::Transcribe,
+        ),
         Setting::Mouse => on_off(SettingChoice::Mouse, state.config.mouse.enabled),
     }
 }

@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use crossterm::clipboard::CopyToClipboard;
+use faro_core::config::DesktopNotifications;
 use faro_core::paths;
 use tokio::sync::mpsc;
 
@@ -33,6 +34,69 @@ pub fn bell() {
     if let Err(error) = out.write_all(b"\x07").and_then(|()| out.flush()) {
         tracing::warn!(%error, "ringing the bell failed");
     }
+}
+
+/// Send a desktop notification (DESIGN.md §8): through the terminal with
+/// OSC 99 (kitty) or OSC 777 (wrapped in tmux DCS passthrough inside tmux),
+/// or with `osascript` / `notify-send` when `mode == Native` on a local
+/// session.
+pub fn desktop_notify(
+    title: String,
+    body: String,
+    mode: DesktopNotifications,
+    glyphs: BlockGlyphs,
+    is_remote: bool,
+) {
+    match mode {
+        DesktopNotifications::Off => {}
+        DesktopNotifications::Native if !is_remote => native_notify(title, body),
+        DesktopNotifications::Auto | DesktopNotifications::Osc | DesktopNotifications::Native => {
+            let kitty = glyphs == BlockGlyphs::Native
+                || glyphs_of_environment(|var| std::env::var(var).ok()) == BlockGlyphs::Native;
+            if let Err(error) = crate::tui::Tui::notify(&title, &body, kitty) {
+                tracing::warn!(%error, "writing the desktop notification sequence failed");
+            }
+        }
+    }
+}
+
+fn native_notify(title: String, body: String) {
+    tokio::spawn(async move {
+        let result = if cfg!(target_os = "macos") {
+            tokio::process::Command::new("osascript")
+                .args([
+                    "-e",
+                    "on run argv",
+                    "-e",
+                    "display notification (item 2 of argv) with title (item 1 of argv)",
+                    "-e",
+                    "end run",
+                    "--",
+                ])
+                .arg(&title)
+                .arg(&body)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .kill_on_drop(false)
+                .status()
+                .await
+        } else {
+            tokio::process::Command::new("notify-send")
+                .args(["-a", "faro", "--"])
+                .arg(&title)
+                .arg(&body)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .kill_on_drop(false)
+                .status()
+                .await
+        };
+        if let Err(error) = result {
+            tracing::warn!(%error, "sending native desktop notification failed");
+        }
+    });
 }
 
 /// Open `url` with `open` (macOS) or `xdg-open` (elsewhere), without waiting.

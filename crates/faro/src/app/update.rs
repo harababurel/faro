@@ -65,18 +65,8 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
             vec![]
         }
         AppEvent::SendResult { sent_at, result } => sending::on_send_result(state, sent_at, result),
-        AppEvent::EditResult(result) => {
-            if let Err(error) = result {
-                state.notice = Some(Notice::error(format!("Couldn't edit message: {error}")));
-            }
-            vec![]
-        }
-        AppEvent::DeleteResult(result) => {
-            if let Err(error) = result {
-                state.notice = Some(Notice::error(format!("Couldn't delete message: {error}")));
-            }
-            vec![]
-        }
+        AppEvent::EditResult(result) => notice_err(state, "Couldn't edit message", result),
+        AppEvent::DeleteResult(result) => notice_err(state, "Couldn't delete message", result),
         AppEvent::ReactResult {
             conversation,
             target,
@@ -121,21 +111,14 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
             terminal_checked(state, terminal);
             vec![]
         }
-        AppEvent::OpenFailed(error) => {
-            state.notice = Some(Notice::error(format!("Couldn't open: {error}")));
-            vec![]
-        }
+        AppEvent::OpenFailed(error) => notice_err(state, "Couldn't open", Err(error)),
         AppEvent::ConfigRead(read) => settings::on_config_read(state, read),
         AppEvent::ThemesRead(files) => settings::on_themes_read(state, files),
         AppEvent::SettingNotSaved(error) => {
-            state.notice = Some(Notice::error(format!("Couldn't save the setting: {error}")));
-            vec![]
+            notice_err(state, "Couldn't save the setting", Err(error))
         }
         AppEvent::Drawn(geometry) => on_drawn(state, geometry),
-        AppEvent::StoreFailed(error) => {
-            state.notice = Some(Notice::error(format!("Storage problem: {error}")));
-            vec![]
-        }
+        AppEvent::StoreFailed(error) => notice_err(state, "Storage problem", Err(error)),
         AppEvent::UnreadCleared(cleared) => {
             on_unread_cleared(state, &cleared);
             vec![]
@@ -143,6 +126,17 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
         AppEvent::Tick => on_tick(state),
         AppEvent::Shutdown => quit(state),
     }
+}
+
+fn notice_err<E: std::fmt::Display>(
+    state: &mut State,
+    prefix: &str,
+    result: Result<(), E>,
+) -> Vec<Effect> {
+    if let Err(error) = result {
+        state.notice = Some(Notice::error(format!("{prefix}: {error}")));
+    }
+    vec![]
 }
 
 fn on_tick(state: &mut State) -> Vec<Effect> {

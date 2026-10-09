@@ -106,6 +106,10 @@ fn a_first_message_on_a_fresh_start_opens_nothing() {
         vec![
             Effect::Persist(Box::new(BackendEvent::Message(first))),
             Effect::Bell,
+            Effect::DesktopNotify {
+                title: "faro".to_owned(),
+                body: "New message from Alice 🌸".to_owned(),
+            },
         ]
     );
 }
@@ -181,6 +185,10 @@ fn messages_update_the_list_and_the_open_conversation() {
         vec![
             Effect::Persist(Box::new(BackendEvent::Message(to_alice))),
             Effect::Bell,
+            Effect::DesktopNotify {
+                title: "faro".to_owned(),
+                body: "New message from Alice 🌸".to_owned(),
+            },
         ]
     );
     let alice_summary = state.summary(alice()).unwrap();
@@ -1105,12 +1113,9 @@ fn the_menu_lists_what_a_message_offers() {
             MessageAction::Reply,
             MessageAction::React,
             MessageAction::Copy,
-<<<<<<< HEAD
+            MessageAction::Info,
             MessageAction::Edit,
             MessageAction::Delete,
-=======
-            MessageAction::Info,
->>>>>>> m12-track-1b
         ]
     );
     // Shortcut letters work inside the menu; Esc closes it.

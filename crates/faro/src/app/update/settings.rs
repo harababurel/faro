@@ -3,8 +3,8 @@
 //! allowlist key) written back to it.
 
 use faro_core::config::{
-    self, AutoDownload, BubbleStyle, Config, EmojiChoice, InlineImages, Problem, Severity,
-    TranscribeMode, key,
+    self, AutoDownload, BubbleStyle, Config, DesktopNotifications, EmojiChoice, InlineImages,
+    NotificationPrivacy, Problem, Severity, TranscribeMode, key,
 };
 
 use super::{check_terminal, curation, selection};
@@ -237,6 +237,25 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
             effects.extend(save(state, key::EMOJI));
             effects
         }
+        SettingChoice::Desktop(mode) => {
+            state.config.notifications.desktop = mode;
+            let msg = match mode {
+                DesktopNotifications::Auto => "Desktop notifications: auto (through the terminal)",
+                DesktopNotifications::Osc => "Desktop notifications: through the terminal (OSC)",
+                DesktopNotifications::Native => "Desktop notifications: native OS notifications",
+                DesktopNotifications::Off => "Desktop notifications off",
+            };
+            save_with_notice(state, key::DESKTOP, msg)
+        }
+        SettingChoice::Privacy(privacy) => {
+            state.config.notifications.privacy = privacy;
+            let msg = match privacy {
+                NotificationPrivacy::None => "Notification privacy: generic alert only",
+                NotificationPrivacy::Sender => "Notification privacy: sender name only",
+                NotificationPrivacy::Preview => "Notification privacy: sender and message preview",
+            };
+            save_with_notice(state, key::PRIVACY, msg)
+        }
         SettingChoice::InlineImages(mode) => {
             state.config.media.inline_images = mode;
             state.env.repaint = true;
@@ -319,6 +338,8 @@ fn choose_toggle(state: &mut State, choice: SettingChoice, on: bool) -> Vec<Effe
         }
         SettingChoice::Colors(_)
         | SettingChoice::Emoji(_)
+        | SettingChoice::Desktop(_)
+        | SettingChoice::Privacy(_)
         | SettingChoice::Layout(_)
         | SettingChoice::BubbleStyle(_)
         | SettingChoice::Allowlist(_)

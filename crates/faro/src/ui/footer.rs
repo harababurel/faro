@@ -91,11 +91,11 @@ const PALETTE_LEVEL_HINTS: &[(&str, &str)] = &[
 ];
 /// Typing a nickname: the query is the name (D65).
 const NICKNAME_HINTS: &[(&str, &str)] = &[("enter", "save"), ("esc", "cancel")];
-/// On/off settings flip in place; the others open their values (D57).
+/// Settings cycle in place with `←`/`→`; `Enter` flips on/off or opens values (D57).
 const SETTINGS_HINTS: &[(&str, &str)] = &[
     ("↑↓", "move"),
+    ("←→", "cycle"),
     ("enter", "flip/open"),
-    ("←", "back"),
     ("esc", "close"),
 ];
 /// Moving through themes, or the values of a setting that changes how things

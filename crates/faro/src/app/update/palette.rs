@@ -66,15 +66,31 @@ pub fn on_key(state: &mut State, key: PaletteKey) -> Vec<Effect> {
     let page = isize::try_from(rows.saturating_sub(1).max(1)).unwrap_or(1);
     let at_start = palette.input.cursor() == 0;
     let at_end = palette.input.cursor() == palette.input.text().len();
+    let setting_at_cursor = selected_setting(palette);
     let opens_level = matches!(
         palette.selected_item().map(|item| &item.kind),
-        Some(ItemKind::Level(_) | ItemKind::EnterDir(_))
+        Some(ItemKind::Level(level)) if !matches!(level, Level::Setting(_))
+    ) || matches!(
+        palette.selected_item().map(|item| &item.kind),
+        Some(ItemKind::EnterDir(_))
     );
     match key {
         PaletteKey::Previous => palette.step(-1, rows),
         PaletteKey::Next => palette.step(1, rows),
         PaletteKey::PageUp => palette.step(-page, rows),
         PaletteKey::PageDown => palette.step(page, rows),
+        PaletteKey::Edit(Edit::Left) if palette.input.is_empty() && setting_at_cursor.is_some() => {
+            if let Some(setting) = setting_at_cursor {
+                return cycle(state, setting, false);
+            }
+        }
+        PaletteKey::Edit(Edit::Right)
+            if palette.input.is_empty() && setting_at_cursor.is_some() =>
+        {
+            if let Some(setting) = setting_at_cursor {
+                return cycle(state, setting, true);
+            }
+        }
         PaletteKey::Edit(Edit::Left) if at_start => up(state),
         PaletteKey::Edit(Edit::DeleteBackward) if palette.input.is_empty() => up(state),
         PaletteKey::Edit(Edit::Right) if at_end && opens_level => return choose(state),
@@ -102,6 +118,30 @@ pub fn on_key(state: &mut State, key: PaletteKey) -> Vec<Effect> {
         PaletteKey::Choose => return choose(state),
     }
     vec![]
+}
+
+/// The selected setting row when the palette is at `Level::Settings`.
+fn selected_setting(palette: &Palette) -> Option<Setting> {
+    if palette.level() != Level::Settings {
+        return None;
+    }
+    match palette.selected_item().map(|item| &item.kind) {
+        Some(ItemKind::Level(Level::Setting(s)) | ItemKind::Switch(s)) => Some(*s),
+        Some(
+            ItemKind::Level(_)
+            | ItemKind::Command(_)
+            | ItemKind::Conversation(_)
+            | ItemKind::Setting(_)
+            | ItemKind::Header
+            | ItemKind::Theme(_)
+            | ItemKind::Key
+            | ItemKind::SetNickname(_)
+            | ItemKind::ClearNickname(_)
+            | ItemKind::EnterDir(_)
+            | ItemKind::AttachFile(_),
+        )
+        | None => None,
+    }
 }
 
 /// Pasted text goes into the query, on one line.
@@ -233,9 +273,9 @@ pub fn on_mouse(state: &mut State, mouse: MouseEvent) -> Vec<Effect> {
     vec![]
 }
 
-/// Open the selected category, flip the selected on/off setting (staying
-/// open), or run the selected item and close. With nothing matching, stay
-/// open.
+/// Open the selected category, flip or apply the selected setting/theme
+/// (staying in the palette), or run the selected item and close. With
+/// nothing matching, stay open.
 fn choose(state: &mut State) -> Vec<Effect> {
     let Some(kind) = state
         .palette
@@ -276,6 +316,16 @@ fn choose(state: &mut State) -> Vec<Effect> {
     if let ItemKind::Switch(setting) = kind {
         return flip(state, setting);
     }
+    if let ItemKind::Setting(choice) = kind {
+        let effects = settings::choose(state, choice);
+        up(state);
+        return effects;
+    }
+    if let ItemKind::Theme(name) = kind {
+        let effects = settings::choose_theme(state, &name);
+        refresh_in_place(state, &ItemKind::Theme(name));
+        return effects;
+    }
     let typed = state
         .palette
         .as_ref()
@@ -284,8 +334,6 @@ fn choose(state: &mut State) -> Vec<Effect> {
     state.palette = None;
     match kind {
         ItemKind::Conversation(id) => show_conversation(state, id),
-        ItemKind::Setting(choice) => settings::choose(state, choice),
-        ItemKind::Theme(name) => settings::choose_theme(state, &name),
         ItemKind::Command(command) => {
             remember(state, command);
             run(state, command)
@@ -296,6 +344,8 @@ fn choose(state: &mut State) -> Vec<Effect> {
         ItemKind::Key
         | ItemKind::Level(_)
         | ItemKind::EnterDir(_)
+        | ItemKind::Setting(_)
+        | ItemKind::Theme(_)
         | ItemKind::Switch(_)
         | ItemKind::Header => vec![],
     }
@@ -325,6 +375,35 @@ pub fn set_nickname(state: &mut State, id: ServiceId, nickname: Option<String>) 
     vec![Effect::SaveNickname(id, nickname)]
 }
 
+const fn setting_row_kind(setting: Setting) -> ItemKind {
+    if setting.is_switch() {
+        ItemKind::Switch(setting)
+    } else {
+        ItemKind::Level(Level::Setting(setting))
+    }
+}
+
+/// Rebuild the current palette level's items in place, keeping the query,
+/// scroll offset, and selecting `select`.
+fn refresh_in_place(state: &mut State, select: &ItemKind) {
+    let level = state
+        .palette
+        .as_ref()
+        .map_or(Level::Settings, Palette::level);
+    let items = palette::items(state, level, &state.recent_commands);
+    let note = palette::note(state, level);
+    if let Some(palette) = state.palette.as_mut() {
+        let (path, query, offset) = (
+            palette.path.clone(),
+            palette.input.text().to_owned(),
+            palette.offset,
+        );
+        palette.show(path, items, &query, Some(select));
+        palette.offset = offset;
+        palette.note = note;
+    }
+}
+
 /// Flip an on/off setting from the list: applied and saved, the palette
 /// left open with the query kept and the row showing its new value (D57).
 fn flip(state: &mut State, setting: Setting) -> Vec<Effect> {
@@ -332,20 +411,17 @@ fn flip(state: &mut State, setting: Setting) -> Vec<Effect> {
         return vec![];
     };
     let effects = settings::choose(state, choice);
-    let level = state
-        .palette
-        .as_ref()
-        .map_or(Level::Settings, Palette::level);
-    let items = palette::items(state, level, &state.recent_commands);
-    if let Some(palette) = state.palette.as_mut() {
-        let (path, query, offset) = (
-            palette.path.clone(),
-            palette.input.text().to_owned(),
-            palette.offset,
-        );
-        palette.show(path, items, &query, Some(&ItemKind::Switch(setting)));
-        palette.offset = offset;
-    }
+    refresh_in_place(state, &setting_row_kind(setting));
+    effects
+}
+
+/// Cycle a setting's value backward or forward from `Level::Settings` (`←`/`→`).
+fn cycle(state: &mut State, setting: Setting, forward: bool) -> Vec<Effect> {
+    let Some(choice) = palette::cycled(state, setting, forward) else {
+        return vec![];
+    };
+    let effects = settings::choose(state, choice);
+    refresh_in_place(state, &setting_row_kind(setting));
     effects
 }
 

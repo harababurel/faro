@@ -112,7 +112,7 @@ choice! {
 }
 
 choice! {
-    /// How desktop notifications are sent (DESIGN.md §8; used from M6).
+    /// How desktop notifications are sent (DESIGN.md §8).
     DesktopNotifications {
         #[default]
         Auto = "auto",
@@ -122,8 +122,11 @@ choice! {
     }
 }
 
+/// Alias for [`DesktopNotifications`].
+pub type DesktopMode = DesktopNotifications;
+
 choice! {
-    /// What a notification shows (DESIGN.md §8; used from M6).
+    /// What a notification shows (DESIGN.md §8).
     NotificationPrivacy {
         /// Only that something arrived.
         None = "none",
@@ -310,6 +313,8 @@ pub mod key {
     pub const MOUSE: &str = "mouse.enabled";
     pub const BELL: &str = "notifications.bell";
     pub const TITLE: &str = "notifications.title";
+    pub const DESKTOP: &str = "notifications.desktop";
+    pub const PRIVACY: &str = "notifications.privacy";
 }
 
 /// A setting's value, as written in the file.
@@ -562,9 +567,9 @@ pub static SETTINGS: &[Setting] = &[
         },
     },
     Setting {
-        path: "notifications.desktop",
+        path: key::DESKTOP,
         help: "Desktop notifications: \"auto\", \"osc\" (through the terminal), \"native\" or \
-               \"off\" (not used yet: v0.2).",
+               \"off\".",
         get: |c| text(c.notifications.desktop),
         set: |c, v| {
             c.notifications.desktop = choice(v)?;
@@ -572,9 +577,8 @@ pub static SETTINGS: &[Setting] = &[
         },
     },
     Setting {
-        path: "notifications.privacy",
-        help: "What notifications show: \"none\", \"sender\" or \"preview\" (sender and text; \
-               not used yet: v0.2).",
+        path: key::PRIVACY,
+        help: "What notifications show: \"none\", \"sender\" or \"preview\" (sender and text).",
         get: |c| text(c.notifications.privacy),
         set: |c, v| {
             c.notifications.privacy = choice(v)?;

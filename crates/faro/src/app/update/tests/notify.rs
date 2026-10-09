@@ -297,3 +297,73 @@ fn mentions_only_rings_for_mentions_of_us_unless_muted() {
     });
     assert_eq!(bells(&mentioning(&mut state, ME, 3)), 0);
 }
+
+#[test]
+fn desktop_notifications_respect_mode_and_privacy_levels() {
+    use faro_core::config::{DesktopNotifications, NotificationPrivacy};
+
+    let desktop_notifies = |effects: &[Effect]| -> Vec<(String, String)> {
+        effects
+            .iter()
+            .filter_map(|e| {
+                if let Effect::DesktopNotify { title, body } = e {
+                    Some((title.clone(), body.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    };
+
+    let mut state = loaded_state();
+    // Default is Auto + Sender: direct message from Alice.
+    let effects = incoming(&mut state, alice(), 1);
+    assert_eq!(
+        desktop_notifies(&effects),
+        vec![("faro".to_owned(), "New message from Alice 🌸".to_owned())]
+    );
+
+    // Group message in Sender mode when unfocused.
+    state.last_bell = None;
+    update(&mut state, AppEvent::Terminal(Event::FocusLost));
+    let effects = incoming(&mut state, climbing(), 2);
+    assert_eq!(
+        desktop_notifies(&effects),
+        vec![(
+            "faro".to_owned(),
+            "New message from Alice 🌸 in Climbing 🧗".to_owned()
+        )]
+    );
+
+    // Privacy::None shows only generic alert.
+    state.last_bell = None;
+    state.config.notifications.privacy = NotificationPrivacy::None;
+    let effects = incoming(&mut state, alice(), 3);
+    assert_eq!(
+        desktop_notifies(&effects),
+        vec![("faro".to_owned(), "New message".to_owned())]
+    );
+
+    // Privacy::Preview shows conversation title and message preview (with sender prefix in groups).
+    state.last_bell = None;
+    state.config.notifications.privacy = NotificationPrivacy::Preview;
+    let effects = incoming(&mut state, alice(), 4);
+    assert_eq!(
+        desktop_notifies(&effects),
+        vec![("Alice 🌸".to_owned(), "ping".to_owned())]
+    );
+
+    state.last_bell = None;
+    let effects = incoming(&mut state, climbing(), 5);
+    assert_eq!(
+        desktop_notifies(&effects),
+        vec![("Climbing 🧗".to_owned(), "Alice 🌸: ping".to_owned())]
+    );
+
+    // DesktopNotifications::Off suppresses Effect::DesktopNotify while keeping Effect::Bell.
+    state.last_bell = None;
+    state.config.notifications.desktop = DesktopNotifications::Off;
+    let effects = incoming(&mut state, alice(), 6);
+    assert_eq!(bells(&effects), 1);
+    assert_eq!(desktop_notifies(&effects), vec![]);
+}
