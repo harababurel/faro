@@ -107,6 +107,8 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 
 - 2026-10-09: package names (D85): `faro` everywhere, `faro-chat` only on crates.io (binary still `faro`); website `getfaro.dev`.
 
+- 2026-10-09: names secured: `getfaro.dev` (SPF/DMARC reject-all), `faro-chat` 0.0.0 placeholder on crates.io, Homebrew tap `harababurel/homebrew-tap` (empty). `packaging/aur/faro-git/PKGBUILD` builds and passes `namcap` on the owner's Arch machine; not uploaded to the AUR until the repo is public (it clones over HTTPS). `faro` and `faro-bin` PKGBUILDs come with the first release.
+
 ### Gotchas found so far
 
 - `#[expect(...)]` on a macro call (`println!`) is ignored; put it on the enclosing `fn`.
@@ -175,6 +177,7 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 | `crates/faro-core/src/store.rs`, `store/` | `Store` handle, request channel and serve task, `StoreError`, `ConversationSummary`/`ConversationState` (D34); `db.rs` (all SQL incl. receipts, `search_messages`, `messages_around`), `codec.rs` (domain ↔ column conversions), `tests.rs` (incl. restart acceptance test) |
 | `crates/faro-core/migrations/` | SQLite schema, embedded with `sqlx::migrate!()` and run on open (`0001_initial.sql` .. `0008_receipts.sql`) |
 | `docs/MANUAL_TESTS.md` | Hands-on checklist for things agents can't verify (rule 10) |
+| `packaging/aur/faro-git/` | AUR PKGBUILD for the development version (D85); test on Arch with `makepkg -si`, check with `namcap` |
 | `.github/workflows/ci.yml` | fmt, clippy `-D warnings`, test on ubuntu + macos (`--locked`) |
 
 ## Rules
