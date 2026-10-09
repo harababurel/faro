@@ -8,7 +8,8 @@ pkgdesc='A terminal client for Signal, built for people who live in tmux (develo
 arch=('x86_64' 'aarch64')
 url='https://getfaro.dev'
 license=('AGPL-3.0-only' 'MIT')
-depends=('gcc-libs' 'glibc')
+# openssl: presage's store is SQLCipher, which links libcrypto on Linux.
+depends=('glibc' 'libgcc' 'openssl')
 makedepends=('cargo' 'git' 'protobuf' 'cmake' 'clang')
 optdepends=(
   'xdg-utils: open links and attachments'
