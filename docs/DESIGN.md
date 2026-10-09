@@ -472,12 +472,15 @@ Task-level breakdown and progress tracking: [PLAN.md](PLAN.md).
 
 - Full mouse support: drag-resize sidebars, right-click context menus
 - OpenCode theme compatibility + theme picker with live preview (pulled forward: done, D54)
-- Settings UI in the palette writing back to TOML
-- OSC desktop notifications with privacy levels
-- Edit / delete for everyone
+- **Settings UI in the palette writing back to TOML (M5/M12, done, D48/D83):** including in-place `←`/`→` value cycling and staying inside `Ctrl+P` when picking a setting value or theme
+- **OSC desktop notifications with privacy levels (M12, done, D83):** OSC 99 (`kitty`/`foot`/`Ghostty`/`WezTerm`) and OSC 777 (`rxvt`/fallback) with tmux DCS passthrough (`\ePtmux;...\e\\`) and `off`/`generic`/`sender`/`preview` privacy levels
+- **Edit / delete for everyone / forward / send `@mentions` (M12, done, D83):** `e` edit, `D` delete with confirmation, `f` forward to another chat, inline `@` mention autocomplete
+- **Delivery receipts & message info (M12, done, D83):** per-recipient `Delivered`/`Read` tracking (`0008_receipts.sql`), `✓✓` in `accent` when read, `i` message info popup
+- **Full-text search & jump to unread (M12, done, D83):** `/` in chat, `Ctrl+F` across all chats (matching message text and voice-note transcripts), `u` jump to unread marker
+- **Density, timestamps & shared links/media (M12, done, D83):** `[messages] density` (`comfortable`/`compact`) and `timestamps` (`absolute`/`relative`/`off`) with live preview; recent links & downloaded files in the `Alt+I` info panel and palette (`Links & files in this chat…`)
 - **Attachments and inline images (M9, done, D75–D79):** receive, open or save (SSH-aware), send; thumbnails in the message pane via kitty graphics / sixel / iTerm2 / half-block fallback (`ratatui-image`), with tmux passthrough
-- **Voice notes (M10):** playback through an external player; opt-in transcription of incoming voice notes with a local Whisper model or a remote OpenAI-compatible endpoint (consent required for remote)
-- Emoji picker; emoji width fallback
+- **Voice notes (M10, done, D80–D82):** playback through an external player; opt-in transcription of incoming voice notes with a local Whisper model or a remote OpenAI-compatible endpoint (consent required for remote)
+- **Emoji picker & shortcodes (M12, done, D83):** inline `:shortcode:` autocomplete in input and searchable reaction picker (`r`); emoji width fallback (M4.5, done, D47/D55)
 - Release binaries, Homebrew tap, AUR, `.deb`, Nix flake
 
 ### Later (backlog, do not forget)
@@ -486,7 +489,6 @@ Task-level breakdown and progress tracking: [PLAN.md](PLAN.md).
 - signal-cli JSON-RPC backend (D6)
 - Encryption at rest (§12)
 - Logo in an about screen (the animated lighthouse already fills the empty message pane, D61)
-- Search across messages
 - Recording and sending voice notes
 
 ## 15. Testing strategy

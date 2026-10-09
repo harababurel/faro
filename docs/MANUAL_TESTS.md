@@ -267,6 +267,37 @@ Use a separate data dir for the test account, e.g. `--data-dir ~/.local/share/fa
   - In a conversation where remote transcription has not yet been allowed, press `t` on a voice note: faro asks for confirmation (or toggle *Allow remote voice transcription* from the conversation menu `Space` or `Ctrl+P` › `>`). Once allowed for that chat, `t` (and incoming voice notes ≤ `transcribe_max_secs`) transcribe in the background and show `❝ <text> [remote]`. Disallowing it in the conversation menu stops sending that chat's voice notes.
 - [ ] **Real Signal account:** send a voice note from a phone to faro: it arrives with `voice_note = true`, auto-downloads into `<data dir>/attachments/` (`0600`), extracts its duration and 16-bar waveform (via `ffmpeg` for AAC/M4A or Opus), plays locally with `x`, and transcribes when `t` is pressed.
 
+## M12: UX, messaging, search and polish (D83)
+
+- [ ] **Edit & delete own messages (`e` / `D`):**
+  - Select one of your own sent messages (`↑` in the input) and press `e` (or `Enter` › *Edit*): an `✎ Editing message · esc cancel` bar appears above the input with the message's text loaded. Edit the text and press `Enter`: the message updates in place with `(edited)` and syncs to linked devices/recipients.
+  - Select one of your own sent messages and press `D` (or `Enter` › *Delete for everyone*): a confirmation popup asks `Delete this message for everyone? (enter/y confirm · esc/n cancel)`. Press `y` or `Enter`: the message becomes `[message deleted]` locally and on recipients' devices.
+- [ ] **Sending `@mentions` with `@` autocomplete:**
+  - In a group chat (or direct chat), type `@` followed by a letter (e.g. `@a`): a compact completion popup appears above the input listing matching participants. Use `↑`/`↓` and `Tab` or `Enter` to insert `@Name `; send the message and verify it renders as a bold accent `@Name` pill and notifies the mentioned recipient on Signal.
+- [ ] **Delivery receipts (`✓` / `✓✓`) and Message Info (`i`):**
+  - Send a message: it transitions from `◌` (sending) to `✓` (sent), dim `✓✓` (delivered), and accent-coloured `✓✓` (read).
+  - Select any message and press `i` (or `Enter` › *Message info*): a popup displays the sender, sent/edited timestamps, attachment metadata, and (for outgoing messages) per-recipient `✓✓ read` / `✓✓ delivered` timestamps.
+- [ ] **Command palette (`Ctrl+P`) `←`/`→` cycling & multi-edit:**
+  - Open `Ctrl+P` › `Settings` (or `Ctrl+P` then `:`): with the query empty, press `←` or `→` on any setting row (such as *Message layout*, *Bubble style*, *Message density*, *Timestamps*, *Bell*, *Allowlist mode*) to cycle its value in place. Verify the UI behind the palette updates live and `config.toml` is updated while `Settings ›` stays open.
+  - Press `Enter` on a multi-choice setting (e.g. *Bubble style*) to open its sub-menu, then press `Enter` on a value: it applies and returns to `Settings ›` (instead of closing the palette).
+  - Open `Ctrl+P` › `Themes` and press `Enter` on several themes in a row: each theme applies and updates the `●` radio indicator while `Themes ›` stays open (`Esc` or `←` exits).
+- [ ] **OSC 99 / 777 & native desktop notifications:**
+  - Set `[notifications] desktop = "auto"` (or `"osc"`) and `privacy = "sender"` (or `"preview"` / `"none"`). Unfocus the terminal window (or switch to another tmux window with `set -g allow-passthrough on`) while a message arrives in a notifying chat: verify your desktop environment shows the notification with the configured privacy level.
+- [ ] **Full-text message & transcript search (`/` or `Ctrl+F`) and Jump to Unread (`u`):**
+  - Press `Ctrl+F` (from any pane) or `/` (in the message pane, or at the `Ctrl+P` root): `Search` opens scoped to the current chat (with a top row to toggle *Search all conversations…*). Type a word from an older message or a voice-note transcript: matching messages appear with sender and snippet; pressing `Enter` jumps to and selects that message in context.
+  - Open a conversation with unread messages (`── new messages ──` divider), scroll away, and press `u` in the message pane (or *Jump to unread* in `Ctrl+P`): the view scrolls to and selects the first unread message.
+- [ ] **Message density (`comfortable` / `compact`) and timestamps (`absolute` / `relative` / `off`):**
+  - In `Ctrl+P` › `Settings`, cycle *Message density* to `compact`: consecutive bubbles pack without blank separator lines.
+  - Cycle *Timestamps* between `absolute` (`HH:MM`), `relative` (`now`, `5m`, `2h`, `3d`), and `off` (hidden on unselected messages, still shown on the selected message).
+- [ ] **Emoji `:shortcode:` autocomplete and searchable reaction picker (`+`):**
+  - In the input box, type `:thu` or `:fir`: a `:shortcode:` popup appears above the input (`👍 :thumbsup:`, `🔥 :fire:`); press `Tab` or `Enter` to insert the emoji.
+  - Select a message and press `+` to open the reaction picker, then press `/` (or start typing letters like `rocket`): the picker switches to full shortcode search; press `Enter` to react with `🚀`.
+- [ ] **Forward message (`f`):**
+  - Select a message (with text and/or a downloaded attachment) and press `f` (or `Enter` › *Forward…*): the palette opens `Forward to`; pick a destination conversation and press `Enter` to switch to that chat and send the forwarded copy.
+- [ ] **Shared links & media in Info sidebar (`Alt+I`) and palette:**
+  - In a conversation with attachments and URLs, press `Alt+I`: the right-hand `Info` sidebar lists up to 5 recent items under `Files & media` and `Links`.
+  - Open `Ctrl+P` › `Commands` › *Links & files in this chat…*: browse or filter all shared attachments and URLs in the loaded history and press `Enter` to view/open/play/download an attachment or open/copy a URL.
+
 ## M8: terminal matrix (D50; run after M7 against the real backend, and once now with the mock)
 
 Columns: **direct** = faro straight in kitty; **tmux** = kitty → tmux (with the README's tmux settings); **SSH** = kitty → ssh → tmux on the other machine; **mosh** = kitty → mosh → tmux. Mark each cell ✓, ✗ (add a note below) or – (not applicable). Also try one other terminal per OS (WezTerm/Ghostty/Alacritty/foot on Linux, iTerm2 and Terminal.app on macOS) for the rows marked †.
