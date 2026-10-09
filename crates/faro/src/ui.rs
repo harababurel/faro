@@ -17,6 +17,7 @@ pub mod logo;
 mod messages;
 mod palette;
 mod popup;
+pub mod shortcodes;
 mod sidebar;
 #[cfg(test)]
 mod tests;

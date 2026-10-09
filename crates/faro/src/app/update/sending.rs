@@ -40,6 +40,8 @@ pub fn send(state: &mut State) -> Vec<Effect> {
     let known = std::mem::take(&mut open.mentions);
     open.mention_selected = 0;
     open.mention_dismissed_at = None;
+    open.shortcode_selected = 0;
+    open.shortcode_dismissed_at = None;
     open.input = Input::default();
     open.draft_edited = None;
     // The message itself ends our typing indicator; no "stopped" needed.
@@ -122,6 +124,8 @@ fn send_edit(state: &mut State, target_sent_at: Timestamp, text: &str) -> Vec<Ef
     open.editing = None;
     open.mention_selected = 0;
     open.mention_dismissed_at = None;
+    open.shortcode_selected = 0;
+    open.shortcode_dismissed_at = None;
     let restored = state
         .summary(conversation)
         .and_then(|s| s.state.draft.as_ref())

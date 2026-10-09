@@ -179,13 +179,18 @@ fn on_terminal(state: &mut State, event: &Event) -> Vec<Effect> {
                 && state.popup.is_none()
                 && state.focus == Focus::Input
                 && let Some(effects) = navigation::on_mention_key(state, *key)
+                    .or_else(|| navigation::on_shortcode_key(state, *key))
             {
                 effects
             } else {
                 let action = if state.palette.is_some() {
                     keymap::palette_action(&state.keymap, *key)
                 } else if let Some(popup) = &state.popup {
-                    keymap::popup_action(*key, matches!(popup, Popup::React { .. }))
+                    if matches!(popup, Popup::React { query: Some(_), .. }) {
+                        keymap::popup_search_action(*key)
+                    } else {
+                        keymap::popup_action(*key, matches!(popup, Popup::React { .. }))
+                    }
                 } else {
                     state.keymap.lookup(*key, state.focus)
                 };
@@ -324,6 +329,8 @@ fn open_conversation(state: &mut State, id: ConversationId) -> Vec<Effect> {
         mentions: Vec::new(),
         mention_selected: 0,
         mention_dismissed_at: None,
+        shortcode_selected: 0,
+        shortcode_dismissed_at: None,
         staged_attachment: None,
         unreceipted: Vec::new(),
         typing_sent: None,

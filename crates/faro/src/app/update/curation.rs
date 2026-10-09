@@ -159,6 +159,14 @@ pub fn on_menu_key(
             .iter()
             .copied()
             .find(|a| a.label().1.chars().eq(std::iter::once(c))),
+        PopupKey::Backspace => {
+            state.popup = Some(Popup::Conversation {
+                target,
+                items,
+                selected,
+            });
+            return vec![];
+        }
         PopupKey::Close => None,
     };
     chosen.map_or_else(Vec::new, |action| perform(state, target, action))
@@ -182,6 +190,10 @@ pub fn on_mute_key(
             .to_digit(10)
             .and_then(|d| usize::try_from(d).ok())
             .and_then(|d| d.checked_sub(1)),
+        PopupKey::Backspace => {
+            state.popup = Some(Popup::Mute { target, selected });
+            return vec![];
+        }
         PopupKey::Close => None,
     };
     chosen.map_or_else(Vec::new, |choice| mute_for(state, target, choice))

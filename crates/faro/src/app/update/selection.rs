@@ -279,33 +279,26 @@ pub fn on_popup(state: &mut State, key: PopupKey) -> Vec<Effect> {
                 PopupKey::Char(c) => {
                     shortcut(c).and_then(|is| items.iter().find(|a| is(a)).cloned())
                 }
+                PopupKey::Backspace => {
+                    state.popup = Some(Popup::Actions {
+                        target,
+                        items,
+                        selected,
+                    });
+                    return vec![];
+                }
                 PopupKey::Close => None,
             };
             chosen.map_or_else(Vec::new, |action| perform(state, target, action))
         }
-        Popup::React { target, selected } => {
-            let chosen = match key {
-                PopupKey::Previous | PopupKey::Next => {
-                    let selected = cycle(selected, REACTIONS.len(), key == PopupKey::Next);
-                    state.popup = Some(Popup::React { target, selected });
-                    return vec![];
-                }
-                PopupKey::Choose => Some(selected),
-                PopupKey::Char(c) => c
-                    .to_digit(10)
-                    .and_then(|d| usize::try_from(d).ok())
-                    .and_then(|d| d.checked_sub(1))
-                    .filter(|i| *i < REACTIONS.len()),
-                PopupKey::Close => None,
-            };
-            match chosen.and_then(|i| REACTIONS.get(i)) {
-                Some(emoji) => react(state, target, emoji),
-                None => vec![],
-            }
-        }
+        Popup::React {
+            target,
+            selected,
+            query,
+        } => on_react_key(state, target, selected, query, key),
         Popup::MessageInfo { target, receipts } => match key {
             PopupKey::Close | PopupKey::Choose | PopupKey::Char('q' | 'i') => vec![],
-            PopupKey::Previous | PopupKey::Next | PopupKey::Char(_) => {
+            PopupKey::Previous | PopupKey::Next | PopupKey::Backspace | PopupKey::Char(_) => {
                 state.popup = Some(Popup::MessageInfo { target, receipts });
                 vec![]
             }
@@ -324,7 +317,7 @@ pub fn on_popup(state: &mut State, key: PopupKey) -> Vec<Effect> {
                 open_one_with_system(state, target, index)
             }
             PopupKey::Close | PopupKey::Choose | PopupKey::Char('q' | 'v') => vec![],
-            PopupKey::Previous | PopupKey::Next | PopupKey::Char(_) => {
+            PopupKey::Previous | PopupKey::Next | PopupKey::Backspace | PopupKey::Char(_) => {
                 state.popup = Some(Popup::ImageViewer { target, index });
                 vec![]
             }
@@ -332,7 +325,7 @@ pub fn on_popup(state: &mut State, key: PopupKey) -> Vec<Effect> {
         Popup::ConfirmDelete { target } => match key {
             PopupKey::Choose | PopupKey::Char('y' | 'Y') => confirm_delete(state, target),
             PopupKey::Close | PopupKey::Char('n' | 'N' | 'q') => vec![],
-            PopupKey::Previous | PopupKey::Next | PopupKey::Char(_) => {
+            PopupKey::Previous | PopupKey::Next | PopupKey::Backspace | PopupKey::Char(_) => {
                 state.popup = Some(Popup::ConfirmDelete { target });
                 vec![]
             }
@@ -514,6 +507,8 @@ fn edit_target(state: &mut State, target: MessageRef) -> Vec<Effect> {
         open.mentions = existing_mentions;
         open.mention_selected = 0;
         open.mention_dismissed_at = None;
+        open.shortcode_selected = 0;
+        open.shortcode_dismissed_at = None;
     }
     state.focus = Focus::Input;
     effects
@@ -569,6 +564,8 @@ fn confirm_delete(state: &mut State, target: MessageRef) -> Vec<Effect> {
         open.mentions.clear();
         open.mention_selected = 0;
         open.mention_dismissed_at = None;
+        open.shortcode_selected = 0;
+        open.shortcode_dismissed_at = None;
     }
     let mut effects = on_backend(
         state,
@@ -599,6 +596,8 @@ fn reply(state: &mut State, target: MessageRef) {
     state.focus = Focus::Input;
 }
 
+use crate::ui::shortcodes::REACT_SEARCH_LIMIT;
+
 pub fn react_picker(state: &mut State, target: MessageRef) {
     let Some(message) = find(state, target).filter(|m| !m.deleted) else {
         return;
@@ -607,7 +606,128 @@ pub fn react_picker(state: &mut State, target: MessageRef) {
     let selected = mine
         .and_then(|emoji| REACTIONS.iter().position(|r| *r == emoji))
         .unwrap_or(0);
-    state.popup = Some(Popup::React { target, selected });
+    state.popup = Some(Popup::React {
+        target,
+        selected,
+        query: None,
+    });
+}
+
+fn on_react_key(
+    state: &mut State,
+    target: MessageRef,
+    selected: usize,
+    query: Option<String>,
+    key: PopupKey,
+) -> Vec<Effect> {
+    if let Some(q) = query {
+        return on_react_search_key(state, target, selected, q, key);
+    }
+    let chosen = match key {
+        PopupKey::Previous | PopupKey::Next => {
+            let selected = cycle(selected, REACTIONS.len(), key == PopupKey::Next);
+            state.popup = Some(Popup::React {
+                target,
+                selected,
+                query: None,
+            });
+            return vec![];
+        }
+        PopupKey::Choose => Some(selected),
+        PopupKey::Char(c) if c == '/' || c == ':' => {
+            state.popup = Some(Popup::React {
+                target,
+                selected: 0,
+                query: Some(String::new()),
+            });
+            return vec![];
+        }
+        PopupKey::Char(c) if c.is_ascii_alphabetic() => {
+            state.popup = Some(Popup::React {
+                target,
+                selected: 0,
+                query: Some(c.to_string()),
+            });
+            return vec![];
+        }
+        PopupKey::Char(c) => c
+            .to_digit(10)
+            .and_then(|d| usize::try_from(d).ok())
+            .and_then(|d| d.checked_sub(1))
+            .filter(|i| *i < REACTIONS.len()),
+        PopupKey::Backspace => {
+            state.popup = Some(Popup::React {
+                target,
+                selected,
+                query: None,
+            });
+            return vec![];
+        }
+        PopupKey::Close => None,
+    };
+    match chosen.and_then(|i| REACTIONS.get(i)) {
+        Some(emoji) => react(state, target, emoji),
+        None => vec![],
+    }
+}
+
+fn on_react_search_key(
+    state: &mut State,
+    target: MessageRef,
+    selected: usize,
+    mut q: String,
+    key: PopupKey,
+) -> Vec<Effect> {
+    match key {
+        PopupKey::Previous | PopupKey::Next => {
+            let len = crate::ui::shortcodes::search_shortcodes(&q, REACT_SEARCH_LIMIT).len();
+            let selected = cycle(selected, len, key == PopupKey::Next);
+            state.popup = Some(Popup::React {
+                target,
+                selected,
+                query: Some(q),
+            });
+            vec![]
+        }
+        PopupKey::Choose => {
+            let matches = crate::ui::shortcodes::search_shortcodes(&q, REACT_SEARCH_LIMIT);
+            if let Some(&(_, emoji)) = matches.get(selected) {
+                react(state, target, emoji)
+            } else {
+                state.popup = Some(Popup::React {
+                    target,
+                    selected: 0,
+                    query: Some(q),
+                });
+                vec![]
+            }
+        }
+        PopupKey::Backspace => {
+            q.pop();
+            let count = crate::ui::shortcodes::search_shortcodes(&q, REACT_SEARCH_LIMIT).len();
+            let selected = selected.min(count.saturating_sub(1));
+            state.popup = Some(Popup::React {
+                target,
+                selected,
+                query: Some(q),
+            });
+            vec![]
+        }
+        PopupKey::Char(c) => {
+            if c != ':' && !c.is_control() {
+                q.push(c);
+            }
+            let count = crate::ui::shortcodes::search_shortcodes(&q, REACT_SEARCH_LIMIT).len();
+            let selected = selected.min(count.saturating_sub(1));
+            state.popup = Some(Popup::React {
+                target,
+                selected,
+                query: Some(q),
+            });
+            vec![]
+        }
+        PopupKey::Close => vec![],
+    }
 }
 
 fn own_reaction<'a>(state: &State, message: &'a Message) -> Option<&'a str> {
@@ -1019,6 +1139,15 @@ fn on_remote_consent_key(
             .and_then(|d| usize::try_from(d).ok())
             .and_then(|d| d.checked_sub(1))
             .filter(|i| *i < REMOTE_CONSENT_CHOICES.len()),
+        PopupKey::Backspace => {
+            state.popup = Some(Popup::ConfirmRemoteTranscription {
+                conversation,
+                target,
+                index,
+                selected,
+            });
+            return vec![];
+        }
         PopupKey::Close => None,
     };
     let Some(choice) = chosen else {

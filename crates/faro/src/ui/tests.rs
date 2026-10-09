@@ -1446,3 +1446,34 @@ fn read_receipt_marker_uses_accent_colour_and_message_info_popup_renders() {
     assert!(popup_text.contains("Bob"), "{popup_text}");
     assert_drawable(&compatible(state), 100, 30);
 }
+
+#[test]
+fn shortcode_autocomplete_and_reaction_search_render_and_are_drawable() {
+    let mut state = loaded_state();
+    for c in ":thu".chars() {
+        keys(&mut state, &[Char(c)]);
+    }
+    let text = snapshot(&draw(&state, 100, 24));
+    assert!(text.contains(":emoji:"), "{text}");
+    assert!(text.contains(":thumbsup:"), "{text}");
+    assert_drawable(&compatible(state), 100, 24);
+
+    let mut react_state = loaded_state();
+    keys(
+        &mut react_state,
+        &[
+            Up,
+            Char('+'),
+            Char('/'),
+            Char('f'),
+            Char('i'),
+            Char('r'),
+            Char('e'),
+        ],
+    );
+    let react_text = snapshot(&draw(&react_state, 100, 24));
+    assert!(react_text.contains(":fire"), "{react_text}");
+    assert!(react_text.contains(":fire:"), "{react_text}");
+    assert!(react_text.contains("🔥"), "{react_text}");
+    assert_drawable(&compatible(react_state), 100, 24);
+}

@@ -89,6 +89,7 @@ pub fn render(
     );
     if input_focused && state.popup.is_none() && state.palette.is_none() {
         render_mention_popup(frame, inner, input.y, state, open, view);
+        render_shortcode_popup(frame, inner, input.y, state, open, view);
     }
 }
 
@@ -454,6 +455,96 @@ fn render_mention_popup(
             Line::from(vec![
                 Span::styled(marker, style.fg(theme.primary)),
                 Span::styled(label, style),
+                Span::styled(" ".repeat(pad), style),
+            ])
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// Inline `:shortcode:` emoji completion popup anchored just above the input box.
+fn render_shortcode_popup(
+    frame: &mut Frame<'_>,
+    pane_inner: Rect,
+    input_top_y: u16,
+    state: &State,
+    open: &OpenConversation,
+    view: &View<'_>,
+) {
+    let candidates = state.shortcode_candidates();
+    if candidates.is_empty() {
+        return;
+    }
+    let avail_h = input_top_y.saturating_sub(pane_inner.y);
+    if avail_h < 3 {
+        return;
+    }
+    let max_rows = usize::from(avail_h.saturating_sub(2)).min(8);
+    let visible_count = candidates.len().min(max_rows);
+    let selected = open
+        .shortcode_selected
+        .min(candidates.len().saturating_sub(1));
+    let offset = if selected >= visible_count {
+        selected + 1 - visible_count
+    } else {
+        0
+    };
+    let widest = candidates
+        .iter()
+        .map(|(code, emoji)| 3 + sanitize(emoji).width() + 3 + code.width() + 1)
+        .max()
+        .unwrap_or(18);
+    let max_width = usize::from(pane_inner.width.saturating_sub(2));
+    let box_width = u16::try_from((widest + 2).clamp(20, max_width.max(20)))
+        .unwrap_or(24)
+        .min(pane_inner.width);
+    let box_height = u16::try_from(visible_count + 2).unwrap_or(3).min(avail_h);
+    let rect = Rect {
+        x: pane_inner.x + 1,
+        y: input_top_y.saturating_sub(box_height),
+        width: box_width,
+        height: box_height,
+    };
+    let theme = view.theme;
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(theme.border(true))
+        .style(theme.panel())
+        .title(Span::styled(
+            " :emoji: ",
+            Style::new().fg(theme.primary).add_modifier(Modifier::BOLD),
+        ));
+    let inner = block.inner(rect);
+    frame.render_widget(Clear, rect);
+    frame.render_widget(block, rect);
+    let row_width = usize::from(inner.width);
+    let lines: Vec<Line<'static>> = candidates
+        .iter()
+        .enumerate()
+        .skip(offset)
+        .take(visible_count)
+        .map(|(i, &(code, emoji))| {
+            let chosen = i == selected;
+            let marker = if chosen { " › " } else { "   " };
+            let clean_emoji = sanitize(emoji).into_owned();
+            let emoji_w = clean_emoji.width();
+            let label = format!(" :{code}:");
+            let label = truncate(&label, row_width.saturating_sub(3 + emoji_w)).into_owned();
+            let pad = row_width.saturating_sub(3 + emoji_w + label.width());
+            let style = if chosen {
+                theme.selected().fg(theme.text).add_modifier(Modifier::BOLD)
+            } else {
+                Style::new().fg(theme.text)
+            };
+            let code_style = if chosen {
+                style
+            } else {
+                style.patch(theme.muted())
+            };
+            Line::from(vec![
+                Span::styled(marker, style.fg(theme.primary)),
+                Span::styled(clean_emoji, style),
+                Span::styled(label, code_style),
                 Span::styled(" ".repeat(pad), style),
             ])
         })

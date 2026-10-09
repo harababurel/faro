@@ -934,7 +934,8 @@ fn reactions_toggle_and_are_undone_on_failure() {
         state.popup,
         Some(Popup::React {
             target,
-            selected: 0
+            selected: 0,
+            query: None,
         })
     );
     let effects = press(&mut state, '2');
@@ -967,7 +968,8 @@ fn reactions_toggle_and_are_undone_on_failure() {
         state.popup,
         Some(Popup::React {
             target,
-            selected: 1
+            selected: 1,
+            query: None,
         })
     );
     let effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
@@ -1993,6 +1995,126 @@ fn message_info_popup_loads_and_updates_receipts() {
     // Esc closes the popup.
     update(&mut state, key(KeyCode::Esc, KeyModifiers::NONE));
     assert_eq!(state.popup, None);
+}
+
+#[test]
+fn shortcode_autocomplete_completes_on_tab_enter_and_closing_colon() {
+    let mut state = loaded_state();
+    assert_eq!(state.focus, Focus::Input);
+    let type_str = |state: &mut State, s: &str| {
+        for c in s.chars() {
+            press(state, c);
+        }
+    };
+
+    // Mid-word colons like `10:30` never trigger shortcode completion.
+    type_str(&mut state, "meet at 10:30 ");
+    assert_eq!(state.shortcode_candidates(), [] as [(&str, &str); 0]);
+
+    // Typing `:thu` after whitespace opens shortcode candidates; Tab completes `👍`.
+    type_str(&mut state, ":thu");
+    assert_eq!(
+        state.shortcode_candidates().first().copied(),
+        Some(("thumbsup", "👍"))
+    );
+    update(&mut state, key(KeyCode::Tab, KeyModifiers::NONE));
+    assert_eq!(
+        state.open.as_ref().unwrap().input.text(),
+        "meet at 10:30 👍"
+    );
+    assert_eq!(state.shortcode_candidates(), [] as [(&str, &str); 0]);
+
+    // Typing an exact `:fire:` with a closing colon auto-replaces without Enter/Tab.
+    type_str(&mut state, " :fire:");
+    assert_eq!(
+        state.open.as_ref().unwrap().input.text(),
+        "meet at 10:30 👍 🔥"
+    );
+
+    // Navigating with Down/Up and pressing Enter completes the shortcode instead of sending.
+    type_str(&mut state, " :ha");
+    let candidates = state.shortcode_candidates();
+    assert!(candidates.len() >= 2);
+    let second_emoji = candidates[1].1;
+    update(&mut state, key(KeyCode::Down, KeyModifiers::NONE));
+    assert_eq!(state.open.as_ref().unwrap().shortcode_selected, 1);
+    let effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(
+        !effects
+            .iter()
+            .any(|e| matches!(e, Effect::Backend(Command::Send { .. }))),
+        "Enter while shortcode popup is active should complete, not send"
+    );
+    assert_eq!(
+        state.open.as_ref().unwrap().input.text(),
+        format!("meet at 10:30 👍 🔥 {second_emoji}")
+    );
+
+    // Esc dismisses the shortcode popup without clearing input or closing the conversation.
+    type_str(&mut state, " :ro");
+    assert_ne!(state.shortcode_candidates(), [] as [(&str, &str); 0]);
+    update(&mut state, key(KeyCode::Esc, KeyModifiers::NONE));
+    assert_eq!(state.shortcode_candidates(), [] as [(&str, &str); 0]);
+    assert!(state.open.is_some());
+    assert!(state.open.as_ref().unwrap().input.text().ends_with(":ro"));
+}
+
+#[test]
+fn reaction_picker_search_mode_filters_and_reacts() {
+    let mut state = loaded_state();
+    let target = climbing_history().last().unwrap().reference();
+    update(&mut state, key(KeyCode::Up, KeyModifiers::NONE));
+    press(&mut state, '+');
+    assert_eq!(
+        state.popup,
+        Some(Popup::React {
+            target,
+            selected: 0,
+            query: None,
+        })
+    );
+
+    // Pressing `/` enters full shortcode search mode.
+    press(&mut state, '/');
+    assert_eq!(
+        state.popup,
+        Some(Popup::React {
+            target,
+            selected: 0,
+            query: Some(String::new()),
+        })
+    );
+
+    // Typing letters (including `h`/`j`/`k`/`l`/`q`) edits the query in search mode.
+    for c in "firex".chars() {
+        press(&mut state, c);
+    }
+    assert_eq!(
+        state.popup,
+        Some(Popup::React {
+            target,
+            selected: 0,
+            query: Some("firex".into()),
+        })
+    );
+    update(&mut state, key(KeyCode::Backspace, KeyModifiers::NONE));
+    assert_eq!(
+        state.popup,
+        Some(Popup::React {
+            target,
+            selected: 0,
+            query: Some("fire".into()),
+        })
+    );
+
+    let effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(state.popup, None);
+    assert!(effects.contains(&Effect::Backend(Command::React {
+        conversation: climbing(),
+        target,
+        change: ReactionChange::Set("🔥".into()),
+        previous: None,
+    })));
 }
 
 mod curation;
