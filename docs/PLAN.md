@@ -167,7 +167,7 @@ The owner's main complaint after trying the prototype: misaligned borders and st
 2. ~~Emoji-heavy conversations under tmux; fix width issues found.~~ Moved to M4.5 (D46). Here: re-check emoji in the terminal matrix (task 1).
 3. Two or three built-in themes + `system` theme; 256-colour fallback.
 4. README: install-from-source instructions, tmux recommended settings, screenshots.
-5. Tag `v0.1.0`; build release binaries (manual or cargo-dist).
+5. Tag `v0.1.0`; build release binaries (manual or cargo-dist). Make the repo public first; then upload `faro-git` to the AUR, add `faro` and `faro-bin` PKGBUILDs and the Homebrew formula in `harababurel/tap` (D86).
 
 **Acceptance**
 - The owner uses faro as their daily Signal client instead of gurk.

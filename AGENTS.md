@@ -107,7 +107,7 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 
 - 2026-10-09: package names (D85): `faro` everywhere, `faro-chat` only on crates.io (binary still `faro`); website `getfaro.dev`.
 
-- 2026-10-09: names secured: `getfaro.dev` (SPF/DMARC reject-all), `faro-chat` 0.0.0 placeholder on crates.io, Homebrew tap `harababurel/homebrew-tap` (empty). `packaging/aur/faro-git/PKGBUILD` builds and passes `namcap` on the owner's Arch machine; not uploaded to the AUR until the repo is public (it clones over HTTPS). `faro` and `faro-bin` PKGBUILDs come with the first release.
+- 2026-10-09: names secured: `getfaro.dev` (SPF/DMARC reject-all), `faro-chat` 0.0.0 placeholder on crates.io, Homebrew tap `harababurel/homebrew-tap` (empty). `packaging/aur/faro-git/PKGBUILD` builds and passes `namcap` on the owner's Arch machine; not uploaded to the AUR until the repo is public (it clones over HTTPS). `faro` and `faro-bin` PKGBUILDs come with the first release (D86). After changing dependencies that link system libraries, ask the owner to rerun `makepkg` + `namcap` on Arch.
 
 ### Gotchas found so far
 

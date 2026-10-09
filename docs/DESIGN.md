@@ -447,8 +447,8 @@ Sketch:
 
 - **Not on crates.io yet** (presage depends on Signal's git-only crates). `cargo install --git` works; build needs `protoc`. When it can be published, the crate is `faro-chat` (installing the `faro` binary), since `faro` is taken there (D85).
 - **Release binaries** via cargo-dist / GitHub Actions: `x86_64` and `aarch64` for Linux (glibc; musl if feasible) and macOS.
-- **Homebrew:** own tap first (`harababurel/tap`), homebrew-core later.
-- **Arch:** AUR `faro-bin` and `faro-git`.
+- **Homebrew:** own tap first (`harababurel/tap`, repo `harababurel/homebrew-tap`, created and empty, D86), homebrew-core later.
+- **Arch (D86):** AUR `faro-git` (PKGBUILD in `packaging/aur/faro-git/`, ready, uploaded once the repo is public), then `faro` (release from source) and `faro-bin` (pre-built) with the first release; all `provides`/`conflicts` `faro`. Runtime depends: `glibc`, `libgcc`, `openssl` (SQLCipher). Official repos only if a packager adopts it.
 - **Debian/Ubuntu:** `.deb` via `cargo-deb` attached to releases.
 - **Nix:** flake in the repo.
 - **Names (D85):** `faro` everywhere (repo, command, Homebrew, AUR, `.deb`, Nix); `faro-chat` only on crates.io. Website: `getfaro.dev`.
