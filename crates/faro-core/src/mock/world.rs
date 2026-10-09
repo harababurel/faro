@@ -1,103 +1,58 @@
-//! The mock's fixed cast: the account, contacts, groups and canned texts.
+//! The demo's directory: the account, contacts and groups built from the cast
+//! (`cast.rs`).
 //!
 //! Built from a constant seed, independent of [`MockConfig::seed`](super::MockConfig),
 //! so IDs are the same in every run and history stored by one run (M2) still
 //! matches the contacts of the next.
-//!
-//! The data is chosen to stress the UI: emoji (ZWJ sequences, flags, skin tones,
-//! variation selectors), very long names, CJK, right-to-left text, combining marks,
-//! contacts without any name, and many old conversations that never see a message
-//! (to exercise conversation curation).
 
+use super::cast::{CLIENTS, Chat, GROUPS, GroupKey, Members, PEOPLE, QUIET_CONTACTS, Who};
 use crate::backend::Account;
-use crate::domain::{
-    AttachmentId, AttachmentRef, AttachmentStatus, Contact, ConversationId, Group, GroupId,
-    PhoneNumber, ServiceId,
-};
+use crate::domain::{Contact, ConversationId, Group, GroupId, PhoneNumber, ServiceId};
 
 /// Seed for IDs. Changing it changes every mock ID, orphaning stored history.
 const WORLD_SEED: u64 = 0x00fa_0001;
-
-/// People who write messages. `(address-book name, profile name, has phone)`.
-const ACTIVE_CONTACTS: &[(Option<&str>, Option<&str>, bool)] = &[
-    (Some("Alice Moreau"), Some("Alice"), true),
-    (Some("Bogdan 🚴‍♂️"), Some("Bogdan Ionescu"), true),
-    (Some("陈伟 Chen Wei"), None, true),
-    (None, Some("🌸🌸 Dana 🌸🌸"), false),
-    (Some("Mum ❤️"), Some("Elena"), true),
-    (
-        Some("Dr. Bartholomew Maximilian Featherstonehaugh-Worthington III, Esq."),
-        None,
-        true,
-    ),
-    // Decomposed: "Zoe" + U+0308 COMBINING DIAERESIS.
-    (Some("E\u{301}mile & Zoe\u{308} Ångström"), None, false),
-    (None, Some("مريم"), true),
-    (Some("Lukas 🇩🇪"), Some("Lukas"), true),
-    // No name at all: the UI must fall back to the phone number.
-    (None, None, true),
-];
-
-/// Contacts with no messages: the long tail every real address book has.
-const QUIET_CONTACTS: &[&str] = &[
-    "Plumber (2019)",
-    "Airbnb host Lisbon",
-    "Kevin from the conference",
-    "Dentist",
-    "Landlord – old flat",
-    "Taxi 🚕 Cluj",
-    "Hiking group organiser",
-    "Bike shop",
-    "Neighbour 4B",
-    "Coworking front desk",
-];
-
-const FIRST_NAMES: &[&str] = &[
-    "Ana", "Ben", "Clara", "David", "Eva", "Felix", "Greta", "Hugo", "Ines", "Jonas",
-];
-const LAST_NAMES: &[&str] = &["Pop", "Smith", "Novak", "García", "Kowalski"];
-
-/// Canned message texts. Plain, emoji-heavy, long, multi-line, links, scripts.
-pub(super) const TEXTS: &[&str] = &[
-    "hey!",
-    "ok",
-    "👍",
-    "😂😂😂",
-    "on my way 🏃‍♀️💨",
-    "did you see this? https://example.com/articles/2026/10/terminal-clients",
-    "can we move it to 7?",
-    "sounds good, see you there",
-    "👨‍👩‍👧‍👦 dinner on sunday?",
-    "🇷🇴 🇩🇪 🇯🇵 🏳️‍🌈 🏴‍☠️",
-    "👋🏻👋🏼👋🏽👋🏾👋🏿",
-    "❤️ ☺️ ✌️ (variation selectors)",
-    "明天见！",
-    "مرحبا، كيف حالك؟",
-    "Zoe\u{308} says hi (combining marks)",
-    "line one\nline two\nline three",
-    "This is a deliberately long message to check wrapping. It goes on for a while, \
-     mentions a few things, and keeps going past the width of any reasonable terminal \
-     so that the message pane has to wrap it across several lines without breaking words \
-     in the middle or losing the indentation of continuation lines.",
-    "`cargo build --release` takes ages on the mini 🐢",
-    "brb ☕",
-    "🎉🎉🎉 congrats!!",
-];
-
-/// Emoji used for reactions (Signal's defaults plus a few multi-codepoint ones).
-pub(super) const REACTIONS: &[&str] = &["❤️", "👍", "👎", "😂", "😮", "😢", "🙏", "👨‍💻", "🫶🏽"];
 
 pub(super) struct World {
     pub(super) account: Account,
     pub(super) contacts: Vec<Contact>,
     pub(super) groups: Vec<Group>,
-    /// Conversations that get scripted activity; the rest stay empty.
+    /// Conversations that get scenes; the rest stay empty.
     pub(super) active: Vec<ConversationId>,
+    /// Service IDs of the cast (not `Me`).
+    cast: Vec<(Who, ServiceId)>,
+    group_ids: Vec<(GroupKey, GroupId)>,
 }
 
 impl World {
     pub(super) fn me(&self) -> ServiceId {
         self.account.service_id
+    }
+
+    /// `who`'s service ID; the account's for `Me`.
+    pub(super) fn id_of(&self, who: Who) -> Option<ServiceId> {
+        if who == Who::Me {
+            return Some(self.me());
+        }
+        self.cast.iter().find(|(w, _)| *w == who).map(|(_, id)| *id)
+    }
+
+    /// The cast member with service ID `id`, if any.
+    pub(super) fn who_is(&self, id: ServiceId) -> Option<Who> {
+        if id == self.me() {
+            return Some(Who::Me);
+        }
+        self.cast.iter().find(|(_, s)| *s == id).map(|(w, _)| *w)
+    }
+
+    pub(super) fn conversation(&self, chat: Chat) -> Option<ConversationId> {
+        match chat {
+            Chat::Direct(who) => self.id_of(who).map(ConversationId::Direct),
+            Chat::Group(key) => self
+                .group_ids
+                .iter()
+                .find(|(k, _)| *k == key)
+                .map(|(_, id)| ConversationId::Group(*id)),
+        }
     }
 
     /// People other than this account who can write in `conversation`.
@@ -132,24 +87,22 @@ impl World {
                 .map(|n| PhoneNumber::new(format!("+1555555{n:04}")))
         };
 
-        let mut contacts: Vec<Contact> = ACTIVE_CONTACTS
-            .iter()
-            .map(|&(name, profile, has_phone)| Contact {
-                service_id: ids.service_id(),
-                name: name.map(Into::into),
-                profile_name: profile.map(Into::into),
-                phone: phone(has_phone),
-            })
-            .collect();
-        let active_people: Vec<ServiceId> = contacts.iter().map(|c| c.service_id).collect();
-
-        let generated = FIRST_NAMES
-            .iter()
-            .flat_map(|first| LAST_NAMES.iter().map(move |last| format!("{first} {last}")));
+        let mut cast = Vec::with_capacity(PEOPLE.len());
+        let mut contacts = Vec::new();
+        for person in PEOPLE {
+            let service_id = ids.service_id();
+            cast.push((person.who, service_id));
+            contacts.push(Contact {
+                service_id,
+                name: person.name.map(Into::into),
+                profile_name: person.profile.map(Into::into),
+                phone: phone(person.phone),
+            });
+        }
         let quiet = QUIET_CONTACTS
             .iter()
             .map(|s| (*s).to_owned())
-            .chain(generated);
+            .chain(CLIENTS.iter().map(|c| format!("Client – {c}")));
         contacts.extend(quiet.map(|name| Contact {
             service_id: ids.service_id(),
             name: Some(name),
@@ -157,266 +110,44 @@ impl World {
             phone: phone(true),
         }));
 
-        let pick = |indices: &[usize]| -> Vec<ServiceId> {
-            indices
-                .iter()
-                .filter_map(|&i| active_people.get(i).copied())
-                .chain([account.service_id])
-                .collect()
-        };
-        let everyone: Vec<ServiceId> = contacts
-            .iter()
-            .map(|c| c.service_id)
-            .chain([account.service_id])
-            .collect();
+        let id_of = |who: Who| cast.iter().find(|(w, _)| *w == who).map(|(_, id)| *id);
+        let mut groups = Vec::with_capacity(GROUPS.len());
+        let mut group_ids = Vec::with_capacity(GROUPS.len());
+        for spec in GROUPS {
+            let members: Vec<ServiceId> = match spec.members {
+                Members::These(people) => people.iter().filter_map(|w| id_of(*w)).collect(),
+                Members::Everyone => contacts.iter().map(|c| c.service_id).collect(),
+            };
+            let id = ids.group_id();
+            group_ids.push((spec.key, id));
+            groups.push(Group {
+                id,
+                title: spec.title.to_owned(),
+                members: members.into_iter().chain([account.service_id]).collect(),
+            });
+        }
 
-        let mut group = |title: &str, members: Vec<ServiceId>| Group {
-            id: ids.group_id(),
-            title: title.to_owned(),
-            members,
-        };
-        let active_groups = vec![
-            group("Family 👨‍👩‍👧‍👦", pick(&[4, 1, 0])),
-            group("Climbing crew 🧗", pick(&[0, 1, 3, 8, 9])),
-            group(
-                "Neighbourhood association – autumn meeting planning committee 2026",
-                pick(&[2, 5, 6, 7]),
-            ),
-        ];
-        let quiet_groups = vec![
-            group("Book club 📚", pick(&[0, 3, 6])),
-            group("Old project (archived)", pick(&[2, 5])),
-            group("Conference attendees", everyone),
-        ];
-
-        let active = active_people
+        let direct = PEOPLE
             .iter()
-            .map(|&id| ConversationId::Direct(id))
-            .chain(active_groups.iter().map(|g| ConversationId::Group(g.id)))
-            .collect();
+            .filter(|p| p.direct)
+            .filter_map(|p| id_of(p.who))
+            .map(ConversationId::Direct);
+        let group_chats = GROUPS
+            .iter()
+            .zip(&group_ids)
+            .filter(|(spec, _)| spec.active)
+            .map(|(_, (_, id))| ConversationId::Group(*id));
+        let active = direct.chain(group_chats).collect();
 
         Self {
             account,
             contacts,
-            groups: active_groups.into_iter().chain(quiet_groups).collect(),
+            groups,
             active,
+            cast,
+            group_ids,
         }
     }
-}
-
-pub(super) struct MockAttachment {
-    pub(super) id: &'static str,
-    pub(super) content_type: &'static str,
-    pub(super) file_name: Option<&'static str>,
-    pub(super) dims: Option<(u32, u32)>,
-    pub(super) voice_note: bool,
-}
-
-/// Canned attachment kinds.
-pub(super) const ATTACHMENTS: &[MockAttachment] = &[
-    MockAttachment {
-        id: "mock:ridge-trail",
-        content_type: "image/png",
-        file_name: Some("ridge-trail.png"),
-        dims: Some((64, 36)),
-        voice_note: false,
-    },
-    MockAttachment {
-        id: "mock:crag-topo",
-        content_type: "image/png",
-        file_name: Some("crag-topo.png"),
-        dims: Some((48, 48)),
-        voice_note: false,
-    },
-    MockAttachment {
-        id: "mock:sticker-send",
-        content_type: "image/png",
-        file_name: None,
-        dims: Some((32, 32)),
-        voice_note: false,
-    },
-    MockAttachment {
-        id: "mock:gear-checklist",
-        content_type: "text/plain",
-        file_name: Some("gear-checklist.txt"),
-        dims: None,
-        voice_note: false,
-    },
-    MockAttachment {
-        id: "mock:voice-note",
-        content_type: "audio/wav",
-        file_name: Some("voice-2026-10-08.wav"),
-        dims: None,
-        voice_note: true,
-    },
-];
-
-/// Build a remote [`AttachmentRef`] for one of [`ATTACHMENTS`].
-pub(super) fn mock_attachment(index: usize) -> Option<AttachmentRef> {
-    let spec = ATTACHMENTS.get(index)?;
-    let bytes = attachment_bytes(spec.id)?;
-    let audio = spec
-        .voice_note
-        .then(|| crate::audio::inspect_wav(&bytes))
-        .flatten();
-    Some(AttachmentRef {
-        id: AttachmentId(spec.id.to_owned()),
-        content_type: spec.content_type.to_owned(),
-        file_name: spec.file_name.map(str::to_owned),
-        size: Some(u64::try_from(bytes.len()).unwrap_or(0)),
-        width: spec.dims.map(|(w, _)| w),
-        height: spec.dims.map(|(_, h)| h),
-        status: AttachmentStatus::Remote,
-        voice_note: spec.voice_note,
-        duration_secs: audio.as_ref().and_then(|a| a.duration_secs),
-        waveform: audio.map(|a| a.waveform),
-        transcript: None,
-        transcript_source: None,
-    })
-}
-
-/// Bytes served by [`super::MockBackend::fetch_attachment`] for `id`.
-pub(super) fn attachment_bytes(id: &str) -> Option<Vec<u8>> {
-    match id {
-        "mock:ridge-trail" => Some(encode_rgb_png(64, 36, |x, y, w, h| {
-            // Sunset sky over a dark mountain ridge with a bright trail line.
-            let ridge = h / 2 + (x * 7).abs_diff(w * 3) / 6;
-            if y < ridge {
-                let t = u8::try_from((y * 255 / h.max(1)).min(255)).unwrap_or(0);
-                [245u8.saturating_sub(t / 3), 120 + t / 3, 90 + t / 2]
-            } else if y.abs_diff(ridge + (x / 5)) <= 1 {
-                [250, 210, 90]
-            } else {
-                [36, 46, 66]
-            }
-        })),
-        "mock:crag-topo" => Some(encode_rgb_png(48, 48, |x, y, w, h| {
-            // Warm limestone face with a diagonal red route line.
-            let diag = (x * h / w.max(1)).abs_diff(y);
-            if diag <= 1 {
-                [235, 75, 60]
-            } else {
-                let shade = u8::try_from((x * 3 + y * 5) % 28).unwrap_or(0);
-                [165 + shade, 150 + shade, 130 + shade]
-            }
-        })),
-        "mock:sticker-send" => Some(encode_rgb_png(32, 32, |x, y, w, h| {
-            let dx = x.abs_diff(w / 2);
-            let dy = y.abs_diff(h / 2);
-            if dx * dx + dy * dy <= 130 {
-                [80, 195, 150]
-            } else {
-                [28, 32, 42]
-            }
-        })),
-        "mock:gear-checklist" => {
-            Some(b"Rope 60m\n12 quickdraws\nChalk bag\nHeadlamp\nFirst-aid kit\n".to_vec())
-        }
-        "mock:voice-note" => Some(encode_mock_voice_wav()),
-        _ => None,
-    }
-}
-
-/// 2-second 8 kHz mono 16-bit PCM WAV with a syllabic speech-like envelope.
-fn encode_mock_voice_wav() -> Vec<u8> {
-    const SAMPLE_RATE: u32 = 8_000;
-    const ENVELOPE: [i16; 16] = [
-        1_800, 4_200, 7_500, 9_800, 6_100, 2_400, 8_200, 10_500, 5_400, 3_100, 7_000, 9_100, 6_400,
-        4_500, 2_900, 1_400,
-    ];
-    let total_samples = (SAMPLE_RATE * 2) as usize;
-    let data_len = u32::try_from(total_samples * 2).unwrap_or(0);
-    let riff_len = 36_u32.saturating_add(data_len);
-    let byte_rate = SAMPLE_RATE * 2;
-    let mut wav = Vec::with_capacity(44 + total_samples * 2);
-    wav.extend_from_slice(b"RIFF");
-    wav.extend_from_slice(&riff_len.to_le_bytes());
-    wav.extend_from_slice(b"WAVE");
-    wav.extend_from_slice(b"fmt ");
-    wav.extend_from_slice(&16_u32.to_le_bytes());
-    wav.extend_from_slice(&1_u16.to_le_bytes());
-    wav.extend_from_slice(&1_u16.to_le_bytes());
-    wav.extend_from_slice(&SAMPLE_RATE.to_le_bytes());
-    wav.extend_from_slice(&byte_rate.to_le_bytes());
-    wav.extend_from_slice(&2_u16.to_le_bytes());
-    wav.extend_from_slice(&16_u16.to_le_bytes());
-    wav.extend_from_slice(b"data");
-    wav.extend_from_slice(&data_len.to_le_bytes());
-    for i in 0..total_samples {
-        let bucket = i * ENVELOPE.len() / total_samples;
-        let gain = ENVELOPE.get(bucket).copied().unwrap_or(0);
-        let sign = if (i / 18).is_multiple_of(2) {
-            1_i16
-        } else {
-            -1_i16
-        };
-        let sample = sign.saturating_mul(gain);
-        wav.extend_from_slice(&sample.to_le_bytes());
-    }
-    wav
-}
-
-/// Minimal valid 8-bit RGB PNG using an uncompressed (stored) deflate block.
-fn encode_rgb_png(
-    width: u32,
-    height: u32,
-    pixel: impl Fn(u32, u32, u32, u32) -> [u8; 3],
-) -> Vec<u8> {
-    let mut raw = Vec::with_capacity((height * (1 + width * 3)) as usize);
-    for y in 0..height {
-        raw.push(0); // filter: None
-        for x in 0..width {
-            raw.extend_from_slice(&pixel(x, y, width, height));
-        }
-    }
-    let len = u16::try_from(raw.len()).unwrap_or(u16::MAX);
-    let mut zlib = Vec::with_capacity(raw.len() + 11);
-    zlib.extend_from_slice(&[0x78, 0x01, 0x01]);
-    zlib.extend_from_slice(&len.to_le_bytes());
-    zlib.extend_from_slice(&(!len).to_le_bytes());
-    zlib.extend_from_slice(&raw);
-    zlib.extend_from_slice(&adler32(&raw).to_be_bytes());
-
-    let mut ihdr = Vec::with_capacity(13);
-    ihdr.extend_from_slice(&width.to_be_bytes());
-    ihdr.extend_from_slice(&height.to_be_bytes());
-    ihdr.extend_from_slice(&[8, 2, 0, 0, 0]);
-
-    let mut png = Vec::with_capacity(zlib.len() + 64);
-    png.extend_from_slice(b"\x89PNG\r\n\x1a\n");
-    write_png_chunk(&mut png, *b"IHDR", &ihdr);
-    write_png_chunk(&mut png, *b"IDAT", &zlib);
-    write_png_chunk(&mut png, *b"IEND", &[]);
-    png
-}
-
-fn write_png_chunk(out: &mut Vec<u8>, kind: [u8; 4], data: &[u8]) {
-    let len = u32::try_from(data.len()).unwrap_or(0);
-    out.extend_from_slice(&len.to_be_bytes());
-    out.extend_from_slice(&kind);
-    out.extend_from_slice(data);
-    out.extend_from_slice(&crc32(kind, data).to_be_bytes());
-}
-
-fn crc32(kind: [u8; 4], data: &[u8]) -> u32 {
-    let mut crc = 0xffff_ffffu32;
-    for &byte in kind.iter().chain(data) {
-        crc ^= u32::from(byte);
-        for _ in 0..8 {
-            let mask = (crc & 1).wrapping_neg();
-            crc = (crc >> 1) ^ (0xedb8_8320 & mask);
-        }
-    }
-    !crc
-}
-
-fn adler32(data: &[u8]) -> u32 {
-    let (mut a, mut b) = (1u32, 0u32);
-    for &byte in data {
-        a = (a + u32::from(byte)) % 65_521;
-        b = (b + a) % 65_521;
-    }
-    (b << 16) | a
 }
 
 /// Deterministic, valid-looking (v4) IDs.
@@ -461,50 +192,15 @@ mod tests {
             assert!(g.members.contains(&a.me()), "{} includes me", g.title);
             assert!(g.members.iter().all(|m| *m == a.me() || ids.contains(m)));
         }
-    }
-
-    #[test]
-    fn world_stresses_the_ui() {
-        let w = World::build();
-        let names: Vec<&str> = w
-            .contacts
-            .iter()
-            .filter_map(Contact::display_name)
-            .collect();
-        assert!(
-            names.iter().any(|n| n.chars().count() > 40),
-            "a very long name"
-        );
-        assert!(
-            names.iter().any(|n| n.contains('\u{200d}')),
-            "a ZWJ emoji name"
-        );
-        assert!(
-            w.contacts.iter().any(|c| c.display_name().is_none()),
-            "a nameless contact"
-        );
-        assert!(
-            w.contacts.len() - w.active.len() >= 30,
-            "many quiet conversations"
-        );
-        assert!(w.groups.len() > 3 && w.groups.iter().any(|g| g.members.len() > 40));
-        assert!(w.active.iter().all(|c| !w.others_in(*c).is_empty()));
+        for person in PEOPLE {
+            let id = a.id_of(person.who).expect("everyone has an ID");
+            assert_eq!(a.who_is(id), Some(person.who));
+        }
+        assert!(a.active.iter().all(|c| !a.others_in(*c).is_empty()));
     }
 
     #[test]
     fn uuids_are_not_nil() {
         assert_ne!(World::build().me().uuid(), Uuid::nil());
-    }
-
-    #[test]
-    fn canned_attachments_have_matching_bytes() {
-        for i in 0..ATTACHMENTS.len() {
-            let att = mock_attachment(i).expect("valid index");
-            let bytes = attachment_bytes(&att.id.0).expect("bytes exist");
-            assert_eq!(att.size, Some(bytes.len() as u64));
-            if att.is_image() {
-                assert!(bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
-            }
-        }
     }
 }

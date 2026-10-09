@@ -1,16 +1,22 @@
 //! A fake Signal backend for development, tests and demos (DESIGN.md §4.3, D15, D31).
 //!
-//! It has a fixed cast of contacts and groups (`mock/world.rs`), delivers a backlog of
-//! "queued" messages on connect, then keeps up scripted activity: incoming messages
-//! with typing indicators, replies, reactions, edits, deletes, messages "sent from
-//! the phone", profile changes, outages and decryption errors. Sent messages get
-//! `Sent` → `Delivered` → `Read` updates and sometimes a reply.
+//! Its cast is an affectionate parody of *The Office* (US): this account is the new
+//! temp at the Scranton branch (`mock/cast.rs`, built into contacts and groups by
+//! `mock/world.rs`). Everything people say is written per chat, in each
+//! character's voice (`mock/scenes.rs`). The mock delivers a backlog of "queued"
+//! scenes on connect, then keeps up scripted activity: scene lines with typing
+//! indicators, replies, reactions, edits, deletes, messages "sent from the
+//! phone", profile changes, outages and decryption errors. Sent messages get
+//! `Sent` → `Delivered` → `Read` updates and sometimes an answer in character.
 //!
 //! Everything random comes from one seeded generator (`mock/sim.rs`), and all timing
 //! goes through tokio's clock. With [`MockConfig::deterministic`] and a paused clock
 //! (`#[tokio::test(start_paused = true)]`), the event sequence is identical on every
 //! run.
 
+mod assets;
+mod cast;
+mod scenes;
 mod sim;
 mod world;
 
@@ -252,7 +258,7 @@ impl Backend for MockBackend {
     async fn fetch_attachment(&self, attachment: &AttachmentRef) -> Result<Vec<u8>> {
         self.capabilities.require(Capability::Attachments)?;
         self.request(|_| Ok(())).await?;
-        world::attachment_bytes(&attachment.id.0).ok_or(BackendError::NotFound)
+        assets::attachment_bytes(&attachment.id.0).ok_or(BackendError::NotFound)
     }
 }
 
@@ -432,9 +438,9 @@ mod tests {
             Err(BackendError::NotFound)
         );
         backend.delete_for_everyone(conv, mine).await.unwrap();
-        let known = world::mock_attachment(0).unwrap();
+        let known = assets::Asset::Stapler.attachment().unwrap();
         let bytes = backend.fetch_attachment(&known).await.unwrap();
-        assert!(bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
+        assert!(bytes.starts_with(&[0xff, 0xd8, 0xff]), "a JPEG");
         let unknown = AttachmentRef::remote("x", "image/png");
         assert_eq!(
             backend.fetch_attachment(&unknown).await,
