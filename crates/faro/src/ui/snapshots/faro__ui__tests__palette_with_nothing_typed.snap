@@ -14,8 +14,8 @@ expression: "snapshot(&draw(&with_palette(\"\"), 100, 26))"
 │           │   Settings ›                                                           : │           │
 │           │   Commands ›                                                           > │           │
 │           │   Keys ›                                                               ? │           │
-│           ╰──────────────────────────────────────────────────────────────────────────╯           │
-│                            ││ ────────────────────────── new messages ────────────────────────── │
+│           │   Search ›                                                             / │           │
+│           ╰──────────────────────────────────────────────────────────────────────────╯────────── │
 │                            ││ 17:51            Also: the new overhang section opened last week   │
 │                            ││                  and apparently the grades are soft, so bring your │
 │                            ││                  project shoes 🧗‍♀️🧗‍♂️ and maybe some tape for your   │

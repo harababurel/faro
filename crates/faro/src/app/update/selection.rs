@@ -103,6 +103,31 @@ pub fn jump(state: &mut State, oldest: bool) {
     });
 }
 
+/// Jump to the open conversation's unread marker (`u`), loading the surrounding
+/// history if the marker is older than the currently loaded page (M12).
+pub fn jump_unread(state: &mut State) -> Vec<Effect> {
+    let Some(open) = state.open.as_mut() else {
+        return vec![];
+    };
+    let Some(target) = open.unread_marker else {
+        state.notice = Some(Notice::info("No unread marker in this conversation"));
+        return vec![];
+    };
+    if open.messages.iter().any(|m| m.reference() == target) {
+        open.selected = Some(Selection {
+            message: target,
+            reveal: true,
+        });
+        state.focus = Focus::Messages;
+        vec![]
+    } else {
+        vec![Effect::LoadMessagesAround {
+            conversation: open.id,
+            target,
+        }]
+    }
+}
+
 /// The selected message, if the message pane has one.
 fn selected(state: &State) -> Option<&Message> {
     let open = state.open.as_ref()?;

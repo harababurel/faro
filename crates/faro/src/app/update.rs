@@ -17,8 +17,8 @@ use super::event::{AppEvent, Effect};
 use super::input::Input;
 use super::keymap;
 use super::state::{
-    DRAFT_SAVE_DELAY, EmojiMode, Focus, Geometry, Notice, OpenConversation, Popup, SidebarScroll,
-    State, TYPING_TIMEOUT, Typist, sort_conversations,
+    DRAFT_SAVE_DELAY, EmojiMode, Focus, Geometry, Notice, OpenConversation, Popup, Selection,
+    SidebarScroll, State, TYPING_TIMEOUT, Typist, sort_conversations,
 };
 use super::system::Terminal;
 use super::timeline;
@@ -56,6 +56,16 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
             conversation,
             messages,
         } => on_older_loaded(state, conversation, messages),
+        AppEvent::MessagesAroundLoaded {
+            conversation,
+            target,
+            messages,
+        } => on_messages_around_loaded(state, conversation, target, messages),
+        AppEvent::SearchResults {
+            conversation,
+            query,
+            hits,
+        } => palette::on_search_results(state, conversation, &query, hits),
         AppEvent::MessageReceiptsLoaded {
             conversation,
             message,
@@ -107,10 +117,7 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
             index,
             result,
         } => selection::on_transcribed(state, conversation, message, index, result),
-        AppEvent::TerminalChecked(terminal) => {
-            terminal_checked(state, terminal);
-            vec![]
-        }
+        AppEvent::TerminalChecked(terminal) => terminal_checked(state, terminal),
         AppEvent::OpenFailed(error) => notice_err(state, "Couldn't open", Err(error)),
         AppEvent::ConfigRead(read) => settings::on_config_read(state, read),
         AppEvent::ThemesRead(files) => settings::on_themes_read(state, files),
@@ -119,10 +126,7 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
         }
         AppEvent::Drawn(geometry) => on_drawn(state, geometry),
         AppEvent::StoreFailed(error) => notice_err(state, "Storage problem", Err(error)),
-        AppEvent::UnreadCleared(cleared) => {
-            on_unread_cleared(state, &cleared);
-            vec![]
-        }
+        AppEvent::UnreadCleared(cleared) => on_unread_cleared(state, &cleared),
         AppEvent::Tick => on_tick(state),
         AppEvent::Shutdown => quit(state),
     }
@@ -402,6 +406,41 @@ fn on_older_loaded(
     effects
 }
 
+fn on_messages_around_loaded(
+    state: &mut State,
+    conversation: ConversationId,
+    target: MessageRef,
+    messages: Vec<Message>,
+) -> Vec<Effect> {
+    if state.open.as_ref().is_none_or(|o| o.id != conversation) {
+        let _ = open_conversation(state, conversation);
+    }
+    let Some(open) = state.open.as_mut() else {
+        return vec![];
+    };
+    open.has_older = true;
+    open.messages = messages;
+    for event in std::mem::take(&mut open.pending) {
+        timeline::apply(&mut open.messages, &event);
+    }
+    open.loading = false;
+    open.loading_older = false;
+    open.selected = Some(Selection {
+        message: target,
+        reveal: true,
+    });
+    state.focus = Focus::Messages;
+    state.palette = None;
+    state.popup = None;
+    let unread = last_unread(&open.messages, open.unread_on_open);
+    open.unread_marker = unread.first().copied().or(open.unread_marker);
+    presence::on_history(state, &unread);
+    let mut effects = presence::catch_up(state);
+    effects.extend(selection::queue_auto_downloads(state));
+    effects.extend(selection::queue_auto_transcriptions(state));
+    effects
+}
+
 /// A full page means there may be more before it.
 fn full_page(messages: &[Message]) -> bool {
     u32::try_from(messages.len()).is_ok_and(|n| n >= PAGE)
@@ -510,12 +549,13 @@ fn persistent(event: &BackendEvent) -> bool {
 /// D70): lower ours by as much. By how much, not to what, so messages that
 /// arrived meanwhile still count, and a conversation opened meanwhile
 /// stays at zero.
-fn on_unread_cleared(state: &mut State, cleared: &[(ConversationId, u32)]) {
+fn on_unread_cleared(state: &mut State, cleared: &[(ConversationId, u32)]) -> Vec<Effect> {
     for (id, dropped) in cleared {
         if let Some(summary) = state.conversations.iter_mut().find(|c| c.id == *id) {
             summary.unread = summary.unread.saturating_sub(*dropped);
         }
     }
+    vec![]
 }
 
 fn on_message(state: &mut State, message: &Message, effects: &mut Vec<Effect>) {
@@ -646,7 +686,7 @@ fn check_terminal(state: &mut State) -> Vec<Effect> {
 
 /// Switch the emoji mode to match, redrawing everything if it changed, and
 /// note who draws block glyphs and whether graphics protocols are safe.
-fn terminal_checked(state: &mut State, terminal: Terminal) {
+fn terminal_checked(state: &mut State, terminal: Terminal) -> Vec<Effect> {
     let Terminal {
         mosh,
         glyphs,
@@ -665,7 +705,7 @@ fn terminal_checked(state: &mut State, terminal: Terminal) {
         EmojiMode::Full
     };
     if !emoji.auto || emoji.mode == mode {
-        return;
+        return vec![];
     }
     emoji.mode = mode;
     state.env.repaint = true;
@@ -675,4 +715,5 @@ fn terminal_checked(state: &mut State, terminal: Terminal) {
     } else {
         "No mosh: drawing emoji in full"
     }));
+    vec![]
 }

@@ -1,14 +1,15 @@
 //! The command palette's keys, mouse and commands (D44; tree, D52).
 
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
-use faro_core::domain::{ConversationId, ServiceId};
+use faro_core::domain::{ConversationId, MessageRef, ServiceId};
+use faro_core::store::SearchHit;
 use ratatui::layout::Position;
 
 use super::{curation, navigation, open_conversation, settings};
 use crate::app::event::Effect;
 use crate::app::keymap::{Edit, PaletteKey};
 use crate::app::palette::{self, ItemKind, Level, Palette, PaletteCommand, RECENT_MAX, Setting};
-use crate::app::state::{Focus, Notice, State};
+use crate::app::state::{Focus, Notice, Selection, State};
 
 /// Result rows shown on the last frame (a guess before the first one).
 fn rows(state: &State) -> usize {
@@ -67,13 +68,15 @@ pub fn on_key(state: &mut State, key: PaletteKey) -> Vec<Effect> {
     let at_start = palette.input.cursor() == 0;
     let at_end = palette.input.cursor() == palette.input.text().len();
     let setting_at_cursor = selected_setting(palette);
-    let opens_level = matches!(
+    let opens_level = match (
+        palette.level(),
         palette.selected_item().map(|item| &item.kind),
-        Some(ItemKind::Level(level)) if !matches!(level, Level::Setting(_))
-    ) || matches!(
-        palette.selected_item().map(|item| &item.kind),
-        Some(ItemKind::EnterDir(_))
-    );
+    ) {
+        (Level::Search(_), _) => false,
+        (_, Some(ItemKind::Level(level))) => !matches!(level, Level::Setting(_)),
+        (_, Some(ItemKind::EnterDir(_))) => true,
+        _ => false,
+    };
     match key {
         PaletteKey::Previous => palette.step(-1, rows),
         PaletteKey::Next => palette.step(1, rows),
@@ -110,8 +113,11 @@ pub fn on_key(state: &mut State, key: PaletteKey) -> Vec<Effect> {
                     palette.refilter();
                     return vec![];
                 }
+                if let Level::Search(scope) = palette.level() {
+                    return on_search_edited(state, scope);
+                }
                 palette.refilter();
-                jump_by_prefix(state);
+                return jump_by_prefix(state);
             }
         }
         PaletteKey::Close => state.palette = None,
@@ -138,7 +144,8 @@ fn selected_setting(palette: &Palette) -> Option<Setting> {
             | ItemKind::SetNickname(_)
             | ItemKind::ClearNickname(_)
             | ItemKind::EnterDir(_)
-            | ItemKind::AttachFile(_),
+            | ItemKind::AttachFile(_)
+            | ItemKind::SearchHit { .. },
         )
         | None => None,
     }
@@ -165,8 +172,11 @@ pub fn paste(state: &mut State, text: &str) -> Vec<Effect> {
             palette.refilter();
             return effects;
         }
+        if let Level::Search(scope) = palette.level() {
+            return on_search_edited(state, scope);
+        }
         palette.refilter();
-        jump_by_prefix(state);
+        return jump_by_prefix(state);
     }
     vec![]
 }
@@ -188,26 +198,87 @@ pub fn on_files_listed(state: &mut State, query: &str, entries: &[crate::app::st
     palette.refilter();
 }
 
-/// At the root, a query starting with `@` `:` `>` `?` moves into that
+/// Populate `Level::Search` when SQLite search results arrive (M12).
+pub fn on_search_results(
+    state: &mut State,
+    conversation: Option<ConversationId>,
+    query: &str,
+    hits: Vec<SearchHit>,
+) -> Vec<Effect> {
+    let Some(palette) = state.palette.as_mut() else {
+        return vec![];
+    };
+    if palette.level() != Level::Search(conversation) || palette.query().trim() != query.trim() {
+        return vec![];
+    }
+    palette.search_hits = hits;
+    let items = palette::items(state, Level::Search(conversation), &state.recent_commands);
+    if let Some(palette) = state.palette.as_mut() {
+        palette.items = items;
+        palette.refilter();
+    }
+    vec![]
+}
+
+fn on_search_edited(state: &mut State, scope: Option<ConversationId>) -> Vec<Effect> {
+    let query = state
+        .palette
+        .as_ref()
+        .map(|p| p.query().to_owned())
+        .unwrap_or_default();
+    if query.trim().is_empty() {
+        if let Some(palette) = state.palette.as_mut() {
+            palette.search_hits.clear();
+        }
+        let items = palette::items(state, Level::Search(scope), &state.recent_commands);
+        if let Some(palette) = state.palette.as_mut() {
+            palette.items = items;
+            palette.refilter();
+        }
+        return vec![];
+    }
+    if let Some(palette) = state.palette.as_mut() {
+        palette.refilter();
+    }
+    vec![Effect::SearchMessages {
+        conversation: scope,
+        query,
+    }]
+}
+
+/// At the root, a query starting with `@` `/` `:` `>` `?` moves into that
 /// category, keeping what follows as its query.
-fn jump_by_prefix(state: &mut State) {
+fn jump_by_prefix(state: &mut State) -> Vec<Effect> {
     let Some(palette) = state.palette.as_ref() else {
-        return;
+        return vec![];
     };
     if palette.level() != Level::Root {
-        return;
+        return vec![];
     }
     let text = palette.input.text();
     let mut chars = text.chars();
-    let Some(level) = chars.next().and_then(Level::for_prefix) else {
-        return;
+    let open = state.open.as_ref().map(|o| o.id);
+    let Some(level) = chars.next().and_then(|c| Level::for_prefix(c, open)) else {
+        return vec![];
     };
     let rest = chars.as_str().to_owned();
     enter(state, level, &rest);
+    if let Level::Search(scope) = level
+        && !rest.trim().is_empty()
+    {
+        return vec![Effect::SearchMessages {
+            conversation: scope,
+            query: rest,
+        }];
+    }
+    vec![]
 }
 
 /// Show `level` under the current one, with `query` typed.
 fn enter(state: &mut State, level: Level, query: &str) {
+    if let Some(palette) = state.palette.as_mut() {
+        palette.search_hits.clear();
+    }
     let items = palette::items(state, level, &state.recent_commands);
     let current = current_item(&items);
     let note = palette::note(state, level);
@@ -229,8 +300,23 @@ fn up(state: &mut State) {
     if path.len() < 2 {
         return;
     }
-    let left = path.pop().map(ItemKind::Level);
+    let left = path.pop().map(|level| match level {
+        Level::Search(_) => ItemKind::Level(Level::Search(state.open.as_ref().map(|o| o.id))),
+        Level::Root
+        | Level::Chats
+        | Level::Themes
+        | Level::Settings
+        | Level::Setting(_)
+        | Level::Commands
+        | Level::Keys
+        | Level::People
+        | Level::Nickname(_)
+        | Level::AttachFile => ItemKind::Level(level),
+    });
     let parent = path.last().copied().unwrap_or(Level::Root);
+    if let Some(palette) = state.palette.as_mut() {
+        palette.search_hits.clear();
+    }
     let items = palette::items(state, parent, &state.recent_commands);
     let note = palette::note(state, parent);
     if let Some(palette) = state.palette.as_mut() {
@@ -286,12 +372,18 @@ fn choose(state: &mut State) -> Vec<Effect> {
         return vec![];
     };
     if let ItemKind::Level(level) = kind {
+        if let (Some(Level::Search(_)), Level::Search(scope)) =
+            (state.palette.as_ref().map(Palette::level), level)
+        {
+            return switch_search_scope(state, scope);
+        }
         // Typing a nickname starts from the one there is; AttachFile starts at ~/.
         let query = match level {
             Level::Nickname(id) => state.nicknames.get(&id).cloned().unwrap_or_default(),
             Level::AttachFile => "~/".to_owned(),
             Level::Root
             | Level::Chats
+            | Level::Search(_)
             | Level::Themes
             | Level::Settings
             | Level::Setting(_)
@@ -334,6 +426,10 @@ fn choose(state: &mut State) -> Vec<Effect> {
     state.palette = None;
     match kind {
         ItemKind::Conversation(id) => show_conversation(state, id),
+        ItemKind::SearchHit {
+            conversation,
+            message,
+        } => jump_to_message(state, conversation, message),
         ItemKind::Command(command) => {
             remember(state, command);
             run(state, command)
@@ -349,6 +445,67 @@ fn choose(state: &mut State) -> Vec<Effect> {
         | ItemKind::Switch(_)
         | ItemKind::Header => vec![],
     }
+}
+
+fn switch_search_scope(state: &mut State, scope: Option<ConversationId>) -> Vec<Effect> {
+    let level = Level::Search(scope);
+    let query = state
+        .palette
+        .as_ref()
+        .map(|p| p.query().to_owned())
+        .unwrap_or_default();
+    if let Some(palette) = state.palette.as_mut() {
+        palette.search_hits.clear();
+    }
+    let items = palette::items(state, level, &state.recent_commands);
+    let note = palette::note(state, level);
+    if let Some(palette) = state.palette.as_mut() {
+        let mut path = palette.path.clone();
+        if matches!(path.last(), Some(Level::Search(_))) {
+            path.pop();
+        }
+        path.push(level);
+        palette.show(path, items, &query, None);
+        palette.note = note;
+    }
+    if query.trim().is_empty() {
+        vec![]
+    } else {
+        vec![Effect::SearchMessages {
+            conversation: scope,
+            query,
+        }]
+    }
+}
+
+fn jump_to_message(
+    state: &mut State,
+    conversation: ConversationId,
+    message: MessageRef,
+) -> Vec<Effect> {
+    if state.open.as_ref().is_some_and(|o| {
+        o.id == conversation && o.messages.iter().any(|m| m.reference() == message)
+    }) {
+        if let Some(open) = state.open.as_mut() {
+            open.selected = Some(Selection {
+                message,
+                reveal: true,
+            });
+        }
+        state.focus = Focus::Messages;
+        return vec![];
+    }
+    let mut effects = if state.open.as_ref().is_some_and(|o| o.id == conversation) {
+        vec![]
+    } else {
+        show_conversation(state, conversation)
+    };
+    effects.retain(|e| !matches!(e, Effect::LoadMessages(id) if *id == conversation));
+    effects.push(Effect::LoadMessagesAround {
+        conversation,
+        target: message,
+    });
+    effects
 }
 
 /// Give `id` a nickname shown only in faro, or take it away (`None` or an
@@ -440,6 +597,11 @@ fn run(state: &mut State, command: PaletteCommand) -> Vec<Effect> {
         (PaletteCommand::Conversation(_) | PaletteCommand::MuteFor(_), None) => vec![],
         (PaletteCommand::HideInactive(choice), _) => curation::hide_inactive(state, choice),
         (PaletteCommand::CopyAttachmentPath, _) => super::selection::copy_attachment_path(state),
+        (PaletteCommand::SearchMessages, target) => {
+            open(state, Level::Search(target));
+            vec![]
+        }
+        (PaletteCommand::JumpUnread, _) => super::selection::jump_unread(state),
         (PaletteCommand::ShowKeys, _) => {
             open(state, Level::Keys);
             vec![]

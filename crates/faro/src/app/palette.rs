@@ -14,8 +14,8 @@ use faro_core::config::{
     AutoDownload, BubbleStyle, Choice as _, ColorChoice, DesktopNotifications, EmojiChoice,
     InlineImages, NotificationPrivacy, TranscribeMode,
 };
-use faro_core::domain::{ConversationId, ServiceId};
-use faro_core::store::{NotifyLevel, RemoteTranscription};
+use faro_core::domain::{ConversationId, MessageRef, ServiceId};
+use faro_core::store::{NotifyLevel, RemoteTranscription, SearchHit};
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher, Utf32Str};
 
@@ -46,6 +46,8 @@ pub enum Level {
     /// The categories.
     Root,
     Chats,
+    /// Full-text search in `Some(id)` or across all conversations (`None`).
+    Search(Option<ConversationId>),
     Themes,
     Settings,
     /// One setting's values (`Settings › Colours`).
@@ -92,20 +94,24 @@ pub enum Setting {
 }
 
 impl Level {
-    /// The root's categories, in order.
-    pub const CATEGORIES: [Self; 5] = [
-        Self::Chats,
-        Self::Themes,
-        Self::Settings,
-        Self::Commands,
-        Self::Keys,
-    ];
+    /// The root's categories, in order (with `Search` scoped to `open`).
+    pub const fn categories(open: Option<ConversationId>) -> [Self; 6] {
+        [
+            Self::Chats,
+            Self::Themes,
+            Self::Settings,
+            Self::Commands,
+            Self::Keys,
+            Self::Search(open),
+        ]
+    }
 
     /// What the breadcrumb (and the item that opens it) calls it.
     pub const fn title(self) -> &'static str {
         match self {
             Self::Root => "Command palette",
             Self::Chats => "Chats",
+            Self::Search(_) => "Search",
             Self::Themes => "Themes",
             Self::Settings => "Settings",
             Self::Setting(setting) => setting.title(),
@@ -121,6 +127,7 @@ impl Level {
     pub const fn prefix(self) -> Option<char> {
         match self {
             Self::Chats => Some('@'),
+            Self::Search(_) => Some('/'),
             Self::Settings => Some(':'),
             Self::Commands => Some('>'),
             Self::Keys => Some('?'),
@@ -134,8 +141,8 @@ impl Level {
     }
 
     /// The category a character typed first at the root jumps to.
-    pub fn for_prefix(c: char) -> Option<Self> {
-        Self::CATEGORIES
+    pub fn for_prefix(c: char, open: Option<ConversationId>) -> Option<Self> {
+        Self::categories(open)
             .into_iter()
             .find(|level| level.prefix() == Some(c))
     }
@@ -266,6 +273,10 @@ pub enum PaletteCommand {
     HideInactive(usize),
     /// Copy the local file path of a downloaded attachment on the selected message.
     CopyAttachmentPath,
+    /// Open message and transcript search (`Level::Search`).
+    SearchMessages,
+    /// Jump to the unread marker in the open conversation.
+    JumpUnread,
     /// Show the keybinding list.
     ShowKeys,
 }
@@ -315,6 +326,11 @@ pub enum ItemKind {
     EnterDir(String),
     /// Stage a file for sending from `Level::AttachFile` (D77).
     AttachFile(PathBuf),
+    /// A message or transcript search result (`Level::Search`, M12).
+    SearchHit {
+        conversation: ConversationId,
+        message: MessageRef,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -389,6 +405,8 @@ pub struct Palette {
     /// A line above the results about the level (the colour depth at
     /// Themes, D57).
     pub note: Option<String>,
+    /// Latest SQLite search results for `Level::Search` (M12).
+    pub search_hits: Vec<SearchHit>,
     matcher: Matcher,
 }
 
@@ -403,10 +421,16 @@ impl Palette {
             offset: 0,
             preview: None,
             note: None,
+            search_hits: Vec::new(),
             matcher: Matcher::new(Config::DEFAULT),
         };
         palette.show(path, items, "", None);
         palette
+    }
+
+    /// What's typed in the palette's input box.
+    pub fn query(&self) -> &str {
+        self.input.text()
     }
 
     /// The level shown.
@@ -500,15 +524,22 @@ impl Palette {
 
     /// Match the query again; back to the best result.
     pub fn refilter(&mut self) {
-        // Typing a nickname: the query is the name, every item stays.
-        if let Level::Nickname(_) = self.level() {
+        // Typing a nickname or searching messages: the query is the input, every item stays.
+        if let Level::Nickname(_) | Level::Search(_) = self.level() {
             self.matches = (0..self.items.len())
                 .map(|item| Match {
                     item,
                     highlight: Vec::new(),
                 })
                 .collect();
-            self.selected = 0;
+            self.selected = if matches!(self.level(), Level::Search(_)) {
+                self.items
+                    .iter()
+                    .position(|item| matches!(item.kind, ItemKind::SearchHit { .. }))
+                    .unwrap_or(0)
+            } else {
+                0
+            };
             self.offset = 0;
             self.sync_preview();
             return;
@@ -658,6 +689,7 @@ pub fn items(state: &State, level: Level, recent: &[PaletteCommand]) -> Vec<Item
     match level {
         Level::Root => categories(state),
         Level::Chats => conversations(state),
+        Level::Search(scope) => search_items(state, scope),
         Level::Themes => themes(state),
         Level::Settings => settings(state),
         Level::Setting(setting) => setting_values(state, setting),
@@ -667,6 +699,63 @@ pub fn items(state: &State, level: Level, recent: &[PaletteCommand]) -> Vec<Item
         Level::Nickname(id) => nickname_actions(state, id),
         Level::AttachFile => Vec::new(),
     }
+}
+
+/// `Level::Search(scope)`: a toggle between the open chat and all
+/// conversations, followed by any SQLite search hits (`Palette::search_hits`).
+fn search_items(state: &State, scope: Option<ConversationId>) -> Vec<Item> {
+    let mut items = Vec::new();
+    match (scope, &state.open) {
+        (Some(_), _) => {
+            items.push(Item::new(
+                ItemKind::Level(Level::Search(None)),
+                "Search all conversations…",
+            ));
+        }
+        (None, Some(open)) => {
+            let title = state.conversation_title(open.id);
+            items.push(Item::new(
+                ItemKind::Level(Level::Search(Some(open.id))),
+                format!("Search only in {title}…"),
+            ));
+        }
+        (None, None) => {}
+    }
+    let hits = state
+        .palette
+        .as_ref()
+        .map_or(&[][..], |p| p.search_hits.as_slice());
+    for hit in hits {
+        if scope.is_none()
+            && state.list.allowlist
+            && !state
+                .summary(hit.conversation)
+                .is_some_and(|s| s.state.allowed || s.state.pinned.is_some())
+        {
+            continue;
+        }
+        let raw = state
+            .readable_body(&hit.message)
+            .or_else(|| hit.matched_transcript.clone())
+            .unwrap_or_default();
+        let snippet = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+        let sender = state.sender_name(&hit.message);
+        let detail = match scope {
+            Some(_) => sender,
+            None => format!("{} · {sender}", state.conversation_title(hit.conversation)),
+        };
+        items.push(
+            Item::new(
+                ItemKind::SearchHit {
+                    conversation: hit.conversation,
+                    message: hit.message.reference(),
+                },
+                snippet,
+            )
+            .detail(detail),
+        );
+    }
+    items
 }
 
 /// Directory entries in `Level::AttachFile` as palette items (folders first, then files).
@@ -726,13 +815,15 @@ pub fn nickname_path(id: ServiceId) -> Vec<Level> {
 /// The root: one item per category, with its prefix (or, for themes, the
 /// theme in use) on the right.
 fn categories(state: &State) -> Vec<Item> {
-    Level::CATEGORIES
+    let open = state.open.as_ref().map(|o| o.id);
+    Level::categories(open)
         .into_iter()
         .map(|level| {
             let detail = match level {
                 Level::Themes => current_theme(state).to_owned(),
                 Level::Root
                 | Level::Chats
+                | Level::Search(_)
                 | Level::Settings
                 | Level::Setting(_)
                 | Level::Commands
@@ -779,6 +870,11 @@ fn commands(state: &State) -> Vec<Item> {
     let mut items = vec![
         global(Action::NextConversation, "Next conversation"),
         global(Action::PreviousConversation, "Previous conversation"),
+        command(
+            PaletteCommand::SearchMessages,
+            "Search messages…",
+            key(Action::SearchMessages, Focus::Input),
+        ),
     ];
     items.extend(open_conversation_commands(state));
     items.extend(selected_message_commands(state));
@@ -1068,26 +1164,99 @@ fn open_conversation_commands(state: &State) -> Vec<Item> {
         return vec![];
     };
     let current = &summary.state;
-    let key = |curate| {
-        state
-            .keymap
-            .hint(&[Action::Curate(curate)], Focus::Conversations)
-    };
     let item = |action, title: &str, curate| {
-        command(PaletteCommand::Conversation(action), title, key(curate))
+        let hint = state
+            .keymap
+            .hint(&[Action::Curate(curate)], Focus::Conversations);
+        command(PaletteCommand::Conversation(action), title, hint)
     };
     let mut items = vec![Item::new(
         ItemKind::Level(Level::AttachFile),
         "Send a file…",
     )];
+    if state.open.as_ref().and_then(|o| o.unread_marker).is_some() {
+        items.push(command(
+            PaletteCommand::JumpUnread,
+            "Jump to unread",
+            state.keymap.hint(&[Action::JumpUnread], Focus::Messages),
+        ));
+    }
+    pin_and_mute_commands(state, current, &mut items);
+    let mentions = super::update::mentions_toggle(current);
+    let toggle = |on, t, f, curate| {
+        let (action, label) = if on { t } else { f };
+        item(action, label, curate)
+    };
+    items.extend([
+        item(mentions, mentions.label().0, Curate::Mentions),
+        toggle(
+            current.hidden,
+            (ConversationAction::Unhide, "Unhide"),
+            (ConversationAction::Hide, "Hide"),
+            Curate::Hide,
+        ),
+        toggle(
+            current.archived,
+            (ConversationAction::Unarchive, "Unarchive"),
+            (ConversationAction::Archive, "Archive"),
+            Curate::Archive,
+        ),
+        toggle(
+            current.allowed,
+            (ConversationAction::Disallow, "Remove from the allowlist"),
+            (ConversationAction::Allow, "Add to the allowlist"),
+            Curate::Allow,
+        ),
+    ]);
+    if state.config.voice.transcribe == TranscribeMode::Remote
+        || current.remote_transcription == RemoteTranscription::Allowed
+    {
+        let remote_action = if current.remote_transcription == RemoteTranscription::Allowed {
+            ConversationAction::DisallowRemoteTranscription
+        } else {
+            ConversationAction::AllowRemoteTranscription
+        };
+        items.push(command(
+            PaletteCommand::Conversation(remote_action),
+            remote_action.label().0,
+            None,
+        ));
+    }
+    if let ConversationId::Direct(peer) = summary.id
+        && peer != state.me
+    {
+        items.push(Item::new(
+            ItemKind::Level(Level::Nickname(peer)),
+            "Set a nickname…",
+        ));
+    }
+    let name = state.conversation_title(summary.id);
+    for item in &mut items {
+        item.path = Some(name.clone());
+    }
+    items
+}
+
+fn pin_and_mute_commands(
+    state: &State,
+    current: &faro_core::store::ConversationState,
+    items: &mut Vec<Item>,
+) {
+    let item = |action, title: &str, curate| {
+        let hint = state
+            .keymap
+            .hint(&[Action::Curate(curate)], Focus::Conversations);
+        command(PaletteCommand::Conversation(action), title, hint)
+    };
     if current.pinned.is_some() {
         items.push(item(ConversationAction::Unpin, "Unpin", Curate::Pin));
-        let pins = state
+        if state
             .conversations
             .iter()
             .filter(|c| c.state.pinned.is_some())
-            .count();
-        if pins > 1 {
+            .count()
+            > 1
+        {
             items.extend([
                 item(ConversationAction::MoveUp, "Move pin up", Curate::MoveUp),
                 item(
@@ -1103,67 +1272,15 @@ fn open_conversation_commands(state: &State) -> Vec<Item> {
     if current.muted_at(super::update::wall_clock()) {
         items.push(item(ConversationAction::Unmute, "Unmute", Curate::Mute));
     } else {
-        for (i, (label, length)) in MUTE_CHOICES.iter().enumerate() {
+        items.extend(MUTE_CHOICES.iter().enumerate().map(|(i, (label, length))| {
             let title = if length.is_some() {
                 format!("Mute for {label}")
             } else {
                 "Mute until unmuted".to_owned()
             };
-            items.push(command(PaletteCommand::MuteFor(i), title, None));
-        }
+            command(PaletteCommand::MuteFor(i), title, None)
+        }));
     }
-    let mentions = super::update::mentions_toggle(current);
-    items.push(item(mentions, mentions.label().0, Curate::Mentions));
-    items.push(if current.hidden {
-        item(ConversationAction::Unhide, "Unhide", Curate::Hide)
-    } else {
-        item(ConversationAction::Hide, "Hide", Curate::Hide)
-    });
-    items.push(if current.archived {
-        item(ConversationAction::Unarchive, "Unarchive", Curate::Archive)
-    } else {
-        item(ConversationAction::Archive, "Archive", Curate::Archive)
-    });
-    items.push(if current.allowed {
-        item(
-            ConversationAction::Disallow,
-            "Remove from the allowlist",
-            Curate::Allow,
-        )
-    } else {
-        item(
-            ConversationAction::Allow,
-            "Add to the allowlist",
-            Curate::Allow,
-        )
-    });
-    if state.config.voice.transcribe == TranscribeMode::Remote
-        || current.remote_transcription == RemoteTranscription::Allowed
-    {
-        let remote_action = if current.remote_transcription == RemoteTranscription::Allowed {
-            ConversationAction::DisallowRemoteTranscription
-        } else {
-            ConversationAction::AllowRemoteTranscription
-        };
-        items.push(command(
-            PaletteCommand::Conversation(remote_action),
-            remote_action.label().0,
-            None,
-        ));
-    }
-    let name = state.conversation_title(summary.id);
-    if let ConversationId::Direct(peer) = summary.id
-        && peer != state.me
-    {
-        items.push(Item::new(
-            ItemKind::Level(Level::Nickname(peer)),
-            "Set a nickname…",
-        ));
-    }
-    for item in &mut items {
-        item.path = Some(name.clone());
-    }
-    items
 }
 
 /// What the selected message offers, if one is selected.

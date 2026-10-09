@@ -7,7 +7,7 @@ use faro_core::config::SettingEdit;
 use faro_core::domain::{
     AttachmentRef, ConversationId, Message, MessageRef, ServiceId, Timestamp, TranscriptSource,
 };
-use faro_core::store::{ConversationState, ConversationSummary, RecipientReceipt};
+use faro_core::store::{ConversationState, ConversationSummary, RecipientReceipt, SearchHit};
 
 use super::commands::Command;
 use super::state::Geometry;
@@ -30,6 +30,18 @@ pub enum AppEvent {
     OlderLoaded {
         conversation: ConversationId,
         messages: Vec<Message>,
+    },
+    /// A page of messages around a target message (`Effect::LoadMessagesAround`).
+    MessagesAroundLoaded {
+        conversation: ConversationId,
+        target: MessageRef,
+        messages: Vec<Message>,
+    },
+    /// Search hits across message bodies and transcripts (`Effect::SearchMessages`).
+    SearchResults {
+        conversation: Option<ConversationId>,
+        query: String,
+        hits: Vec<SearchHit>,
     },
     /// Per-recipient receipts loaded for `Popup::MessageInfo` (M12).
     MessageReceiptsLoaded {
@@ -131,6 +143,16 @@ pub enum Effect {
     LoadOlder {
         conversation: ConversationId,
         before: MessageRef,
+    },
+    /// Answered with `AppEvent::MessagesAroundLoaded` (M12).
+    LoadMessagesAround {
+        conversation: ConversationId,
+        target: MessageRef,
+    },
+    /// Answered with `AppEvent::SearchResults` (M12).
+    SearchMessages {
+        conversation: Option<ConversationId>,
+        query: String,
     },
     /// Answered with `AppEvent::MessageReceiptsLoaded` (M12).
     LoadMessageReceipts {

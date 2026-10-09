@@ -254,6 +254,8 @@ pub const NAMES: &[(&str, &str, Action)] = &[
         "Save attachment to Downloads",
         Action::SaveAttachment,
     ),
+    ("message.search", "Search messages", Action::SearchMessages),
+    ("message.jump_unread", "Jump to unread", Action::JumpUnread),
 ];
 
 /// The default bindings, preferred key first for each action (hints show
@@ -262,6 +264,7 @@ pub const NAMES: &[(&str, &str, Action)] = &[
 /// the first). Shifted characters are written as they arrive (`G`, `+`).
 pub const BINDINGS: &[(Context, &str, Action)] = &[
     (Global, "ctrl+p", Action::OpenPalette),
+    (Global, "ctrl+f", Action::SearchMessages),
     (Global, "f1", Action::Help),
     (Global, "ctrl+q", Action::Quit),
     (Global, "ctrl+l", Action::Redraw),
@@ -369,5 +372,7 @@ pub const BINDINGS: &[(Context, &str, Action)] = &[
     (Messages, "d", Action::DownloadAttachment),
     (Messages, "v", Action::OpenAttachment),
     (Messages, "s", Action::SaveAttachment),
+    (Messages, "/", Action::SearchMessages),
+    (Messages, "u", Action::JumpUnread),
     (Messages, "?", Action::Help),
 ];

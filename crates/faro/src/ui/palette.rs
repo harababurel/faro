@@ -139,6 +139,7 @@ fn draw_query(frame: &mut Frame<'_>, area: Rect, palette: &Palette, view: &View<
         Level::Root => PREFIX_HINT,
         Level::Settings => SETTINGS_HINT,
         Level::Chats
+        | Level::Search(_)
         | Level::Themes
         | Level::Setting(_)
         | Level::Commands
@@ -239,6 +240,7 @@ fn result_line(
             ItemKind::Level(_)
             | ItemKind::EnterDir(_)
             | ItemKind::AttachFile(_)
+            | ItemKind::SearchHit { .. }
             | ItemKind::Command(_)
             | ItemKind::Setting(_)
             | ItemKind::Theme(_)

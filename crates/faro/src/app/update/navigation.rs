@@ -75,6 +75,11 @@ pub fn on_action(state: &mut State, action: Action) -> Vec<Effect> {
         Action::JumpToPinned(n) => return curation::jump_to_pinned(state, n),
         Action::Curate(curate) => return curation::on_curate(state, curate),
         Action::OpenPalette => palette::open(state, Level::Root),
+        Action::SearchMessages => {
+            let scope = state.open.as_ref().map(|o| o.id);
+            palette::open(state, Level::Search(scope));
+        }
+        Action::JumpUnread => return selection::jump_unread(state),
         Action::Help => palette::open(state, Level::Keys),
         Action::Palette(key) => return palette::on_key(state, key),
         Action::Redraw => state.env.repaint = true,

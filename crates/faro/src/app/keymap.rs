@@ -72,6 +72,10 @@ pub enum Action {
     Redraw,
     /// `Alt+N`: do not disturb, i.e. the bell off (or back on), saved (D53).
     ToggleBell,
+    /// `Ctrl+F`, `/`: search messages and voice-note transcripts.
+    SearchMessages,
+    /// `u`: jump to the unread marker in the open conversation.
+    JumpUnread,
     Palette(PaletteKey),
 }
 

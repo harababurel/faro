@@ -87,11 +87,13 @@ fn ctrl_p_opens_the_categories_and_esc_closes() {
     assert_eq!(breadcrumb(&state), "Command palette");
     assert_eq!(
         kinds(&state),
-        Level::CATEGORIES.map(ItemKind::Level).to_vec()
+        Level::categories(Some(climbing()))
+            .map(ItemKind::Level)
+            .to_vec()
     );
     assert_eq!(
         titles(&state),
-        vec!["Chats", "Themes", "Settings", "Commands", "Keys"]
+        vec!["Chats", "Themes", "Settings", "Commands", "Keys", "Search"]
     );
     update(&mut state, key(KeyCode::Esc, KeyModifiers::NONE));
     assert!(state.palette.is_none());
@@ -1106,4 +1108,153 @@ fn left_and_right_cycle_setting_values_in_place_at_settings_level() {
     // Backspace on an empty query still goes back to Root.
     press(&mut state, KeyCode::Backspace);
     assert_eq!(level(&state), Level::Root);
+}
+
+#[test]
+fn search_messages_in_open_conversation() {
+    use faro_core::store::SearchHit;
+
+    let mut state = loaded_state();
+    // Ctrl+F opens Search scoped to the open conversation.
+    update(&mut state, ctrl('f'));
+    assert_eq!(level(&state), Level::Search(Some(climbing())));
+    assert_eq!(breadcrumb(&state), "Search");
+    press(&mut state, KeyCode::Esc);
+
+    // `/` in Messages focus opens Search; in Input focus it types `/`.
+    state.focus = Focus::Messages;
+    update(&mut state, key(KeyCode::Char('/'), KeyModifiers::NONE));
+    assert_eq!(level(&state), Level::Search(Some(climbing())));
+    press(&mut state, KeyCode::Esc);
+    state.focus = Focus::Input;
+    update(&mut state, key(KeyCode::Char('/'), KeyModifiers::NONE));
+    assert!(state.palette.is_none());
+    assert_eq!(state.open.as_ref().unwrap().input.text(), "/");
+    press(&mut state, KeyCode::Backspace);
+
+    // `/` prefix at the root jumps into Search and triggers Effect::SearchMessages.
+    update(&mut state, ctrl('p'));
+    let effects = update(&mut state, key(KeyCode::Char('/'), KeyModifiers::NONE));
+    assert_eq!(level(&state), Level::Search(Some(climbing())));
+    assert_eq!(effects, vec![]);
+
+    let effects = update(&mut state, key(KeyCode::Char('c'), KeyModifiers::NONE));
+    assert_eq!(
+        effects,
+        vec![Effect::SearchMessages {
+            conversation: Some(climbing()),
+            query: "c".into(),
+        }]
+    );
+
+    let in_memory_message = state.open.as_ref().unwrap().messages[0].clone();
+    let in_memory_msg = in_memory_message.reference();
+    update(
+        &mut state,
+        AppEvent::SearchResults {
+            conversation: Some(climbing()),
+            query: "c".into(),
+            hits: vec![SearchHit {
+                conversation: climbing(),
+                message: in_memory_message,
+                matched_transcript: None,
+            }],
+        },
+    );
+    // First search hit is selected automatically (after the scope-toggle row).
+    assert_eq!(
+        selected(&state),
+        Some(ItemKind::SearchHit {
+            conversation: climbing(),
+            message: in_memory_msg,
+        })
+    );
+    // Jumping to an already-loaded message selects it directly without I/O.
+    let effects = enter(&mut state);
+    assert!(state.palette.is_none());
+    assert_eq!(effects, vec![]);
+    assert_eq!(state.focus, Focus::Messages);
+    assert_eq!(
+        state.open.as_ref().unwrap().selected.map(|s| s.message),
+        Some(in_memory_msg)
+    );
+}
+
+#[test]
+fn search_messages_across_all_conversations_loads_around() {
+    use faro_core::store::SearchHit;
+
+    let mut state = loaded_state();
+    let around_msg = text(alice(), ALICE, 500, "coffee tomorrow");
+    let older_msg = around_msg.reference();
+
+    update(&mut state, ctrl('f'));
+    typed(&mut state, "coffee");
+    // Step up to the "Search all conversations" row and press Enter.
+    press(&mut state, KeyCode::Up);
+    let effects = enter(&mut state);
+    assert_eq!(level(&state), Level::Search(None));
+    assert_eq!(
+        effects,
+        vec![Effect::SearchMessages {
+            conversation: None,
+            query: "coffee".into(),
+        }]
+    );
+    update(
+        &mut state,
+        AppEvent::SearchResults {
+            conversation: None,
+            query: "coffee".into(),
+            hits: vec![SearchHit {
+                conversation: alice(),
+                message: around_msg.clone(),
+                matched_transcript: Some("coffee tomorrow".into()),
+            }],
+        },
+    );
+    let effects = enter(&mut state);
+    assert!(state.palette.is_none());
+    assert!(effects.contains(&Effect::LoadMessagesAround {
+        conversation: alice(),
+        target: older_msg,
+    }));
+
+    update(
+        &mut state,
+        AppEvent::MessagesAroundLoaded {
+            conversation: alice(),
+            target: older_msg,
+            messages: vec![around_msg],
+        },
+    );
+    assert_eq!(open_id(&state), Some(alice()));
+    assert_eq!(state.focus, Focus::Messages);
+    let open = state.open.as_ref().unwrap();
+    assert!(open.has_older);
+    assert_eq!(open.selected.map(|s| s.message), Some(older_msg));
+}
+
+#[test]
+fn jump_to_unread_selects_unread_marker_or_notifies() {
+    let mut state = loaded_state();
+    let target = state.open.as_ref().unwrap().messages[1].reference();
+    state.open.as_mut().unwrap().unread_marker = Some(target);
+    state.focus = Focus::Messages;
+
+    let effects = update(&mut state, key(KeyCode::Char('u'), KeyModifiers::NONE));
+    assert_eq!(effects, vec![]);
+    assert_eq!(state.focus, Focus::Messages);
+    assert_eq!(
+        state.open.as_ref().unwrap().selected.map(|s| s.message),
+        Some(target)
+    );
+
+    // When there is no unread marker, show an info notice.
+    state.open.as_mut().unwrap().unread_marker = None;
+    update(&mut state, key(KeyCode::Char('u'), KeyModifiers::NONE));
+    assert_eq!(
+        state.notice.as_ref().map(|n| n.text.as_str()),
+        Some("No unread marker in this conversation")
+    );
 }

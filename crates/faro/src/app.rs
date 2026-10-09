@@ -352,6 +352,8 @@ impl Router {
                 store @ (Effect::LoadConversations
                 | Effect::LoadMessages(_)
                 | Effect::LoadOlder { .. }
+                | Effect::LoadMessagesAround { .. }
+                | Effect::SearchMessages { .. }
                 | Effect::LoadMessageReceipts { .. }
                 | Effect::Persist(_)
                 | Effect::SaveAttachment { .. }
@@ -443,6 +445,8 @@ fn affects_view(event: &AppEvent) -> bool {
         | AppEvent::Loaded { .. }
         | AppEvent::MessagesLoaded { .. }
         | AppEvent::OlderLoaded { .. }
+        | AppEvent::MessagesAroundLoaded { .. }
+        | AppEvent::SearchResults { .. }
         | AppEvent::MessageReceiptsLoaded { .. }
         | AppEvent::SendResult { .. }
         | AppEvent::ReactResult { .. }

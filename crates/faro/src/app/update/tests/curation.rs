@@ -28,6 +28,8 @@ fn saved(effects: &[Effect], id: ConversationId) -> Option<ConversationState> {
         | Effect::LoadConversations
         | Effect::LoadMessages(_)
         | Effect::LoadOlder { .. }
+        | Effect::LoadMessagesAround { .. }
+        | Effect::SearchMessages { .. }
         | Effect::LoadMessageReceipts { .. }
         | Effect::Persist(_)
         | Effect::SaveAttachment { .. }
