@@ -844,7 +844,7 @@ Refines the DESIGN.md §5.1 sketch:
   - **Late-reply guard** (`clipboard::LateGuard`): armed after the first paste. It holds back `Alt+]` or `Esc`, then `]`, `5`, `5`, `2`, `2`, `;` for at most 50 ms. A full match drains the tty (`AppEvent::ClipboardDrained`); anything else gives the keys back in order. Before the first paste nothing is ever held.
 - **Known limits:**
   - While faro waits for the prompt, keys typed into faro are dropped: kitty's prompt has the focus anyway.
-  - The clipboard file stays in `attachments/` after sending (sending copies it under the message's name). Cleanup can come later.
+  - The clipboard file stays in `attachments/` after sending (sending copies it under the message's name). Cleanup can come later. (**Done in D93.**)
 - **Rejected:**
   - Asking only when a single kitty client is attached (the owner's main session has two).
   - Making the timeout a setting.
@@ -857,3 +857,12 @@ Refines the DESIGN.md §5.1 sketch:
 - **Decision:** while `State::loading`, the reducer holds `AppEvent::Backend` events in `State::early_events`. `on_loaded` installs the store's list, then applies them in order (still `loading`, so the backlog doesn't ring the bell, D49) and returns their effects (`Persist`…).
 - **Rejected:** merging the snapshot with the list built from events (the store has state the events lack, like pins, mute and drafts); loading the list before starting the backend (the backend and the store start independently).
 - **Test:** `update::tests::messages_arriving_before_the_list_are_kept`.
+
+### D93. Pasted clipboard images are deleted once copied, and swept at startup — Accepted (Judgement, 2026-10-09)
+
+- **Why:** D91 left `attachments/clipboard-*.ext` behind after sending, because sending copies the file under the message's name, and the local echo and *Retry* use the copy.
+- **Decision:**
+  - `commands::copy_outgoing_attachments` deletes the source after copying it when `clipboard::is_pasted` is true: a file directly in `attachments/` whose name starts with `clipboard-`, a name only faro gives.
+  - At startup nothing is staged, so `clipboard::sweep` (a blocking task started by `app::run`) deletes every such file left over, e.g. one removed with `Esc` or still staged at quit.
+  - Received attachments never start with `clipboard-` (they start with the send time), and files in subfolders are never touched.
+- **Tests:** `clipboard::tests::pasted_images_are_recognised_and_swept`; `tools/clipboard/e2e.py` checks that after sending, the pasted file is gone and exactly one copy remains.

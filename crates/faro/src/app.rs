@@ -146,6 +146,7 @@ pub async fn run<B: Backend + 'static>(
     let (router, mut clipboard_requests) =
         Router::new(commands, effects, config_writer, results_tx);
     let mut state = initial_state(directory, detected, &mut startup);
+    clipboard::sweep(state.attachments_dir.clone());
     let configured = update::configure(&mut state, startup.config, startup.problems);
     router.dispatch(configured, &state);
     let mut tui = Tui::enter(state.config.mouse.enabled).context("setting up the terminal")?;

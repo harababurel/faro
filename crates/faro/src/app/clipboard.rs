@@ -364,6 +364,49 @@ fn write_request(request: &str, in_tmux: bool) -> Result<(), ClipboardError> {
         .map_err(|error| ClipboardError::Failed(error.to_string()))
 }
 
+/// Whether `path` is a pasted clipboard image waiting in `attachments/`
+/// (faro's own file, D91): removed once sending has copied it, and at the
+/// next start (D93).
+pub fn is_pasted(path: &Path, attachments_dir: &Path) -> bool {
+    path.parent() == Some(attachments_dir)
+        && path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with(PASTED_PREFIX))
+}
+
+/// At startup nothing is staged, so pasted images still in `attachments/`
+/// were removed with `Esc` or left staged at quit: delete them (D93).
+pub fn sweep(attachments_dir: PathBuf) {
+    tokio::spawn(async move {
+        match tokio::task::spawn_blocking(move || sweep_blocking(&attachments_dir)).await {
+            Ok(0) => {}
+            Ok(removed) => tracing::info!(removed, "removed pasted images left from earlier runs"),
+            Err(error) => tracing::warn!(%error, "sweeping pasted images failed"),
+        }
+    });
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "runs inside spawn_blocking off the UI thread"
+)]
+fn sweep_blocking(dir: &Path) -> usize {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| is_pasted(path, dir))
+        .filter(|path| std::fs::symlink_metadata(path).is_ok_and(|meta| meta.is_file()))
+        .filter(|path| std::fs::remove_file(path).is_ok())
+        .count()
+}
+
+/// The start of every pasted image's file name.
+const PASTED_PREFIX: &str = "clipboard-";
+
 /// Save the image as `<attachments>/clipboard-<local time>.<ext>` (`0600`,
 /// written atomically) and describe it for the staged bar.
 #[expect(
@@ -373,10 +416,10 @@ fn write_request(request: &str, in_tmux: bool) -> Result<(), ClipboardError> {
 fn save(dir: &Path, mime: &str, data: &[u8]) -> Result<StagedAttachment, String> {
     let ext = protocol::image_extension(mime).unwrap_or("img");
     let stamp = jiff::Zoned::now().strftime("%Y%m%d-%H%M%S").to_string();
-    let mut name = format!("clipboard-{stamp}.{ext}");
+    let mut name = format!("{PASTED_PREFIX}{stamp}.{ext}");
     let mut n = 2;
     while std::fs::symlink_metadata(dir.join(&name)).is_ok() {
-        name = format!("clipboard-{stamp}-{n}.{ext}");
+        name = format!("{PASTED_PREFIX}{stamp}-{n}.{ext}");
         n += 1;
     }
     let path = dir.join(&name);

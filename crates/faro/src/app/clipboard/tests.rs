@@ -293,3 +293,25 @@ fn saves_the_image_private_with_its_size() {
     let second = save(dir.path(), "image/png", &png).expect("saved");
     assert_ne!(second.path, first.path);
 }
+
+#[test]
+#[expect(clippy::disallowed_methods, reason = "tests may block")]
+fn pasted_images_are_recognised_and_swept() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let pasted = dir.path().join("clipboard-20261009-142233.png");
+    let received = dir.path().join("1760000000000-abcdef01-0-photo.png");
+    let elsewhere = dir.path().join("sub").join("clipboard-x.png");
+    std::fs::create_dir(dir.path().join("sub")).expect("mkdir");
+    for path in [&pasted, &received, &elsewhere] {
+        std::fs::write(path, b"x").expect("write");
+    }
+    assert!(is_pasted(&pasted, dir.path()));
+    assert!(!is_pasted(&received, dir.path()));
+    assert!(
+        !is_pasted(&elsewhere, dir.path()),
+        "only directly in attachments/"
+    );
+    assert_eq!(sweep_blocking(dir.path()), 1);
+    assert!(!pasted.exists());
+    assert!(received.exists() && elsewhere.exists());
+}

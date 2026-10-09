@@ -117,6 +117,7 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
   - **kitty detection:** `Terminal::kitty` (a kitty client reachable without mosh) is checked afresh on every paste.
   - **Testing:** `python3 tools/clipboard/e2e.py target/debug/faro <png> <scratch> [--tmux]` runs `faro demo` with a fake kitty and checks the paste end to end.
 - 2026-10-09: startup race fixed (D92): backend events that reach the reducer before `AppEvent::Loaded` wait in `State::early_events` and are applied on top of the store's list in `on_loaded`. Before, the list (read first by the store worker) wiped them out.
+- 2026-10-09: pasted images are cleaned up (D93): `clipboard::is_pasted` (`attachments/clipboard-*`) files are deleted after `copy_outgoing_attachments` copies them, and `clipboard::sweep` deletes leftovers at startup.
 
 ### Gotchas found so far
 

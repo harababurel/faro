@@ -639,7 +639,9 @@ async fn copy_outgoing_attachments(
         }
         let src = att.path.clone();
         let target = dest.clone();
-        tokio::task::spawn_blocking(move || copy_attachment_file(&src, &target))
+        // A pasted clipboard image isn't needed once copied (D93).
+        let pasted = crate::app::clipboard::is_pasted(&src, attachments_dir);
+        tokio::task::spawn_blocking(move || copy_attachment_file(&src, &target, pasted))
             .await
             .map_err(|e| BackendError::Storage(format!("attachment copy task: {e}")))??;
         att.path = dest;
@@ -651,11 +653,15 @@ async fn copy_outgoing_attachments(
     clippy::disallowed_methods,
     reason = "copying an outgoing attachment into faro's attachments/ runs inside spawn_blocking"
 )]
-fn copy_attachment_file(src: &Path, dest: &Path) -> Result<(), BackendError> {
+fn copy_attachment_file(src: &Path, dest: &Path, remove_source: bool) -> Result<(), BackendError> {
     let bytes = std::fs::read(src)
         .map_err(|e| BackendError::Storage(format!("reading {}: {e}", src.display())))?;
     paths::write_private_atomic(dest, &bytes)
-        .map_err(|e| BackendError::Storage(format!("writing {}: {e}", dest.display())))
+        .map_err(|e| BackendError::Storage(format!("writing {}: {e}", dest.display())))?;
+    if remove_source && let Err(error) = std::fs::remove_file(src) {
+        tracing::warn!(%error, "couldn't remove a pasted image after copying it");
+    }
+    Ok(())
 }
 
 #[cfg(test)]

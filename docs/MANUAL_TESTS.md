@@ -338,6 +338,7 @@ In kitty, with an image copied on the machine you type on (e.g. *Copy Image* in 
 - [ ] **Two kitty windows attached** to the same tmux session (as on the Mac mini): `Ctrl+V` in one stages the image from that machine's clipboard; the other screen may show a kitty prompt. Answering it later (allow or deny) changes nothing in faro and types nothing.
 - [ ] **Late answer:** `Ctrl+V`, wait over 2 minutes without answering ("No answer from kitty…"), then allow: nothing is typed into faro, and keys keep working.
 - [ ] **Elsewhere:** in a terminal that isn't kitty, `Ctrl+V` says "Pasting images needs kitty" at once; through mosh, "Pasting images doesn't work over mosh".
+- [ ] **No leftovers:** after sending a pasted image, `ls <data dir>/attachments/clipboard-*` finds nothing (the sent copy has the message's name); paste one, remove it with `Esc`, restart faro: it's gone too.
 - [ ] **Esc after a paste:** a lone `Esc` still dismisses things normally (it can be held back for up to 50 ms after the first paste; that shouldn't be noticeable).
 
 ## M8: terminal matrix (D50; run after M7 against the real backend, and once now with the demo)

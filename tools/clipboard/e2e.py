@@ -9,7 +9,8 @@ your choice, and the status report that ends faro's startup image query).
 It opens the highlighted chat, presses Ctrl+V, checks that the image was saved
 intact (`0600`) and, with --tmux (a private tmux server with allow-passthrough,
 read through capture-pane), that it's staged, typing still works and Ctrl+O
-shows it. Prints PASS or FAIL. Needs Python 3 (and tmux for --tmux).
+shows it. Then it sends the image and checks the pasted file was removed once
+copied under the message's name (D93). Prints PASS or FAIL. Needs Python 3 (and tmux for --tmux).
 """
 import base64, fcntl, glob, os, pty, re, select, shutil, struct, subprocess, sys, termios, time
 
@@ -139,6 +140,12 @@ if use_tmux:
     print("viewer open:", "Not sent yet" in screen())
 os.write(fd, b"\x1b")
 pump(0.5)
+os.write(fd, b"\r")       # send it, "hello" as the caption
+pump(2)
+left = glob.glob(os.path.join(demo, "attachments", "clipboard-*"))
+copies = [p for p in glob.glob(os.path.join(demo, "attachments", "*")) if open(p, "rb").read() == image]
+print("after sending: pasted file left:", left, "copies:", len(copies))
+ok &= not left and len(copies) == 1
 os.write(fd, b"\x11")     # Ctrl+Q
 pump(2)
 if use_tmux:
