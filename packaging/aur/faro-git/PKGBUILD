@@ -19,7 +19,8 @@ optdepends=(
 )
 provides=("$_pkgname")
 conflicts=("$_pkgname")
-options=('!lto')
+# The release profile strips the binary, so a -debug package would be empty.
+options=('!lto' '!debug')
 source=("$_pkgname::git+https://github.com/harababurel/faro.git")
 sha256sums=('SKIP')
 
