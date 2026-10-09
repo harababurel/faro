@@ -135,6 +135,14 @@ pub fn current_uid() -> u32 {
     rustix::process::getuid().as_raw()
 }
 
+/// Whether `dir` carries the [`DEMO_MARKER`]: real runs, `faro link` and
+/// `faro ids` refuse such a directory (D87).
+///
+/// Blocking: call at startup, before the UI.
+pub fn is_demo_dir(dir: &Path) -> bool {
+    matches!(symlink_metadata(&dir.join(DEMO_MARKER)), Ok(Some(_)))
+}
+
 /// Why a directory can't hold the demo's data (D87).
 #[derive(Debug, thiserror::Error)]
 pub enum DemoDirError {
@@ -746,10 +754,13 @@ mod tests {
         let real = real_dir(tmp.path());
         let dir = tmp.path().join("nested").join("demo");
         let uid = current_uid();
+        assert!(!is_demo_dir(&dir));
+        assert!(!is_demo_dir(&real[0]));
         assert_eq!(
             prepare_demo_dir(&dir, false, &real, uid).unwrap(),
             DemoDir::Created
         );
+        assert!(is_demo_dir(&dir));
         assert_eq!(mode(&dir), DIR_MODE);
         assert!(marked(&dir));
         assert_eq!(mode(&dir.join(DEMO_MARKER)), FILE_MODE);

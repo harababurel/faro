@@ -11,21 +11,29 @@ mod tui;
 mod ui;
 
 use anyhow::Context as _;
-use clap::Parser as _;
 use faro_core::backend::{Backend, BackendEvents};
 use faro_core::guard::{self, Allowlist};
 use faro_core::mock::{MockBackend, MockConfig};
-use faro_core::paths::Paths;
-use faro_core::store::Store;
+use faro_core::paths::{self, DemoDir, Paths};
+use faro_core::store::{Profile, Store};
 
 #[expect(
     clippy::disallowed_methods,
     reason = "the program's entry point: main blocks on the runtime until faro exits"
 )]
 fn main() -> anyhow::Result<()> {
-    let cli = cli::Cli::parse();
-
-    let paths = Paths::resolve(cli.config, cli.data_dir).context("resolving faro's directories")?;
+    let invocation = cli::Invocation::parse();
+    let demo = match &invocation.cli.command {
+        Some(cli::Command::Demo(args)) => Some(args.clone()),
+        Some(cli::Command::Link { .. } | cli::Command::Ids { .. }) | None => None,
+    };
+    let profile = if demo.is_some() {
+        Profile::Demo
+    } else {
+        Profile::Signal
+    };
+    let (paths, demo_dir) = resolve_paths(&invocation, demo.as_ref())?;
+    let cli = invocation.cli;
     paths
         .ensure_data_dirs()
         .with_context(|| format!("creating data directory {}", paths.data_dir().display()))?;
@@ -35,19 +43,16 @@ fn main() -> anyhow::Result<()> {
     let config_file = paths.config_file().to_owned();
     let (mut settings, mut problems) = config::load(&config_file);
     let themes = config::load_themes(&config::themes_dir(&config_file));
-    // Never fall back to talking to everyone: a bad file stops faro.
-    let allowlist = match &cli.allowlist {
-        Some(path) => {
-            let text = std::fs::read_to_string(path)
-                .with_context(|| format!("reading the allowlist {}", path.display()))?;
-            let list = Allowlist::parse(&text)
-                .with_context(|| format!("reading the allowlist {}", path.display()))?;
-            Some(list)
-        }
-        None => None,
-    };
+    let allowlist = read_allowlist(cli.allowlist.as_deref())?;
 
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "faro starting");
+    if let Some(outcome) = demo_dir {
+        tracing::info!(dir = %paths.data_dir().display(), ?outcome, "demo directory");
+        if cli.data_dir.is_some() {
+            // Only the environment can have set it: a typed one was refused.
+            tracing::info!("FARO_DATA_DIR ignored: the demo never uses it (D87)");
+        }
+    }
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -62,27 +67,25 @@ fn main() -> anyhow::Result<()> {
         Some(cli::Command::Ids { usernames }) => {
             return local.block_on(&runtime, signal::ids(paths.data_dir(), &usernames));
         }
-        None => {}
+        Some(cli::Command::Demo(_)) | None => {}
     }
     // The Signal backend runs behind the allowlist guard (D62) unless the
     // user says otherwise, every time (D67).
-    if !cli.mock && allowlist.is_none() && !cli.no_allowlist {
+    if demo.is_none() && allowlist.is_none() && !cli.no_allowlist {
         anyhow::bail!(
             "the Signal backend needs --allowlist FILE (`faro ids` prints the IDs for it), \
-             or --no-allowlist to talk to everyone; use --mock to try faro without an account"
+             or --no-allowlist to talk to everyone; run `faro demo` to try faro without an account"
         );
     }
-    let mock = MockConfig {
-        seed: cli.mock_seed,
-        activity: Some(std::time::Duration::from_millis(cli.mock_activity.max(1))),
-        disconnects: !cli.mock_no_faults,
-        errors: !cli.mock_no_faults,
-        ..MockConfig::default()
-    };
     let db_file = paths.db_file();
     let data_dir = paths.data_dir().to_owned();
     local.block_on(&runtime, async {
         let store = Store::open(&db_file)
+            .await
+            .with_context(|| format!("opening the database {}", db_file.display()))?;
+        // Before anything writes to it (D87).
+        store
+            .claim_profile(profile)
             .await
             .with_context(|| format!("opening the database {}", db_file.display()))?;
         let unsent = store.fail_unsent().await?;
@@ -101,21 +104,8 @@ fn main() -> anyhow::Result<()> {
             problems,
             themes,
         };
-        let result = if cli.mock {
-            tracing::info!(
-                seed = mock.seed,
-                activity_ms = cli.mock_activity,
-                faults = !cli.mock_no_faults,
-                "starting mock backend"
-            );
-            let (backend, events) = MockBackend::new(&mock);
-            match allowlist {
-                Some(list) => {
-                    let (backend, events) = guard::guard(backend, events, list);
-                    serve(backend, events, &store, tz, detected, startup, false).await
-                }
-                None => serve(backend, events, &store, tz, detected, startup, false).await,
-            }
+        let result = if let Some(args) = &demo {
+            serve_demo(args, allowlist, &store, tz, detected, startup).await
         } else {
             tracing::info!("starting the Signal backend");
             let (backend, events) = signal::start(&data_dir).await?;
@@ -131,6 +121,104 @@ fn main() -> anyhow::Result<()> {
         tracing::info!("faro exiting");
         result
     })
+}
+
+/// Where faro's files are for this run, checked before anything is created
+/// or logged (D87): the demo's own directory, prepared; or the real paths,
+/// refused if they lead to a demo directory.
+fn resolve_paths(
+    invocation: &cli::Invocation,
+    demo: Option<&cli::DemoArgs>,
+) -> anyhow::Result<(Paths, Option<DemoDir>)> {
+    if let Some(args) = demo {
+        let (paths, outcome) = demo_paths(invocation, args)?;
+        return Ok((paths, Some(outcome)));
+    }
+    let cli = &invocation.cli;
+    let paths = Paths::resolve(cli.config.clone(), cli.data_dir.clone())
+        .context("resolving faro's directories")?;
+    if paths::is_demo_dir(paths.data_dir()) {
+        anyhow::bail!(
+            "{} is a demo directory (it has {}): run `faro demo` to use it",
+            paths.data_dir().display(),
+            paths::DEMO_MARKER
+        );
+    }
+    Ok((paths, None))
+}
+
+/// The allowlist at `path`, if one was given. Never falls back to talking
+/// to everyone: a bad file stops faro.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "startup, before the UI: reads the allowlist file"
+)]
+fn read_allowlist(path: Option<&std::path::Path>) -> anyhow::Result<Option<Allowlist>> {
+    let Some(path) = path else {
+        return Ok(None);
+    };
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("reading the allowlist {}", path.display()))?;
+    let list = Allowlist::parse(&text)
+        .with_context(|| format!("reading the allowlist {}", path.display()))?;
+    Ok(Some(list))
+}
+
+/// Where `faro demo` keeps its data (D87), checked and ready: `--dir` or
+/// `<temp>/faro-demo-<uid>/`, never `--data-dir` or `FARO_DATA_DIR`, and
+/// never overlapping either real data directory (the default one or
+/// `FARO_DATA_DIR`'s). The config file is the real one.
+fn demo_paths(
+    invocation: &cli::Invocation,
+    args: &cli::DemoArgs,
+) -> anyhow::Result<(Paths, DemoDir)> {
+    if let Some(conflict) = invocation.demo_conflict() {
+        anyhow::bail!(conflict);
+    }
+    let cli = &invocation.cli;
+    let real = Paths::resolve(cli.config.clone(), None).context("resolving faro's directories")?;
+    let mut real_data_dirs = vec![real.data_dir().to_owned()];
+    real_data_dirs.extend(cli.data_dir.clone());
+    let uid = paths::current_uid();
+    let dir = args
+        .dir
+        .clone()
+        .unwrap_or_else(|| paths::default_demo_dir(&std::env::temp_dir(), uid));
+    let outcome = paths::prepare_demo_dir(&dir, args.fresh, &real_data_dirs, uid)?;
+    Ok((real.demo(dir), outcome))
+}
+
+/// Run the app on the mock backend, built from `faro demo`'s flags, behind
+/// the allowlist guard if one was given.
+async fn serve_demo(
+    args: &cli::DemoArgs,
+    allowlist: Option<Allowlist>,
+    store: &Store,
+    tz: jiff::tz::TimeZone,
+    detected: app::state::Detected,
+    startup: config::Startup,
+) -> anyhow::Result<()> {
+    tracing::info!(
+        seed = args.seed,
+        activity_ms = args.activity,
+        faults = !args.no_faults,
+        "starting the demo (mock backend)"
+    );
+    let mock = MockConfig {
+        seed: args.seed,
+        activity: Some(std::time::Duration::from_millis(args.activity.max(1))),
+        disconnects: !args.no_faults,
+        errors: !args.no_faults,
+        ..MockConfig::default()
+    };
+    let (backend, events) = MockBackend::new(&mock);
+    match allowlist {
+        Some(list) => {
+            let (backend, events) = guard::guard(backend, events, list);
+            serve(backend, events, store, tz, detected, startup, false).await
+        }
+        None => serve(backend, events, store, tz, detected, startup, false).await,
+    }
 }
 
 /// Load the directory and run the app on `backend`.

@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
-use clap::Parser;
+use clap::parser::ValueSource;
+use clap::{CommandFactory as _, FromArgMatches as _, Parser};
 
 /// A terminal client for Signal, built for people who live in tmux.
 ///
@@ -27,60 +28,86 @@ pub struct Cli {
         global = true,
         value_name = "DIR",
         help = "Directory for faro's database, logs and Signal keys \
-                [default: $XDG_DATA_HOME/faro, usually ~/.local/share/faro]"
+                [default: $XDG_DATA_HOME/faro, usually ~/.local/share/faro]. \
+                Never used by `faro demo`"
     )]
     pub data_dir: Option<PathBuf>,
-
-    /// Use the mock backend: fake contacts and messages, no Signal account needed.
-    /// Without it faro uses the Signal account linked with `faro link`.
-    #[arg(long)]
-    pub mock: bool,
-
-    /// Seed for the mock backend's scripted activity; the same seed replays the
-    /// same conversation.
-    #[arg(long, env = "FARO_MOCK_SEED", value_name = "SEED", default_value_t = 0)]
-    pub mock_seed: u64,
-
-    /// Mean milliseconds between the mock's scripted events. Small values flood
-    /// the UI, for checking that typing never stalls (e.g. 5).
-    #[arg(
-        long,
-        env = "FARO_MOCK_ACTIVITY",
-        value_name = "MS",
-        default_value_t = 4000
-    )]
-    pub mock_activity: u64,
-
-    /// Turn off the mock's scripted outages and errors. Use with a small
-    /// `--mock-activity` for a real flood: otherwise an outage starts almost at
-    /// once and the mock spends most of its time offline.
-    #[arg(long, env = "FARO_MOCK_NO_FAULTS")]
-    pub mock_no_faults: bool,
 
     /// How to draw emoji. `compatible` draws emoji whose width depends on the
     /// terminal (❤️, 👍🏽, 🧗‍♀️…) in a simpler form every terminal agrees on, for
     /// mosh and other terminals that misalign them; `auto` does so when faro
     /// finds mosh. Overrides `[ui] emoji` in the config file (default: auto).
-    #[arg(long, env = "FARO_EMOJI", value_enum)]
+    #[arg(long, env = "FARO_EMOJI", global = true, value_enum)]
     pub emoji: Option<EmojiChoice>,
 
     /// Talk only to the people and groups in this file (D62): sending to
     /// anyone else is refused, and their messages, contacts and groups are
     /// dropped before they're shown or stored. For testing with a real
     /// account. faro won't start if the file can't be read.
-    #[arg(long, env = "FARO_ALLOWLIST", value_name = "FILE")]
+    #[arg(long, env = "FARO_ALLOWLIST", global = true, value_name = "FILE")]
     pub allowlist: Option<PathBuf>,
 
     /// Run the Signal backend without an allowlist: faro talks to everyone,
     /// like any Signal client (D67). For your own account; never implied,
     /// so it has to be typed each time (no environment variable).
-    #[arg(long, conflicts_with = "allowlist")]
+    #[arg(long, global = true, conflicts_with = "allowlist")]
     pub no_allowlist: bool,
+}
+
+/// The parsed command line, plus what [`Cli`] alone can't say: where a
+/// value came from.
+#[derive(Debug)]
+pub struct Invocation {
+    pub cli: Cli,
+    /// `--data-dir` was typed (rather than read from `FARO_DATA_DIR`).
+    /// `faro demo` refuses the first and ignores the second (D87).
+    pub data_dir_typed: bool,
+}
+
+impl Invocation {
+    /// Parse the process's arguments, exiting with clap's message on error.
+    pub fn parse() -> Self {
+        Self::from_matches(&Cli::command().get_matches()).unwrap_or_else(|error| error.exit())
+    }
+
+    #[cfg(test)]
+    pub fn try_parse_from<I, T>(args: I) -> Result<Self, clap::Error>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<std::ffi::OsString> + Clone,
+    {
+        Self::from_matches(&Cli::command().try_get_matches_from(args)?)
+    }
+
+    fn from_matches(matches: &clap::ArgMatches) -> Result<Self, clap::Error> {
+        Ok(Self {
+            cli: Cli::from_arg_matches(matches)?,
+            data_dir_typed: matches.value_source("data_dir") == Some(ValueSource::CommandLine),
+        })
+    }
+
+    /// Why the flags can't go with `faro demo`, if they can't.
+    pub fn demo_conflict(&self) -> Option<&'static str> {
+        if self.data_dir_typed {
+            Some(
+                "`faro demo` never uses --data-dir: its data stays apart from yours. \
+                 Use `faro demo --dir DIR` for another demo directory",
+            )
+        } else if self.cli.no_allowlist {
+            Some("`faro demo` talks to no one, so --no-allowlist means nothing there")
+        } else {
+            None
+        }
+    }
 }
 
 /// Things to do instead of running the TUI.
 #[derive(Debug, PartialEq, Eq, clap::Subcommand)]
 pub enum Command {
+    /// Try faro without a Signal account: fake contacts and scripted
+    /// conversations, nothing is sent. Kept in its own directory, never with
+    /// your real data; your config is shared
+    Demo(DemoArgs),
     /// Link this computer to your Signal account as a new device (shows a QR
     /// code to scan with Signal on your phone)
     Link {
@@ -95,6 +122,38 @@ pub enum Command {
         #[arg(long = "username", value_name = "NAME")]
         usernames: Vec<String>,
     },
+}
+
+/// `faro demo`'s flags (D87). Command line only: no environment variables,
+/// so nothing left in a shell profile changes a demo run.
+#[derive(Debug, Clone, PartialEq, Eq, clap::Args)]
+pub struct DemoArgs {
+    /// Seed for the scripted activity; the same seed replays the same
+    /// conversation.
+    #[arg(long, value_name = "SEED", default_value_t = 0)]
+    pub seed: u64,
+
+    /// Mean milliseconds between scripted events. Small values flood the UI,
+    /// for checking that typing never stalls (e.g. 5).
+    #[arg(long, value_name = "MS", default_value_t = 4000)]
+    pub activity: u64,
+
+    /// Turn off the scripted outages and errors. Use with a small
+    /// `--activity` for a real flood: otherwise an outage starts almost at
+    /// once and the demo spends most of its time offline.
+    #[arg(long)]
+    pub no_faults: bool,
+
+    /// Delete the demo's data and start over (only ever a directory faro
+    /// marked as a demo directory).
+    #[arg(long)]
+    pub fresh: bool,
+
+    /// Keep the demo's data here instead. It must be new, empty, or an
+    /// earlier demo directory [default: <temp>/faro-demo-<uid>, kept until
+    /// the system clears it]
+    #[arg(long, value_name = "DIR")]
+    pub dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -151,26 +210,100 @@ mod tests {
     }
 
     #[test]
-    fn parses_mock_flags() {
-        let cli = Cli::try_parse_from(["faro"]).unwrap();
-        assert!(!cli.mock);
-        assert_eq!(cli.mock_seed, 0);
+    fn parses_demo_flags() {
+        let demo = |args: &[&str]| match Cli::try_parse_from(args).unwrap().command {
+            Some(Command::Demo(demo)) => demo,
+            other => panic!("expected demo, got {other:?}"),
+        };
+        assert_eq!(
+            demo(&["faro", "demo"]),
+            DemoArgs {
+                seed: 0,
+                activity: 4000,
+                no_faults: false,
+                fresh: false,
+                dir: None,
+            }
+        );
+        assert_eq!(
+            demo(&[
+                "faro",
+                "demo",
+                "--seed",
+                "42",
+                "--activity",
+                "5",
+                "--no-faults",
+                "--fresh",
+                "--dir",
+                "/tmp/rec-1",
+            ]),
+            DemoArgs {
+                seed: 42,
+                activity: 5,
+                no_faults: true,
+                fresh: true,
+                dir: Some(PathBuf::from("/tmp/rec-1")),
+            }
+        );
+        assert!(Cli::try_parse_from(["faro", "demo", "--seed", "-1"]).is_err());
+        // Demo flags belong to the subcommand; the old ones are gone.
+        for args in [
+            &["faro", "--seed", "1"][..],
+            &["faro", "--mock"],
+            &["faro", "--mock-seed", "1"],
+            &["faro", "--mock-activity", "5"],
+            &["faro", "--mock-no-faults"],
+        ] {
+            assert!(Cli::try_parse_from(args).is_err(), "{args:?}");
+        }
+    }
 
-        let cli = Cli::try_parse_from(["faro", "--mock", "--mock-seed", "42"]).unwrap();
-        assert!(cli.mock);
-        assert_eq!(cli.mock_seed, 42);
-
-        assert!(Cli::try_parse_from(["faro", "--mock-seed", "-1"]).is_err());
-        assert_eq!(cli.mock_activity, 4000);
-        let cli = Cli::try_parse_from(["faro", "--mock-activity", "5"]).unwrap();
-        assert_eq!(cli.mock_activity, 5);
-        assert!(!cli.mock_no_faults);
-        let cli = Cli::try_parse_from(["faro", "--mock-no-faults"]).unwrap();
-        assert!(cli.mock_no_faults);
-        assert_eq!(cli.emoji, None, "the config decides");
-        let cli = Cli::try_parse_from(["faro", "--emoji", "compatible"]).unwrap();
+    #[test]
+    fn global_flags_work_after_demo() {
+        let cli = Cli::try_parse_from([
+            "faro",
+            "demo",
+            "--emoji",
+            "compatible",
+            "--allowlist",
+            "/tmp/a.toml",
+            "--config",
+            "/tmp/c.toml",
+        ])
+        .unwrap();
         assert_eq!(cli.emoji, Some(EmojiChoice::Compatible));
+        assert_eq!(cli.allowlist, Some(PathBuf::from("/tmp/a.toml")));
+        assert_eq!(cli.config, Some(PathBuf::from("/tmp/c.toml")));
         assert!(Cli::try_parse_from(["faro", "--emoji", "fancy"]).is_err());
+    }
+
+    #[test]
+    fn demo_refuses_a_typed_data_dir_and_no_allowlist() {
+        let ok = Invocation::try_parse_from(["faro", "demo", "--fresh"]).unwrap();
+        assert!(!ok.data_dir_typed, "FARO_DATA_DIR, if set, isn't typed");
+        assert_eq!(ok.demo_conflict(), None);
+        for args in [
+            &["faro", "demo", "--data-dir", "/tmp/x"][..],
+            &["faro", "--data-dir", "/tmp/x", "demo"],
+        ] {
+            let typed = Invocation::try_parse_from(args).unwrap();
+            assert!(typed.data_dir_typed, "{args:?}");
+            assert!(typed.demo_conflict().unwrap().contains("--dir"), "{args:?}");
+        }
+        for args in [
+            &["faro", "demo", "--no-allowlist"][..],
+            &["faro", "--no-allowlist", "demo"],
+        ] {
+            let unguarded = Invocation::try_parse_from(args).unwrap();
+            assert!(
+                unguarded
+                    .demo_conflict()
+                    .unwrap()
+                    .contains("--no-allowlist"),
+                "{args:?}"
+            );
+        }
     }
 
     #[test]

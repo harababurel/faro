@@ -14,8 +14,8 @@ animating while nothing is open: idle spells, resizes across its sizes,
 opening and closing a chat, the palette over it) or images (opening chats
 with inline images, scrolling across image boxes, popups and resizes).
 --split N puts a N-column pane to the left of faro (faro on the right).
-<out-dir> is wiped first and holds faro's scratch data dir and config, so
-nothing touches your real ones. Run from the repository root (or set
+<out-dir> is wiped first and holds the demo's directory and a scratch
+config, so nothing touches your real ones. Run from the repository root (or set
 FARO_REPO); the binary defaults to target/debug/faro. Then compare with
 replay.py (AGENTS.md).
 """
@@ -49,8 +49,8 @@ args = ap.parse_args()
 out = os.path.abspath(args.out)
 shutil.rmtree(out, ignore_errors=True)
 os.makedirs(out)
+# faro demo creates (and marks) its own directory.
 data = os.path.join(out, "data")
-os.makedirs(data)
 config = os.path.join(out, "config.toml")
 messages = []
 if args.layout:
@@ -82,9 +82,9 @@ if args.split:
     target = tmux("display", "-p", "-t", "s", "#{pane_id}").strip()
 rec = os.path.join(out, "rec.bin")
 frames = os.path.join(out, "frames.txt")
-cmd = (f"sleep 1; FARO_DEBUG_FRAMES={frames} exec {args.binary} --mock "
-       f"--data-dir {data} --config {config} --mock-seed {args.seed} "
-       f"--mock-activity {args.activity} --mock-no-faults --emoji {args.emoji}")
+cmd = (f"sleep 1; FARO_DEBUG_FRAMES={frames} exec {args.binary} demo "
+       f"--dir {data} --config {config} --seed {args.seed} "
+       f"--activity {args.activity} --no-faults --emoji {args.emoji}")
 tmux("respawn-pane", "-k", "-t", target, cmd)
 tmux("pipe-pane", "-o", "-t", target, f"cat > {rec}")
 time.sleep(3)
