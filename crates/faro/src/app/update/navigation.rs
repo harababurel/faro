@@ -143,15 +143,91 @@ pub fn on_mention_key(state: &mut State, key: KeyEvent) -> Option<Vec<Effect>> {
     }
 }
 
-/// Esc, one step at a time (D60, D77): dismiss the `@` mention popup; else cancel
-/// an in-progress message edit; else remove a staged attachment; else cancel a
-/// reply being written; else dismiss the notice and go back to the input; else
-/// close the open conversation (its draft kept), leaving the list highlighting it.
+/// Intercepts navigation, selection and dismissal keys when the inline
+/// `:shortcode:` emoji autocomplete popup is active above the input bar.
+pub fn on_shortcode_key(state: &mut State, key: KeyEvent) -> Option<Vec<Effect>> {
+    if key.kind == KeyEventKind::Release {
+        return None;
+    }
+    let candidates = state.shortcode_candidates();
+    if candidates.is_empty() {
+        return None;
+    }
+    let len = candidates.len();
+    match (key.code, key.modifiers) {
+        (KeyCode::Up, KeyModifiers::NONE) | (KeyCode::Char('p' | 'P'), KeyModifiers::CONTROL) => {
+            if let Some(open) = state.open.as_mut() {
+                open.shortcode_selected = selection::cycle(open.shortcode_selected, len, false);
+            }
+            Some(vec![])
+        }
+        (KeyCode::Down, KeyModifiers::NONE) | (KeyCode::Char('n' | 'N'), KeyModifiers::CONTROL) => {
+            if let Some(open) = state.open.as_mut() {
+                open.shortcode_selected = selection::cycle(open.shortcode_selected, len, true);
+            }
+            Some(vec![])
+        }
+        (KeyCode::Tab | KeyCode::Enter, KeyModifiers::NONE) => {
+            let open = state.open.as_mut()?;
+            let idx = open.shortcode_selected.min(len.saturating_sub(1));
+            let &(_, emoji) = candidates.get(idx)?;
+            let (colon_pos, _) = open.active_shortcode_token()?;
+            let cursor = open.input.cursor();
+            open.input.replace_range(colon_pos..cursor, emoji);
+            open.shortcode_selected = 0;
+            open.shortcode_dismissed_at = None;
+            if open.editing.is_none() {
+                open.draft_edited = Some(tokio::time::Instant::now());
+                Some(super::presence::on_edited(state))
+            } else {
+                Some(vec![])
+            }
+        }
+        (KeyCode::Char(':'), KeyModifiers::NONE | KeyModifiers::SHIFT) => {
+            let open = state.open.as_mut()?;
+            let (colon_pos, query) = open.active_shortcode_token()?;
+            let &(_, emoji) = crate::ui::shortcodes::SHORTCODES
+                .iter()
+                .find(|&&(code, _)| code.eq_ignore_ascii_case(query))?;
+            let cursor = open.input.cursor();
+            open.input.replace_range(colon_pos..cursor, emoji);
+            open.shortcode_selected = 0;
+            open.shortcode_dismissed_at = None;
+            if open.editing.is_none() {
+                open.draft_edited = Some(tokio::time::Instant::now());
+                Some(super::presence::on_edited(state))
+            } else {
+                Some(vec![])
+            }
+        }
+        (KeyCode::Esc, KeyModifiers::NONE) => {
+            if let Some(open) = state.open.as_mut() {
+                open.shortcode_dismissed_at = open.active_shortcode_token().map(|(colon, _)| colon);
+                open.shortcode_selected = 0;
+            }
+            Some(vec![])
+        }
+        _ => None,
+    }
+}
+
+/// Esc, one step at a time (D60, D77): dismiss the `@` mention or `:shortcode:`
+/// popup; else cancel an in-progress message edit; else remove a staged
+/// attachment; else cancel a reply being written; else dismiss the notice and
+/// go back to the input; else close the open conversation (its draft kept),
+/// leaving the list highlighting it.
 fn escape(state: &mut State) -> Vec<Effect> {
     if state.focus == Focus::Input && !state.mention_candidates().is_empty() {
         if let Some(open) = state.open.as_mut() {
             open.mention_dismissed_at = open.active_mention_token().map(|(at, _)| at);
             open.mention_selected = 0;
+        }
+        return vec![];
+    }
+    if state.focus == Focus::Input && !state.shortcode_candidates().is_empty() {
+        if let Some(open) = state.open.as_mut() {
+            open.shortcode_dismissed_at = open.active_shortcode_token().map(|(colon, _)| colon);
+            open.shortcode_selected = 0;
         }
         return vec![];
     }
@@ -164,6 +240,8 @@ fn escape(state: &mut State) -> Vec<Effect> {
         open.mentions.clear();
         open.mention_selected = 0;
         open.mention_dismissed_at = None;
+        open.shortcode_selected = 0;
+        open.shortcode_dismissed_at = None;
         let restored = state
             .summary(id)
             .and_then(|s| s.state.draft.as_ref())
@@ -212,8 +290,12 @@ fn apply_edit(state: &mut State, edit: Edit) -> bool {
     if open.active_mention_token().map(|(at, _)| at) != open.mention_dismissed_at {
         open.mention_dismissed_at = None;
     }
+    if open.active_shortcode_token().map(|(colon, _)| colon) != open.shortcode_dismissed_at {
+        open.shortcode_dismissed_at = None;
+    }
     if changed {
         open.mention_selected = 0;
+        open.shortcode_selected = 0;
         if open.editing.is_none() {
             open.draft_edited = Some(tokio::time::Instant::now());
         }

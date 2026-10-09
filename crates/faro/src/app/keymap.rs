@@ -118,7 +118,8 @@ pub enum PopupKey {
     Next,
     Choose,
     Close,
-    /// A shortcut letter or digit.
+    Backspace,
+    /// A shortcut letter, digit, or search character.
     Char(char),
 }
 
@@ -475,14 +476,43 @@ pub fn popup_action(key: KeyEvent, horizontal: bool) -> Option<Action> {
         (KeyCode::Char('c'), KeyModifiers::CONTROL) => return Some(Action::Interrupt),
         (KeyCode::Char('h'), KeyModifiers::NONE) if horizontal => PopupKey::Previous,
         (KeyCode::Char('l'), KeyModifiers::NONE) if horizontal => PopupKey::Next,
+        (KeyCode::Char('k'), KeyModifiers::NONE) if !horizontal => PopupKey::Previous,
+        (KeyCode::Char('j'), KeyModifiers::NONE) if !horizontal => PopupKey::Next,
         (KeyCode::Up | KeyCode::Left | KeyCode::BackTab, _)
-        | (KeyCode::Char('k'), KeyModifiers::NONE)
-        | (KeyCode::Char('p'), KeyModifiers::CONTROL) => PopupKey::Previous,
+        | (KeyCode::Char('p' | 'P'), KeyModifiers::CONTROL) => PopupKey::Previous,
         (KeyCode::Down | KeyCode::Right | KeyCode::Tab, _)
-        | (KeyCode::Char('j'), KeyModifiers::NONE)
-        | (KeyCode::Char('n'), KeyModifiers::CONTROL) => PopupKey::Next,
+        | (KeyCode::Char('n' | 'N'), KeyModifiers::CONTROL) => PopupKey::Next,
         (KeyCode::Enter, _) => PopupKey::Choose,
         (KeyCode::Esc, _) | (KeyCode::Char('q'), KeyModifiers::NONE) => PopupKey::Close,
+        (KeyCode::Backspace, _) | (KeyCode::Char('h' | 'H'), KeyModifiers::CONTROL) => {
+            PopupKey::Backspace
+        }
+        (KeyCode::Char(c), KeyModifiers::NONE) => PopupKey::Char(c),
+        _ => return None,
+    };
+    Some(Action::Popup(popup))
+}
+
+/// Keys while `Popup::React` is in search mode (`query: Some(_)`): all plain
+/// characters (including `h`, `j`, `k`, `l`, `q`) and `Backspace` edit the
+/// search query, while arrows / `Tab` / `Ctrl+P/N` step through matches.
+pub fn popup_search_action(key: KeyEvent) -> Option<Action> {
+    if key.kind == KeyEventKind::Release {
+        return None;
+    }
+    let modifiers = key.modifiers.difference(KeyModifiers::SHIFT);
+    let popup = match (key.code, modifiers) {
+        (KeyCode::Char('q'), KeyModifiers::CONTROL) => return Some(Action::Quit),
+        (KeyCode::Char('c'), KeyModifiers::CONTROL) => return Some(Action::Interrupt),
+        (KeyCode::Up | KeyCode::Left | KeyCode::BackTab, _)
+        | (KeyCode::Char('p' | 'P'), KeyModifiers::CONTROL) => PopupKey::Previous,
+        (KeyCode::Down | KeyCode::Right | KeyCode::Tab, _)
+        | (KeyCode::Char('n' | 'N'), KeyModifiers::CONTROL) => PopupKey::Next,
+        (KeyCode::Enter, _) => PopupKey::Choose,
+        (KeyCode::Esc, _) => PopupKey::Close,
+        (KeyCode::Backspace, _) | (KeyCode::Char('h' | 'H'), KeyModifiers::CONTROL) => {
+            PopupKey::Backspace
+        }
         (KeyCode::Char(c), KeyModifiers::NONE) => PopupKey::Char(c),
         _ => return None,
     };

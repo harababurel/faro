@@ -212,6 +212,10 @@ pub struct OpenConversation {
     pub mention_selected: usize,
     /// Byte offset of an `@` token whose completion popup was dismissed with `Esc`.
     pub mention_dismissed_at: Option<usize>,
+    /// Highlighted candidate row in the inline `:shortcode:` autocomplete popup.
+    pub shortcode_selected: usize,
+    /// Byte offset of a `:` token whose completion popup was dismissed with `Esc`.
+    pub shortcode_dismissed_at: Option<usize>,
     /// Local file attached to the next message sent here (D77).
     pub staged_attachment: Option<StagedAttachment>,
     /// Incoming messages not yet marked read: receipts wait until they've been
@@ -238,6 +242,28 @@ impl OpenConversation {
         }
         let query = before.get(at_pos + 1..)?;
         (!query.chars().any(char::is_whitespace)).then_some((at_pos, query))
+    }
+
+    /// The `:<query>` token right before the cursor (byte offset of `:` and
+    /// the query after it), if `:` starts the input or follows whitespace, the
+    /// query has at least 2 characters (`a-z`, `A-Z`, `0-9`, `_`, `+`, `-`),
+    /// and wasn't dismissed with `Esc`.
+    pub fn active_shortcode_token(&self) -> Option<(usize, &str)> {
+        let before = self.input.text().get(..self.input.cursor())?;
+        let colon_pos = before.rfind(':')?;
+        let preceded_by_space = colon_pos == 0
+            || before
+                .get(..colon_pos)
+                .and_then(|s| s.chars().next_back())
+                .is_some_and(char::is_whitespace);
+        if !preceded_by_space || self.shortcode_dismissed_at == Some(colon_pos) {
+            return None;
+        }
+        let query = before.get(colon_pos + 1..)?;
+        let valid_chars = query
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '+' | '-'));
+        (query.len() >= 2 && valid_chars).then_some((colon_pos, query))
     }
 }
 
@@ -354,8 +380,12 @@ pub enum Popup {
         items: Vec<MessageAction>,
         selected: usize,
     },
-    /// Pick one of `REACTIONS`.
-    React { target: MessageRef, selected: usize },
+    /// Pick one of `REACTIONS`, or search `SHORTCODES` (`/` or typing a letter).
+    React {
+        target: MessageRef,
+        selected: usize,
+        query: Option<String>,
+    },
     /// Metadata and per-recipient delivery/read receipts for a message (`i`, M12).
     MessageInfo {
         target: MessageRef,
@@ -957,6 +987,18 @@ impl State {
             .take(5)
             .map(|(_, id, name)| (id, name))
             .collect()
+    }
+
+    /// Up to 5 `:shortcode:` matches for the active `:<query>` token before
+    /// the input cursor.
+    pub fn shortcode_candidates(&self) -> Vec<(&'static str, &'static str)> {
+        let Some(open) = &self.open else {
+            return Vec::new();
+        };
+        let Some((_, query)) = open.active_shortcode_token() else {
+            return Vec::new();
+        };
+        crate::ui::shortcodes::search_shortcodes(query, 5)
     }
 
     /// How a mention of `who` reads: `@` and their name ("@You" for us).

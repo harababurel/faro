@@ -40,7 +40,11 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &
             let labels: Vec<(String, &str)> = items.iter().map(MessageAction::label).collect();
             menu(frame, anchor, "Message", &labels, *selected, view);
         }
-        Popup::React { target, selected } => {
+        Popup::React {
+            target,
+            selected,
+            query,
+        } => {
             let Some(anchor) = over_message(geometry, *target) else {
                 return;
             };
@@ -50,7 +54,11 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &
                 .and_then(|o| o.messages.iter().rfind(|m| m.reference() == *target))
                 .and_then(|m| m.reactions.iter().find(|r| r.sender == state.me))
                 .map(|r| r.emoji.as_str());
-            react(frame, anchor, *selected, mine, view);
+            if let Some(query) = query {
+                react_search(frame, anchor, *selected, query, mine, view);
+            } else {
+                react(frame, anchor, *selected, mine, view);
+            }
         }
         Popup::MessageInfo { target, receipts } => {
             let Some(anchor) = over_message(geometry, *target) else {
@@ -507,6 +515,80 @@ fn react(
     let rect = place(anchor, line.width(), 1);
     let inner = frame_box(frame, rect, "React", view);
     frame.render_widget(Paragraph::new(line), inner);
+}
+
+fn react_search(
+    frame: &mut Frame<'_>,
+    anchor: Anchor,
+    selected: usize,
+    query: &str,
+    mine: Option<&str>,
+    view: &View<'_>,
+) {
+    let theme = view.theme;
+    let matches =
+        super::shortcodes::search_shortcodes(query, super::shortcodes::REACT_SEARCH_LIMIT);
+    let widest = matches
+        .iter()
+        .map(|(code, emoji)| 3 + width(&sanitize(emoji)) + 3 + width(code) + 1)
+        .max()
+        .unwrap_or(22)
+        .max(width(query) + 6);
+    let max_inner = usize::from(anchor.area.width.saturating_sub(4));
+    let inner_width = widest.clamp(22, max_inner.max(22));
+    let item_rows = matches.len().max(1);
+    let rect = place(anchor, inner_width, 1 + item_rows);
+    let inner = frame_box(frame, rect, "React", view);
+    let row_width = usize::from(inner.width);
+
+    let prompt_query = truncate(&sanitize(query), row_width.saturating_sub(4)).into_owned();
+    let mut lines = Vec::with_capacity(1 + item_rows);
+    lines.push(Line::from(vec![
+        Span::styled(
+            " :",
+            Style::new().fg(theme.primary).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(prompt_query, Style::new().fg(theme.text)),
+        Span::styled("█", Style::new().fg(theme.primary)),
+    ]));
+
+    if matches.is_empty() {
+        lines.push(Line::from(Span::styled(
+            truncate("   No matching emoji", row_width).into_owned(),
+            theme.muted(),
+        )));
+    } else {
+        let clamped = selected.min(matches.len().saturating_sub(1));
+        for (i, &(code, emoji)) in matches.iter().enumerate() {
+            let chosen = i == clamped;
+            let marker = if chosen { " › " } else { "   " };
+            let clean_emoji = sanitize(emoji).into_owned();
+            let emoji_w = width(&clean_emoji);
+            let label = format!(" :{code}:");
+            let label = truncate(&label, row_width.saturating_sub(3 + emoji_w)).into_owned();
+            let pad = row_width.saturating_sub(3 + emoji_w + width(&label));
+            let mut style = if chosen {
+                theme.selected().fg(theme.text).add_modifier(Modifier::BOLD)
+            } else {
+                Style::new().fg(theme.text)
+            };
+            if Some(emoji) == mine {
+                style = style.add_modifier(Modifier::UNDERLINED);
+            }
+            let code_style = if chosen {
+                style
+            } else {
+                style.patch(theme.muted())
+            };
+            lines.push(Line::from(vec![
+                Span::styled(marker, style.fg(theme.primary)),
+                Span::styled(clean_emoji, style),
+                Span::styled(label, code_style),
+                Span::styled(" ".repeat(pad), style),
+            ]));
+        }
+    }
+    frame.render_widget(Paragraph::new(lines), inner);
 }
 
 fn remote_consent(
