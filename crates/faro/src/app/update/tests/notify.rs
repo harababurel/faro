@@ -142,6 +142,10 @@ fn the_window_title_shows_the_unread_total() {
             .unread = 0;
     }
     assert_eq!(state.window_title(now).as_deref(), Some("faro"));
+    state.profile = faro_core::store::Profile::Demo;
+    assert_eq!(state.window_title(now).as_deref(), Some("faro demo"));
+    incoming(&mut state, bob(), 1);
+    assert_eq!(state.window_title(now).as_deref(), Some("faro demo (1)"));
     state.config.notifications.title = false;
     assert_eq!(state.window_title(now), None);
 }

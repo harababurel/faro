@@ -73,6 +73,8 @@ const MESSAGE_HINTS: Hints = &[
 const BELL_OFF: &str = "bell off";
 /// Shown after the connection status without an allowlist (D67).
 const UNGUARDED: &str = "no allowlist";
+/// Shown after the connection status in `faro demo` (D87).
+const DEMO: &str = "demo";
 /// Popups and the palette have fixed keys (D43).
 const PALETTE_HINTS: &[(&str, &str)] = &[
     ("↑↓", "choose"),
@@ -144,6 +146,10 @@ pub fn render(
         Span::styled(glyph, Style::new().fg(colour)),
         Span::styled(format!(" {label}"), theme.muted()),
     ];
+    if state.is_demo() {
+        left.push(Span::styled(" · ", theme.muted()));
+        left.push(Span::styled(DEMO, theme.muted()));
+    }
     if state.guard == crate::app::state::Guard::Off {
         left.push(Span::styled(" · ", theme.muted()));
         left.push(Span::styled(UNGUARDED, theme.muted()));

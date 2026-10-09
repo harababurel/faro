@@ -615,6 +615,20 @@ fn running_without_an_allowlist_shows_in_the_footer() {
     );
 }
 
+#[test]
+fn the_demo_shows_in_the_footer() {
+    let mut state = loaded_state();
+    let text = snapshot(&draw(&state, 100, 14));
+    assert!(!text.lines().last().unwrap().contains("demo"), "{text}");
+    state.profile = faro_core::store::Profile::Demo;
+    let text = snapshot(&draw(&state, 100, 14));
+    let footer = text.lines().last().unwrap();
+    assert!(
+        footer.starts_with(" ● connected · demo · 1 unread"),
+        "{footer}"
+    );
+}
+
 // --- Bubbles layout (M4 task 9, D45) ---
 
 fn bubbles_state() -> State {
@@ -1091,6 +1105,18 @@ fn logo_at_16_colours() {
             .iter()
             .all(|c| !matches!(c.fg, ratatui::style::Color::Rgb(..)))
     );
+}
+
+#[test]
+fn logo_in_the_demo() {
+    let mut state = logo_state();
+    state.profile = faro_core::store::Profile::Demo;
+    let text = snapshot(&draw(&state, 140, 24));
+    assert!(
+        text.contains("demo · fake contacts, nothing is sent"),
+        "{text}"
+    );
+    insta::assert_snapshot!(text);
 }
 
 #[test]

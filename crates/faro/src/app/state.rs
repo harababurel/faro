@@ -13,7 +13,7 @@ use faro_core::domain::{
     AttachmentRef, BodyPart, ConnectionState, Contact, ConversationId, Direction, Group, GroupId,
     Message, MessageRef, Quote, ServiceId, Timestamp, mention_parts,
 };
-use faro_core::store::{ConversationSummary, NotifyLevel, RecipientReceipt};
+use faro_core::store::{ConversationSummary, NotifyLevel, Profile, RecipientReceipt};
 use ratatui::layout::Rect;
 use tokio::time::Instant;
 
@@ -173,6 +173,9 @@ pub struct State {
     /// Off for a real account with no allowlist guard (`--no-allowlist`,
     /// D67); the footer says so.
     pub guard: Guard,
+    /// [`Profile::Demo`] for `faro demo` (D87): the footer, the window title
+    /// and the logo screen say so.
+    pub profile: Profile,
     /// Optional backend features supported by the active backend.
     pub capabilities: Capabilities,
 }
@@ -763,6 +766,7 @@ impl State {
             quit_armed: bool::default(),
             quit: false,
             guard: Guard::On,
+            profile: Profile::Signal,
             capabilities: Capabilities::all(),
         };
         state.recount_names();
@@ -830,17 +834,26 @@ impl State {
             .sum()
     }
 
-    /// The window title (D49): "faro", with the unread total if there is
-    /// one; `None` if the title is left to the terminal
-    /// (`[notifications] title = false`).
+    /// The window title (D49): "faro" ("faro demo" in the demo, D87), with
+    /// the unread total if there is one; `None` if the title is left to the
+    /// terminal (`[notifications] title = false`).
     pub fn window_title(&self, now: Timestamp) -> Option<String> {
+        let name = match self.profile {
+            Profile::Demo => "faro demo",
+            Profile::Signal => "faro",
+        };
         self.config
             .notifications
             .title
             .then(|| match self.unread_total(now) {
-                0 => "faro".to_owned(),
-                unread => format!("faro ({unread})"),
+                0 => name.to_owned(),
+                unread => format!("{name} ({unread})"),
             })
+    }
+
+    /// Whether this is `faro demo` (D87).
+    pub fn is_demo(&self) -> bool {
+        self.profile == Profile::Demo
     }
 
     /// Whether new messages in `summary` ring the bell and count in the

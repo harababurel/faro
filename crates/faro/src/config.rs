@@ -37,6 +37,8 @@ pub struct Startup {
     pub problems: Vec<Problem>,
     /// The user's theme files (D54).
     pub themes: Vec<ThemeText>,
+    /// `faro demo` or a Signal account (D87).
+    pub profile: faro_core::store::Profile,
 }
 
 /// The file written on first run: every setting and default key binding,

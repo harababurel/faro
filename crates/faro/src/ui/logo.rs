@@ -117,6 +117,9 @@ enum Note {
 /// Hints dropped last when the pane is short: the status and two hints.
 const MIN_NOTES: usize = 3;
 
+/// The first status line in `faro demo` (D87).
+const DEMO_STATUS: &str = "demo · fake contacts, nothing is sent";
+
 /// Draw the logo screen in `area` (inside the pane's border).
 pub fn render(
     frame: &mut Frame<'_>,
@@ -185,13 +188,17 @@ fn rows_below(notes: usize) -> u16 {
     }
 }
 
-/// The lines under the logo: what's going on, then key hints, most useful
+/// The lines under the logo: what's going on (in the demo, first that it
+/// is one, D87), then key hints, most useful
 /// first. With nothing open the list has the keys (D60): `alt+j/k` (from
 /// anywhere) moves its highlight and `Enter` opens it.
 fn notes(state: &State, geometry: &Geometry) -> Vec<Note> {
     let empty = state.listed_in(SidebarView::Chats).next().is_none()
         && state.listed_in(SidebarView::Archive).next().is_none();
     let mut notes = Vec::new();
+    if state.is_demo() {
+        notes.push(Note::Status(DEMO_STATUS));
+    }
     if state.loading {
         notes.push(Note::Status("Loading…"));
     } else if empty {

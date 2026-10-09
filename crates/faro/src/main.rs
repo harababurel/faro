@@ -103,6 +103,7 @@ fn main() -> anyhow::Result<()> {
             config: settings,
             problems,
             themes,
+            profile,
         };
         let result = if let Some(args) = &demo {
             serve_demo(args, allowlist, &store, tz, detected, startup).await

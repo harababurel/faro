@@ -104,6 +104,7 @@ fn initial_state(directory: Directory, detected: state::Detected, startup: &mut 
     if directory.unguarded {
         state.guard = state::Guard::Off;
     }
+    state.profile = startup.profile;
     state.attachments_dir.clone_from(&startup.attachments_dir);
     sense_terminal(&mut state, detected);
     for problem in state.user_themes.load(std::mem::take(&mut startup.themes)) {
