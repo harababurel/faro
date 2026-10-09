@@ -196,10 +196,10 @@ const DUNDIES_NOMINEES: &str = "\
 THE DUNDIES — OFFICIAL NOMINEES (CONFIDENTIAL!!)
 
 Best Dundie Award ............ everybody (it's a tie, you are all winners)
-Spicy Curry Award ............ Kelly
+Busiest Profile Name Award ... Kelly
 Fine Work Award .............. Stanley (for his fine work)
-Hottest in the Office ........ Ryan (again, sorry everyone else)
-Don't Go In There After Me ... Kevin
+Most Likely to Pitch You ..... Ryan
+Best Chili Award ............. Kevin
 Best New Temp ................ the temp!!! (only nominee, you already won)
 
 Ceremony at the restaurant, 7pm. Dress code: formal-ish. Bring a speech.

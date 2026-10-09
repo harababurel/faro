@@ -113,7 +113,7 @@ pub(super) const SCENES: &[Scene] = &[
             say(Me, "Thank you! Happy to be here 🙂"),
             say(
                 Michael,
-                "Here is a pic of me at the beach 😏📸 rate it 1-10",
+                "Draft of my roast for Toby's birthday 🔥🔥 do NOT show Toby",
             )
             .delete(),
             say(Michael, "Wrong chat. Do not tell Toby."),
@@ -578,8 +578,12 @@ pub(super) const SCENES: &[Scene] = &[
             say(Kelly, "Michael no. बिल्कुल नहीं। 🙅🏽‍♀️")
                 .reply(3)
                 .react(&[(Jim, "😂")]),
-            say(Angela, "I'll bring my own food."),
-            say(Kelly, "Angela, मम्मी का खाना is the BEST. you'll see 💅🏽").reply(5),
+            say(Angela, "Is it formal? I need to know what to wear."),
+            say(
+                Kelly,
+                "Angela, wear something sparkly!!! ✨ मम्मी will love it 💅🏽",
+            )
+            .reply(5),
         ],
     },
     // --- Party Planning Committee ---
@@ -611,10 +615,10 @@ pub(super) const SCENES: &[Scene] = &[
                 Kelly,
                 "summer party theme: AROUND THE WORLD 🌍✨ 🇮🇳 🇯🇵 🇲🇽 🇮🇹 🇫🇷 🇩🇪",
             ),
-            say(Angela, "Absolutely not. Too many flags.").reply(0),
+            say(Angela, "Absolutely not. That's over budget.").reply(0),
             say(Phyllis, "I could do a pirate cake for the warehouse 🏴‍☠️"),
             say(Pam, "And a rainbow one for Pride! 🏳️‍🌈").react(&[(Kelly, "😍")]),
-            say(Angela, "One cake. Beige.").reply(3),
+            say(Angela, "One cake. Beige.").reply(2),
             say(Me, "I can help decorate!").react(&[(Pam, "❤️")]),
         ],
     },
@@ -757,7 +761,11 @@ pub(super) const REPLIES: &[(Who, &[&str])] = &[
     ),
     (
         KellysMom,
-        &["बहुत अच्छा, बेटा! 😊", "Take care, beta!", "खाना खाया? 🍛"],
+        &[
+            "बहुत अच्छा, बेटा! 😊",
+            "Take care, beta!",
+            "अपना ध्यान रखना! 🙏",
+        ],
     ),
     (
         Phyllis,

@@ -10,7 +10,7 @@ use crate::backend::Account;
 use crate::domain::{Contact, ConversationId, Group, GroupId, PhoneNumber, ServiceId};
 
 /// Seed for IDs. Changing it changes every mock ID, orphaning stored history.
-const WORLD_SEED: u64 = 0x00fa_0001;
+const WORLD_SEED: u64 = 0x00fa_0002;
 
 pub(super) struct World {
     pub(super) account: Account,
