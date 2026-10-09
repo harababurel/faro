@@ -1446,3 +1446,109 @@ fn read_receipt_marker_uses_accent_colour_and_message_info_popup_renders() {
     assert!(popup_text.contains("Bob"), "{popup_text}");
     assert_drawable(&compatible(state), 100, 30);
 }
+
+#[test]
+fn compact_density_omits_blank_separator_between_bubbles() {
+    use faro_core::config::MessageDensity;
+
+    let mut comfortable = loaded_state();
+    comfortable.layout = MessageLayout::Bubbles;
+    comfortable.config.messages.density = MessageDensity::Comfortable;
+    let spacious_grid = snapshot(&draw(&comfortable, 100, 30));
+    let spacious_first = spacious_grid
+        .lines()
+        .position(|l| l.contains("On my way"))
+        .expect("penultimate message in comfortable layout");
+    let spacious_second = spacious_grid
+        .lines()
+        .position(|l| l.contains("Running 10 min late"))
+        .expect("last message in comfortable layout");
+
+    let mut compact = loaded_state();
+    compact.layout = MessageLayout::Bubbles;
+    compact.config.messages.density = MessageDensity::Compact;
+    let tight_grid = snapshot(&draw(&compact, 100, 30));
+    let tight_first = tight_grid
+        .lines()
+        .position(|l| l.contains("On my way"))
+        .expect("penultimate message in compact layout");
+    let tight_second = tight_grid
+        .lines()
+        .position(|l| l.contains("Running 10 min late"))
+        .expect("last message in compact layout");
+
+    assert!(
+        tight_second - tight_first < spacious_second - spacious_first,
+        "compact bubbles should have fewer rows between consecutive messages \
+         (compact gap: {}, comfortable gap: {})",
+        tight_second - tight_first,
+        spacious_second - spacious_first
+    );
+}
+
+#[test]
+fn timestamp_formats_render_relative_and_off_with_selected_fallback() {
+    use crate::app::state::{Focus, Selection};
+    use faro_core::config::TimestampFormat;
+
+    // 1. Relative timestamps in IRC and Bubbles layouts.
+    // NOW_MS is 2026-10-07T18:00:00Z; the last two messages in climbing_history are at
+    // 17:54 (6m ago) and 17:55 (5m ago).
+    let mut state = loaded_state();
+    state.config.messages.timestamps = TimestampFormat::Relative;
+    let irc_relative = snapshot(&draw(&state, 100, 30));
+    assert!(irc_relative.contains("6m"), "{irc_relative}");
+    assert!(irc_relative.contains("5m"), "{irc_relative}");
+    assert!(!irc_relative.contains("17:54"), "{irc_relative}");
+    assert!(!irc_relative.contains("17:55"), "{irc_relative}");
+
+    state.layout = MessageLayout::Bubbles;
+    let bubbles_relative = snapshot(&draw(&state, 100, 30));
+    assert!(bubbles_relative.contains("6m"), "{bubbles_relative}");
+    assert!(bubbles_relative.contains("5m"), "{bubbles_relative}");
+    assert!(!bubbles_relative.contains("17:54"), "{bubbles_relative}");
+    assert!(!bubbles_relative.contains("17:55"), "{bubbles_relative}");
+
+    // 2. TimestampFormat::Off hides timestamps on unselected messages.
+    state.layout = MessageLayout::Irc;
+    state.config.messages.timestamps = TimestampFormat::Off;
+    let irc_hidden = snapshot(&draw(&state, 100, 30));
+    assert!(!irc_hidden.contains("17:54"), "{irc_hidden}");
+    assert!(!irc_hidden.contains("17:55"), "{irc_hidden}");
+
+    state.layout = MessageLayout::Bubbles;
+    let bubbles_hidden = snapshot(&draw(&state, 100, 30));
+    assert!(!bubbles_hidden.contains("17:54"), "{bubbles_hidden}");
+    assert!(!bubbles_hidden.contains("17:55"), "{bubbles_hidden}");
+
+    // 3. Selecting a message while focused on Focus::Messages shows HH:MM for that message only.
+    let last_msg = fixtures::climbing_history().last().unwrap().reference();
+    state.focus = Focus::Messages;
+    if let Some(open) = state.open.as_mut() {
+        open.selected = Some(Selection {
+            message: last_msg,
+            reveal: false,
+        });
+    }
+    state.layout = MessageLayout::Irc;
+    let irc_highlighted = snapshot(&draw(&state, 100, 30));
+    assert!(
+        irc_highlighted.contains("17:55"),
+        "selected message in IRC should show HH:MM: {irc_highlighted}"
+    );
+    assert!(
+        !irc_highlighted.contains("17:54"),
+        "unselected message in IRC should still hide timestamp: {irc_highlighted}"
+    );
+
+    state.layout = MessageLayout::Bubbles;
+    let bubbles_highlighted = snapshot(&draw(&state, 100, 30));
+    assert!(
+        bubbles_highlighted.contains("17:55"),
+        "selected message in Bubbles should show HH:MM: {bubbles_highlighted}"
+    );
+    assert!(
+        !bubbles_highlighted.contains("17:54"),
+        "unselected message in Bubbles should still hide timestamp: {bubbles_highlighted}"
+    );
+}

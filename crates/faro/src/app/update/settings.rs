@@ -4,7 +4,7 @@
 
 use faro_core::config::{
     self, AutoDownload, BubbleStyle, Config, DesktopNotifications, EmojiChoice, InlineImages,
-    NotificationPrivacy, Problem, Severity, TranscribeMode, key,
+    MessageDensity, NotificationPrivacy, Problem, Severity, TimestampFormat, TranscribeMode, key,
 };
 
 use super::{check_terminal, curation, selection};
@@ -225,6 +225,23 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
             effects.extend(save_with_notice(state, key::BUBBLE_STYLE, msg));
             effects
         }
+        SettingChoice::Density(density) => {
+            state.config.messages.density = density;
+            let msg = match density {
+                MessageDensity::Comfortable => "Message density: comfortable",
+                MessageDensity::Compact => "Message density: compact",
+            };
+            save_with_notice(state, key::DENSITY, msg)
+        }
+        SettingChoice::Timestamps(timestamps) => {
+            state.config.messages.timestamps = timestamps;
+            let msg = match timestamps {
+                TimestampFormat::Absolute => "Timestamps: absolute (HH:MM)",
+                TimestampFormat::Relative => "Timestamps: relative (now, 5m, 2h, 3d)",
+                TimestampFormat::Off => "Timestamps off (shown on the selected message)",
+            };
+            save_with_notice(state, key::TIMESTAMPS, msg)
+        }
         SettingChoice::Allowlist(on) => curation::set_allowlist_mode(state, on),
         SettingChoice::Emoji(emoji) => {
             state.config.ui.emoji = emoji;
@@ -237,6 +254,20 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
             effects.extend(save(state, key::EMOJI));
             effects
         }
+        SettingChoice::Desktop(_)
+        | SettingChoice::Privacy(_)
+        | SettingChoice::InlineImages(_)
+        | SettingChoice::AutoDownload(_)
+        | SettingChoice::Transcribe(_) => choose_media_and_notifications(state, choice),
+        SettingChoice::Mouse(on)
+        | SettingChoice::Bell(on)
+        | SettingChoice::Title(on)
+        | SettingChoice::ReduceMotion(on) => choose_toggle(state, choice, on),
+    }
+}
+
+fn choose_media_and_notifications(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
+    match choice {
         SettingChoice::Desktop(mode) => {
             state.config.notifications.desktop = mode;
             let msg = match mode {
@@ -290,10 +321,17 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
             effects.extend(save_with_notice(state, key::VOICE_TRANSCRIBE, msg));
             effects
         }
-        SettingChoice::Mouse(on)
-        | SettingChoice::Bell(on)
-        | SettingChoice::Title(on)
-        | SettingChoice::ReduceMotion(on) => choose_toggle(state, choice, on),
+        SettingChoice::Colors(_)
+        | SettingChoice::Emoji(_)
+        | SettingChoice::Layout(_)
+        | SettingChoice::BubbleStyle(_)
+        | SettingChoice::Density(_)
+        | SettingChoice::Timestamps(_)
+        | SettingChoice::Allowlist(_)
+        | SettingChoice::Mouse(_)
+        | SettingChoice::Bell(_)
+        | SettingChoice::Title(_)
+        | SettingChoice::ReduceMotion(_) => vec![],
     }
 }
 
@@ -342,6 +380,8 @@ fn choose_toggle(state: &mut State, choice: SettingChoice, on: bool) -> Vec<Effe
         | SettingChoice::Privacy(_)
         | SettingChoice::Layout(_)
         | SettingChoice::BubbleStyle(_)
+        | SettingChoice::Density(_)
+        | SettingChoice::Timestamps(_)
         | SettingChoice::Allowlist(_)
         | SettingChoice::InlineImages(_)
         | SettingChoice::AutoDownload(_)

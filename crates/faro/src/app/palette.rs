@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 use faro_core::config::{
     AutoDownload, BubbleStyle, Choice as _, ColorChoice, DesktopNotifications, EmojiChoice,
-    InlineImages, NotificationPrivacy, TranscribeMode,
+    InlineImages, MessageDensity, NotificationPrivacy, TimestampFormat, TranscribeMode,
 };
 use faro_core::domain::{ConversationId, ServiceId};
 use faro_core::store::{NotifyLevel, RemoteTranscription};
@@ -79,6 +79,8 @@ pub enum Setting {
     Emoji,
     Layout,
     BubbleStyle,
+    Density,
+    Timestamps,
     ReduceMotion,
     Bell,
     Title,
@@ -169,6 +171,8 @@ impl SettingsGroup {
                 Setting::Emoji,
                 Setting::Layout,
                 Setting::BubbleStyle,
+                Setting::Density,
+                Setting::Timestamps,
                 Setting::ReduceMotion,
             ],
             Self::Notifications => &[
@@ -195,6 +199,8 @@ impl Setting {
             Self::Emoji => "Emoji",
             Self::Layout => "Message layout",
             Self::BubbleStyle => "Bubble style",
+            Self::Density => "Message density",
+            Self::Timestamps => "Timestamps",
             Self::ReduceMotion => "Reduce motion",
             Self::Bell => "Bell",
             Self::Title => "Unread count in the window title",
@@ -216,6 +222,8 @@ impl Setting {
             | Self::Emoji
             | Self::Layout
             | Self::BubbleStyle
+            | Self::Density
+            | Self::Timestamps
             | Self::Desktop
             | Self::Privacy
             | Self::InlineImages
@@ -230,7 +238,9 @@ impl Setting {
     /// at the terminal.
     pub const fn previews(self) -> bool {
         match self {
-            Self::Colors | Self::Layout | Self::BubbleStyle => true,
+            Self::Colors | Self::Layout | Self::BubbleStyle | Self::Density | Self::Timestamps => {
+                true
+            }
             Self::Emoji
             | Self::ReduceMotion
             | Self::Bell
@@ -277,6 +287,8 @@ pub enum SettingChoice {
     Colors(ColorChoice),
     Layout(MessageLayout),
     BubbleStyle(BubbleStyle),
+    Density(MessageDensity),
+    Timestamps(TimestampFormat),
     Allowlist(bool),
     Emoji(EmojiChoice),
     Desktop(DesktopNotifications),
@@ -1027,6 +1039,16 @@ fn values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)>
             BubbleStyle::ALL,
             state.config.messages.bubble_style,
             SettingChoice::BubbleStyle,
+        ),
+        Setting::Density => choice_values(
+            MessageDensity::ALL,
+            state.config.messages.density,
+            SettingChoice::Density,
+        ),
+        Setting::Timestamps => choice_values(
+            TimestampFormat::ALL,
+            state.config.messages.timestamps,
+            SettingChoice::Timestamps,
         ),
         Setting::ReduceMotion => on_off(SettingChoice::ReduceMotion, state.config.reduce_motion),
         Setting::Bell => on_off(SettingChoice::Bell, state.config.notifications.bell),

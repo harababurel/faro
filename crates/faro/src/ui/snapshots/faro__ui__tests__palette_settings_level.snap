@@ -14,14 +14,14 @@ expression: "snapshot(&draw(&with_palette(\":\"), 100, 30))"
 │           │   Emoji ›                                                           auto │           │
 │           │   Message layout ›                                                   IRC │────────── │
 │           │   Bubble style ›                                                    auto │hursday?   │
-│           │   Reduce motion                                                      off │ss         │
+│           │   Message density ›                                          comfortable │ss         │
+│           │   Timestamps ›                                                  absolute │           │
+│           │   Reduce motion                                                      off │           │
 │           │ Notifications                                                            │           │
 │           │   Bell                                                                on │           │
-│           │   Unread count in the window title                                    on │           │
-│           │   Desktop notifications ›                                           auto │           │
-│           │   Notification privacy ›                                          sender │────────── │
-│           │ Conversations                                                            │ast week   │
-│           │   Allowlist mode                                                     off │bring your │
+│           │   Unread count in the window title                                    on │────────── │
+│           │   Desktop notifications ›                                           auto │ast week   │
+│           │   Notification privacy ›                                          sender │bring your │
 │           ╰──────────────────────────────────────────────────────────────────────────╯for your   │
 │                            ││                  fingers.                                          │
 │                            ││ 17:54        You On my way ✓                                       │

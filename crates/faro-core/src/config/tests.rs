@@ -51,6 +51,9 @@ fn key_constants_name_settings() {
         key::EMOJI,
         key::ALLOWLIST,
         key::LAYOUT,
+        key::BUBBLE_STYLE,
+        key::DENSITY,
+        key::TIMESTAMPS,
         key::AUTO_DOWNLOAD,
         key::INLINE_IMAGES,
         key::VOICE_PLAYER,
@@ -72,7 +75,7 @@ fn settings_are_read() {
         "theme = \"other\"\n\
          [ui]\nemoji = \"compatible\"\n\
          [conversations]\nallowlist = true\n\
-         [messages]\nlayout = \"irc\"\n\
+         [messages]\nlayout = \"irc\"\ndensity = \"compact\"\ntimestamps = \"relative\"\n\
          [media]\nauto_download = \"all\"\ninline_images = \"halfblocks\"\n\
          [voice]\nplayer = \"mpv\"\ntranscribe = \"local\"\ntranscribe_command = \"whisper-cli\"\n\
          transcribe_model = \"small\"\ntranscribe_language = \"en\"\ntranscribe_max_secs = 180\n\
@@ -85,6 +88,8 @@ fn settings_are_read() {
     assert_eq!(c.ui.emoji, EmojiChoice::Compatible);
     assert!(c.conversations.allowlist);
     assert_eq!(c.messages.layout, MessageLayout::Irc);
+    assert_eq!(c.messages.density, MessageDensity::Compact);
+    assert_eq!(c.messages.timestamps, TimestampFormat::Relative);
     assert_eq!(c.media.auto_download, AutoDownload::All);
     assert_eq!(c.media.inline_images, InlineImages::Halfblocks);
     assert_eq!(c.voice.player, "mpv");
@@ -183,11 +188,11 @@ fn unknown_and_planned_keys_are_warnings() {
          [voice]\ntranscribe_api_key = \"sk-secret\"\n[nope]\nx = 1\n",
     );
     assert_eq!(parsed.config.messages.layout, MessageLayout::Irc);
+    assert_eq!(parsed.config.messages.density, MessageDensity::Compact);
     assert_eq!(
         parsed.problems,
         vec![
             Problem::warning("unknown setting colour; ignored"),
-            Problem::warning("messages.density isn't supported yet; ignored"),
             Problem::warning(
                 "voice.transcribe_api_key is ignored: API keys are never read from config.toml; \
                  set $FARO_TRANSCRIBE_API_KEY or $OPENAI_API_KEY"
