@@ -1,6 +1,6 @@
 # Pasting images from the clipboard over SSH (research, 2026-10-09)
 
-Status: **proposed, not scheduled** (D89). This note keeps the investigation, the owner's hands-on experiment and an implementation plan, so the feature can be picked up later without redoing the work.
+Status: **proposed, not scheduled** (D89). **Phase 0 done** (D90, see "Phase 0 results" below). This note keeps the investigation, the owner's hands-on experiment and an implementation plan, so the feature can be picked up later without redoing the work.
 
 ## Summary
 
@@ -99,6 +99,18 @@ Try, in order, on a scratch branch:
 3. Fallback idea for tmux only: run the request from a short-lived helper in `tmux display-popup` (its own pty), which writes the file and exits. Unverified: passthrough and reply routing for popups.
 
 **Acceptance:** directly in kitty and inside tmux, a hand-triggered read returns the image bytes; no key events appear in the input during or after; typing works right after; repeated reads work. Record the outcome as a decision (amending D84's lifecycle rule).
+
+### Phase 0 results (2026-10-09, D90)
+
+- **Option 1 (pause crossterm) works.** Spike: `tools/clipboard-spike` on branch `spike/clipboard-osc5522`, a standalone crate. `fake_kitty.py` runs it in a pty, directly or behind a private tmux, and answers like kitty. The exact mechanism is in D90.
+- **Fake kitty (Linux, tmux 3.6b):** a 300 KB PNG was identical on every read, directly and through tmux, with writes of 1–50, 1–3,000 and 1–65,536 bytes. No stray keys; typing works right after.
+- **Owner (kitty → SSH → Mac mini → tmux, macOS):** a 285,083-byte PNG intact in 1.6 s; `EPERM` when denied; no prompt for the type list.
+- **Found along the way:**
+  - **Rebuilding the reply from key events is out:** crossterm wedges on bursts and input stops for good (D90).
+  - **A late reply** (after faro stopped waiting) types garbage and then wedges input. It needs the guard in D90.
+  - **tmux put kitty's focus-in report inside the image data.** The parser cuts `ESC [ … final` out of packets. Focus reports from inside or outside packets become focus events again.
+  - **Several tmux clients:** every attached kitty answers and the first wins. In the owner's first run another kitty, with text on its clipboard, answered first.
+- **Re-run:** `cd tools/clipboard-spike && cargo build && python3 fake_kitty.py target/debug/clipboard-spike <png> <scratch dir> [--tmux] [--focus-inside]`. In a real terminal: `./target/debug/clipboard-spike --log /tmp/spike.log --out /tmp`, then `1` (list types) and `2` (read the image). Never press `4` with an image: approach B wedges input.
 
 ### Phase 1: protocol module (pure, testable)
 

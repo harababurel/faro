@@ -755,7 +755,7 @@ Refines the DESIGN.md §5.1 sketch:
 - **Setting:** extend the existing `[media] inline_images` / `Ctrl+P › Settings › Inline images` to `"auto" | "kitty" | "sixel" | "iterm2" | "halfblocks" | "off"`. Auto remains the default with D78's detection and fallback rules. Values cycle and save through the existing settings machinery.
 - **Overrides:** explicit graphics modes select that protocol immediately, without a capability query or confirmation dialog. They override mixed/detached tmux, mosh and colour-depth fallback decisions. **Judgement:** colour depth limits text-cell colours, not graphics payloads, so forced graphics remain available at 256/16 colours. These choices cannot make an incompatible terminal or mosh carry graphics; the values page says that compatibility and tmux passthrough are required.
 - **Explanation:** the values page shows Auto's selected mode and reason (colour depth, mosh, mixed/detached tmux clients, startup detection, or restart needed to query). The app records only the query result in State; encoded images remain in the app-loop cache. The renderer refreshes the note while the page stays open.
-- **Lifecycle:** no new stdin queries after EventStream starts. Explicit modes work live even if startup skipped detection; without a query they use the existing picker's estimated cell pixel size. Returning to Auto uses the saved startup result, or half-blocks until restart if there was no query. Protocol changes invalidate cached/in-flight encodes; overlay placeholders and frame safeguards are retained.
+- **Lifecycle:** no new stdin queries after EventStream starts (**amended by D90**: allowed only by pausing crossterm as D90 describes). Explicit modes work live even if startup skipped detection; without a query they use the existing picker's estimated cell pixel size. Returning to Auto uses the saved startup result, or half-blocks until restart if there was no query. Protocol changes invalidate cached/in-flight encodes; overlay placeholders and frame safeguards are retained.
 
 ### D85. Package names: `faro` everywhere, `faro-chat` on crates.io — Accepted (owner, 2026-10-09)
 
@@ -807,3 +807,19 @@ Refines the DESIGN.md §5.1 sketch:
 - **Scope:** kitty only, over SSH with or without tmux. **mosh is out of scope** (owner): it relays screen state, not bytes, so neither request nor reply crosses.
 - **Main constraint:** crossterm would turn the reply into one key event per byte (`Alt+]`, then hundreds of thousands of `Char`s), and D84 forbids stdin queries after `EventStream` starts. The plan starts with a spike (pause crossterm and read the tty directly, or faro's own input reader) whose outcome amends D84.
 - **Plan:** Phase 0 spike, Phase 1 `faro-core::clipboard` parser, Phase 2 `Alt+V` / palette *Paste image* staging the image like a pasted file, optional Phase 3 kitty paste events (Cmd+V, single-use password) with its tmux risks. Details and open questions in the research note; scheduled in PLAN.md "Later".
+
+### D90. Reading terminal replies after startup: pause crossterm, read the tty directly (amends D84) — Accepted (owner, 2026-10-09)
+
+- **Why:** D89 needs kitty's OSC 5522 reply while the TUI runs; D84 forbade stdin queries once `EventStream` starts. Phase 0 spike: `tools/clipboard-spike` on branch `spike/clipboard-osc5522` (fake-kitty harness `fake_kitty.py`), then the owner's run in kitty → SSH → Mac mini → tmux.
+- **Decision:** to read a reply, faro:
+  1. drops the `EventStream` (crossterm's global reader outlives it; its thread exits when woken);
+  2. calls `crossterm::event::poll(20 ms)` once as a barrier, so the old thread has let go (keys read here stay queued for the next stream);
+  3. writes the request, then on a blocking thread waits on fd 0 with mio (epoll/kqueue; `poll(2)` doesn't work on macOS ttys) and reads exactly `FIONREAD` bytes, so it never blocks. It never sets `O_NONBLOCK`: the tty is shared with stdout;
+  4. stops at the end of the reply, an error status, or a timeout, then creates a new `EventStream`.
+- **Late-reply guard:** a reply that arrives after faro stopped waiting reaches crossterm as keys (`Alt+]`, then one `Char` per byte). The app watches for `Alt+]` followed by `5522;`, then drops the stream, discards crossterm's queued events and drains the tty the same way until `DONE`.
+- **Inside the reply:** packets never contain `ESC`, so any `ESC [ … final` inside one (tmux put kitty's focus-in report in the middle of the image on the owner's machine) is cut out before decoding. Bytes outside packets during a read are dropped. Focus reports from either place are turned back into focus events (D42).
+- **Results:** fake kitty, 300 KB PNG: identical every time, directly and through tmux 3.6b, with any write sizes; no stray keys; typing works right after. Owner, kitty → SSH → tmux on macOS: a 285,083-byte PNG intact in 1.6 s, `EPERM` when denied, no prompt for the type list.
+- **Rejected:**
+  - Rebuilding the reply from crossterm's key events. crossterm 0.29 wedges on bursts: it returns after each 1 KB read, its fd is blocking and mio is edge-triggered, so once the kernel tty buffer fills (and throttles), no new edge comes and input stops for good, later keys included. It worked only with an artificially slow writer.
+  - faro's own input reader, and a helper in a tmux popup: not needed.
+- **Several tmux clients:** every attached kitty answers, and the first answer wins. In the owner's first run a second kitty with text on its clipboard answered first; the guard drained the real reply. Phase 2 has to handle this (see the D89 open questions).
