@@ -123,6 +123,7 @@ async fn execute(store: &Store, effect: Effect) -> Result<Option<AppEvent>, Stor
         | Effect::StageFile(_)
         | Effect::CheckPaste { .. }
         | Effect::CheckTerminal
+        | Effect::ReadClipboardImage { .. }
         | Effect::Bell
         | Effect::DesktopNotify { .. }
         | Effect::SaveSetting(_) => {
@@ -168,6 +169,7 @@ async fn write_effect(store: &Store, effect: Effect) -> Result<(), StoreError> {
         | Effect::StageFile(_)
         | Effect::CheckPaste { .. }
         | Effect::CheckTerminal
+        | Effect::ReadClipboardImage { .. }
         | Effect::Bell
         | Effect::DesktopNotify { .. }
         | Effect::SaveSetting(_) => Ok(()),

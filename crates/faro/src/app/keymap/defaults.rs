@@ -19,6 +19,16 @@ pub const NAMES: &[(&str, &str, Action)] = &[
         Action::ToggleBell,
     ),
     (
+        "attachment.paste_image",
+        "Paste an image from the clipboard",
+        Action::PasteImage,
+    ),
+    (
+        "attachment.view_staged",
+        "Show the image about to be sent",
+        Action::ViewStagedImage,
+    ),
+    (
         "conversation.previous",
         "Previous conversation",
         Action::PreviousConversation,
@@ -277,6 +287,9 @@ pub const BINDINGS: &[(Context, &str, Action)] = &[
     (Global, "alt+s", Action::ToggleLeftSidebar),
     (Global, "alt+i", Action::ToggleRightSidebar),
     (Global, "alt+n", Action::ToggleBell),
+    // Clipboard images (D91): Cmd+V and Ctrl+Shift+V are the terminal's own.
+    (Global, "ctrl+v", Action::PasteImage),
+    (Global, "ctrl+o", Action::ViewStagedImage),
     (Global, "tab", Action::FocusNext),
     (Global, "shift+tab", Action::FocusPrevious),
     (Global, "pgup", Action::PageUp),

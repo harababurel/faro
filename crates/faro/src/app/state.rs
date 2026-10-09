@@ -151,6 +151,8 @@ pub struct State {
     pub user_themes: UserThemes,
     /// Directory where downloaded and outgoing attachments are stored (D75, D77).
     pub attachments_dir: PathBuf,
+    /// A clipboard image is being read for this conversation (`Ctrl+V`, D91).
+    pub pasting: Option<ConversationId>,
     /// Attachments currently downloading (`<= MAX_DOWNLOADS_IN_FLIGHT`, D75).
     pub downloading: HashSet<(MessageRef, usize)>,
     /// Attachments waiting for a download slot (D75).
@@ -410,6 +412,8 @@ pub enum Popup {
     },
     /// Confirmation prompt before deleting one of our own messages for everyone.
     ConfirmDelete { target: MessageRef },
+    /// The staged attachment, full size, before it's sent (`Ctrl+O`, D91).
+    StagedImage,
     /// What can be done with a conversation (`Space` or right-click in the
     /// sidebar, D41).
     Conversation {
@@ -756,6 +760,7 @@ impl State {
             config_problems: Vec::new(),
             user_themes: UserThemes::default(),
             attachments_dir: PathBuf::from("attachments"),
+            pasting: None,
             downloading: HashSet::new(),
             download_queue: VecDeque::new(),
             save_when_downloaded: HashSet::new(),

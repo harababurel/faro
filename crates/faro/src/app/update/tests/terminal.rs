@@ -17,6 +17,7 @@ fn checked(mosh: bool) -> AppEvent {
         } else {
             GraphicsSupport::Direct
         },
+        kitty: false,
     })
 }
 
@@ -113,6 +114,7 @@ fn an_auto_bubble_style_follows_kitty() {
         mosh: false,
         glyphs: BlockGlyphs::Native,
         graphics: GraphicsSupport::Direct,
+        kitty: true,
     };
     update(&mut state, AppEvent::TerminalChecked(kitty));
     assert_eq!(state.env.glyphs, BlockGlyphs::Native);

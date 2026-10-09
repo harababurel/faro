@@ -21,20 +21,25 @@ gethostname = "1.0"
 futures-util = "0.3.34"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 jiff = "0.2.38"
+# Reading the tty while crossterm is paused (D90): readiness like crossterm's, `FIONREAD`.
+mio = { version = "1.2.4", features = ["os-poll", "os-ext"] }
 ratatui = { version = "0.30.2", default-features = false, features = ["crossterm", "layout-cache", "underline-color"] }
 ratatui-image = { version = "11.1", default-features = false, features = ["crossterm"] }
 tokio = { version = "1.53.2", features = ["rt", "macros", "process", "signal", "sync", "time", "fs", "io-util"] }
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+rustix = { version = "1.1.5", default-features = false, features = ["std", "termios"] }
 unicode-segmentation = "1.13.3"
 unicode-width = "0.2.2"
 nucleo-matcher = "0.3.1"
 notify = "8.2.0"
 qrcode = { version = "0.14", default-features = false }
-uuid = "1.27.0"
+# v4: kitty's per-run clipboard password and request ids (D91).
+uuid = { version = "1.27.0", features = ["v4"] }
 
 [dev-dependencies]
+base64 = "0.22.1"
 insta = "1.49.0"
 tempfile = "3.27.0"
 tokio = { version = "1.53.2", features = ["rt", "macros", "time", "test-util"] }

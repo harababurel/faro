@@ -324,6 +324,22 @@ Use a separate data dir for the test account, e.g. `--data-dir ~/.local/share/fa
 - [ ] **Your own actions:** in the backlog you (the temp) sometimes reacted from "the phone": those reactions show as yours. Michael's deleted message (a roast draft meant for Toby) shows as deleted. Kelly's name in the sidebar changes now and then (profile changes).
 - [ ] **Replies in character:** send a message to Dwight, Stanley or a group: when someone answers, it's in that character's voice; a quiet contact (e.g. "Hank (security desk)") answers briefly.
 
+## Clipboard images (D89–D91)
+
+In kitty, with an image copied on the machine you type on (e.g. *Copy Image* in a browser). Run `faro demo` in each setup: kitty directly, kitty → SSH, kitty → SSH → tmux (`allow-passthrough on`).
+
+- [ ] **Paste:** open a chat and press `Ctrl+V`. The footer says "Waiting for kitty…", kitty asks for permission; allow. The bar above the input shows `📎 clipboard-….png · W×H · size  ctrl+o view ·  esc remove` and nothing is sent.
+- [ ] **Look before sending:** `Ctrl+O` shows the image full size with "Not sent yet"; `Esc` closes it and the bar is still there. Type a caption, `Enter`: it's sent with the caption; the demo shows it like any sent photo.
+- [ ] **Typing works right after:** after each paste (allowed, denied, or no image), keys go to the input as usual, with no stray characters.
+- [ ] **Deny:** `Ctrl+V`, deny in kitty: "Clipboard access denied in kitty", nothing staged.
+- [ ] **Allow all:** choose kitty's "allow all" option once; the next `Ctrl+V` stages the image with no prompt, and still doesn't send it. After restarting faro, kitty asks again.
+- [ ] **No image:** copy some text, `Ctrl+V`: "No image on the clipboard".
+- [ ] **Too large:** an image over 25 MB: "Image too large (over 25.0 MB)", and typing works afterwards.
+- [ ] **Two kitty windows attached** to the same tmux session (as on the Mac mini): `Ctrl+V` in one stages the image from that machine's clipboard; the other screen may show a kitty prompt. Answering it later (allow or deny) changes nothing in faro and types nothing.
+- [ ] **Late answer:** `Ctrl+V`, wait over 2 minutes without answering ("No answer from kitty…"), then allow: nothing is typed into faro, and keys keep working.
+- [ ] **Elsewhere:** in a terminal that isn't kitty, `Ctrl+V` says "Pasting images needs kitty" at once; through mosh, "Pasting images doesn't work over mosh".
+- [ ] **Esc after a paste:** a lone `Esc` still dismisses things normally (it can be held back for up to 50 ms after the first paste; that shouldn't be noticeable).
+
 ## M8: terminal matrix (D50; run after M7 against the real backend, and once now with the demo)
 
 Columns: **direct** = faro straight in kitty; **tmux** = kitty → tmux (with the README's tmux settings); **SSH** = kitty → ssh → tmux on the other machine; **mosh** = kitty → mosh → tmux. Mark each cell ✓, ✗ (add a note below) or – (not applicable). Also try one other terminal per OS (WezTerm/Ghostty/Alacritty/foot on Linux, iTerm2 and Terminal.app on macOS) for the rows marked †.

@@ -353,6 +353,13 @@ pub fn on_popup(state: &mut State, key: PopupKey) -> Vec<Effect> {
                 vec![]
             }
         },
+        Popup::StagedImage => match key {
+            PopupKey::Close | PopupKey::Choose | PopupKey::Char('q') => vec![],
+            PopupKey::Previous | PopupKey::Next | PopupKey::Backspace | PopupKey::Char(_) => {
+                state.popup = Some(Popup::StagedImage);
+                vec![]
+            }
+        },
         Popup::ConfirmDelete { target } => match key {
             PopupKey::Choose | PopupKey::Char('y' | 'Y') => confirm_delete(state, target),
             PopupKey::Close | PopupKey::Char('n' | 'N' | 'q') => vec![],

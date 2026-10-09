@@ -124,6 +124,7 @@ const REACT_HINTS: &[(&str, &str)] = &[
 const REACT_SEARCH_HINTS: &[(&str, &str)] =
     &[("↑↓", "choose"), ("enter", "react"), ("esc", "close")];
 const IMAGE_VIEWER_HINTS: &[(&str, &str)] = &[("s", "save"), ("y", "copy path"), ("esc", "close")];
+const STAGED_IMAGE_HINTS: &[(&str, &str)] = &[("esc", "close")];
 const CONFIRM_DELETE_HINTS: &[(&str, &str)] = &[("enter/y", "delete"), ("esc/n", "cancel")];
 const MESSAGE_INFO_HINTS: &[(&str, &str)] = &[("esc", "close")];
 
@@ -227,6 +228,7 @@ fn hints(state: &State, geometry: &Geometry) -> Vec<(String, &'static str)> {
             Popup::Mute { .. } => fixed(MUTE_HINTS),
             Popup::MessageInfo { .. } => fixed(MESSAGE_INFO_HINTS),
             Popup::ImageViewer { .. } => fixed(IMAGE_VIEWER_HINTS),
+            Popup::StagedImage => fixed(STAGED_IMAGE_HINTS),
         };
     }
     let (focus, hints) = if focused(state, geometry, Focus::Messages) {

@@ -12,7 +12,8 @@ use unicode_width::UnicodeWidthStr as _;
 use super::text::{one_line, sanitize, truncate};
 use super::{View, bubbles, focused, logo, messages};
 use crate::app::input::Input;
-use crate::app::state::{Focus, Geometry, OpenConversation, State};
+use crate::app::keymap::Action;
+use crate::app::state::{Focus, Geometry, OpenConversation, StagedAttachment, State};
 use faro_core::domain::MessageRef;
 
 /// The input box grows with its text up to this many lines.
@@ -269,6 +270,55 @@ fn render_typing(
     );
 }
 
+/// The `📎 name · size  esc remove` line above the input (D77); images also
+/// show their size in pixels and the key that shows them (D91).
+fn staged_bar(
+    frame: &mut Frame<'_>,
+    inner: &mut Rect,
+    state: &State,
+    staged: &StagedAttachment,
+    view: &View<'_>,
+) {
+    let theme = view.theme;
+    let icon = if state.env.emoji.mode == crate::app::state::EmojiMode::Compatible {
+        "[file]"
+    } else {
+        "📎"
+    };
+    let name = sanitize(&staged.name);
+    let size = faro_core::domain::format_byte_size(staged.size);
+    let dims = match (staged.width, staged.height) {
+        (Some(w), Some(h)) if w > 0 && h > 0 => format!(" · {w}×{h}"),
+        _ => String::new(),
+    };
+    let details = format!("{dims} · {size}");
+    let show = staged
+        .content_type
+        .starts_with("image/")
+        .then(|| state.keymap.hint(&[Action::ViewStagedImage], Focus::Input))
+        .flatten()
+        .map(|key| format!("  {key} view ·"))
+        .unwrap_or_default();
+    let hint = format!("{show}  esc remove");
+    // The name gives way first: the size and pixels always show.
+    let room =
+        usize::from(inner.width).saturating_sub(hint.width() + icon.width() + 1 + details.width());
+    let text = format!("{icon} {}{details}", truncate(&name, room));
+    let line = Line::from(vec![
+        Span::styled(text, Style::new().fg(theme.accent)),
+        Span::styled(hint, theme.muted()),
+    ]);
+    frame.render_widget(
+        Paragraph::new(line),
+        Rect {
+            height: 1,
+            ..*inner
+        },
+    );
+    inner.y += 1;
+    inner.height = inner.height.saturating_sub(1);
+}
+
 fn render_input(
     frame: &mut Frame<'_>,
     area: Rect,
@@ -325,26 +375,7 @@ fn render_input(
     }
 
     if let Some(staged) = &open.staged_attachment {
-        let icon = if state.env.emoji.mode == crate::app::state::EmojiMode::Compatible {
-            "[file]"
-        } else {
-            "📎"
-        };
-        let name = sanitize(&staged.name);
-        let size = faro_core::domain::format_byte_size(staged.size);
-        let text = format!("{icon} {name} · {size}");
-        let hint = "  esc remove";
-        let room = usize::from(inner.width).saturating_sub(hint.width());
-        let line = Line::from(vec![
-            Span::styled(
-                truncate(&text, room).into_owned(),
-                Style::new().fg(theme.accent),
-            ),
-            Span::styled(hint, theme.muted()),
-        ]);
-        frame.render_widget(Paragraph::new(line), Rect { height: 1, ..inner });
-        inner.y += 1;
-        inner.height = inner.height.saturating_sub(1);
+        staged_bar(frame, &mut inner, state, staged, view);
     }
 
     if open.input.is_empty() {

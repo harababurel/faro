@@ -1399,6 +1399,32 @@ fn staged_attachment_bar_renders_above_the_input() {
     assert_drawable(&compatible(state), 100, 24);
 }
 
+/// D91: a pasted image shows its size in pixels and the key that shows it.
+#[test]
+fn staged_image_bar_shows_dimensions_and_the_view_key() {
+    use crate::app::state::{Popup, StagedAttachment};
+    use std::path::PathBuf;
+
+    let mut state = loaded_state();
+    state.open.as_mut().unwrap().staged_attachment = Some(StagedAttachment {
+        path: PathBuf::from("/tmp/clipboard-20261009-142233.png"),
+        name: "clipboard-20261009-142233.png".into(),
+        content_type: "image/png".into(),
+        size: 285_083,
+        width: Some(600),
+        height: Some(313),
+    });
+    let text = snapshot(&draw(&state, 100, 24));
+    assert!(text.contains("📎 clipboard-"), "{text}");
+    assert!(text.contains("· 600×313 · 278.4 KB"), "{text}");
+    assert!(text.contains("ctrl+o view"), "{text}");
+    insta::assert_snapshot!(text);
+    state.popup = Some(Popup::StagedImage);
+    let text = snapshot(&draw(&state, 100, 24));
+    assert!(text.contains("Not sent yet"), "{text}");
+    assert_drawable(&compatible(state), 100, 24);
+}
+
 #[test]
 fn voice_note_renders_waveform_progress_and_transcript() {
     use crate::app::state::PlayingVoiceNote;

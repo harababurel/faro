@@ -527,6 +527,9 @@ pub struct Terminal {
     /// Whether terminal graphics protocols are safe to use, or mixed/mosh
     /// clients require Unicode half-blocks (D78).
     pub graphics: GraphicsSupport,
+    /// A kitty can be reached without mosh: directly, or as at least one of
+    /// the clients attached to faro's tmux session (clipboard images, D91).
+    pub kitty: bool,
 }
 
 /// Look at the terminals between faro and the user. Outside tmux: whether
@@ -553,12 +556,17 @@ pub async fn inspect_terminal() -> Terminal {
                 mosh: any_mosh,
                 glyphs: glyphs_of_clients(&clients),
                 graphics: graphics_of_clients(&clients, any_mosh),
+                kitty: clients
+                    .iter()
+                    .any(|(pid, term)| is_kitty(term) && !mosh(*pid)),
             }
         } else {
             let under_mosh = mosh(std::process::id());
+            let glyphs = glyphs_of_environment(|var| std::env::var(var).ok());
             Terminal {
                 mosh: under_mosh,
-                glyphs: glyphs_of_environment(|var| std::env::var(var).ok()),
+                glyphs,
+                kitty: glyphs == BlockGlyphs::Native && !under_mosh,
                 graphics: if under_mosh {
                     GraphicsSupport::HalfblocksOnly
                 } else {

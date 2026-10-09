@@ -85,6 +85,8 @@ pub fn on_action(state: &mut State, action: Action) -> Vec<Effect> {
         Action::Palette(key) => return palette::on_key(state, key),
         Action::Redraw => state.env.repaint = true,
         Action::ToggleBell => return super::settings::toggle_bell(state),
+        Action::PasteImage => return super::sending::paste_image(state),
+        Action::ViewStagedImage => super::sending::view_staged(state),
     }
     vec![]
 }

@@ -102,7 +102,14 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
             vec![]
         }
         AppEvent::PasteChecked { raw, staged } => sending::on_paste_checked(state, &raw, staged),
-        AppEvent::ImageDecoded(_) => vec![],
+        AppEvent::ClipboardImage {
+            conversation,
+            result,
+        } => {
+            sending::on_clipboard_image(state, conversation, result);
+            vec![]
+        }
+        AppEvent::ImageDecoded(_) | AppEvent::ClipboardDrained => vec![],
         AppEvent::PlaybackFinished {
             message,
             index,
@@ -698,6 +705,8 @@ fn terminal_checked(state: &mut State, terminal: Terminal) -> Vec<Effect> {
         mosh,
         glyphs,
         graphics,
+        // Checked afresh on every paste (D91).
+        kitty: _,
     } = terminal;
     state.env.glyphs = glyphs;
     if state.env.graphics != graphics {

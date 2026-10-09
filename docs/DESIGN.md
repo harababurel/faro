@@ -249,6 +249,7 @@ Chosen to avoid tmux's default prefix (`Ctrl+B`) and common terminal shortcuts. 
 | `Ctrl+A/E`, `Alt+B/F`, `Ctrl+W`, `Alt+D`, `Ctrl+U/K` | Input editing: line start/end, word left/right, delete word back/forward, delete to line start/end; arrows, `Home/End` and `Alt`/`Ctrl`+arrows too (D38) |
 | `Alt+S` / `Alt+I` | Toggle left / right sidebar |
 | `Alt+N` | Do not disturb: the bell off / on (D53) |
+| `Ctrl+V` / `Ctrl+O` | Paste an image from the clipboard (kitty) / show the staged image before sending it (D91) |
 | `F1` or `?` (in non-input focus) | Help: opens the palette listing all keybindings |
 | `PgUp` / `PgDn` | Scroll messages by a page, from any pane (D37) |
 | `↑↓` / `j k`, `g G` / `Home End` | In the sidebar: switch conversation, first/last (D37). In the message pane: select an older/newer message, oldest/newest loaded; `↓` past the newest goes back to the input (D40) |
@@ -294,6 +295,13 @@ Keys in the message pane: `d` download, `v` view (for an image, else open locall
 - A bracketed paste that is exactly one path (quotes, `file://` and backslash escapes removed) is checked off the UI thread (`Effect::CheckPaste`). If it names a regular file, the file is attached; otherwise the text is pasted as usual. This is what dragging a file into most terminals does. Over SSH it only works for files on the machine faro runs on.
 - **One file per message** for now. An attached file shows as a bar above the input (`📎 name · size  esc remove`), beside the reply bar. The input text becomes the caption, and `Enter` sends even with no text. Files over 100 MB (Signal's limit) are refused with a notice.
 - On send, the command task first copies the file into `attachments/` (the local echo points at the copy, so history and *Retry* don't depend on the original), then calls `Backend::send` with `OutgoingMessage::attachments`. The presage backend uploads (`upload_attachment`) and sends the pointer. The guard checks the conversation before anything is uploaded (D62).
+
+**Pasting images from the clipboard (D89–D91).**
+- `Ctrl+V` (or *Paste an image from the clipboard* in the open chat's palette commands) asks kitty for the clipboard over OSC 5522. This works directly in kitty and over SSH, with or without tmux (the request is wrapped in passthrough), but not over mosh. Other terminals get "Pasting images needs kitty".
+- faro lists the clipboard's types first (no prompt), then asks for the best image type (PNG, JPEG, GIF, WebP) with a per-run password, so kitty can offer "allow all" until faro restarts. Every kitty attached to faro's tmux session answers; the first list with an image wins.
+- **Reading the reply (D90):** the app loop drops crossterm's `EventStream` and reads the tty itself with mio + `FIONREAD`, then makes a new stream. While faro waits for kitty's prompt (2 min), it keeps drawing and receiving, but keys typed into it are dropped. Focus reports found in the reply become focus events again.
+- A reply that comes after faro stopped waiting reaches crossterm as keys (`Alt+]`, `5522;`…). The late-reply guard (armed after the first paste) holds such keys back for up to 50 ms and drains the rest of the reply from the tty.
+- The image is saved as `attachments/clipboard-<local time>.<ext>` (`0600`) and **staged, never sent**: the bar shows `📎 name · W×H · size  ctrl+o view ·  esc remove`, the name shortened first. `Ctrl+O` opens it in the full-size viewer; `Enter` sends it like any attached file, with the input as its caption. Limit: 25 MB.
 
 **Inline images (D78, D84).**
 - `ratatui-image` 11 (MIT), default features off (no libchafa), with `image` decoding JPEG, PNG, GIF (first frame) and WebP. It is used through `sliced::SlicedProtocol`, which can draw an image cut off at the top or bottom of the pane, as scrolling needs.

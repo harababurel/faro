@@ -12,10 +12,12 @@ use faro_core::domain::{
 use faro_core::paths;
 
 use super::{on_backend, summary_entry};
+use crate::app::clipboard::ClipboardError;
 use crate::app::commands::Command;
 use crate::app::event::Effect;
 use crate::app::input::Input;
-use crate::app::state::{Focus, Notice, StagedAttachment, State};
+use crate::app::keymap::Action;
+use crate::app::state::{Focus, Notice, Popup, StagedAttachment, State};
 
 /// Signal's object-replacement placeholder for an inline mention (D72).
 const MENTION_PLACEHOLDER: char = '\u{FFFC}';
@@ -324,6 +326,72 @@ pub fn on_paste_checked(
     }
     super::navigation::insert_pasted_text(state, raw);
     super::presence::on_edited(state)
+}
+
+/// `Ctrl+V` (D91): ask kitty for the clipboard's image. The app loop pauses
+/// input while it waits (D90), so this can't be pressed twice.
+pub fn paste_image(state: &mut State) -> Vec<Effect> {
+    let Some(open) = state.open.as_ref() else {
+        state.notice = Some(Notice::info("Open a conversation to paste an image"));
+        return vec![];
+    };
+    if state.pasting.is_some() {
+        return vec![];
+    }
+    let conversation = open.id;
+    state.pasting = Some(conversation);
+    state.notice = Some(Notice::warning(
+        "Waiting for kitty… allow the clipboard prompt",
+    ));
+    vec![Effect::ReadClipboardImage { conversation }]
+}
+
+/// The clipboard read is over: stage the image (never send it, D91), or say
+/// why not.
+pub fn on_clipboard_image(
+    state: &mut State,
+    conversation: ConversationId,
+    result: Result<StagedAttachment, ClipboardError>,
+) {
+    state.pasting = None;
+    let staged = match result {
+        Ok(staged) => staged,
+        Err(error) => {
+            state.notice = Some(error.notice());
+            return;
+        }
+    };
+    let Some(open) = state.open.as_mut().filter(|open| open.id == conversation) else {
+        state.notice = Some(Notice::warning(
+            "The pasted image was dropped: the conversation changed",
+        ));
+        return;
+    };
+    open.staged_attachment = Some(staged);
+    state.focus = Focus::Input;
+    let view = state
+        .keymap
+        .hint(&[Action::ViewStagedImage], Focus::Input)
+        .map(|key| format!("{key} shows it, "))
+        .unwrap_or_default();
+    state.notice = Some(Notice::info(format!(
+        "Image pasted: {view}Enter sends it, Esc removes it"
+    )));
+}
+
+/// `Ctrl+O` (D91): the staged image, full size.
+pub fn view_staged(state: &mut State) {
+    match state
+        .open
+        .as_ref()
+        .and_then(|open| open.staged_attachment.as_ref())
+    {
+        Some(staged) if staged.content_type.starts_with("image/") => {
+            state.popup = Some(Popup::StagedImage);
+        }
+        Some(_) => state.notice = Some(Notice::info("Only images can be shown")),
+        None => state.notice = Some(Notice::info("No image is waiting to be sent")),
+    }
 }
 
 /// The backend's answer: `Sent`, or `Failed` with a notice.

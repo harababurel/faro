@@ -1353,6 +1353,11 @@ fn open_conversation_commands(state: &State) -> Vec<Item> {
     };
     let mut items = vec![
         Item::new(ItemKind::Level(Level::AttachFile), "Send a file…"),
+        command(
+            PaletteCommand::Action(Action::PasteImage),
+            "Paste an image from the clipboard",
+            state.keymap.hint(&[Action::PasteImage], Focus::Input),
+        ),
         Item::new(
             ItemKind::Level(Level::ChatLinks),
             "Links & files in this chat…",

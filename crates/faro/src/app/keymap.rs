@@ -77,6 +77,10 @@ pub enum Action {
     SearchMessages,
     /// `u`: jump to the unread marker in the open conversation.
     JumpUnread,
+    /// `Ctrl+V`: stage an image from the clipboard (kitty, D91).
+    PasteImage,
+    /// `Ctrl+O`: show the staged image before sending it (D91).
+    ViewStagedImage,
     Palette(PaletteKey),
 }
 

@@ -236,8 +236,15 @@ impl Reader {
         }
     }
 
+    /// Take more bytes. The reader stops at the end of its reply: bytes after
+    /// it (another terminal's reply, under tmux with several clients) stay
+    /// unread for [`take_rest`](Self::take_rest), so stop feeding once
+    /// [`finished`](Self::finished).
     pub fn feed(&mut self, bytes: &[u8]) {
         self.buf.extend_from_slice(bytes);
+        if self.finished() {
+            return;
+        }
         let buf = std::mem::take(&mut self.buf);
         let mut pos = 0;
         while let Some(rest) = buf.get(pos..) {
@@ -264,6 +271,9 @@ impl Reader {
                     let body = self.strip_sequences(body);
                     self.packet(&body);
                     pos += len;
+                    if self.finished() {
+                        break;
+                    }
                 }
                 Sequence::Overflow(n) => {
                     self.malformed
@@ -302,6 +312,15 @@ impl Reader {
     /// Packets for another request (other id or type).
     pub fn ignored(&self) -> usize {
         self.ignored
+    }
+
+    /// The bytes after the end of this reply (see [`feed`](Self::feed)).
+    pub fn take_rest(&mut self) -> Vec<u8> {
+        if self.finished() {
+            std::mem::take(&mut self.buf)
+        } else {
+            Vec::new()
+        }
     }
 
     /// Bytes held while waiting for the rest of a sequence.

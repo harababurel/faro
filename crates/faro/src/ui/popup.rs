@@ -95,8 +95,9 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &
             menu(frame, anchor, "Mute", &labels, *selected, view);
         }
         Popup::ImageViewer { target, index } => {
-            image_viewer(frame, state, *target, *index, geometry, view);
+            attachment_viewer(frame, state, *target, *index, geometry, view);
         }
+        Popup::StagedImage => staged_viewer(frame, state, geometry, view),
         Popup::ConfirmDelete { target } => {
             let Some(anchor) = over_message(geometry, *target) else {
                 return;
@@ -262,7 +263,8 @@ fn format_time(ts: Timestamp, view: &View<'_>) -> String {
     )
 }
 
-fn image_viewer(
+/// `v` on a downloaded image (D76).
+fn attachment_viewer(
     frame: &mut Frame<'_>,
     state: &State,
     target: MessageRef,
@@ -278,6 +280,56 @@ fn image_viewer(
     else {
         return;
     };
+    let shown = Shown {
+        name: attachment.file_name.as_deref().map_or_else(
+            || attachment.content_type.clone(),
+            |n| sanitize(n).into_owned(),
+        ),
+        width: attachment.width,
+        height: attachment.height,
+        path: attachment.local_path(),
+        keys: "s save to Downloads · y copy path · Esc close",
+    };
+    image_viewer(frame, state, &shown, geometry, view);
+}
+
+/// `Ctrl+O`: the staged image, before it's sent (D91).
+fn staged_viewer(frame: &mut Frame<'_>, state: &State, geometry: &mut Geometry, view: &View<'_>) {
+    let Some(staged) = state
+        .open
+        .as_ref()
+        .and_then(|o| o.staged_attachment.as_ref())
+    else {
+        return;
+    };
+    let shown = Shown {
+        name: sanitize(&staged.name).into_owned(),
+        width: staged.width,
+        height: staged.height,
+        path: Some(staged.path.as_path()),
+        keys: "Not sent yet · Enter in the input sends it · Esc close",
+    };
+    image_viewer(frame, state, &shown, geometry, view);
+}
+
+/// An image for the full-size viewer: a downloaded attachment (`v`, D76) or
+/// the staged one before it's sent (`Ctrl+O`, D91).
+struct Shown<'a> {
+    name: String,
+    width: Option<u32>,
+    height: Option<u32>,
+    path: Option<&'a std::path::Path>,
+    /// The keys line under the image.
+    keys: &'static str,
+}
+
+fn image_viewer(
+    frame: &mut Frame<'_>,
+    state: &State,
+    shown: &Shown<'_>,
+    geometry: &mut Geometry,
+    view: &View<'_>,
+) {
     let area = geometry.history.unwrap_or_else(|| frame.area());
     let width = area.width.saturating_sub(4).max(20).min(area.width);
     let height = area.height.saturating_sub(2).max(6).min(area.height);
@@ -287,20 +339,16 @@ fn image_viewer(
         width,
         height,
     };
-    let name = attachment.file_name.as_deref().map_or_else(
-        || attachment.content_type.clone(),
-        |n| sanitize(n).into_owned(),
-    );
-    let dims = match (attachment.width, attachment.height) {
+    let dims = match (shown.width, shown.height) {
         (Some(w), Some(h)) if w > 0 && h > 0 => format!(" ({w}×{h})"),
         _ => String::new(),
     };
-    let title = format!("{name}{dims}");
+    let title = format!("{}{dims}", shown.name);
     let inner = frame_box(frame, rect, &title, view);
     let info_rows = 2u16.min(inner.height);
     let img_avail_h = inner.height.saturating_sub(info_rows);
     if img_avail_h > 0 && inner.width > 0 {
-        let size = match (attachment.width, attachment.height) {
+        let size = match (shown.width, shown.height) {
             (Some(w), Some(h)) if w > 0 && h > 0 => crate::app::images::box_size(
                 w,
                 h,
@@ -326,22 +374,19 @@ fn image_viewer(
             img_y,
             size.width,
             size.height,
-            attachment.local_path(),
+            shown.path,
             state.palette.is_some(),
         );
     }
-    let path_line = attachment
-        .local_path()
+    let path_line = shown
+        .path
         .map_or_else(String::new, |p| p.display().to_string());
     let info = vec![
         Line::from(Span::styled(
             truncate(&sanitize(&path_line), usize::from(inner.width)).into_owned(),
             view.theme.muted(),
         )),
-        Line::from(Span::styled(
-            "s save to Downloads · y copy path · Esc close",
-            view.theme.muted(),
-        )),
+        Line::from(Span::styled(shown.keys, view.theme.muted())),
     ];
     let info_area = Rect {
         y: inner.y + img_avail_h,

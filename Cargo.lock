@@ -1198,6 +1198,7 @@ name = "faro"
 version = "0.1.0-dev"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "clap",
  "crossterm",
  "faro-core",
@@ -1207,11 +1208,13 @@ dependencies = [
  "image",
  "insta",
  "jiff",
+ "mio",
  "notify",
  "nucleo-matcher",
  "qrcode",
  "ratatui",
  "ratatui-image",
+ "rustix 1.1.5",
  "tempfile",
  "tokio",
  "tracing",

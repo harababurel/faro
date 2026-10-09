@@ -823,3 +823,29 @@ Refines the DESIGN.md §5.1 sketch:
   - Rebuilding the reply from crossterm's key events. crossterm 0.29 wedges on bursts: it returns after each 1 KB read, its fd is blocking and mio is edge-triggered, so once the kernel tty buffer fills (and throttles), no new edge comes and input stops for good, later keys included. It worked only with an artificially slow writer.
   - faro's own input reader, and a helper in a tmux popup: not needed.
 - **Several tmux clients:** every attached kitty answers, and the first answer wins. In the owner's first run a second kitty with text on its clipboard answered first; the guard drained the real reply. Phase 2 has to handle this (see the D89 open questions).
+
+### D91. Pasting clipboard images: `Ctrl+V`, staged never sent, every kitty asked — Accepted (owner, 2026-10-09; details Judgement)
+
+- **Why:** D89 Phase 2, on top of D90 (how the reply is read) and `faro-core::clipboard` (Phase 1).
+- **Owner's choices:**
+  - **`Ctrl+V`** (`attachment.paste_image`, global; also *Paste an image from the clipboard* in the open chat's palette commands). `Alt+V` belongs to the owner's Superwhisper. kitty keeps `Cmd+V` and `Ctrl+Shift+V` to itself, so faro never sees them.
+  - **25 MB** limit (the same as automatic image downloads).
+  - **Several kitty clients attached to faro's tmux session: ask them all.** The first type list with an image wins; after a list without one, others get 500 ms. The other screen's kitty may show a prompt nobody answers; anything it sends later carries an old request id and is drained by the guard (D90).
+  - **kitty remembers the permission:** a random password per run (`pw`, name `faro`). After "allow all", no more prompts until faro restarts. Older kittys ignore it.
+  - **Never sent automatically:** the image is staged like a pasted file (`📎 clipboard-YYYYMMDD-HHMMSS.png · 600×313 · 278 KB  ctrl+o view ·  esc remove`); only `Enter` sends it. Remembering the permission skips kitty's prompt, never this step.
+  - **`Ctrl+O`** (`attachment.view_staged`) shows the staged image in the full-size viewer (`Popup::StagedImage`); `Esc` closes it and the image stays staged.
+  - **2 minutes** to answer kitty's prompt, fixed (**Judgement:** a setting only if someone asks).
+- **How (Judgement):**
+  - `Effect::ReadClipboardImage { conversation }` → `Router` → a channel to the app loop, which owns the input. `clipboard::Paste::begin` drops the `EventStream` and starts `clipboard::start`.
+  - The task checks for kitty (`Terminal::kitty`: directly, or any tmux client in kitty and not under mosh) and gives `NotKitty`/`Mosh` otherwise. Then it runs the barrier, writes the list request from the loop's thread (wrapped for tmux), reads it on a blocking thread, writes the data request (best of PNG, JPEG, GIF, WebP, with id and password), and reads the data.
+  - The image is saved as `<attachments>/clipboard-<local time>.<ext>` (`0600`, atomic, `-2`… on clashes) with its dimensions. Then `AppEvent::ClipboardImage` (after any focus reports) makes the loop create a new `EventStream`, and the reducer stages the image or shows a notice.
+  - Timeouts: 5 s for the type list, 2 min for the prompt, 5 s between packets.
+  - The blocking reader has a mio `Waker` so quitting never waits on it.
+  - **Late-reply guard** (`clipboard::LateGuard`): armed after the first paste. It holds back `Alt+]` or `Esc`, then `]`, `5`, `5`, `2`, `2`, `;` for at most 50 ms. A full match drains the tty (`AppEvent::ClipboardDrained`); anything else gives the keys back in order. Before the first paste nothing is ever held.
+- **Known limits:**
+  - While faro waits for the prompt, keys typed into faro are dropped: kitty's prompt has the focus anyway.
+  - The clipboard file stays in `attachments/` after sending (sending copies it under the message's name). Cleanup can come later.
+- **Rejected:**
+  - Asking only when a single kitty client is attached (the owner's main session has two).
+  - Making the timeout a setting.
+  - Paste events (`Cmd+V`): Phase 3, later.

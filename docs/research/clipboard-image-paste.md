@@ -1,6 +1,6 @@
 # Pasting images from the clipboard over SSH (research, 2026-10-09)
 
-Status: **proposed, not scheduled** (D89). **Phase 0 done** (D90, see "Phase 0 results" below). This note keeps the investigation, the owner's hands-on experiment and an implementation plan, so the feature can be picked up later without redoing the work.
+Status: **Phases 0–2 done** (D90, D91; see "Phase 0 results" below); Phase 3 later. This note keeps the investigation, the owner's hands-on experiment and an implementation plan, so the feature can be picked up later without redoing the work.
 
 ## Summary
 
@@ -127,6 +127,8 @@ The tests use the bytes from test 4, a multi-chunk image, the owner's focus case
 - Unit tests, including the exact bytes captured in test 4 and a synthetic multi-chunk PNG; malformed and truncated input never panics (D28).
 
 ### Phase 2: app integration
+
+**Done (2026-10-09, D91):** `Ctrl+V`, staged never sent, `Ctrl+O` viewer, every kitty attached to tmux asked, per-run password, 25 MB, 2 min. Code: `crates/faro/src/app/clipboard.rs` (+ `clipboard/tty.rs`, `clipboard/guard.rs`). The plan below is kept as written.
 
 - `Action::PasteImage` (`Alt+V`, `input.paste_image`) in the keymap defaults, footer hint, palette command; README key table.
 - Availability from `Terminal` (kitty, no mosh); explanatory notice otherwise.

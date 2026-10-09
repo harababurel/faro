@@ -19,6 +19,7 @@ use crate::theme::{ColorDepth, Themes};
 use crate::tui::Tui;
 use crate::ui::{self, View};
 
+pub mod clipboard;
 pub mod commands;
 mod effects;
 pub mod event;
@@ -142,28 +143,20 @@ pub async fn run<B: Backend + 'static>(
         config::spawn_writer(startup.path.clone(), results_tx.clone());
     // Hot reload (D48); without it, faro still works with what it read.
     let watch = config::try_watch(&startup.path, &results_tx, &mut startup.problems);
-    let router = Router {
-        commands,
-        effects,
-        config: config_writer,
-        results: results_tx,
-        audio: std::cell::RefCell::new(system::AudioPlayer::default()),
-    };
+    let (router, mut clipboard_requests) =
+        Router::new(commands, effects, config_writer, results_tx);
     let mut state = initial_state(directory, detected, &mut startup);
     let configured = update::configure(&mut state, startup.config, startup.problems);
     router.dispatch(configured, &state);
     let mut tui = Tui::enter(state.config.mouse.enabled).context("setting up the terminal")?;
-    let mut images =
-        images::Images::detect(state.config.media.inline_images, state.env.graphics).await;
-    state.env.image_protocol = (state.config.media.inline_images
-        == faro_core::config::InlineImages::Auto
-        && state.env.graphics == state::GraphicsSupport::Direct)
-        .then(|| images.detected_mode());
+    let mut images = detect_images(&mut state).await;
     let frame_log = FrameLog::from_env().map(|(log, task)| {
         tui.log_frames(log);
         task
     });
-    let mut input = EventStream::new();
+    // `None` while a clipboard read has the tty (D90).
+    let mut input = Some(EventStream::new());
+    let mut paste = clipboard::Paste::default();
     router.dispatch(vec![Effect::LoadConversations], &state);
 
     let mut themes = Themes::default();
@@ -191,37 +184,45 @@ pub async fn run<B: Backend + 'static>(
         let redraw_at = last_draw.map_or_else(Instant::now, |t| t + FRAME);
         let deadline = state.next_deadline();
         let logo_at = logo_frame(&state, last_draw);
-        let event = tokio::select! {
-            terminal = input.next() => match terminal {
-                Some(Ok(event)) => AppEvent::Terminal(event),
+        let held_until = paste.deadline();
+        let events = tokio::select! {
+            terminal = next_input(&mut input), if input.is_some() => match terminal {
+                Some(Ok(event)) => paste.filter(&mut input, event, &router.results),
                 Some(Err(error)) => {
                     tracing::error!(%error, "terminal input failed");
-                    AppEvent::Shutdown
+                    vec![AppEvent::Shutdown]
                 }
-                None => AppEvent::Shutdown,
+                None => vec![AppEvent::Shutdown],
             },
-            Some(event) = backend_events.recv() => AppEvent::Backend(event),
-            Some(event) = results.recv() => event,
+            () = sleep_until(held_until.unwrap_or_else(Instant::now)), if held_until.is_some() => {
+                paste.flush()
+            }
+            Some(conversation) = clipboard_requests.recv() => {
+                let dir = state.attachments_dir.clone();
+                paste.begin(&mut input, conversation, dir, &router.results);
+                continue;
+            }
+            Some(event) = backend_events.recv() => vec![AppEvent::Backend(event)],
+            Some(event) = results.recv() => vec![event],
             () = sleep_until(redraw_at), if dirty => continue,
             () = sleep_until(logo_at.unwrap_or_else(Instant::now)), if logo_at.is_some() => {
                 dirty = true;
                 continue;
             }
             () = sleep_until(deadline.unwrap_or_else(Instant::now)), if deadline.is_some() => {
-                AppEvent::Tick
+                vec![AppEvent::Tick]
             }
-            _ = terminate.recv() => AppEvent::Shutdown,
-            _ = hangup.recv() => AppEvent::Shutdown,
+            _ = terminate.recv() => vec![AppEvent::Shutdown],
+            _ = hangup.recv() => vec![AppEvent::Shutdown],
         };
-        dirty |= affects_view(&event);
-        if let AppEvent::ImageDecoded(decoded) = event {
-            images.insert(decoded);
-            continue;
+        for event in events {
+            paste.resume(&mut input, &event);
+            dirty |= affects_view(&event);
+            handle(event, &mut state, &router, &mut images);
         }
-        let effects = update::update(&mut state, event);
-        router.dispatch(effects, &state);
     }
 
+    paste.stop();
     drop(tui);
     if let Some(task) = frame_log {
         finish(task, "frame log").await;
@@ -229,6 +230,35 @@ pub async fn run<B: Backend + 'static>(
     drop(watch);
     shutdown(router, command_task, worker, config_task).await;
     Ok(())
+}
+
+/// The inline image protocol to use, asking the terminal at startup if it's
+/// `auto` and safe to ask (D78, D84).
+async fn detect_images(state: &mut State) -> images::Images {
+    let images = images::Images::detect(state.config.media.inline_images, state.env.graphics).await;
+    state.env.image_protocol = (state.config.media.inline_images
+        == faro_core::config::InlineImages::Auto
+        && state.env.graphics == state::GraphicsSupport::Direct)
+        .then(|| images.detected_mode());
+    images
+}
+
+/// One event: decoded images go to the cache, everything else to the reducer.
+fn handle(event: AppEvent, state: &mut State, router: &Router, images: &mut images::Images) {
+    if let AppEvent::ImageDecoded(decoded) = event {
+        images.insert(decoded);
+        return;
+    }
+    let effects = update::update(state, event);
+    router.dispatch(effects, state);
+}
+
+/// The next terminal event; never, while a clipboard read has the tty.
+async fn next_input(input: &mut Option<EventStream>) -> Option<std::io::Result<Event>> {
+    match input {
+        Some(stream) => stream.next().await,
+        None => std::future::pending().await,
+    }
 }
 
 /// Abort in-flight backend commands and wait for store and config writes to finish.
@@ -272,9 +302,30 @@ struct Router {
     config: mpsc::UnboundedSender<faro_core::config::SettingEdit>,
     results: mpsc::UnboundedSender<AppEvent>,
     audio: std::cell::RefCell<system::AudioPlayer>,
+    /// Clipboard reads go to the app loop, which owns the terminal input (D90).
+    clipboard: mpsc::UnboundedSender<ConversationId>,
 }
 
 impl Router {
+    /// The router, and where clipboard reads arrive for the app loop.
+    fn new(
+        commands: mpsc::UnboundedSender<commands::Command>,
+        effects: mpsc::UnboundedSender<Effect>,
+        config: mpsc::UnboundedSender<faro_core::config::SettingEdit>,
+        results: mpsc::UnboundedSender<AppEvent>,
+    ) -> (Self, mpsc::UnboundedReceiver<ConversationId>) {
+        let (clipboard, requests) = mpsc::unbounded_channel();
+        let router = Self {
+            commands,
+            effects,
+            config,
+            results,
+            audio: std::cell::RefCell::new(system::AudioPlayer::default()),
+            clipboard,
+        };
+        (router, requests)
+    }
+
     fn dispatch(&self, list: Vec<Effect>, state: &State) {
         for effect in list {
             let delivered = match effect {
@@ -338,6 +389,9 @@ impl Router {
                 Effect::CheckTerminal => {
                     system::check_terminal(self.results.clone());
                     true
+                }
+                Effect::ReadClipboardImage { conversation } => {
+                    self.clipboard.send(conversation).is_ok()
                 }
                 Effect::Bell => {
                     system::bell();
@@ -462,6 +516,8 @@ fn affects_view(event: &AppEvent) -> bool {
         | AppEvent::FilesListed { .. }
         | AppEvent::FileStaged(_)
         | AppEvent::PasteChecked { .. }
+        | AppEvent::ClipboardImage { .. }
+        | AppEvent::ClipboardDrained
         | AppEvent::ImageDecoded(_)
         | AppEvent::PlaybackFinished { .. }
         | AppEvent::Transcribed { .. }

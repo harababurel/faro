@@ -188,7 +188,12 @@ fn drops_keys_and_other_replies_around_packets() {
     input.extend_from_slice(b"cd\x1b[A");
     let mut reader = Reader::new(MB, None);
     reader.feed(&input);
-    assert_eq!(reader.dropped(), input.len() - TEST_4.len());
+    // What comes after the reply is handed back, not dropped.
+    assert_eq!(reader.take_rest(), b"cd\x1b[A");
+    assert_eq!(
+        reader.dropped(),
+        input.len() - TEST_4.len() - b"cd\x1b[A".len()
+    );
     assert_eq!(reader.finish().map(|c| c.types().len()), Ok(2));
 }
 
@@ -244,6 +249,37 @@ fn ignores_packets_for_another_request() {
     assert_eq!(reader.finish(), Ok(Contents::default()));
 }
 
+/// Under tmux every attached kitty answers (D91): a reader stops at the end
+/// of the first reply and hands back the second.
+#[test]
+fn stops_at_the_end_of_its_reply() {
+    let mut second = reply(LIST, b"image/png");
+    let mut input = reply(LIST, b"text/plain");
+    input.append(&mut second.clone());
+    let mut reader = Reader::new(MB, None);
+    reader.feed(&input[..10]);
+    assert_eq!(
+        reader.take_rest(),
+        b"",
+        "nothing to hand back before the end"
+    );
+    reader.feed(&input[10..]);
+    assert!(reader.finished());
+    let rest = reader.take_rest();
+    assert_eq!(rest, second);
+    assert_eq!(
+        reader.finish().map(|c| c.types()),
+        Ok(vec!["text/plain".to_owned()])
+    );
+    let mut next = Reader::new(MB, None);
+    next.feed(&rest);
+    second.clear();
+    assert_eq!(
+        next.finish().map(|c| c.types()),
+        Ok(vec!["image/png".to_owned()])
+    );
+}
+
 #[test]
 fn picks_the_best_image_type() {
     let types = |list: &[&str]| list.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
@@ -292,7 +328,7 @@ fn survives_corrupted_and_random_input() {
         }
         let mut reader = Reader::new(limit, None);
         let mut rest = input.as_slice();
-        while !rest.is_empty() {
+        while !rest.is_empty() && !reader.finished() {
             let (piece, tail) = rest.split_at(rng.usize(1..=rest.len().min(5000)));
             reader.feed(piece);
             rest = tail;

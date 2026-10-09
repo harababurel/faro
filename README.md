@@ -115,6 +115,7 @@ Press `F1` (or `?` outside the input box) for the full list, or search it in the
 | `PgUp` / `PgDn` | Scroll the messages |
 | `Alt+S` / `Alt+I` | Show or hide the conversation list / conversation info (with shared links & media) |
 | `Alt+N` | Do not disturb: turn the bell off (the footer says `bell off`) or back on |
+| `Ctrl+V` | Paste an image from the clipboard (kitty; see [Images](#images)); it waits above the input until you press `Enter`, `Ctrl+O` shows it |
 | In the list | `j`/`k` move, `Space` menu, `p` pin, `m` mute, `@` mentions only, `h` hide, `a` archive, `l` allow, `L` allowlist mode, `A` archive view |
 | `Ctrl+L` | Redraw the screen |
 | `Esc` | Back, dismiss; then close the open chat (nothing is read while no chat is open) |
@@ -168,6 +169,8 @@ mosh measures emoji differently from kitty and tmux, which misaligns borders. fa
 - **`off`**: show attachment details without inline pictures.
 
 Changes apply immediately and are saved. Forced modes work without a capability query, using estimated cell sizing if no query ran at startup. Returning to Auto reuses startup detection; if startup skipped the query, restart to detect graphical support. JPEG, PNG, GIF and WebP render as static images, including stickers; `v` opens a larger viewer.
+
+**Pasting an image** from your clipboard: press `Ctrl+V` in a chat. This works in kitty, directly or over SSH, and inside tmux (with `set -g allow-passthrough on`), but not through mosh. kitty asks for permission; choose "allow all" to stop it asking until faro restarts. The image is staged above the input with its size; `Ctrl+O` shows it, `Enter` sends it (with whatever you typed as a caption), `Esc` removes it. Nothing is sent before you press `Enter`. `Cmd+V` stays kitty's text paste.
 
 ## Colours
 

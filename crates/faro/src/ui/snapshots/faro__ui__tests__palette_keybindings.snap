@@ -16,10 +16,10 @@ expression: "snapshot(&draw(&with_palette(\"?\"), 100, 26))"
 │           │   Everywhere › Quit (press twice)                                 ctrl+c │           │
 │           │   Everywhere › Back, dismiss                                         esc │           │
 │           │   Everywhere › Do not disturb (bell off or on)                     alt+n │────────── │
-│           │   Everywhere › Previous conversation                        alt+k, alt+↑ │ast week   │
-│           │   Everywhere › Next conversation                            alt+j, alt+↓ │bring your │
-│           │   Everywhere › Open pinned conversation 1–9                  alt+1…alt+9 │for your   │
-│           │   Everywhere › Show or hide the conversation list                  alt+s │           │
+│           │   Everywhere › Paste an image from the clipboard                  ctrl+v │ast week   │
+│           │   Everywhere › Show the image about to be sent                    ctrl+o │bring your │
+│           │   Everywhere › Previous conversation                        alt+k, alt+↑ │for your   │
+│           │   Everywhere › Next conversation                            alt+j, alt+↓ │           │
 │           ╰──────────────────────────────────────────────────────────────────────────╯           │
 │                            ││ 17:55   Alice 🌸 Running 10 min late 🙈                            │
 │                            ││                                                                    │

@@ -42,6 +42,7 @@ The owner wants correctness and efficiency rules enforced by tools wherever poss
 - [x] Inline images never corrupt terminal frames or leak colours: `emoji::finish` skips graphics-protocol cells (`emoji::tests::graphics_protocol_cells_are_left_alone`), half-blocks map to xterm-256 at 256 colours (`ui::tests::inline_images_show_a_placeholder_then_draw_halfblocks_and_map_to_256_colours`), graphics protocols fall back to placeholders while overlays are open, and `tools/frames` `images` scenario replays with 0 divergent frames (M9, D78)
 - [x] Voice transcription keys never live in config or process arguments, and remote transcription requires both global consent and per-conversation permission (`faro_core::config::tests::voice_settings_parse_and_reject_api_key_in_config`, `app::update::tests::voice_note_remote_consent_flow`, `curl --config -` over stdin, M10, D82)
 - [x] Terminal replies can't crash faro or exhaust memory: the OSC 5522 reader never panics, never stores more than its limit and never buffers more than one packet, whatever the input (`faro_core::clipboard::tests::survives_corrupted_and_random_input`, `an_endless_packet_is_dropped_not_buffered`; D89 Phase 1)
+- [x] A clipboard reply never reaches the reducer as keys, and pasted images are private: `app::clipboard::tests::a_late_reply_never_reaches_the_reducer` feeds a recorded reply through the late-reply guard (both `ESC` forms); `saves_the_image_private_with_its_size` checks `0600` (D90, D91)
 
 ## M0: Scaffolding
 
@@ -344,7 +345,7 @@ Start after Wave 2 is merged to `origin/main`. Run **Tracks 3A and 3B in paralle
 - Optional sync of hidden/allowlist state via config
 - Recording and sending voice notes
 - Packaging (cargo-dist binaries, Homebrew tap, AUR `faro-bin`/`faro-git`, `.deb`, Nix flake)
-- Paste images from the local clipboard over SSH (kitty OSC 5522, tmux passthrough, not mosh; D89). Tested by hand on the owner's setup; phased plan in [research/clipboard-image-paste.md](research/clipboard-image-paste.md). Phase 0 (input-handling spike) done: pause crossterm and read the tty directly (D90). Phase 1 done: `faro-core::clipboard` (requests, `Reader`). Next: Phase 2, app integration.
+- Paste images from the local clipboard over SSH (kitty OSC 5522, tmux passthrough, not mosh; D89). Tested by hand on the owner's setup; phased plan in [research/clipboard-image-paste.md](research/clipboard-image-paste.md). Phase 0 (input-handling spike) done: pause crossterm and read the tty directly (D90). Phase 1 done: `faro-core::clipboard` (requests, `Reader`). Phase 2 done: `Ctrl+V` stages the image, `Ctrl+O` shows it (D91; owner's hands-on checks in MANUAL_TESTS "Clipboard images"). Phase 3 (kitty paste events, plain `Cmd+V`) later, starting with a hand test.
 
 ---
 

@@ -95,6 +95,15 @@ pub enum AppEvent {
         raw: String,
         staged: Option<super::state::StagedAttachment>,
     },
+    /// A clipboard image read (`Ctrl+V`, D91) is over: the image to stage in
+    /// `conversation`, or why not. The app loop makes a new `EventStream`
+    /// first (input was paused for the read, D90).
+    ClipboardImage {
+        conversation: ConversationId,
+        result: Result<super::state::StagedAttachment, super::clipboard::ClipboardError>,
+    },
+    /// A late clipboard reply was drained (D90); input resumes.
+    ClipboardDrained,
     /// An inline image finished decoding and slicing off the UI thread (D79).
     ImageDecoded(super::images::DecodedImage),
     /// External audio playback finished or failed (D81).
@@ -218,6 +227,11 @@ pub enum Effect {
     /// Look at the terminal (mosh, kitty); answered with
     /// `AppEvent::TerminalChecked` (D47, D58).
     CheckTerminal,
+    /// Read an image from the clipboard for `conversation` (D91). The app
+    /// loop pauses input and answers with `AppEvent::ClipboardImage`.
+    ReadClipboardImage {
+        conversation: ConversationId,
+    },
     /// Ring the terminal bell (D49).
     Bell,
     /// Send a desktop notification through the terminal (OSC 99 / OSC 777) or
