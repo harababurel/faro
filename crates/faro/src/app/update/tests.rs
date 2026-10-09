@@ -162,6 +162,44 @@ fn events_during_loading_are_replayed_on_the_loaded_page() {
     assert_eq!(edited.body, Some(MessageBody::new("edited while loading")));
 }
 
+/// D92: the store's list is read before events that arrive at startup are
+/// stored; they're held back and applied on top of it, not wiped out by it.
+#[test]
+fn messages_arriving_before_the_list_are_kept() {
+    let mut state = State::new(ME, fixtures::contacts(), fixtures::groups());
+    let early = text(alice(), ALICE, fixtures::NOW_MS + 1, "early");
+    let effects = update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::Message(early.clone())),
+    );
+    assert_eq!(effects, vec![], "held until the list arrives");
+    let effects = update(
+        &mut state,
+        AppEvent::Loaded {
+            conversations: fixtures::summaries(),
+            last_open: None,
+        },
+    );
+    assert_eq!(
+        effects,
+        vec![Effect::Persist(Box::new(BackendEvent::Message(early)))]
+    );
+    assert!(!state.loading);
+    assert_eq!(state.summary(alice()).map(|s| s.unread), Some(2));
+    // A conversation the store didn't know yet is there too.
+    let mut state = State::new(ME, fixtures::contacts(), fixtures::groups());
+    let new = text(bob(), BOB, fixtures::NOW_MS + 1, "new here");
+    update(&mut state, AppEvent::Backend(BackendEvent::Message(new)));
+    update(
+        &mut state,
+        AppEvent::Loaded {
+            conversations: vec![],
+            last_open: None,
+        },
+    );
+    assert!(state.summary(bob()).is_some());
+}
+
 #[test]
 fn unread_marker_points_at_the_first_unread_message() {
     let state = loaded_state();

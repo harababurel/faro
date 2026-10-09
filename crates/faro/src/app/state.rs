@@ -115,6 +115,10 @@ pub struct State {
     pub conversations: Vec<ConversationSummary>,
     /// The conversation list hasn't arrived from the store yet.
     pub loading: bool,
+    /// Backend events that came before the store's list, applied on top of it
+    /// when it arrives (D92): the list is read before they are stored, so
+    /// applying them first would let the list wipe them out.
+    pub early_events: Vec<BackendEvent>,
     pub open: Option<OpenConversation>,
     pub connection: ConnectionState,
     pub typing: HashMap<ConversationId, Vec<Typist>>,
@@ -721,6 +725,7 @@ impl State {
             names_clash: HashSet::new(),
             conversations: Vec::new(),
             loading: true,
+            early_events: Vec::new(),
             open: None,
             connection: ConnectionState::Connecting,
             typing: HashMap::new(),

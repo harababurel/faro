@@ -849,3 +849,11 @@ Refines the DESIGN.md §5.1 sketch:
   - Asking only when a single kitty client is attached (the owner's main session has two).
   - Making the timeout a setting.
   - Paste events (`Cmd+V`): Phase 3, later.
+
+### D92. Backend events that arrive before the conversation list are applied on top of it — Accepted (Judgement, 2026-10-09)
+
+- **Found:** while testing D91 end to end (`faro demo` behind a terminal that answers the startup image query slowly), the conversation list stayed empty except for chats created by later messages.
+- **Cause:** a startup race. `Effect::LoadConversations` is the first job of the sequential store worker, so the list it reads predates any event persisted afterwards. Backend events that reached the reducer before `AppEvent::Loaded` were applied to `State::conversations`, then `on_loaded` replaced the whole list with the older snapshot. It shows whenever startup is slowed: the 500 ms image query timing out, a slow disk, or a burst of messages while presage catches up. The demo's backlog made it obvious.
+- **Decision:** while `State::loading`, the reducer holds `AppEvent::Backend` events in `State::early_events`. `on_loaded` installs the store's list, then applies them in order (still `loading`, so the backlog doesn't ring the bell, D49) and returns their effects (`Persist`…).
+- **Rejected:** merging the snapshot with the list built from events (the store has state the events lack, like pins, mute and drafts); loading the list before starting the backend (the backend and the store start independently).
+- **Test:** `update::tests::messages_arriving_before_the_list_are_kept`.

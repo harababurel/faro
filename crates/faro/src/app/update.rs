@@ -43,6 +43,10 @@ pub const PAGE: u32 = 200;
 pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
     match event {
         AppEvent::Terminal(event) => on_terminal(state, &event),
+        AppEvent::Backend(event) if state.loading => {
+            state.early_events.push(event);
+            vec![]
+        }
         AppEvent::Backend(event) => on_backend(state, event),
         AppEvent::Loaded {
             conversations,
@@ -357,6 +361,11 @@ fn on_loaded(
     sort_conversations(&mut conversations);
     state.conversations = conversations;
     state.recount_names();
+    // Still loading while they're applied: the backlog doesn't ring (D49).
+    let mut effects = Vec::new();
+    for event in std::mem::take(&mut state.early_events) {
+        effects.extend(on_backend(state, event));
+    }
     state.loading = false;
     // Nothing opens by itself (D60): the list highlights where the user
     // was, in the list it's in (it may be archived), and has the focus.
@@ -369,7 +378,7 @@ fn on_loaded(
     if state.open.is_none() && state.panels.left {
         state.focus = Focus::Conversations;
     }
-    vec![]
+    effects
 }
 
 fn on_messages_loaded(

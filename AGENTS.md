@@ -115,7 +115,8 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
   - **Keys and staging:** `Ctrl+V` (`Action::PasteImage`) → `sending::paste_image` sets `State::pasting` and returns `Effect::ReadClipboardImage`. The image is staged in `OpenConversation::staged_attachment` and never sent until Enter. `Ctrl+O` (`Action::ViewStagedImage`) opens `Popup::StagedImage` (the viewer in `ui/popup.rs` is shared through `Shown`).
   - **The read:** `Router` sends the request to the app loop, which owns the input: `input: Option<EventStream>`, and `clipboard::Paste` handles begin, the guard filter, resume and stop. `app/clipboard.rs` runs the read; `clipboard/tty.rs` has `Tty` (mio + `FIONREAD`, a cancel `Waker`), the `Source` trait and the `list`/`data`/`drain` phases; `clipboard/guard.rs` has `LateGuard`. The result comes back as `AppEvent::ClipboardImage { conversation, result }`, or `AppEvent::ClipboardDrained` after a late reply; focus reports are sent first as terminal events.
   - **kitty detection:** `Terminal::kitty` (a kitty client reachable without mosh) is checked afresh on every paste.
-  - **Testing:** `tools`-free e2e: drive `faro demo` in a pty with `TERM=xterm-kitty` and answer OSC 5522 like `fake_kitty.py` does (see the spike branch).
+  - **Testing:** `python3 tools/clipboard/e2e.py target/debug/faro <png> <scratch> [--tmux]` runs `faro demo` with a fake kitty and checks the paste end to end.
+- 2026-10-09: startup race fixed (D92): backend events that reach the reducer before `AppEvent::Loaded` wait in `State::early_events` and are applied on top of the store's list in `on_loaded`. Before, the list (read first by the store worker) wiped them out.
 
 ### Gotchas found so far
 
@@ -151,6 +152,7 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 - The smoke-test tmux sets `TMUX`, so faro detects truecolor there; to see the 256-colour path, run it as `env -u TMUX COLORTERM= TERM=xterm-256color ./target/debug/faro …` and read colours with `capture-pane -p -e`.
 - **Bundling another OpenCode theme:** drop the JSON in `crates/faro/themes/opencode/`, add it to `OPENCODE` in `theme/bundled.rs`, and bump the count in `theme/tests/files.rs`; imported themes aren't held to D51's rules, only to the D54 checks (`theme::tests::files`). OpenCode's resolver looks names up in `defs` before roles, and a role may name a def of its own name; keep `theme_file` doing the same.
 - **The logo (D61) is drawn from `View::logo_time`, never the clock:** tests build `View { logo_time: None, .. }` for the still frame. A new animation should follow the same pattern (time in `View`, a `Geometry` flag saying a moving frame was drawn, a timer in the app loop that's off unless both say so) so idle faro never wakes up.
+- **Fake terminals in tests must answer `ESC [ 5 n` with `ESC [ 0 n`:** with `inline_images = "auto"` and kitty clients, faro's startup image query (ratatui-image) waits 500 ms for it. If it never comes, ratatui-image's query thread stays blocked on stdin and eats the first keys typed (real terminals and tmux always answer it).
 - **Smoke tests must pass `--config <scratch>/config.toml`** as well as `--data-dir`, or faro writes the template to the real `~/.config/faro`.
 
 ### Code map
