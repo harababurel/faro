@@ -137,6 +137,7 @@ fn selected_setting(palette: &Palette) -> Option<Setting> {
             ItemKind::Level(_)
             | ItemKind::Command(_)
             | ItemKind::Conversation(_)
+            | ItemKind::ForwardTo { .. }
             | ItemKind::Setting(_)
             | ItemKind::Header
             | ItemKind::Theme(_)
@@ -311,7 +312,8 @@ fn up(state: &mut State) {
         | Level::Keys
         | Level::People
         | Level::Nickname(_)
-        | Level::AttachFile => ItemKind::Level(level),
+        | Level::AttachFile
+        | Level::ForwardTo(_) => ItemKind::Level(level),
     });
     let parent = path.last().copied().unwrap_or(Level::Root);
     if let Some(palette) = state.palette.as_mut() {
@@ -389,7 +391,8 @@ fn choose(state: &mut State) -> Vec<Effect> {
             | Level::Setting(_)
             | Level::Commands
             | Level::Keys
-            | Level::People => String::new(),
+            | Level::People
+            | Level::ForwardTo(_) => String::new(),
         };
         enter(state, level, &query);
         if level == Level::AttachFile {
@@ -426,6 +429,10 @@ fn choose(state: &mut State) -> Vec<Effect> {
     state.palette = None;
     match kind {
         ItemKind::Conversation(id) => show_conversation(state, id),
+        ItemKind::ForwardTo {
+            target,
+            destination,
+        } => forward_to(state, target, destination),
         ItemKind::SearchHit {
             conversation,
             message,
@@ -445,6 +452,41 @@ fn choose(state: &mut State) -> Vec<Effect> {
         | ItemKind::Switch(_)
         | ItemKind::Header => vec![],
     }
+}
+
+fn forward_to(state: &mut State, target: MessageRef, destination: ConversationId) -> Vec<Effect> {
+    let Some((body_text, downloaded)) = state
+        .open
+        .as_ref()
+        .and_then(|open| {
+            open.messages
+                .iter()
+                .rfind(|m| m.reference() == target && !m.deleted)
+        })
+        .map(|message| {
+            let body_text = state.readable_body(message).unwrap_or_default();
+            let downloaded: Vec<faro_core::domain::AttachmentRef> = message
+                .attachments
+                .iter()
+                .filter(|att| att.is_downloaded())
+                .cloned()
+                .collect();
+            (body_text, downloaded)
+        })
+    else {
+        return vec![];
+    };
+    if body_text.is_empty() && downloaded.is_empty() {
+        return vec![];
+    }
+    let mut effects = show_conversation(state, destination);
+    effects.extend(super::sending::forward(
+        state,
+        destination,
+        &body_text,
+        &downloaded,
+    ));
+    effects
 }
 
 fn switch_search_scope(state: &mut State, scope: Option<ConversationId>) -> Vec<Effect> {

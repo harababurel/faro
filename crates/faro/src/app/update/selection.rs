@@ -162,6 +162,11 @@ fn actions(state: &State, message: &Message) -> Vec<MessageAction> {
     if !message.deleted && state.readable_body(message).is_some() {
         items.push(MessageAction::Copy);
     }
+    if !message.deleted
+        && (state.readable_body(message).is_some() || !message.attachments.is_empty())
+    {
+        items.push(MessageAction::Forward);
+    }
     if let Some(body) = message.body.as_ref().filter(|_| !message.deleted) {
         let links = find_links(body.expose());
         items.extend(
@@ -257,6 +262,7 @@ fn shortcut(c: char) -> Option<fn(&MessageAction) -> bool> {
         'r' => Some(|a| *a == MessageAction::Reply),
         '+' => Some(|a| *a == MessageAction::React),
         'y' => Some(|a| *a == MessageAction::Copy),
+        'f' => Some(|a| *a == MessageAction::Forward),
         'i' => Some(|a| *a == MessageAction::Info),
         'e' => Some(|a| *a == MessageAction::Edit),
         'D' => Some(|a| *a == MessageAction::Delete),
@@ -389,6 +395,7 @@ pub fn perform(state: &mut State, target: MessageRef, action: MessageAction) -> 
             vec![]
         }
         MessageAction::Copy => copy(state, target),
+        MessageAction::Forward => forward_target(state, target),
         MessageAction::Info => message_info(state, target),
         MessageAction::Edit => edit_target(state, target),
         MessageAction::Delete => {
@@ -416,6 +423,32 @@ pub fn perform(state: &mut State, target: MessageRef, action: MessageAction) -> 
         MessageAction::CopyAttachmentPath { index, .. } => copy_one_path(state, target, index),
         MessageAction::Retry => retry(state, target),
     }
+}
+
+/// `f`: forward the selected message to another conversation.
+pub fn forward_message(state: &mut State) -> Vec<Effect> {
+    let Some(message) = selected(state).filter(|m| !m.deleted) else {
+        return vec![];
+    };
+    let target = message.reference();
+    forward_target(state, target)
+}
+
+fn forward_target(state: &mut State, target: MessageRef) -> Vec<Effect> {
+    let Some(message) = find(state, target).filter(|m| !m.deleted) else {
+        return vec![];
+    };
+    let has_text = state
+        .readable_body(message)
+        .is_some_and(|s| !s.trim().is_empty());
+    if !has_text && !message.attachments.iter().any(AttachmentRef::is_downloaded) {
+        state.notice = Some(Notice::info(
+            "Press d to download the attachment before forwarding",
+        ));
+        return vec![];
+    }
+    super::palette::open(state, crate::app::palette::Level::ForwardTo(target));
+    vec![]
 }
 
 fn message_info(state: &mut State, target: MessageRef) -> Vec<Effect> {

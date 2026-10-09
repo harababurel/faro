@@ -61,6 +61,8 @@ pub enum Level {
     Nickname(ServiceId),
     /// Browsing a directory to attach a file to the open conversation (D77).
     AttachFile,
+    /// Pick a conversation to forward a message to.
+    ForwardTo(MessageRef),
 }
 
 /// The sections of `Settings ›`, each under a header.
@@ -122,6 +124,7 @@ impl Level {
             Self::People => "Nicknames",
             Self::Nickname(_) => "Nickname",
             Self::AttachFile => "Send a file",
+            Self::ForwardTo(_) => "Forward to",
         }
     }
 
@@ -138,7 +141,8 @@ impl Level {
             | Self::Setting(_)
             | Self::People
             | Self::Nickname(_)
-            | Self::AttachFile => None,
+            | Self::AttachFile
+            | Self::ForwardTo(_) => None,
         }
     }
 
@@ -342,6 +346,11 @@ pub enum ItemKind {
     SearchHit {
         conversation: ConversationId,
         message: MessageRef,
+    },
+    /// Forward `target` to `destination` (`Level::ForwardTo`, M12).
+    ForwardTo {
+        target: MessageRef,
+        destination: ConversationId,
     },
 }
 
@@ -710,6 +719,7 @@ pub fn items(state: &State, level: Level, recent: &[PaletteCommand]) -> Vec<Item
         Level::People => people(state),
         Level::Nickname(id) => nickname_actions(state, id),
         Level::AttachFile => Vec::new(),
+        Level::ForwardTo(target) => forward_destinations(state, target),
     }
 }
 
@@ -842,7 +852,8 @@ fn categories(state: &State) -> Vec<Item> {
                 | Level::Keys
                 | Level::People
                 | Level::Nickname(_)
-                | Level::AttachFile => level.prefix().map(String::from).unwrap_or_default(),
+                | Level::AttachFile
+                | Level::ForwardTo(_) => level.prefix().map(String::from).unwrap_or_default(),
             };
             Item::new(ItemKind::Level(level), level.title()).detail(detail)
         })
@@ -1047,6 +1058,9 @@ pub fn note(state: &State, level: Level) -> Option<String> {
             "Type a path; enter or → opens a folder, enter on a file attaches it (≤ 100 MB)."
                 .to_owned(),
         );
+    }
+    if matches!(level, Level::ForwardTo(_)) {
+        return Some("Choose a conversation to forward this message to.".to_owned());
     }
     if level != Level::Themes {
         return None;
@@ -1324,15 +1338,7 @@ fn selected_message_commands(state: &State) -> Vec<Item> {
             .iter()
             .any(faro_core::domain::AttachmentRef::is_voice_note)
     });
-    let mut items: Vec<Item> = [
-        (Action::Reply, "Reply"),
-        (Action::ReactPicker, "React"),
-        (Action::Copy, "Copy text"),
-        (Action::MessageInfo, "Message info"),
-        (Action::OpenLink, "Open link"),
-    ]
-    .into_iter()
-    .map(|(action, title)| {
+    let msg_item = |action: Action, title: &str| {
         let mut item = command(
             PaletteCommand::Action(action),
             title,
@@ -1340,20 +1346,24 @@ fn selected_message_commands(state: &State) -> Vec<Item> {
         );
         item.path = Some("Message".to_owned());
         item
-    })
+    };
+    let mut items: Vec<Item> = [
+        (Action::Reply, "Reply"),
+        (Action::ForwardMessage, "Forward message"),
+        (Action::ReactPicker, "React"),
+        (Action::Copy, "Copy text"),
+        (Action::MessageInfo, "Message info"),
+        (Action::OpenLink, "Open link"),
+    ]
+    .into_iter()
+    .map(|(action, title)| msg_item(action, title))
     .collect();
     if has_voice_note {
         for (action, title) in [
             (Action::PlayVoiceNote, "Play or stop voice note"),
             (Action::TranscribeVoiceNote, "Transcribe voice note"),
         ] {
-            let mut item = command(
-                PaletteCommand::Action(action),
-                title,
-                state.keymap.hint(&[action], Focus::Messages),
-            );
-            item.path = Some("Message".to_owned());
-            items.push(item);
+            items.push(msg_item(action, title));
         }
     }
     if has_attachments {
@@ -1362,13 +1372,7 @@ fn selected_message_commands(state: &State) -> Vec<Item> {
             (Action::OpenAttachment, "View or open attachment"),
             (Action::SaveAttachment, "Save attachment to Downloads"),
         ] {
-            let mut item = command(
-                PaletteCommand::Action(action),
-                title,
-                state.keymap.hint(&[action], Focus::Messages),
-            );
-            item.path = Some("Message".to_owned());
-            items.push(item);
+            items.push(msg_item(action, title));
         }
         let mut copy_path = command(
             PaletteCommand::CopyAttachmentPath,
@@ -1385,28 +1389,34 @@ fn selected_message_commands(state: &State) -> Vec<Item> {
             .capabilities
             .supports(faro_core::backend::Capability::Edit)
         {
-            let mut item = command(
-                PaletteCommand::Action(Action::EditMessage),
-                "Edit message",
-                state.keymap.hint(&[Action::EditMessage], Focus::Messages),
-            );
-            item.path = Some("Message".to_owned());
-            items.push(item);
+            items.push(msg_item(Action::EditMessage, "Edit message"));
         }
         if state
             .capabilities
             .supports(faro_core::backend::Capability::DeleteForEveryone)
         {
-            let mut item = command(
-                PaletteCommand::Action(Action::DeleteMessage),
-                "Delete for everyone",
-                state.keymap.hint(&[Action::DeleteMessage], Focus::Messages),
-            );
-            item.path = Some("Message".to_owned());
-            items.push(item);
+            items.push(msg_item(Action::DeleteMessage, "Delete for everyone"));
         }
     }
     items
+}
+
+/// Every conversation as a forward destination for `target`, in list order.
+fn forward_destinations(state: &State, target: MessageRef) -> Vec<Item> {
+    conversations(state)
+        .into_iter()
+        .filter_map(|mut item| {
+            if let ItemKind::Conversation(destination) = item.kind {
+                item.kind = ItemKind::ForwardTo {
+                    target,
+                    destination,
+                };
+                Some(item)
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 /// Every conversation, including hidden, archived and empty ones, in list
