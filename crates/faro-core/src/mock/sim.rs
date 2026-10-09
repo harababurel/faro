@@ -424,8 +424,8 @@ impl Sim {
             sender,
             state,
         };
-        let sent = start + self.typing_time();
-        let sent_at = self.stamp(sender, sent);
+        let typed = start + self.typing_time();
+        let (sent_at, sent) = self.stamp(sender, typed);
         let message = content.message(conversation, sender, sent_at, Direction::Incoming);
         let reference = message.reference();
         self.emit(start, typing(TypingState::Started));
@@ -435,20 +435,21 @@ impl Sim {
     }
 
     /// Sent by the temp from their phone at `at`: arrives as an outgoing message.
+    /// Returns the message and when it is sent.
     fn schedule_outgoing(
         &mut self,
         at: Millis,
         conversation: ConversationId,
         content: Content,
-    ) -> MessageRef {
+    ) -> (MessageRef, Millis) {
         let me = self.world.me();
-        let sent_at = self.stamp(me, at);
+        let (sent_at, sent) = self.stamp(me, at);
         let direction = Direction::Outgoing(DeliveryStatus::Sent);
         let message = content.message(conversation, me, sent_at, direction);
         let target = message.reference();
-        self.emit(at, BackendEvent::Message(message));
-        self.schedule_receipts(at, conversation, target);
-        target
+        self.emit(sent, BackendEvent::Message(message));
+        self.schedule_receipts(sent, conversation, target);
+        (target, sent)
     }
 
     /// `sender` answers in `conversation` with a line from their reply pool.
@@ -672,7 +673,7 @@ impl Sim {
         let content = self.line_content(line, &quotes);
         let preview = content.body.clone();
         let (target, sent) = if line.who == Who::Me {
-            (self.schedule_outgoing(start, conversation, content), start)
+            self.schedule_outgoing(start, conversation, content)
         } else {
             self.schedule_incoming(start, conversation, sender, content)
         };
@@ -1101,9 +1102,13 @@ impl Sim {
         }
     }
 
-    /// A unique `sent_at` for `sender` at simulated time `at`.
-    fn stamp(&mut self, sender: ServiceId, at: Millis) -> Timestamp {
-        self.stamp_wall(sender, self.epoch_ms.saturating_add(at))
+    /// A unique `sent_at` for `sender` at simulated time `at` or just after,
+    /// and the simulated time it stands for: send the message then, so it is
+    /// never dated after it arrives.
+    fn stamp(&mut self, sender: ServiceId, at: Millis) -> (Timestamp, Millis) {
+        let sent_at = self.stamp_wall(sender, self.epoch_ms.saturating_add(at));
+        let sent = sent_at.as_millis().saturating_sub(self.epoch_ms);
+        (sent_at, sent)
     }
 
     /// Signal identifies messages by `(sender, sent_at)`, so bump on collision.
@@ -1230,6 +1235,59 @@ mod tests {
         assert!(has(
             |e| *e == BackendEvent::Connection(ConnectionState::Disconnected)
         ));
+    }
+
+    /// Nothing is dated after the moment it arrives, and the backlog is dated
+    /// before the epoch.
+    #[test]
+    fn nothing_is_stamped_in_the_future() {
+        for seed in 0..8 {
+            for activity in [Duration::from_secs(4), Duration::from_millis(2)] {
+                let config = MockConfig {
+                    activity: Some(activity),
+                    ..MockConfig::deterministic(seed)
+                };
+                let mut sim = Sim::new(&config, World::build());
+                let epoch = sim.wall_clock_at(0).as_millis();
+                let mut seen = 0;
+                while seen < 3_000 {
+                    let due = sim.next_due().expect("activity never runs out");
+                    let now = epoch + due;
+                    let backlog = due == CONNECT_DELAY;
+                    for event in sim.pop_due(due) {
+                        seen += 1;
+                        let at = format!("seed {seed}, {activity:?}, {due} ms: {event:?}");
+                        match &event {
+                            BackendEvent::Message(m) => {
+                                let sent = m.sent_at.as_millis();
+                                assert!(sent <= now, "future message, {at}");
+                                assert!(!backlog || sent < epoch, "backlog after epoch, {at}");
+                            }
+                            BackendEvent::Edited { edited_at, .. } => {
+                                let edited = edited_at.as_millis();
+                                assert!(edited <= now, "future edit, {at}");
+                                assert!(
+                                    !backlog || edited < epoch,
+                                    "backlog edit after epoch, {at}"
+                                );
+                            }
+                            BackendEvent::DeliveryUpdate { updated_at, .. } => {
+                                let updated = updated_at.map_or(0, Timestamp::as_millis);
+                                assert!(updated <= now, "future receipt, {at}");
+                            }
+                            BackendEvent::Connection(_)
+                            | BackendEvent::Reaction { .. }
+                            | BackendEvent::Deleted { .. }
+                            | BackendEvent::Typing { .. }
+                            | BackendEvent::ReadElsewhere(_)
+                            | BackendEvent::ContactUpdated(_)
+                            | BackendEvent::GroupUpdated(_)
+                            | BackendEvent::Error(_) => {}
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]
