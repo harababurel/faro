@@ -1425,6 +1425,24 @@ fn staged_image_bar_shows_dimensions_and_the_view_key() {
     assert_drawable(&compatible(state), 100, 24);
 }
 
+/// D94: the About popup, from the palette's commands.
+#[test]
+fn about_popup() {
+    use crate::app::state::Popup;
+
+    let mut state = loaded_state();
+    state.popup = Some(Popup::About);
+    let text = snapshot(&draw(&state, 100, 24));
+    assert!(
+        text.contains(&format!("faro {}", env!("CARGO_PKG_VERSION"))),
+        "{text}"
+    );
+    assert!(text.contains("getfaro.dev"), "{text}");
+    assert!(text.contains("not affiliated with Signal"), "{text}");
+    insta::assert_snapshot!(text.replace(env!("CARGO_PKG_VERSION"), "<version>"));
+    assert_drawable(&compatible(state), 100, 24);
+}
+
 #[test]
 fn voice_note_renders_waveform_progress_and_transcript() {
     use crate::app::state::PlayingVoiceNote;

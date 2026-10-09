@@ -675,6 +675,10 @@ fn run(state: &mut State, command: PaletteCommand) -> Vec<Effect> {
             open(state, Level::Keys);
             vec![]
         }
+        (PaletteCommand::About, _) => {
+            state.popup = Some(crate::app::state::Popup::About);
+            vec![]
+        }
     }
 }
 

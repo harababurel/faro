@@ -340,7 +340,7 @@ Start after Wave 2 is merged to `origin/main`. Run **Tracks 3A and 3B in paralle
 - `faro daemon` + attachable TUI
 - signal-cli JSON-RPC backend
 - Encryption at rest
-- About screen with the logo (the animated lighthouse itself is done: the empty message pane, D61)
+- ~~About screen with the logo~~: done as a popup from the palette (D94); the animated lighthouse is the empty message pane (D61)
 - Drag-resizable sidebars with hover highlight
 - Optional sync of hidden/allowlist state via config
 - Recording and sending voice notes
@@ -351,6 +351,7 @@ Start after Wave 2 is merged to `origin/main`. Run **Tracks 3A and 3B in paralle
 
 ## Progress
 
+- 2026-10-09: clipboard image paste done (D89–D91, D93; owner's hands-on checks in MANUAL_TESTS "Clipboard images"). Phase 0 spike (branch `spike/clipboard-osc5522`) settled how to read terminal replies (D90). `faro-core::clipboard` is the protocol. `Ctrl+V` stages the image (never sends it) and `Ctrl+O` shows it, asking every kitty attached to tmux. Pasted files are cleaned up. Also: a startup race that could wipe early messages from the list (D92), and an About popup (D94). End-to-end check: `tools/clipboard/e2e.py`.
 - 2026-10-09: D84 image settings complete: explicit Kitty/Sixel/iTerm2 protocols, Auto result/fallback notes in the palette, live config updates and protocol-cache invalidation tests. Quality gate green (fmt, clippy, 460 tests); snapshot reviewed. Hands-on checks: MANUAL_TESTS "Explicit protocols (D84)".
 - 2026-10-09: demo refinements done (owner's hands-on checks pending, see MANUAL_TESTS "Demo"): `faro demo` replaces `--mock` and can't reach real data (D87); the demo cast is an Office parody played as written scenes (D88).
 

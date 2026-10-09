@@ -29,7 +29,7 @@ pub const STILL: f64 = 0.35;
 /// How often the logo is redrawn while it moves (10 fps).
 pub const FRAME: Duration = Duration::from_millis(100);
 
-const TAGLINE: &str = "terminal messenger · unofficial Signal client";
+pub const TAGLINE: &str = "terminal messenger · unofficial Signal client";
 const WORD: &str = "faro";
 /// Columns between the big lighthouse and the wordmark beside it.
 const GUTTER: u16 = 4;
@@ -362,6 +362,15 @@ fn draw_line(buffer: &mut Buffer, area: Rect, x: u16, y: u16, line: &Line<'_>) {
 
 /// `picture` with its top left corner at (`x`, `y`); what falls outside
 /// `area` isn't drawn.
+/// The small theme-coloured lighthouse (for the About popup, D94).
+pub const SMALL_SIZE: (u16, u16) = (art::SMALL_WIDTH, art::SMALL_HEIGHT);
+
+/// Draw the small lighthouse with its top-left corner at `(x, y)`, clipped to
+/// `area`.
+pub fn draw_small_lighthouse(buffer: &mut Buffer, area: Rect, x: u16, y: u16, theme: &Theme) {
+    draw_picture(buffer, area, x, y, &art::small(theme), theme);
+}
+
 fn draw_picture(buffer: &mut Buffer, area: Rect, x: u16, y: u16, picture: &Picture, theme: &Theme) {
     for (dx, dy, glyph) in picture.glyphs() {
         let position = Position::new(x + dx, y + dy);

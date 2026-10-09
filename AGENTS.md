@@ -118,6 +118,7 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
   - **Testing:** `python3 tools/clipboard/e2e.py target/debug/faro <png> <scratch> [--tmux]` runs `faro demo` with a fake kitty and checks the paste end to end.
 - 2026-10-09: startup race fixed (D92): backend events that reach the reducer before `AppEvent::Loaded` wait in `State::early_events` and are applied on top of the store's list in `on_loaded`. Before, the list (read first by the store worker) wiped them out.
 - 2026-10-09: pasted images are cleaned up (D93): `clipboard::is_pasted` (`attachments/clipboard-*`) files are deleted after `copy_outgoing_attachments` copies them, and `clipboard::sweep` deletes leftovers at startup.
+- 2026-10-09: About popup (D94): `PaletteCommand::About` → `Popup::About` (`ui/popup.rs::about`, `ui::logo::draw_small_lighthouse`, `logo::TAGLINE` now `pub`).
 
 ### Gotchas found so far
 

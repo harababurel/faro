@@ -297,6 +297,8 @@ pub enum PaletteCommand {
     JumpUnread,
     /// Show the keybinding list.
     ShowKeys,
+    /// Show `Popup::About` (D94).
+    About,
 }
 
 /// A value for a setting (D48); choosing it applies it and saves it to the
@@ -1049,6 +1051,7 @@ fn commands(state: &State) -> Vec<Item> {
         "Show keybindings",
         key(Action::Help, Focus::Input),
     ));
+    items.push(command(PaletteCommand::About, "About faro", None));
     items.push(global(Action::Quit, "Quit"));
     items
 }

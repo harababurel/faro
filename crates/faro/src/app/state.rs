@@ -418,6 +418,8 @@ pub enum Popup {
     ConfirmDelete { target: MessageRef },
     /// The staged attachment, full size, before it's sent (`Ctrl+O`, D91).
     StagedImage,
+    /// Version, links, licence and credits, with the lighthouse (D94).
+    About,
     /// What can be done with a conversation (`Space` or right-click in the
     /// sidebar, D41).
     Conversation {

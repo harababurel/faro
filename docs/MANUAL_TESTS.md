@@ -341,6 +341,10 @@ In kitty, with an image copied on the machine you type on (e.g. *Copy Image* in 
 - [ ] **No leftovers:** after sending a pasted image, `ls <data dir>/attachments/clipboard-*` finds nothing (the sent copy has the message's name); paste one, remove it with `Esc`, restart faro: it's gone too.
 - [ ] **Esc after a paste:** a lone `Esc` still dismisses things normally (it can be held back for up to 50 ms after the first paste; that shouldn't be noticeable).
 
+## About (D94)
+
+- [ ] `Ctrl+P` › Commands › *About faro*: a centred box with the small lighthouse in the theme's colours, the version, getfaro.dev, the repository, the licence, credits and your data folder; `Esc` closes it. In a narrow window (about 60 columns) the lighthouse is left out and the text is cut cleanly.
+
 ## M8: terminal matrix (D50; run after M7 against the real backend, and once now with the demo)
 
 Columns: **direct** = faro straight in kitty; **tmux** = kitty → tmux (with the README's tmux settings); **SSH** = kitty → ssh → tmux on the other machine; **mosh** = kitty → mosh → tmux. Mark each cell ✓, ✗ (add a note below) or – (not applicable). Also try one other terminal per OS (WezTerm/Ghostty/Alacritty/foot on Linux, iTerm2 and Terminal.app on macOS) for the rows marked †.

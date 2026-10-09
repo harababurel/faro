@@ -353,10 +353,11 @@ pub fn on_popup(state: &mut State, key: PopupKey) -> Vec<Effect> {
                 vec![]
             }
         },
-        Popup::StagedImage => match key {
+        // Look, then close (D91, D94).
+        popup @ (Popup::StagedImage | Popup::About) => match key {
             PopupKey::Close | PopupKey::Choose | PopupKey::Char('q') => vec![],
             PopupKey::Previous | PopupKey::Next | PopupKey::Backspace | PopupKey::Char(_) => {
-                state.popup = Some(Popup::StagedImage);
+                state.popup = Some(popup);
                 vec![]
             }
         },

@@ -866,3 +866,18 @@ Refines the DESIGN.md §5.1 sketch:
   - At startup nothing is staged, so `clipboard::sweep` (a blocking task started by `app::run`) deletes every such file left over, e.g. one removed with `Esc` or still staged at quit.
   - Received attachments never start with `clipboard-` (they start with the send time), and files in subfolders are never touched.
 - **Tests:** `clipboard::tests::pasted_images_are_recognised_and_swept`; `tools/clipboard/e2e.py` checks that after sending, the pasted file is gone and exactly one copy remains.
+
+### D94. An About popup with the small lighthouse — Accepted (Judgement, 2026-10-09; easy to change)
+
+- **Why:** the backlog's "About screen with the logo". It needed no input from the owner to do it simply and reversibly.
+- **Decision:**
+  - *About faro* in the palette's commands opens `Popup::About`, centred on the screen. It shows the small theme-coloured lighthouse (`ui::logo::draw_small_lighthouse`; left out when the screen is too narrow) beside:
+    - the version, and the logo screen's tagline;
+    - getfaro.dev and the repository;
+    - the licence and "not affiliated with Signal";
+    - credits (presage and libsignal, OpenCode's themes);
+    - the data folder.
+  - `Esc`, `Enter` or `q` closes it.
+  - Version, repository and licence come from Cargo (`CARGO_PKG_*`), so they can't go stale.
+- **Not done:** no key of its own (the palette is enough), and no animation (the big logo screen has that).
+- **Test:** the `ui::tests::about_popup` snapshot (version masked).

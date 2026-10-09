@@ -98,6 +98,7 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &
             attachment_viewer(frame, state, *target, *index, geometry, view);
         }
         Popup::StagedImage => staged_viewer(frame, state, geometry, view),
+        Popup::About => about(frame, state, view),
         Popup::ConfirmDelete { target } => {
             let Some(anchor) = over_message(geometry, *target) else {
                 return;
@@ -261,6 +262,80 @@ fn format_time(ts: Timestamp, view: &View<'_>) -> String {
         || format!("{} ms", ts.as_millis()),
         |t| zoned(t, view).strftime("%H:%M:%S").to_string(),
     )
+}
+
+/// What faro is and where it comes from (D94): the small lighthouse beside
+/// the version, links, licence and credits, centred on the screen.
+fn about(frame: &mut Frame<'_>, state: &State, view: &View<'_>) {
+    let theme = view.theme;
+    let data_dir = state
+        .attachments_dir
+        .parent()
+        .map(|dir| dir.display().to_string())
+        .unwrap_or_default();
+    let repository = env!("CARGO_PKG_REPOSITORY").trim_start_matches("https://");
+    let mut rows: Vec<(String, Style)> = vec![
+        (
+            format!("faro {}", env!("CARGO_PKG_VERSION")),
+            Style::new().fg(theme.primary).add_modifier(Modifier::BOLD),
+        ),
+        (super::logo::TAGLINE.to_owned(), theme.muted()),
+        (String::new(), theme.muted()),
+        ("getfaro.dev".to_owned(), Style::new().fg(theme.accent)),
+        (repository.to_owned(), Style::new().fg(theme.accent)),
+        (String::new(), theme.muted()),
+        (
+            format!("{} · not affiliated with Signal", env!("CARGO_PKG_LICENSE")),
+            Style::new().fg(theme.text),
+        ),
+        (
+            "Signal protocol: presage and libsignal".to_owned(),
+            theme.muted(),
+        ),
+        (
+            "Themes: faro's own and OpenCode's (MIT)".to_owned(),
+            theme.muted(),
+        ),
+    ];
+    if !data_dir.is_empty() {
+        rows.push((format!("Data: {}", sanitize(&data_dir)), theme.muted()));
+    }
+    let (logo_width, logo_height) = super::logo::SMALL_SIZE;
+    let text_width = rows.iter().map(|(text, _)| width(text)).max().unwrap_or(0);
+    let wanted_width = usize::from(logo_width) + 3 + text_width;
+    let area = frame.area();
+    let inner_width = u16::try_from(wanted_width)
+        .unwrap_or(u16::MAX)
+        .min(area.width.saturating_sub(4));
+    let inner_height = u16::try_from(rows.len())
+        .unwrap_or(u16::MAX)
+        .max(logo_height)
+        .min(area.height.saturating_sub(2));
+    let rect = Rect {
+        x: area.x + area.width.saturating_sub(inner_width + 2) / 2,
+        y: area.y + area.height.saturating_sub(inner_height + 2) / 2,
+        width: (inner_width + 2).min(area.width),
+        height: (inner_height + 2).min(area.height),
+    };
+    let inner = frame_box(frame, rect, "About", view);
+    // The lighthouse only if there's room for it beside the text.
+    let text_area = if inner.width > logo_width + 3 + 20 {
+        let y = inner.y + inner.height.saturating_sub(logo_height) / 2;
+        super::logo::draw_small_lighthouse(frame.buffer_mut(), inner, inner.x + 1, y, theme);
+        Rect {
+            x: inner.x + logo_width + 3,
+            width: inner.width - logo_width - 3,
+            ..inner
+        }
+    } else {
+        inner
+    };
+    let room = usize::from(text_area.width);
+    let lines: Vec<Line<'_>> = rows
+        .into_iter()
+        .map(|(text, style)| Line::from(Span::styled(truncate(&text, room).into_owned(), style)))
+        .collect();
+    frame.render_widget(Paragraph::new(lines), text_area);
 }
 
 /// `v` on a downloaded image (D76).

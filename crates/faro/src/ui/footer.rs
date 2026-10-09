@@ -228,7 +228,7 @@ fn hints(state: &State, geometry: &Geometry) -> Vec<(String, &'static str)> {
             Popup::Mute { .. } => fixed(MUTE_HINTS),
             Popup::MessageInfo { .. } => fixed(MESSAGE_INFO_HINTS),
             Popup::ImageViewer { .. } => fixed(IMAGE_VIEWER_HINTS),
-            Popup::StagedImage => fixed(STAGED_IMAGE_HINTS),
+            Popup::StagedImage | Popup::About => fixed(STAGED_IMAGE_HINTS),
         };
     }
     let (focus, hints) = if focused(state, geometry, Focus::Messages) {

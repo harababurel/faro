@@ -1,0 +1,28 @@
+---
+source: crates/faro/src/ui/tests.rs
+expression: "text.replace(env!(\"CARGO_PKG_VERSION\"), \"<version>\")"
+---
+╭ Conversations ─────────────╮╭ Climbing 🧗 ───────────────────────────────────────────────────────╮
+│ ▾ Pinned                   ││ 16:30   Alice 🌸 Anyone up for the wall on Thursday?               │
+│   Bob                      ││ 16:40        You Yes! 7pm at the usual place 👍 ✓✓                 │
+│ ▾ Recent                   ││                  👍 2  ❤️                                          │
+│   Climbing 🧗              ││ ───────────────────────────── Today ────────────────────────────── │
+│ ● Alice 🌸               1 ││ 17:20        Bob ▎ Alice 🌸: Anyone up for the wall on Thursday?   │
+│                   ╭ About ──────────────────────────────────────────────────╮are harness         │
+│                   │    ▄█▄     faro <version>                               │                    │
+│                   │    ███     terminal messenger · unofficial Signal client│                    │
+│                   │   ▀▀▀▀▀                                                 │                    │
+│                   │    ███     getfaro.dev                                  │                    │
+│                   │    ███     github.com/harababurel/faro                  │─────────────────── │
+│                   │   █████                                                 │ opened last week   │
+│                   │   █████    AGPL-3.0-only · not affiliated with Signal   │soft, so bring your │
+│                   │ ▄▄▄▄▄▄▄▄▄  Signal protocol: presage and libsignal       │ome tape for your   │
+│                   │            Themes: faro's own and OpenCode's (MIT)      │                    │
+│                   ╰─────────────────────────────────────────────────────────╯                    │
+│                            ││ 17:55   Alice 🌸 Running 10 min late 🙈                            │
+│                            ││                                                                    │
+│                            ││╭──────────────────────────────────────────────────────────────────╮│
+│                            │││ Message Climbing 🧗…                                             ││
+│                            ││╰──────────────────────────────────────────────────────────────────╯│
+╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯
+ ● connected · 1 unread                                                                   esc close
