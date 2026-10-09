@@ -2,34 +2,34 @@
 
 A terminal client for [Signal](https://signal.org), built for people who live in tmux.
 
-> **Status: pre-release.** The interface is usable against a built-in **mock backend** (fake contacts and messages). The real Signal backend (via [presage](https://github.com/whisperfish/presage)) is being tested: it runs either with an allowlist of who faro may talk to, or with `--no-allowlist`. See the [plan](docs/PLAN.md) for progress.
+> **Status: pre-release.** The interface can be tried with **`faro demo`** (fake contacts and messages, no account needed). The real Signal backend (via [presage](https://github.com/whisperfish/presage)) is being tested: it runs either with an allowlist of who faro may talk to, or with `--no-allowlist`. See the [plan](docs/PLAN.md) for progress.
 
 faro is an unofficial, independent project. It is not affiliated with, endorsed by, or supported by Signal Messenger LLC or the Signal Technology Foundation.
 
 <!-- TODO(owner): replace the text capture below with real screenshots (kitty + tmux, faro-dark and faro-light). -->
 
 ```text
-╭ Conversations ─────────────╮╭ Climbing crew 🧗 ──────────────────────────────────────────────────╮
-│ ● Émile & Zoë Ångström   5 ││                                                                    │
-│   Climbing crew 🧗         ││ ─────────────────────────── Yesterday ──────────────────────────── │
-│ ● Alice Moreau           4 ││                                                  brb ☕  03:08 ✓✓  │
-│ ● Lukas 🇩🇪               4 ││ ────────────────────────── new messages ────────────────────────── │
-│ ● Bogdan 🚴‍♂️              5 ││  Lukas 🇩🇪                                                          │
-│ ● 陈伟 Chen Wei          6 ││  hey!  22:36                                                       │
-│ ● Mum ❤️                 2 ││ ───────────────────────────── Today ────────────────────────────── │
-│                            ││  +15555550108                                                      │
-│                            ││  line one                                                          │
-│                            ││  line two  22:33                                                   │
+╭ Conversations ─────────────╮╭ Scranton Branch 📄 ────────────────────────────────────────────────╮
+│ ● Kelly's mom            6 ││  Stanley Hudson                                                    │
+│   Scranton Branch 📄       ││ ┃Is it mandatory?  02:33                                           │
+│ ● Dwight K. Schrute III… 4 ││                                                                    │
+│ ● Ryan Howard            4 ││  Michael Scott                                                     │
+│ ● Kelly Kapoor 💁🏽‍♀️        5 ││ ┃▎ Stanley Hudson: Is it mandatory?                                │
+│ ● Mariam · Cairo office… 7 ││ ┃Did I stutter?               02:34                                │
+│ ● Jim Halpert            4 ││                                                                    │
+│ ● Finer Things Club 🍷   5 ││  Meredith Palmer                                                   │
+│                            ││ ┃Is there cake?  02:38                                             │
+│                            ││                                                                    │
 │                            ││╭──────────────────────────────────────────────────────────────────╮│
-│                            │││ Message Climbing crew 🧗…                                        ││
+│                            │││ Message Scranton Branch 📄…                                      ││
 │                            ││╰──────────────────────────────────────────────────────────────────╯│
 ╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯
- ● connected · 39 unread               enter send · alt+j/k conversations · tab focus · pgup scroll
+ ● connected · demo · 35 unread          enter send · alt+j/k conversations · esc close · tab focus
 ```
 
-<sub>A text capture of `faro --mock` in tmux (cut down). Emoji may look misaligned in your browser; in a terminal they line up.</sub>
+<sub>A text capture of `faro demo` in tmux (cut down). Emoji may look misaligned in your browser; in a terminal they line up.</sub>
 
-## What it does (today, with the mock)
+## What it does (today, in the demo)
 
 - Conversation list with pinning, muting (with durations), hiding, archiving and an allowlist mode
 - Two message layouts: **bubbles** (default; rounded in kitty, with a coloured bar elsewhere: `[messages] bubble_style`) and **IRC**-style, with configurable density (`comfortable` / `compact`) and timestamps (`absolute` / `relative` / `off`)
@@ -67,10 +67,10 @@ Release binaries and packages come later (see [DESIGN.md §13](docs/DESIGN.md)).
 ## Try it
 
 ```sh
-cargo run --release -- --mock --data-dir /tmp/faro-try --config /tmp/faro-try/config.toml
+cargo run --release -- demo
 ```
 
-`--mock` uses fake contacts and scripted activity; no Signal account is involved. The throwaway `--data-dir` and `--config` keep your real ones untouched.
+`faro demo` runs faro against a fake account: the new temp at a paper company's Scranton branch, with scripted coworkers, groups, photos and voice notes. No Signal account is involved. Its data lives in its own directory under the system temp dir (`$TMPDIR` or `/tmp`, as `faro-demo-<uid>`), kept until the system clears it; `--fresh` starts over. The demo never reads or writes your real data directory (it ignores `--data-dir` and `FARO_DATA_DIR`), but it does use your real config file, so a theme you pick in the demo stays picked.
 
 With a real account (while testing):
 
@@ -83,17 +83,21 @@ faro --no-allowlist                        # or: talk to everyone, like any Sign
 
 | Flag | Environment | What |
 |---|---|---|
-| `--data-dir DIR` | `FARO_DATA_DIR` | Database, logs and Signal keys. Default `~/.local/share/faro` |
+| `--data-dir DIR` | `FARO_DATA_DIR` | Database, logs and Signal keys. Default `~/.local/share/faro`. Never used by `faro demo` |
 | `--config FILE` | `FARO_CONFIG` | Config file. Default `~/.config/faro/config.toml` |
-| `--mock` | | Use the mock backend (without it: the account linked with `faro link`) |
-| `--mock-seed N` | `FARO_MOCK_SEED` | Another seed, another scripted conversation |
-| `--mock-activity MS` | `FARO_MOCK_ACTIVITY` | Mean time between mock events (default 4000; small values flood the UI) |
-| `--mock-no-faults` | `FARO_MOCK_NO_FAULTS` | No scripted outages or send failures |
 | `--emoji auto\|full\|compatible` | `FARO_EMOJI` | How to draw emoji (see [mosh](#mosh)); overrides the config |
 | `--allowlist FILE` | `FARO_ALLOWLIST` | Talk only to the people and groups in FILE; drop everything else |
 | `--no-allowlist` | | Talk to everyone (your own account); one of the two is required with a real account |
+| `faro demo` | | Run with a fake account and scripted activity, in its own data directory (see [Try it](#try-it)) |
+| `faro demo --seed N` | | Another seed, another order of scripted scenes (default 0) |
+| `faro demo --activity MS` | | Mean time between demo events (default 4000; small values flood the UI) |
+| `faro demo --no-faults` | | No scripted outages or send failures |
+| `faro demo --fresh` | | Wipe the demo's data and start over |
+| `faro demo --dir DIR` | | Keep the demo's data in DIR (must be empty, new, or an earlier demo directory) |
 | `faro link [--device-name NAME]` | | Link this computer to your Signal account (QR code) |
 | `faro ids [--username NAME]…` | | Print this account's, usernames' and groups' IDs for an allowlist |
+
+The demo's flags have no environment variables on purpose: a leftover variable can't change what a demo run touches. `--emoji` and `--allowlist` also work after `demo`.
 
 ## Keys
 
@@ -185,7 +189,7 @@ Rounded bubbles are drawn with Powerline half circles (U+E0B6, U+E0B4) and Legac
 cargo test                                   # tests
 cargo fmt --check                            # formatting
 cargo clippy --all-targets -- -D warnings    # lints (pedantic; no panics, no blocking calls)
-FARO_LOG=info,faro=debug cargo run -- --mock-seed 7   # log every mock event
+FARO_LOG=info,faro=debug cargo run -- demo --seed 7   # log every demo event
 ```
 
 The last three must pass before every commit; CI runs them on Linux and macOS.
@@ -200,3 +204,5 @@ The last three must pass before every commit; CI runs them on Linux and macOS.
 ## License
 
 [AGPL-3.0](LICENSE). The bundled OpenCode themes are MIT-licensed; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+`faro demo`'s cast is an affectionate parody of characters from NBC's *The Office*. faro is not affiliated with NBCUniversal or *The Office*.

@@ -349,6 +349,7 @@ Start after Wave 2 is merged to `origin/main`. Run **Tracks 3A and 3B in paralle
 ## Progress
 
 - 2026-10-09: D84 image settings complete: explicit Kitty/Sixel/iTerm2 protocols, Auto result/fallback notes in the palette, live config updates and protocol-cache invalidation tests. Quality gate green (fmt, clippy, 460 tests); snapshot reviewed. Hands-on checks: MANUAL_TESTS "Explicit protocols (D84)".
+- 2026-10-09: demo refinements done (owner's hands-on checks pending, see MANUAL_TESTS "Demo"): `faro demo` replaces `--mock` and can't reach real data (D87); the demo cast is an Office parody played as written scenes (D88).
 
 | Milestone | Status | Notes |
 |---|---|---|

@@ -33,3 +33,14 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## Demo cast and images
+
+`faro demo`'s cast is an affectionate parody of characters from NBC's
+*The Office*. faro is not affiliated with NBCUniversal or *The Office*. The
+demo's messages are original writing; no scripts, images or footage from the
+show are included.
+
+The demo's images in [`crates/faro-core/assets/demo/`](crates/faro-core/assets/demo/)
+were generated for faro and are distributed under faro's own licence. They
+show no real people.
