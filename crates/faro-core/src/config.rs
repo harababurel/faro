@@ -90,6 +90,25 @@ choice! {
 }
 
 choice! {
+    /// Vertical spacing between messages (DESIGN.md §9, D83).
+    MessageDensity {
+        #[default]
+        Comfortable = "comfortable",
+        Compact = "compact",
+    }
+}
+
+choice! {
+    /// How message timestamps are shown (DESIGN.md §9, D83).
+    TimestampFormat {
+        #[default]
+        Absolute = "absolute",
+        Relative = "relative",
+        Off = "off",
+    }
+}
+
+choice! {
     /// How emoji are drawn (D47): `auto` is compatible when mosh is in the way.
     EmojiChoice {
         #[default]
@@ -212,6 +231,8 @@ pub struct Conversations {
 pub struct Messages {
     pub layout: MessageLayout,
     pub bubble_style: BubbleStyle,
+    pub density: MessageDensity,
+    pub timestamps: TimestampFormat,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -301,6 +322,8 @@ pub mod key {
     pub const ALLOWLIST: &str = "conversations.allowlist";
     pub const LAYOUT: &str = "messages.layout";
     pub const BUBBLE_STYLE: &str = "messages.bubble_style";
+    pub const DENSITY: &str = "messages.density";
+    pub const TIMESTAMPS: &str = "messages.timestamps";
     pub const AUTO_DOWNLOAD: &str = "media.auto_download";
     pub const INLINE_IMAGES: &str = "media.inline_images";
     pub const VOICE_PLAYER: &str = "voice.player";
@@ -459,6 +482,26 @@ pub static SETTINGS: &[Setting] = &[
         },
     },
     Setting {
+        path: key::DENSITY,
+        help: "Vertical spacing between messages: \"comfortable\" (a blank line between bubbles) \
+               or \"compact\".",
+        get: |c| text(c.messages.density),
+        set: |c, v| {
+            c.messages.density = choice(v)?;
+            Ok(())
+        },
+    },
+    Setting {
+        path: key::TIMESTAMPS,
+        help: "How message timestamps are shown: \"absolute\" (HH:MM), \"relative\" (now, 5m, \
+               2h, 3d) or \"off\" (shown only when a message is selected).",
+        get: |c| text(c.messages.timestamps),
+        set: |c, v| {
+            c.messages.timestamps = choice(v)?;
+            Ok(())
+        },
+    },
+    Setting {
         path: key::AUTO_DOWNLOAD,
         help: "Auto-download attachments in the open chat (up to 25 MB): \"images\", \"all\" or \
                \"off\" (download on demand with d).",
@@ -599,7 +642,7 @@ pub static SETTINGS: &[Setting] = &[
 
 /// Settings DESIGN.md sketches that faro doesn't have yet: setting them says
 /// so instead of "unknown".
-const PLANNED: &[&str] = &["messages.density", "messages.timestamps"];
+const PLANNED: &[&str] = &[];
 
 /// Settings that were renamed: still read (with a warning) when the new name
 /// isn't set.

@@ -5,6 +5,7 @@
 
 use std::collections::BTreeMap;
 
+use faro_core::config::{MessageDensity, TimestampFormat};
 use faro_core::domain::{
     AttachmentStatus, BodyPart, DeliveryStatus, Direction, Message, MessageRef, Timestamp,
     mention_parts,
@@ -16,10 +17,12 @@ use ratatui::text::{Line, Span};
 use super::View;
 use super::bubbles;
 use super::text::{one_line, pad_left, sanitize, truncate, width, wrap_pieces};
-use crate::app::state::{Anchor, MessageLayout, OpenConversation, State};
+use crate::app::state::{Anchor, Focus, MessageLayout, OpenConversation, State};
 
 /// Consecutive messages from one sender within this window share one name.
 const GROUPING_MS: u64 = 10 * 60 * 1000;
+/// Width of the `HH:MM` time column in the IRC layout.
+const TIME_WIDTH: usize = 5;
 
 /// Column widths for a pane `width` cells wide.
 struct Columns {
@@ -37,7 +40,7 @@ impl Columns {
             _ => 6,
         };
         // "hh:mm " + name + " "
-        let text_start = 6 + name + 1;
+        let text_start = (TIME_WIDTH + 1) + name + 1;
         Self {
             name,
             text_start,
@@ -353,8 +356,12 @@ fn block(context: &Context<'_>, i: usize) -> Block {
         }
         MessageLayout::Bubbles => {
             // A blank line between bubbles (even from the same sender, or
-            // they'd merge into one box), unless a rule already separates them.
-            if block.is_empty() && previous.is_some() {
+            // they'd merge into one box), unless a rule already separates them
+            // or compact density is chosen.
+            if state.message_density() == MessageDensity::Comfortable
+                && block.is_empty()
+                && previous.is_some()
+            {
                 block.push(Line::default());
             }
             let rules = block.len();
@@ -389,7 +396,8 @@ fn render_message(
 ) {
     let theme = view.theme;
     let indent = " ".repeat(columns.text_start);
-    let time = format_time(message.sent_at, view);
+    let time = message_time(state, message, view)
+        .map_or_else(|| " ".repeat(TIME_WIDTH), |t| pad_left(&t, TIME_WIDTH));
     let name = if show_name {
         let name = sanitize(&state.sender_name(message)).into_owned();
         pad_left(&truncate(&name, columns.name), columns.name)
@@ -819,6 +827,40 @@ pub(super) fn format_time(ts: Timestamp, view: &View<'_>) -> String {
         || "--:--".to_owned(),
         |ts| zoned(ts, view).strftime("%H:%M").to_string(),
     )
+}
+
+pub(super) fn is_selected(state: &State, message: &Message) -> bool {
+    state.focus == Focus::Messages
+        && state
+            .open
+            .as_ref()
+            .and_then(|o| o.selected)
+            .is_some_and(|s| s.message == message.reference())
+}
+
+pub(super) fn message_time(state: &State, message: &Message, view: &View<'_>) -> Option<String> {
+    match state.timestamp_format() {
+        TimestampFormat::Absolute => Some(format_time(message.sent_at, view)),
+        TimestampFormat::Relative => {
+            Some(format_relative_time(message.sent_at, view.now_timestamp()))
+        }
+        TimestampFormat::Off => {
+            is_selected(state, message).then(|| format_time(message.sent_at, view))
+        }
+    }
+}
+
+pub(super) fn format_relative_time(sent_at: Timestamp, now: Timestamp) -> String {
+    let diff_secs = now.as_millis().saturating_sub(sent_at.as_millis()) / 1000;
+    if diff_secs < 60 {
+        "now".to_owned()
+    } else if diff_secs < 3600 {
+        format!("{}m", diff_secs / 60)
+    } else if diff_secs < 86_400 {
+        format!("{}h", diff_secs / 3600)
+    } else {
+        format!("{}d", diff_secs / 86_400)
+    }
 }
 
 fn day_label(date: Option<Date>, today: Date) -> String {

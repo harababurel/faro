@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use faro_core::backend::{BackendEvent, Capabilities};
-use faro_core::config::{BubbleStyle, ColorChoice, Config};
+use faro_core::config::{BubbleStyle, ColorChoice, Config, MessageDensity, TimestampFormat};
 use faro_core::domain::{
     AttachmentRef, BodyPart, ConnectionState, Contact, ConversationId, Direction, Group, GroupId,
     Message, MessageRef, Quote, ServiceId, Timestamp, mention_parts,
@@ -1098,6 +1098,24 @@ impl State {
         match self.previewed() {
             Some(SettingChoice::BubbleStyle(style)) => style,
             Some(_) | None => self.config.messages.bubble_style,
+        }
+    }
+
+    /// The message density to draw: the one being previewed (D59), else the
+    /// config's.
+    pub fn message_density(&self) -> MessageDensity {
+        match self.previewed() {
+            Some(SettingChoice::Density(density)) => density,
+            Some(_) | None => self.config.messages.density,
+        }
+    }
+
+    /// The timestamp format to draw: the one being previewed (D59), else the
+    /// config's.
+    pub fn timestamp_format(&self) -> TimestampFormat {
+        match self.previewed() {
+            Some(SettingChoice::Timestamps(timestamps)) => timestamps,
+            Some(_) | None => self.config.messages.timestamps,
         }
     }
 

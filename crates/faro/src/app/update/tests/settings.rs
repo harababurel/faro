@@ -285,3 +285,64 @@ mod theme_files {
         );
     }
 }
+
+#[test]
+fn density_and_timestamps_are_chosen_in_the_palette_and_reloaded() {
+    use crate::app::palette::{Preview, SettingChoice};
+    use crate::app::update::settings::choose;
+    use faro_core::config::{MessageDensity, TimestampFormat};
+
+    let mut state = loaded_state();
+    assert_eq!(state.message_density(), MessageDensity::Comfortable);
+    assert_eq!(state.timestamp_format(), TimestampFormat::Absolute);
+
+    // Live preview overrides effective getter without changing config.
+    let mut palette = crate::app::palette::Palette::new(vec![], vec![]);
+    palette.preview = Some(Preview::Setting(SettingChoice::Density(
+        MessageDensity::Compact,
+    )));
+    state.palette = Some(palette);
+    assert_eq!(state.message_density(), MessageDensity::Compact);
+    assert_eq!(
+        state.config.messages.density,
+        MessageDensity::Comfortable,
+        "preview does not mutate config"
+    );
+
+    if let Some(p) = state.palette.as_mut() {
+        p.preview = Some(Preview::Setting(SettingChoice::Timestamps(
+            TimestampFormat::Relative,
+        )));
+    }
+    assert_eq!(state.timestamp_format(), TimestampFormat::Relative);
+    state.palette = None;
+
+    // Choosing in palette updates config and emits SaveSetting.
+    let effects = choose(&mut state, SettingChoice::Density(MessageDensity::Compact));
+    assert_eq!(state.message_density(), MessageDensity::Compact);
+    assert_eq!(
+        effects,
+        vec![Effect::SaveSetting(core::SettingEdit {
+            path: core::key::DENSITY,
+            value: core::ConfigValue::Text("compact".to_owned()),
+        })]
+    );
+
+    let effects = choose(&mut state, SettingChoice::Timestamps(TimestampFormat::Off));
+    assert_eq!(state.timestamp_format(), TimestampFormat::Off);
+    assert_eq!(
+        effects,
+        vec![Effect::SaveSetting(core::SettingEdit {
+            path: core::key::TIMESTAMPS,
+            value: core::ConfigValue::Text("off".to_owned()),
+        })]
+    );
+
+    // Live reload from config file.
+    reload(
+        &mut state,
+        "[messages]\ndensity = \"comfortable\"\ntimestamps = \"relative\"\n",
+    );
+    assert_eq!(state.message_density(), MessageDensity::Comfortable);
+    assert_eq!(state.timestamp_format(), TimestampFormat::Relative);
+}

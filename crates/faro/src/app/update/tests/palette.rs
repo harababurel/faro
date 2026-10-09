@@ -169,12 +169,14 @@ fn prefixes_jump_into_a_category() {
 }
 
 /// `Settings ›` with nothing typed: every setting under its section.
-const SETTINGS_LIST: [&str; 19] = [
+const SETTINGS_LIST: [&str; 21] = [
     "Appearance",
     "Colours",
     "Emoji",
     "Message layout",
     "Bubble style",
+    "Message density",
+    "Timestamps",
     "Reduce motion",
     "Notifications",
     "Bell",
@@ -270,7 +272,7 @@ fn headers_are_skipped() {
     press(&mut state, KeyCode::Down);
     press(&mut state, KeyCode::Down);
     assert_eq!(selected_title(&state), "Colours", "wraps past Appearance");
-    for _ in 0..5 {
+    for _ in 0..7 {
         press(&mut state, KeyCode::Down);
     }
     assert_eq!(selected_title(&state), "Bell", "skips Notifications");
@@ -587,8 +589,8 @@ fn mouse_picks_a_result_or_closes() {
     let mut state = loaded_state();
     palette_open(&mut state, "@");
     state.geometry.palette = Some(PaletteGeometry {
-        area: Rect::new(10, 2, 60, 12),
-        list: Rect::new(11, 5, 58, 8),
+        area: Rect::new(10, 2, 60, 14),
+        list: Rect::new(11, 5, 58, 10),
         offset: 0,
     });
     let click = |column, row| {
@@ -612,7 +614,7 @@ fn mouse_picks_a_result_or_closes() {
     update(&mut state, click(20, 5));
     assert_eq!(level(&state), Level::Settings);
     assert_eq!(selected_title(&state), "Colours");
-    update(&mut state, click(20, 12));
+    update(&mut state, click(20, 14));
     assert_eq!(selected_title(&state), "Bell");
     assert!(!state.config.notifications.bell);
     update(&mut state, click(2, 20));
@@ -1038,7 +1040,7 @@ fn left_and_right_cycle_setting_values_in_place_at_settings_level() {
     );
 
     // Move down to Bell (a switch) and cycle with Right and Left.
-    for _ in 0..5 {
+    for _ in 0..7 {
         press(&mut state, KeyCode::Down);
     }
     assert_eq!(selected_title(&state), "Bell");

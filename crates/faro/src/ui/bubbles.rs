@@ -25,7 +25,7 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 
 use super::View;
-use super::messages::{ImageSlot, content, delivery, format_time, reactions};
+use super::messages::{ImageSlot, content, delivery, message_time, reactions};
 use super::text::{sanitize, truncate, width};
 use crate::app::state::{BlockGlyphs, State};
 use crate::theme::Theme;
@@ -106,7 +106,7 @@ pub(super) fn render(
     }
 
     let (content_lines, pending_images) = content(state, message, max_inner, view);
-    let (lines, inner) = with_meta(content_lines, message, view, max_inner);
+    let (lines, inner) = with_meta(content_lines, state, message, view, max_inner);
     let colour = if own {
         theme.bubble_own
     } else {
@@ -216,13 +216,17 @@ fn edge(
 /// and the bubble's inner width.
 fn with_meta(
     mut lines: Vec<Vec<Span<'static>>>,
+    state: &State,
     message: &Message,
     view: &View<'_>,
     max_inner: usize,
 ) -> (Vec<Vec<Span<'static>>>, usize) {
-    let meta = meta(message, view);
-    let meta_width = spans_width(&meta);
+    let meta = meta(state, message, view);
     let widest = lines.iter().map(|l| spans_width(l)).max().unwrap_or(0);
+    if meta.is_empty() {
+        return (lines, widest.min(max_inner));
+    }
+    let meta_width = spans_width(&meta);
     let last = lines.last().map_or(0, |l| spans_width(l));
     let shared = last + META_GAP + meta_width;
     if shared <= max_inner
@@ -242,14 +246,27 @@ fn with_meta(
 }
 
 /// `edited 19:02 ✓✓`, dimmed.
-fn meta(message: &Message, view: &View<'_>) -> Vec<Span<'static>> {
+fn meta(state: &State, message: &Message, view: &View<'_>) -> Vec<Span<'static>> {
     let muted = view.theme.muted();
+    let time = message_time(state, message, view);
     let mut spans = Vec::new();
     if message.edited_at.is_some() && !message.deleted {
-        spans.push(Span::styled("edited ", muted));
+        let label = if time.is_some() { "edited " } else { "edited" };
+        spans.push(Span::styled(label, muted));
     }
-    spans.push(Span::styled(format_time(message.sent_at, view), muted));
-    spans.extend(delivery(message, view));
+    if let Some(time) = time {
+        spans.push(Span::styled(time, muted));
+    }
+    if let Some(status) = delivery(message, view) {
+        if spans.is_empty() {
+            spans.push(Span::styled(
+                status.content.trim_start().to_owned(),
+                status.style,
+            ));
+        } else {
+            spans.push(status);
+        }
+    }
     spans
 }
 
