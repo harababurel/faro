@@ -107,10 +107,10 @@ impl Asset {
             Self::BeetField => photo("mock:beet-field", "beet-field.jpg"),
             Self::Chili => photo("mock:chili-pot", "chili-pot.jpg"),
             Self::Pretzel => photo("mock:pretzel", "pretzel.jpg"),
-            // Like Signal stickers, it has no file name.
+            // As presage delivers stickers: WebP with no file name.
             Self::Trophy => Spec {
                 id: "mock:sticker-trophy",
-                content_type: "image/png",
+                content_type: "image/webp",
                 file_name: None,
                 dims: Some((160, 160)),
                 kind: Kind::Sticker,
@@ -166,7 +166,7 @@ fn bytes(asset: Asset) -> Vec<u8> {
         Asset::BeetField => include_bytes!("../../assets/demo/beet-field.jpg").to_vec(),
         Asset::Chili => include_bytes!("../../assets/demo/chili-pot.jpg").to_vec(),
         Asset::Pretzel => include_bytes!("../../assets/demo/pretzel.jpg").to_vec(),
-        Asset::Trophy => include_bytes!("../../assets/demo/trophy-sticker.png").to_vec(),
+        Asset::Trophy => include_bytes!("../../assets/demo/trophy-sticker.webp").to_vec(),
         Asset::EmergencyProtocol => EMERGENCY_PROTOCOL.as_bytes().to_vec(),
         Asset::DundiesNominees => DUNDIES_NOMINEES.as_bytes().to_vec(),
         Asset::Invoice => INVOICE.as_bytes().to_vec(),
@@ -284,6 +284,9 @@ mod tests {
                     let webp = bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP");
                     assert!(png || jpeg || webp, "{asset:?} has an image signature");
                     assert!(att.width.is_some() && att.height.is_some());
+                    let sticker = asset.spec().kind == Kind::Sticker;
+                    assert_eq!(att.is_sticker(), sticker, "{asset:?} is a sticker or not");
+                    assert_eq!(webp, sticker, "{asset:?}: stickers are WebP");
                 }
                 Kind::Voice => {
                     assert!(att.is_voice_note());

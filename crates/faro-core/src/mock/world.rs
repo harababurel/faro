@@ -320,9 +320,19 @@ mod tests {
             .filter_map(|l| l.attach)
             .map(|a| a.spec().kind)
             .collect();
-        for kind in [Kind::Voice, Kind::Photo, Kind::File, Kind::Sticker] {
+        for kind in [Kind::Voice, Kind::Photo, Kind::File] {
             assert!(kinds.contains(&kind), "a {kind:?} attachment");
         }
+        // A sticker as presage delivers one: faro must recognise it as such.
+        assert!(
+            lines().any(|l| {
+                l.text.starts_with("[sticker] ")
+                    && l.attach
+                        .and_then(super::super::assets::Asset::attachment)
+                        .is_some_and(|a| a.is_sticker())
+            }),
+            "a sticker"
+        );
     }
 
     #[test]

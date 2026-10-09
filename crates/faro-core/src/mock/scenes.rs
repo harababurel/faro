@@ -126,7 +126,7 @@ pub(super) const SCENES: &[Scene] = &[
             say(Michael, "Okay. Big news. HUGE news."),
             say(Michael, "The Dundies are back and you are NOMINATED 🏆")
                 .with(Asset::DundiesNominees),
-            say(Michael, "").with(Asset::Trophy),
+            say(Michael, "[sticker] 🏆").with(Asset::Trophy),
             say(Me, "I've only been here a week!"),
             say(
                 Michael,
