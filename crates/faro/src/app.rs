@@ -154,6 +154,10 @@ pub async fn run<B: Backend + 'static>(
     let mut tui = Tui::enter(state.config.mouse.enabled).context("setting up the terminal")?;
     let mut images =
         images::Images::detect(state.config.media.inline_images, state.env.graphics).await;
+    state.env.image_protocol = (state.config.media.inline_images
+        == faro_core::config::InlineImages::Auto
+        && state.env.graphics == state::GraphicsSupport::Direct)
+        .then(|| images.detected_mode());
     let frame_log = FrameLog::from_env().map(|(log, task)| {
         tui.log_frames(log);
         task

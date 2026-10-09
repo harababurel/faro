@@ -39,8 +39,15 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &
         return;
     }
     let box_width = screen.width.saturating_sub(4).min(MAX_WIDTH);
+    // Recompute the image note: config reloads and terminal checks can change
+    // the active protocol while this level stays open.
+    let image_note = (palette.level()
+        == Level::Setting(crate::app::palette::Setting::InlineImages))
+    .then(|| crate::app::palette::note(state, palette.level()))
+    .flatten();
+    let note = image_note.as_ref().or(palette.note.as_ref());
     // Borders, the query and the rule, and the note if there is one.
-    let chrome = 4 + u16::from(palette.note.is_some());
+    let chrome = 4 + u16::from(note.is_some());
     let most_rows = (usable * 3 / 5).saturating_sub(chrome).max(1);
     let wanted = u16::try_from(palette.matches.len().max(1)).unwrap_or(u16::MAX);
     let rows = wanted.min(most_rows);
@@ -75,7 +82,7 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &
         },
     );
     let mut top = inner.y + 2;
-    if let Some(note) = &palette.note
+    if let Some(note) = note
         && inner.height > 3
     {
         let room = usize::from(inner.width).saturating_sub(2);

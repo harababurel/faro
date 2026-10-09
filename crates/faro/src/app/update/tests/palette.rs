@@ -69,6 +69,77 @@ fn enter(state: &mut State) -> Vec<Effect> {
     update(state, key(KeyCode::Enter, KeyModifiers::NONE))
 }
 
+#[test]
+fn image_protocols_are_selected_saved_and_explained() {
+    use crate::app::palette::{self, SettingChoice};
+    use crate::app::state::GraphicsSupport;
+    use faro_core::config::InlineImages;
+
+    let mut state = loaded_state();
+    state.env.colors = ColorDepth::Truecolor;
+    state.env.graphics = GraphicsSupport::HalfblocksOnly;
+    palette_open(&mut state, ":Inline images");
+    enter(&mut state);
+    assert_eq!(level(&state), Level::Setting(Setting::InlineImages));
+    assert_eq!(
+        titles(&state),
+        vec!["auto", "kitty", "sixel", "iterm2", "halfblocks", "off"]
+    );
+    assert!(
+        palette::note(&state, level(&state))
+            .unwrap()
+            .contains("mixed or detached")
+    );
+    press(&mut state, KeyCode::Down);
+    let effects = enter(&mut state);
+    assert_eq!(state.config.media.inline_images, InlineImages::Kitty);
+    assert!(effects.contains(&Effect::SaveSetting(SettingEdit {
+        path: key::INLINE_IMAGES,
+        value: ConfigValue::Text("kitty".to_owned()),
+    })));
+    assert_eq!(level(&state), Level::Settings);
+    assert_eq!(
+        palette::cycled(&state, Setting::InlineImages, true),
+        Some(SettingChoice::InlineImages(InlineImages::Sixel))
+    );
+    let note = palette::note(&state, Level::Setting(Setting::InlineImages)).unwrap();
+    assert!(note.contains("Forced kitty") && note.contains("passthrough"));
+    update(
+        &mut state,
+        AppEvent::ConfigRead(Ok("[media]\ninline_images = \"iterm2\"\n".to_owned())),
+    );
+    assert_eq!(state.config.media.inline_images, InlineImages::Iterm2);
+}
+
+#[test]
+fn auto_image_notes_explain_detection_and_fallbacks() {
+    use crate::app::palette;
+    use crate::app::state::GraphicsSupport;
+    use faro_core::config::InlineImages;
+
+    let mut state = loaded_state();
+    let level = Level::Setting(Setting::InlineImages);
+    state.env.colors = ColorDepth::Truecolor;
+    state.env.graphics = GraphicsSupport::Direct;
+    assert!(palette::note(&state, level).unwrap().contains("restart"));
+    state.env.image_protocol = Some(InlineImages::Kitty);
+    assert!(
+        palette::note(&state, level)
+            .unwrap()
+            .contains("Auto: kitty")
+    );
+    state.env.emoji.mosh = true;
+    assert!(palette::note(&state, level).unwrap().contains("mosh"));
+    state.env.colors = ColorDepth::Indexed256;
+    assert!(
+        palette::note(&state, level)
+            .unwrap()
+            .contains("256 colours")
+    );
+    state.env.colors = ColorDepth::Ansi16;
+    assert!(palette::note(&state, level).unwrap().contains("Images off"));
+}
+
 fn press(state: &mut State, code: KeyCode) {
     update(state, key(code, KeyModifiers::NONE));
 }

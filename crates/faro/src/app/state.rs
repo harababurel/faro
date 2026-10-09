@@ -6,7 +6,9 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use faro_core::backend::{BackendEvent, Capabilities};
-use faro_core::config::{BubbleStyle, ColorChoice, Config, MessageDensity, TimestampFormat};
+use faro_core::config::{
+    BubbleStyle, ColorChoice, Config, InlineImages, MessageDensity, TimestampFormat,
+};
 use faro_core::domain::{
     AttachmentRef, BodyPart, ConnectionState, Contact, ConversationId, Direction, Group, GroupId,
     Message, MessageRef, Quote, ServiceId, Timestamp, mention_parts,
@@ -300,6 +302,8 @@ pub struct Environment {
     /// Whether terminal graphics protocols can reach the user's terminal
     /// (`[media] inline_images = "auto"`, D78).
     pub graphics: GraphicsSupport,
+    /// Startup image query result; None when no query was attempted (D84).
+    pub image_protocol: Option<InlineImages>,
     /// The colours the terminal shows, guessed at startup (D50); the
     /// config's `ui.colors` can override it (`State::colors`).
     pub colors: ColorDepth,
@@ -738,6 +742,7 @@ impl State {
                 emoji: EmojiSetting::default(),
                 glyphs: BlockGlyphs::default(),
                 graphics: GraphicsSupport::default(),
+                image_protocol: None,
                 colors: ColorDepth::default(),
             },
             keymap: Keymap::default(),

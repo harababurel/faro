@@ -202,9 +202,19 @@ impl Images {
     }
 
     /// The protocol to draw with on this frame (`None` when inline images are
-    /// off or at 16 colours).
+    /// off, or Auto/Halfblocks is selected at 16 colours).
     pub fn active_protocol(&self) -> Option<ProtocolType> {
         self.active_protocol
+    }
+
+    /// The startup query's result, expressed as a user-facing setting.
+    pub fn detected_mode(&self) -> InlineImages {
+        match self.detected_protocol {
+            ProtocolType::Kitty => InlineImages::Kitty,
+            ProtocolType::Sixel => InlineImages::Sixel,
+            ProtocolType::Iterm2 => InlineImages::Iterm2,
+            ProtocolType::Halfblocks => InlineImages::Halfblocks,
+        }
     }
 
     /// Whether the active protocol is a terminal graphics protocol (`Kitty`,
@@ -371,6 +381,12 @@ pub fn resolve_protocol(
     graphics: GraphicsSupport,
     detected: ProtocolType,
 ) -> Option<ProtocolType> {
+    match setting {
+        InlineImages::Kitty => return Some(ProtocolType::Kitty),
+        InlineImages::Sixel => return Some(ProtocolType::Sixel),
+        InlineImages::Iterm2 => return Some(ProtocolType::Iterm2),
+        InlineImages::Auto | InlineImages::Halfblocks | InlineImages::Off => {}
+    }
     if setting == InlineImages::Off || colors == ColorDepth::Ansi16 {
         return None;
     }
@@ -526,6 +542,54 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn forced_protocols_override_detection_colour_depth_and_terminal_hops() {
+        for (mode, protocol) in [
+            (InlineImages::Kitty, ProtocolType::Kitty),
+            (InlineImages::Sixel, ProtocolType::Sixel),
+            (InlineImages::Iterm2, ProtocolType::Iterm2),
+        ] {
+            for colors in [
+                ColorDepth::Truecolor,
+                ColorDepth::Indexed256,
+                ColorDepth::Ansi16,
+            ] {
+                for graphics in [GraphicsSupport::Direct, GraphicsSupport::HalfblocksOnly] {
+                    assert_eq!(
+                        resolve_protocol(mode, colors, graphics, ProtocolType::Halfblocks),
+                        Some(protocol)
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn switching_protocols_live_invalidates_in_flight_decodes() {
+        let mut images = Images::halfblocks();
+        let mut state = crate::fixtures::loaded_state();
+        state.config.media.inline_images = InlineImages::Kitty;
+        images.prepare_frame(&state);
+        assert_eq!(images.active_protocol(), Some(ProtocolType::Kitty));
+        let old_generation = images.generation;
+        state.config.media.inline_images = InlineImages::Sixel;
+        images.prepare_frame(&state);
+        assert_ne!(images.generation, old_generation);
+        let key = ImageKey {
+            path: PathBuf::from("old.png"),
+            width: 2,
+            height: 2,
+            protocol: ProtocolType::Kitty,
+        };
+        assert!(!images.insert(DecodedImage {
+            key: key.clone(),
+            generation: old_generation,
+            protocol: None,
+        }));
+        assert_eq!(images.active_protocol(), Some(ProtocolType::Sixel));
+        assert!(images.get(&key).is_none());
     }
 
     #[test]

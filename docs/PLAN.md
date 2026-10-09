@@ -348,6 +348,8 @@ Start after Wave 2 is merged to `origin/main`. Run **Tracks 3A and 3B in paralle
 
 ## Progress
 
+- 2026-10-09: D84 image settings complete: explicit Kitty/Sixel/iTerm2 protocols, Auto result/fallback notes in the palette, live config updates and protocol-cache invalidation tests. Quality gate green (fmt, clippy, 460 tests); snapshot reviewed. Hands-on checks: MANUAL_TESTS "Explicit protocols (D84)".
+
 | Milestone | Status | Notes |
 |---|---|---|
 | Docs, naming, repo setup | ✅ Done (2026-10-07) | README, LICENSE, DESIGN, DECISIONS, BACKGROUND, PLAN, AGENTS, logo prototypes |

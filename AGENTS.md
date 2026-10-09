@@ -103,6 +103,8 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
   - Unread/receipts (D42): anything that can make the open conversation newly seen must call `presence::catch_up` (terminal events and `Drawn` already do). Text edits must call `presence::on_edited` (typing indicators). New commands go in `palette::commands` (or a helper next to it) and run through `update/palette.rs::run`.
   - `keymap::popup_action(key, horizontal)`: only the reaction picker moves with `h`/`l`; in menus they're shortcuts.
 
+- 2026-10-09: explicit image protocols (D84): `[media] inline_images` / palette now offers `auto`, `kitty`, `sixel`, `iterm2`, `halfblocks`, `off`. Forced graphics bypass automatic hop/colour fallback rules and work live without stdin queries. `Environment::image_protocol` records the optional startup result for Auto's explanatory note; image resources remain in `Images`. Hands-on checks in MANUAL_TESTS "Explicit protocols (D84)".
+
 ### Gotchas found so far
 
 - `#[expect(...)]` on a macro call (`println!`) is ignored; put it on the enclosing `fn`.

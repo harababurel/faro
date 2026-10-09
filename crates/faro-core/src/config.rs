@@ -178,6 +178,12 @@ choice! {
         /// elsewhere (off at 16 colours).
         #[default]
         Auto = "auto",
+        /// Force Kitty graphics, overriding automatic fallback rules.
+        Kitty = "kitty",
+        /// Force Sixel, overriding automatic fallback rules.
+        Sixel = "sixel",
+        /// Force the iTerm2 image protocol, overriding automatic fallback rules.
+        Iterm2 = "iterm2",
         /// Always Unicode half-blocks (`▀`/`▄`), even in kitty/iTerm2/Sixel.
         Halfblocks = "halfblocks",
         /// Only the `📎` metadata line.
@@ -514,7 +520,8 @@ pub static SETTINGS: &[Setting] = &[
     Setting {
         path: key::INLINE_IMAGES,
         help: "Inline images in the message list: \"auto\" (terminal graphics where supported, \
-               half-blocks elsewhere), \"halfblocks\" or \"off\".",
+               half-blocks elsewhere), \"kitty\", \"sixel\", \"iterm2\", \"halfblocks\" or \"off\". \
+               Forced protocols need a compatible terminal and tmux passthrough; mosh cannot carry them.",
         get: |c| text(c.media.inline_images),
         set: |c, v| {
             c.media.inline_images = choice(v)?;

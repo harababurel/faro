@@ -1132,9 +1132,50 @@ pub fn cycled(state: &State, setting: Setting, forward: bool) -> Option<SettingC
     list.into_iter().nth(next).map(|(choice, _, _)| choice)
 }
 
+fn inline_images_note(state: &State) -> String {
+    let mode = state.config.media.inline_images;
+    match mode {
+        InlineImages::Kitty | InlineImages::Sixel | InlineImages::Iterm2 => {
+            return format!(
+                "Forced {}: compatible terminal + tmux passthrough; no mosh.",
+                mode.name()
+            );
+        }
+        InlineImages::Off => return "Inline images off; attachment details remain.".to_owned(),
+        InlineImages::Auto | InlineImages::Halfblocks => {}
+    }
+    if state.colors() == ColorDepth::Ansi16 {
+        return "Images off: 16 colours (Settings › Colours).".to_owned();
+    }
+    if mode == InlineImages::Halfblocks {
+        return "Halfblocks: coloured text cells, not terminal graphics.".to_owned();
+    }
+    if state.colors() == ColorDepth::Indexed256 {
+        return "Auto: halfblocks — 256 colours (Settings › Colours).".to_owned();
+    }
+    if state.env.emoji.mosh {
+        return "Auto: halfblocks — mosh cannot carry terminal graphics.".to_owned();
+    }
+    if state.env.graphics == super::state::GraphicsSupport::HalfblocksOnly {
+        return "Auto: halfblocks — mixed or detached tmux clients.".to_owned();
+    }
+    match state.env.image_protocol {
+        None => "Auto: halfblocks — restart to query terminal support.".to_owned(),
+        Some(InlineImages::Halfblocks | InlineImages::Auto | InlineImages::Off) => {
+            "Auto: halfblocks — no graphics protocol detected at startup.".to_owned()
+        }
+        Some(mode @ (InlineImages::Kitty | InlineImages::Sixel | InlineImages::Iterm2)) => {
+            format!("Auto: {} — detected at startup.", mode.name())
+        }
+    }
+}
+
 /// A line about `level` shown above its results: at Themes, how the
 /// terminal's colours change what's drawn (D57).
 pub fn note(state: &State, level: Level) -> Option<String> {
+    if level == Level::Setting(Setting::InlineImages) {
+        return Some(inline_images_note(state));
+    }
     if let Level::Nickname(id) = level {
         let theirs = state
             .contacts

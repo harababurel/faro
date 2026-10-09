@@ -70,6 +70,19 @@ fn key_constants_name_settings() {
 }
 
 #[test]
+fn image_protocol_choices_parse_and_write_back() {
+    for mode in InlineImages::ALL {
+        let parsed = parse_fresh(&format!("[media]\ninline_images = \"{}\"\n", mode.name()));
+        assert_eq!(parsed.problems, vec![]);
+        assert_eq!(parsed.config.media.inline_images, *mode);
+        let edit = parsed.config.edit(key::INLINE_IMAGES).unwrap();
+        let written = super::edit::set("# keep this comment\n", edit.path, &edit.value).unwrap();
+        assert!(written.contains("# keep this comment"));
+        assert_eq!(parse_fresh(&written).config.media.inline_images, *mode);
+    }
+}
+
+#[test]
 fn settings_are_read() {
     let parsed = parse_fresh(
         "theme = \"other\"\n\

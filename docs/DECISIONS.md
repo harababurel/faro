@@ -679,7 +679,7 @@ Refines the DESIGN.md §5.1 sketch:
 - **Copied in first:** the command task copies the file into `attachments/` before uploading. History, the local echo and *Retry* then use faro's copy even if the original moves. The cost is disk space, as in Signal Desktop.
 - **Limits and safety:** 100 MB, Signal's limit. The guard checks the conversation before the backend uploads anything (D62). The mock "uploads" with a delay and can fail like any send.
 
-### D78. Inline images with ratatui-image's sliced protocol; graphics only where every hop supports it — Judgement (2026-10-08, M9)
+### D78. Inline images with ratatui-image's sliced protocol; graphics only where every hop supports it — Judgement (2026-10-08, M9; automatic selection retained, explicit overrides added by D84)
 
 - **Crate:** `ratatui-image` 11.1 (MIT; ratatui 0.30), `default-features = false` to avoid linking libchafa. `image` 0.25 decodes JPEG/PNG/GIF/WebP. HEIC isn't decoded (phones send JPEG to Signal). 12.0 is still a release candidate.
 - **Sliced, not stateful:** `SlicedProtocol` draws images cut at the pane's edges (kitty placeholders skip rows, sixel drops bands, iTerm2 per-row slices, half-blocks per row), which a scrolling chat needs. `StatefulImage` resizes while rendering, i.e. on the UI thread.
@@ -747,3 +747,10 @@ Refines the DESIGN.md §5.1 sketch:
   11. **Forward message (`f` in message selection):** `f` on a selected message opens a conversation picker (`Level::ForwardTo`) and sends the message's text/attachment to the chosen allowed conversation.
 - **Parallel vs. sequential execution (3 waves):** to let multiple subagents work concurrently in isolated working copies (`Workspace="share"`) without stepping on each other's files or migrations, M12 is structured into **3 sequential waves of parallel tracks** in `docs/PLAN.md` (Wave 1: Tracks `1A`, `1B`, `1C`; Wave 2: Tracks `2A`, `2B`, `2C`; Wave 3: Tracks `3A`, `3B`). Only Track `1B` adds a SQLite migration (`0008_receipts.sql`).
 
+### D84. Explicit inline-image protocols and an explanation of Auto — Accepted (owner, 2026-10-09)
+
+- **Why:** the owner's kitty renders crisp images directly, but mixed terminal types attached to tmux trigger conservative half-block fallback. Users should be able to understand and override that choice, like emoji and bubble style.
+- **Setting:** extend the existing `[media] inline_images` / `Ctrl+P › Settings › Inline images` to `"auto" | "kitty" | "sixel" | "iterm2" | "halfblocks" | "off"`. Auto remains the default with D78's detection and fallback rules. Values cycle and save through the existing settings machinery.
+- **Overrides:** explicit graphics modes select that protocol immediately, without a capability query or confirmation dialog. They override mixed/detached tmux, mosh and colour-depth fallback decisions. **Judgement:** colour depth limits text-cell colours, not graphics payloads, so forced graphics remain available at 256/16 colours. These choices cannot make an incompatible terminal or mosh carry graphics; the values page says that compatibility and tmux passthrough are required.
+- **Explanation:** the values page shows Auto's selected mode and reason (colour depth, mosh, mixed/detached tmux clients, startup detection, or restart needed to query). The app records only the query result in State; encoded images remain in the app-loop cache. The renderer refreshes the note while the page stays open.
+- **Lifecycle:** no new stdin queries after EventStream starts. Explicit modes work live even if startup skipped detection; without a query they use the existing picker's estimated cell pixel size. Returning to Auto uses the saved startup result, or half-blocks until restart if there was no query. Protocol changes invalidate cached/in-flight encodes; overlay placeholders and frame safeguards are retained.

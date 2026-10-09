@@ -154,6 +154,17 @@ set -g focus-events on                 # read receipts and the bell know whether
 
 mosh measures emoji differently from kitty and tmux, which misaligns borders. faro detects when it (or any client of its tmux session) runs under mosh and then draws emoji in a simpler form that every terminal measures alike (❤️ becomes ❤, a family becomes its people), switching back when mosh detaches. Force either way with `--emoji full|compatible` or `[ui] emoji` in the config. Other programs in the same tmux can still look misaligned through mosh.
 
+## Images
+
+`Ctrl+P › Settings › Inline images` (or `[media] inline_images` in the config) offers:
+
+- **`auto`** (default): detect Kitty graphics, Sixel or iTerm2 at startup; otherwise use coloured Unicode half-blocks. Mixed terminal types attached to tmux, detached tmux, mosh and 256-colour mode use half-blocks; 16-colour mode disables images. The settings page explains the current choice.
+- **`kitty`, `sixel`, `iterm2`**: force that graphics protocol, overriding automatic fallbacks, including colour depth. Use these when you know your viewing terminal supports it. They require tmux passthrough inside tmux, cannot work through mosh, and may display no image in incompatible terminals or other attached clients.
+- **`halfblocks`**: always use coloured text cells (disabled at 16 colours).
+- **`off`**: show attachment details without inline pictures.
+
+Changes apply immediately and are saved. Forced modes work without a capability query, using estimated cell sizing if no query ran at startup. Returning to Auto reuses startup detection; if startup skipped the query, restart to detect graphical support. JPEG, PNG, GIF and WebP render as static images, including stickers; `v` opens a larger viewer.
+
 ## Colours
 
 faro guesses how many colours your terminal shows: truecolor when `COLORTERM` says so, inside tmux, or in terminals known to support it (kitty, Ghostty, WezTerm, iTerm2, Alacritty, foot…); otherwise 256 colours, or 16 on the Linux console and similar. Override with `[ui] colors = "truecolor" | "256" | "16"` or in the palette (`Settings › Colours`, which also shows what was detected).

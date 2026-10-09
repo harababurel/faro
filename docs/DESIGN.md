@@ -295,14 +295,16 @@ Keys in the message pane: `d` download, `v` view (for an image, else open locall
 - **One file per message** for now. An attached file shows as a bar above the input (`📎 name · size  esc remove`), beside the reply bar. The input text becomes the caption, and `Enter` sends even with no text. Files over 100 MB (Signal's limit) are refused with a notice.
 - On send, the command task first copies the file into `attachments/` (the local echo points at the copy, so history and *Retry* don't depend on the original), then calls `Backend::send` with `OutgoingMessage::attachments`. The presage backend uploads (`upload_attachment`) and sends the pointer. The guard checks the conversation before anything is uploaded (D62).
 
-**Inline images (D78).**
+**Inline images (D78, D84).**
 - `ratatui-image` 11 (MIT), default features off (no libchafa), with `image` decoding JPEG, PNG, GIF (first frame) and WebP. It is used through `sliced::SlicedProtocol`, which can draw an image cut off at the top or bottom of the pane, as scrolling needs.
 - **Protocol:**
   - `[media] inline_images = "auto"` (default) asks the terminal once at startup, after entering the alternate screen and before input reading starts (`Picker::from_query_stdio`, on a blocking thread). The answer is kitty graphics (unicode placeholders, which survive tmux with passthrough), sixel, iTerm2, or half-blocks.
   - Through mosh, or when tmux has several clients on different terminals (D58's check, extended), it falls back to half-blocks.
-  - At 16 colours there are no images; at 256 colours half-blocks are mapped to the nearest xterm colours.
+   - Auto disables images at 16 colours; at 256 colours it uses half-blocks mapped to the nearest xterm colours. Explicit half-blocks are also disabled at 16 colours.
+   - `"kitty"`, `"sixel"` and `"iterm2"` force that graphics protocol, overriding automatic colour-depth and terminal-hop fallbacks. They require a compatible terminal and tmux passthrough; they cannot work through mosh. No confirmation dialog or extra stdin query. Without startup detection, image sizing uses the picker's estimated cell pixel size.
   - `"halfblocks"` never asks; `"off"` shows only the attachment line.
-  - Switching from `off` to `auto` while running gives half-blocks until the next start, because faro can't query once input reading has begun.
+   - Switching from `off` to `auto` while running gives half-blocks until the next start, because faro can't query once input reading has begun.
+   - `Ctrl+P › Settings › Inline images` lists all six modes. Its note explains Auto's current result/fallback reason, or the requirements of a forced mode, and updates while open. Settings apply live and save through the normal config writer; returning to Auto reuses any startup detection result.
   - Inside tmux, `ratatui-image` turns `allow-passthrough` on for faro's pane (`tmux set -p`), which kitty, sixel and iTerm2 need there.
 - **Size:** decided at layout time from `width`/`height` and the cell's pixel size (from the query; half-blocks assume 1:2). The image keeps its shape inside at most 40 columns (less in narrow panes) and 14 rows. Both layouts lay out the box as blank rows, so windowing, scroll anchoring and selection see ordinary rows. The renderer then draws each visible image over its rows (`Window::images`: where, how big, which file).
 - **Decoding** happens off the UI thread: the frame reports the images it lacked (`Geometry::images_wanted`); the app loop decodes and encodes them with `spawn_blocking` into `app/images.rs::Images`, a cache keyed by file and box size, which drops the least recently drawn beyond 32. Until an image is ready, its box is drawn as a placeholder (panel colour, *loading image…*). The cache is emptied when the protocol changes and on `Ctrl+L`, so kitty images are sent again after a clear or when another terminal attaches.
@@ -377,7 +379,7 @@ Sketch:
 # privacy = "sender"        # "none" | "sender" | "preview"
 
 [media]
-# inline_images = "auto"   # "auto" | "halfblocks" | "off" (D78)
+# inline_images = "auto"   # "auto" | "kitty" | "sixel" | "iterm2" | "halfblocks" | "off" (D84)
 # auto_download = "images" # "images" | "all" | "off" (D75)
 
 [voice]

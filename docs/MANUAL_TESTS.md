@@ -231,6 +231,17 @@ Use a separate data dir for the test account, e.g. `--data-dir ~/.local/share/fa
 
 ## M9: attachments and inline images (D75–D79)
 
+### Explicit protocols (D84)
+
+- [ ] With a scratch mock session (`faro --mock --data-dir /tmp/faro-d84 --config /tmp/faro-d84/config.toml`), open `Ctrl+P › Settings › Inline images`: all six modes appear (`auto`, `kitty`, `sixel`, `iterm2`, `halfblocks`, `off`); Auto explains the result and fallback reason. Check the note remains readable at your terminal width.
+- [ ] In kitty directly and through tmux, choose `kitty`, close the palette, and check crisp images and the `v` viewer. With a different terminal type attached to the same tmux server, Auto explains its half-block fallback but forced Kitty still works on the kitty client. Use `allow-passthrough on`. Check scrolling, resizing, palette/menu overlap and `Ctrl+L` after switching protocols.
+- [ ] On compatible Sixel and iTerm2 terminals, repeat with their explicit protocols; verify image aspect ratio, scrolling and viewer. Incompatible protocols may show no image; switch to Auto or Halfblocks to recover.
+- [ ] Cycle the setting with `←`/`→` in Settings, select it from the values page, and edit `[media] inline_images` externally: changes apply live, save/reload preserves comments, and a restart keeps the value. While the values page stays open, external changes update its note.
+- [ ] Start with `off` or `halfblocks`, then choose Kitty: it works without restarting (estimated cell sizing). Return to Auto: the note explains restart is needed to query. Start with Auto in a compatible direct terminal, switch away and back: the startup result is reused.
+- [ ] Auto still falls back through mosh, mixed/detached tmux and 256 colours, and disables images at 16 colours. Forced protocols remain selectable at 256/16 colours; the note explains compatibility/passthrough requirements and that mosh cannot carry graphics.
+
+### Attachment checks (D75–D79)
+
 - [ ] **Mock inline images:** run `faro --mock --data-dir /tmp/faro-m9` and open "Climbing 🧗" (or "Family"): the photo attachment downloads in the background (`· downloading…` briefly) and renders inline above its `📎 crag-photo.png · …` line, both in bubbles and in IRC layout (`Settings › Message layout`). Stickers (`[sticker]`) render as compact inline WebP images (at most 8 rows tall) without a `📎` line when inline images are on.
 - [ ] **Protocols (kitty, tmux, mosh, settings):**
   - Directly in kitty and inside tmux (with `allow-passthrough` enabled automatically for the pane): `Settings › Inline images › auto` renders crisp kitty graphics (unicode placeholders) that scroll cleanly at the top and bottom of the message pane.

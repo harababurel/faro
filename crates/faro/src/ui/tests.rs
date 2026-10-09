@@ -486,6 +486,28 @@ fn palette_settings_level() {
 }
 
 #[test]
+fn palette_image_protocols_and_live_note() {
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    use faro_core::config::InlineImages;
+    let mut state = with_palette(":Inline images");
+    state.env.colors = crate::theme::ColorDepth::Truecolor;
+    state.env.graphics = crate::app::state::GraphicsSupport::HalfblocksOnly;
+    update(
+        &mut state,
+        AppEvent::Terminal(Event::Key(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        ))),
+    );
+    insta::assert_snapshot!(snapshot(&draw(&state, 100, 30)));
+    // Reloads and terminal checks change the rendered note without reopening.
+    state.config.media.inline_images = InlineImages::Kitty;
+    let rendered = snapshot(&draw(&state, 100, 30));
+    assert!(rendered.contains("Forced kitty:"));
+    assert!(!rendered.contains("mixed or detached"));
+}
+
+#[test]
 fn palette_settings_filtered() {
     // Only the sections with a match keep their header.
     insta::assert_snapshot!(snapshot(&draw(&with_palette(":notif"), 100, 20)));

@@ -292,6 +292,9 @@ fn choose_media_and_notifications(state: &mut State, choice: SettingChoice) -> V
             state.env.repaint = true;
             let msg = match mode {
                 InlineImages::Auto => "Inline images: terminal graphics where supported",
+                InlineImages::Kitty => "Inline images: Kitty graphics (forced)",
+                InlineImages::Sixel => "Inline images: Sixel (forced)",
+                InlineImages::Iterm2 => "Inline images: iTerm2 (forced)",
                 InlineImages::Halfblocks => "Inline images: Unicode half-blocks",
                 InlineImages::Off => "Inline images off",
             };
