@@ -273,7 +273,8 @@ fn about(frame: &mut Frame<'_>, state: &State, view: &View<'_>) {
         .parent()
         .map(|dir| dir.display().to_string())
         .unwrap_or_default();
-    let repository = env!("CARGO_PKG_REPOSITORY").trim_start_matches("https://");
+    // Full URLs, scheme included, so terminals detect them as links.
+    let repository = env!("CARGO_PKG_REPOSITORY");
     let mut rows: Vec<(String, Style)> = vec![
         (
             format!("faro {}", env!("CARGO_PKG_VERSION")),
@@ -281,7 +282,10 @@ fn about(frame: &mut Frame<'_>, state: &State, view: &View<'_>) {
         ),
         (super::logo::TAGLINE.to_owned(), theme.muted()),
         (String::new(), theme.muted()),
-        ("getfaro.dev".to_owned(), Style::new().fg(theme.accent)),
+        (
+            "https://getfaro.dev".to_owned(),
+            Style::new().fg(theme.accent),
+        ),
         (repository.to_owned(), Style::new().fg(theme.accent)),
         (String::new(), theme.muted()),
         (

@@ -12,8 +12,8 @@ expression: "text.replace(env!(\"CARGO_PKG_VERSION\"), \"<version>\")"
 │                   │    ▄█▄     faro <version>                               │                    │
 │                   │    ███     terminal messenger · unofficial Signal client│                    │
 │                   │   ▀▀▀▀▀                                                 │                    │
-│                   │    ███     getfaro.dev                                  │                    │
-│                   │    ███     github.com/harababurel/faro                  │─────────────────── │
+│                   │    ███     https://getfaro.dev                          │                    │
+│                   │    ███     https://github.com/harababurel/faro          │─────────────────── │
 │                   │   █████                                                 │ opened last week   │
 │                   │   █████    AGPL-3.0-only · not affiliated with Signal   │soft, so bring your │
 │                   │ ▄▄▄▄▄▄▄▄▄  Signal protocol: presage and libsignal       │ome tape for your   │

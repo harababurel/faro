@@ -328,10 +328,10 @@ Use a separate data dir for the test account, e.g. `--data-dir ~/.local/share/fa
 
 In kitty, with an image copied on the machine you type on (e.g. *Copy Image* in a browser). Run `faro demo` in each setup: kitty directly, kitty → SSH, kitty → SSH → tmux (`allow-passthrough on`).
 
-- [ ] **Paste:** open a chat and press `Ctrl+V`. The footer says "Waiting for kitty…", kitty asks for permission; allow. The bar above the input shows `📎 clipboard-….png · W×H · size  ctrl+o view ·  esc remove` and nothing is sent.
-- [ ] **Look before sending:** `Ctrl+O` shows the image full size with "Not sent yet"; `Esc` closes it and the bar is still there. Type a caption, `Enter`: it's sent with the caption; the demo shows it like any sent photo.
-- [ ] **Typing works right after:** after each paste (allowed, denied, or no image), keys go to the input as usual, with no stray characters.
-- [ ] **Deny:** `Ctrl+V`, deny in kitty: "Clipboard access denied in kitty", nothing staged.
+- [x] **Paste:** open a chat and press `Ctrl+V`. The footer says "Waiting for kitty…", kitty asks for permission; allow. The bar above the input shows `📎 clipboard-….png · W×H · size  ctrl+o view ·  esc remove` and nothing is sent.
+- [x] **Look before sending:** `Ctrl+O` shows the image full size with "Not sent yet"; `Esc` closes it and the bar is still there. Type a caption, `Enter`: it's sent with the caption; the demo shows it like any sent photo.
+- [x] **Typing works right after:** after each paste (allowed, denied, or no image), keys go to the input as usual, with no stray characters.
+- [x] **Deny:** `Ctrl+V`, deny in kitty: "Clipboard access denied in kitty", nothing staged.
 - [ ] **Allow all:** choose kitty's "allow all" option once; the next `Ctrl+V` stages the image with no prompt, and still doesn't send it. After restarting faro, kitty asks again.
 - [ ] **No image:** copy some text, `Ctrl+V`: "No image on the clipboard".
 - [ ] **Too large:** an image over 25 MB: "Image too large (over 25.0 MB)", and typing works afterwards.
@@ -343,7 +343,7 @@ In kitty, with an image copied on the machine you type on (e.g. *Copy Image* in 
 
 ## About (D94)
 
-- [ ] `Ctrl+P` › Commands › *About faro*: a centred box with the small lighthouse in the theme's colours, the version, getfaro.dev, the repository, the licence, credits and your data folder; `Esc` closes it. In a narrow window (about 60 columns) the lighthouse is left out and the text is cut cleanly.
+- [x] `Ctrl+P` › Commands › *About faro*: a centred box with the small lighthouse in the theme's colours, the version, https://getfaro.dev and the repository as full, clickable links, the licence, credits and your data folder; `Esc` closes it. In a narrow window (about 60 columns) the lighthouse is left out and the text is cut cleanly.
 
 ## M8: terminal matrix (D50; run after M7 against the real backend, and once now with the demo)
 
