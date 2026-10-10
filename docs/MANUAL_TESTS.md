@@ -343,7 +343,7 @@ In kitty, with an image copied on the machine you type on (e.g. *Copy Image* in 
 
 ## About (D94)
 
-- [ ] `Ctrl+P` › Commands › *About faro*: a centred box with the small lighthouse in the theme's colours, the version, https://getfaro.dev and the repository as full, clickable links, the licence, credits, then your config file and data folder with the paths lined up; `Esc` closes it. In a narrow window (about 60 columns) the lighthouse is left out and the text is cut cleanly.
+- [x] `Ctrl+P` › Commands › *About faro*: a centred box with the small lighthouse in the theme's colours, the version, https://getfaro.dev and the repository as full, clickable links, the licence, credits, then your config file and data folder with the paths lined up; `Esc` closes it. In a narrow window (about 60 columns) the lighthouse is left out and the text is cut cleanly.
 
 ## M8: terminal matrix (D50; run after M7 against the real backend, and once now with the demo)
 
