@@ -337,9 +337,10 @@ In kitty, with an image copied on the machine you type on (e.g. *Copy Image* in 
 - [ ] **Too large:** an image over 25 MB: "Image too large (over 25.0 MB)", and typing works afterwards.
 - [ ] **Two kitty windows attached** to the same tmux session (as on the Mac mini): `Ctrl+V` in one stages the image from that machine's clipboard; the other screen may show a kitty prompt. Answering it later (allow or deny) changes nothing in faro and types nothing.
 - [ ] **Late answer:** `Ctrl+V`, wait over 2 minutes without answering ("No answer from kitty…"), then allow: nothing is typed into faro, and keys keep working.
-- [ ] **Elsewhere:** in a terminal that isn't kitty, `Ctrl+V` says "Pasting images needs kitty" at once; through mosh, "Pasting images doesn't work over mosh".
+- [x] **Elsewhere:** in a terminal that isn't kitty, `Ctrl+V` says "Pasting images needs kitty" at once.
+- [ ] **Over mosh:** from kitty through mosh, `Ctrl+V` says "Pasting images doesn't work over mosh".
 - [x] **No leftovers:** after sending a pasted image, `ls <data dir>/attachments/clipboard-*` finds nothing (the sent copy has the message's name); paste one, remove it with `Esc`, restart faro: it's gone too.
-- [ ] **Esc after a paste:** a lone `Esc` still dismisses things normally (it can be held back for up to 50 ms after the first paste; that shouldn't be noticeable).
+- [x] **Esc after a paste:** a lone `Esc` still dismisses things normally (it can be held back for up to 50 ms after the first paste; that shouldn't be noticeable).
 
 ## About (D94)
 
@@ -366,4 +367,4 @@ Columns: **direct** = faro straight in kitty; **tmux** = kitty → tmux (with th
 
 Notes (terminal, versions, what went wrong):
 
-- 
+- 2026-10-10, Terminal.app → SSH (seen while checking clipboard paste): emoji glitches and misalignment in faro. The fish prompt's Nerd Font symbols don't render there either, so the font/terminal setup is the first suspect; look at it properly in the matrix run.
