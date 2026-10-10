@@ -881,3 +881,4 @@ Refines the DESIGN.md §5.1 sketch:
   - Version, repository and licence come from Cargo (`CARGO_PKG_*`), so they can't go stale.
 - **Not done:** no key of its own (the palette is enough), and no animation (the big logo screen has that).
 - **Test:** the `ui::tests::about_popup` snapshot (version masked).
+- **Amended (2026-10-10, owner's requests):** the links are shown in full (`https://getfaro.dev`, `https://github.com/harababurel/faro`) so terminals make them clickable, and the config file faro loaded (`State::config_path`, the default or `--config`) is shown above the data folder, the two labels padded so the paths line up.

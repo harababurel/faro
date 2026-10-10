@@ -301,8 +301,12 @@ fn about(frame: &mut Frame<'_>, state: &State, view: &View<'_>) {
             theme.muted(),
         ),
     ];
+    let config_path = state.config_path.display().to_string();
+    if !config_path.is_empty() {
+        rows.push((format!("Config: {}", sanitize(&config_path)), theme.muted()));
+    }
     if !data_dir.is_empty() {
-        rows.push((format!("Data: {}", sanitize(&data_dir)), theme.muted()));
+        rows.push((format!("Data:   {}", sanitize(&data_dir)), theme.muted()));
     }
     let (logo_width, logo_height) = super::logo::SMALL_SIZE;
     let text_width = rows.iter().map(|(text, _)| width(text)).max().unwrap_or(0);

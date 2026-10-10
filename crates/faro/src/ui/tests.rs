@@ -1432,12 +1432,22 @@ fn about_popup() {
 
     let mut state = loaded_state();
     state.popup = Some(Popup::About);
+    state.config_path = std::path::PathBuf::from("/home/me/.config/faro/config.toml");
+    state.attachments_dir = std::path::PathBuf::from("/home/me/.local/share/faro/attachments");
     let text = snapshot(&draw(&state, 100, 24));
     assert!(
         text.contains(&format!("faro {}", env!("CARGO_PKG_VERSION"))),
         "{text}"
     );
-    assert!(text.contains("getfaro.dev"), "{text}");
+    assert!(text.contains("https://getfaro.dev"), "{text}");
+    assert!(
+        text.contains("Config: /home/me/.config/faro/config.toml"),
+        "{text}"
+    );
+    assert!(
+        text.contains("Data:   /home/me/.local/share/faro"),
+        "{text}"
+    );
     assert!(text.contains("not affiliated with Signal"), "{text}");
     insta::assert_snapshot!(text.replace(env!("CARGO_PKG_VERSION"), "<version>"));
     assert_drawable(&compatible(state), 100, 24);

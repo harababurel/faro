@@ -155,6 +155,9 @@ pub struct State {
     pub user_themes: UserThemes,
     /// Directory where downloaded and outgoing attachments are stored (D75, D77).
     pub attachments_dir: PathBuf,
+    /// The config file faro read at startup (the default or `--config`),
+    /// shown in About (D94).
+    pub config_path: PathBuf,
     /// A clipboard image is being read for this conversation (`Ctrl+V`, D91).
     pub pasting: Option<ConversationId>,
     /// Attachments currently downloading (`<= MAX_DOWNLOADS_IN_FLIGHT`, D75).
@@ -767,6 +770,7 @@ impl State {
             config_problems: Vec::new(),
             user_themes: UserThemes::default(),
             attachments_dir: PathBuf::from("attachments"),
+            config_path: PathBuf::new(),
             pasting: None,
             downloading: HashSet::new(),
             download_queue: VecDeque::new(),
