@@ -203,7 +203,7 @@ impl Sim {
         };
         let mut rng = fastrand::Rng::with_seed(config.seed);
         let mut order: Vec<usize> = (0..SCENES.len()).collect();
-        rng.shuffle(&mut order);
+        shuffle(&mut rng, &mut order);
         let mut sim = Self {
             rng,
             world,
@@ -461,9 +461,7 @@ impl Sim {
         quote: Option<Quote>,
     ) {
         let who = self.world.who_is(sender);
-        let text = self
-            .rng
-            .choice(scenes::replies(who))
+        let text = pick(&mut self.rng, scenes::replies(who))
             .copied()
             .unwrap_or("👍");
         let in_group = matches!(conversation, ConversationId::Group(_));
@@ -570,7 +568,7 @@ impl Sim {
     fn next_scene(&mut self) -> Option<usize> {
         if self.cursor >= self.order.len() {
             // Reshuffle, keeping what just played away from the front.
-            self.rng.shuffle(&mut self.order);
+            shuffle(&mut self.rng, &mut self.order);
             let started = &self.started;
             self.order.sort_by_key(|s| started.contains(s));
             self.cursor = 0;
@@ -615,7 +613,7 @@ impl Sim {
             });
             return Some(self.running.len() - 1);
         }
-        if let Some(slot) = self.rng.choice(ready) {
+        if let Some(slot) = pick(&mut self.rng, ready) {
             return Some(slot);
         }
         // Everyone is mid-sentence: queue behind whoever finishes first.
@@ -854,7 +852,7 @@ impl Sim {
         let (conversation, target) = self.pick_recent(|r| !busy.contains(&r.conversation))?;
         let mut senders = self.others_in(conversation);
         senders.retain(|s| *s != target.sender);
-        let sender = self.rng.choice(senders)?;
+        let sender = pick(&mut self.rng, senders)?;
         let quote = self.quote_of(target);
         self.schedule_answer(now, conversation, sender, quote);
         Some(())
@@ -869,9 +867,9 @@ impl Sim {
             .filter(|s| *s != target.sender)
             .filter(|s| !scenes::reacts(self.world.who_is(*s)).is_empty())
             .collect();
-        let sender = self.rng.choice(reactors)?;
+        let sender = pick(&mut self.rng, reactors)?;
         let favourites = scenes::reacts(self.world.who_is(sender));
-        let emoji = self.rng.choice(favourites).map(|e| (*e).to_owned());
+        let emoji = pick(&mut self.rng, favourites).map(|e| (*e).to_owned());
         let reaction = BackendEvent::Reaction {
             conversation,
             target,
@@ -903,9 +901,7 @@ impl Sim {
             seen.push(r.conversation);
         }
         let conversation = conversation?;
-        let text = self
-            .rng
-            .choice(scenes::replies(Some(Who::Me)))
+        let text = pick(&mut self.rng, scenes::replies(Some(Who::Me)))
             .copied()
             .unwrap_or("👍");
         let content = self.content(text, None);
@@ -942,11 +938,11 @@ impl Sim {
                 })
             })
             .collect();
-        let recent = self.recent.get(self.rng.choice(candidates)?)?;
+        let recent = self.recent.get(pick(&mut self.rng, candidates)?)?;
         let (conversation, target) = (recent.conversation, recent.target);
         let (old, mentions) = (recent.body.expose().to_owned(), recent.mentions.clone());
         let favourites = scenes::reacts(self.world.who_is(target.sender));
-        let emoji = self.rng.choice(favourites)?;
+        let emoji = pick(&mut self.rng, favourites)?;
         let edited = BackendEvent::Edited {
             conversation,
             target,
@@ -990,8 +986,9 @@ impl Sim {
     }
 
     fn decrypt_error(&mut self, now: Millis) -> Option<()> {
-        let conversation = self.rng.choice(self.world.active.clone())?;
-        let sender = self.rng.choice(self.others_in(conversation))?;
+        let conversation = pick(&mut self.rng, self.world.active.clone())?;
+        let others = self.others_in(conversation);
+        let sender = pick(&mut self.rng, others)?;
         // Service IDs only: error details must never contain bodies or phones.
         let detail = format!("mock: message from {sender} failed to decrypt");
         self.emit(now, BackendEvent::Error(BackendError::Protocol(detail)));
@@ -1067,7 +1064,7 @@ impl Sim {
             .filter(|r| filter(r))
             .map(|r| (r.conversation, r.target))
             .collect();
-        self.rng.choice(candidates)
+        pick(&mut self.rng, candidates)
     }
 
     fn quote_of(&self, target: MessageRef) -> Option<Quote> {
@@ -1096,9 +1093,9 @@ impl Sim {
             .filter(|s| self.world.who_is(*s).is_some())
             .collect();
         if cast.is_empty() {
-            self.rng.choice(others)
+            pick(&mut self.rng, others)
         } else {
-            self.rng.choice(cast)
+            pick(&mut self.rng, cast)
         }
     }
 
@@ -1155,6 +1152,30 @@ impl Sim {
     }
 }
 
+/// `Rng::choice`, but the same draw on every target. fastrand picks `usize`
+/// indices with 32 random bits on wasm32 and 64 elsewhere, so a seed would tell
+/// a different story in the browser than natively (M13). On 64-bit targets this
+/// makes exactly the draws `choice` makes, so native sequences are unchanged.
+fn pick<I>(rng: &mut fastrand::Rng, items: I) -> Option<I::Item>
+where
+    I: IntoIterator,
+    I::IntoIter: ExactSizeIterator,
+{
+    let mut items = items.into_iter();
+    let len = u64::try_from(items.len()).ok().filter(|&len| len > 0)?;
+    items.nth(usize::try_from(rng.u64(0..len)).ok()?)
+}
+
+/// `Rng::shuffle`, with the same draws on every target (see [`pick`]).
+fn shuffle<T>(rng: &mut fastrand::Rng, slice: &mut [T]) {
+    for i in 1..slice.len() {
+        let Ok(last) = u64::try_from(i) else { return };
+        if let Ok(j) = usize::try_from(rng.u64(..=last)) {
+            slice.swap(i, j);
+        }
+    }
+}
+
 fn weighted<T: Copy>(rng: &mut fastrand::Rng, options: &[(T, u32)]) -> Option<T> {
     let total: u32 = options.iter().map(|(_, w)| w).sum();
     if total == 0 {
@@ -1175,9 +1196,7 @@ pub(super) fn millis(d: Duration) -> Millis {
 }
 
 fn wall_clock_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, millis)
+    super::rt::since_unix_epoch().map_or(0, millis)
 }
 
 #[cfg(test)]

@@ -8,9 +8,15 @@ pub mod config;
 pub mod domain;
 pub mod guard;
 pub mod mock;
+#[cfg(feature = "native")]
 pub mod paths;
+#[cfg(feature = "native")]
 pub mod store;
 pub mod theme_file;
+
+// M13 Phase 0 spike: the browser build needs the spike's timers and clock.
+#[cfg(all(target_arch = "wasm32", not(feature = "wasm-spike")))]
+compile_error!("faro-core on wasm32 needs `--no-default-features --features wasm-spike`");
 
 #[cfg(test)]
 mod architecture {

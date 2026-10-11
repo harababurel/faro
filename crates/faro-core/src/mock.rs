@@ -16,6 +16,7 @@
 
 mod assets;
 mod cast;
+mod rt;
 mod scenes;
 mod sim;
 mod world;
@@ -25,9 +26,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use tokio::sync::{Notify, mpsc};
-use tokio::task::JoinHandle;
-use tokio::time::{self, Instant};
 
+use self::rt::{Instant, Task};
 use self::sim::{Millis, Sim, millis};
 use self::world::World;
 use crate::backend::{
@@ -99,7 +99,7 @@ impl Default for MockConfig {
 pub struct MockBackend {
     shared: Arc<Shared>,
     capabilities: Capabilities,
-    driver: JoinHandle<()>,
+    driver: Task,
 }
 
 /// State shared between the backend (commands) and the driver task (events).
@@ -107,7 +107,7 @@ struct Shared {
     sim: Mutex<Sim>,
     /// Wakes the driver when a command schedules something.
     wake: Notify,
-    /// Tokio time at `Millis` 0. Tokio's clock, so tests can pause and advance it.
+    /// Time at `Millis` 0. Natively tokio's clock, so tests can pause and advance it.
     start: Instant,
 }
 
@@ -141,7 +141,7 @@ impl MockBackend {
             wake: Notify::new(),
             start: Instant::now(),
         });
-        let driver = tokio::spawn(drive(Arc::clone(&shared), events));
+        let driver = rt::spawn(drive(Arc::clone(&shared), events));
         let backend = Self {
             shared,
             capabilities: config.capabilities,
@@ -172,7 +172,7 @@ impl MockBackend {
             check(&sim)?;
             sim.request_latency()
         };
-        time::sleep(latency).await;
+        rt::sleep(latency).await;
         self.shared.sim().require_online()
     }
 }
@@ -196,7 +196,7 @@ async fn drive(shared: Arc<Shared>, events: mpsc::Sender<BackendEvent>) {
             continue;
         };
         tokio::select! {
-            () = time::sleep_until(shared.start + Duration::from_millis(due)) => {}
+            () = rt::sleep_until(shared.start + Duration::from_millis(due)) => {}
             () = wake => continue,
         }
         let batch = shared.sim().pop_due(shared.now());
