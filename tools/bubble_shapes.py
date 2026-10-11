@@ -20,6 +20,12 @@ change:
      bubble two cells wider).
   C  two diagonals per corner (steep, then shallow) on full-row edges
      (Unicode 13 wedges only).
+  B-compact, B+-compact
+     compact density (no blank lines): consecutive bubbles from one sender
+     share one continuous edge on their aligned side, rounded only at the
+     run's top and bottom; the other side stays rounded per bubble.
+
+    python3 tools/bubble_shapes.py --only B-compact --only B+-compact
 """
 
 import argparse
@@ -126,6 +132,8 @@ def blank(width, pane, fg):
 
 
 def render(key, theme, width):
+    if key in RUN_OPTIONS:
+        return render_runs(key, theme, width)
     pane, other, own, fg, muted = THEMES[theme]
     title, build = OPTIONS[key]
     lines = [emit([(f"{key}  {title}", muted, pane)], width, pane, fg, False),
@@ -142,15 +150,109 @@ def render(key, theme, width):
     return lines
 
 
+# Compact density: consecutive bubbles from one sender, no blank lines.
+RUNS = [
+    (False, [["on my way, 5 min"],
+             ["did you see the forecast for",
+              "saturday? rain until noon, then",
+              "clear. still up for the crag?"],
+             ["perfect"],
+             ["see you there"]]),
+    (True, [["yes!"],
+            ["bringing the new rope and the", "quickdraws"],
+            ["see you at 1"]]),
+    (False, [["running late", "sorry, traffic"],
+             ["10 min"],
+             ["parking now", "where are you?"]]),
+    (True, [["by the big boulder"]]),
+    (False, [["found you"], ["coming"]]),
+    (True, [["the left one, with the", "orange bag next to it"]]),
+]
+
+# Left-aligned glyphs and their mirror images for right-aligned bubbles.
+MIRROR = {
+    "\u2590": "\u258C", "\u258C": "\u2590",
+    "\U0001FBEE": "\U0001FBED", "\U0001FBED": "\U0001FBEE",
+    "\U0001FBEC": "\U0001FBEF", "\U0001FBEF": "\U0001FBEC",
+    CAP_R: CAP_L, CAP_L: CAP_R,
+}
+
+
+def mirror(row):
+    """A left-aligned row flipped for the right side (text kept as is)."""
+    return [(MIRROR.get(text, text), f, b) for text, f, b in reversed(row)]
+
+
+def run_rows(run, fill, pane, fg, roomy):
+    """A run from one sender, drawn left-aligned: the outer side is one
+    half-cell strip, rounded only at the run's top and bottom; the inner side
+    is rounded per bubble (capsule ends, or quarter circles on taller ones)."""
+    if len(run) == 1 and len(run[0]) == 1:
+        return capsule(run[0][0], fill, pane, fg)
+    if len(run) == 1:
+        lines = run[0]
+        return shape_b(lines, max(len(t) for t in lines), fill, pane, fg, roomy)
+    pad = [(" ", fg, fill)] if roomy else []
+    strip = ("\u2590", fill, pane)
+    rows = []
+    for i, lines in enumerate(run):
+        first, last = i == 0, i == len(run) - 1
+        n = max(len(t) for t in lines)
+        if len(lines) == 1:
+            span = n + len(pad)
+            if first:
+                rows.append([("\U0001FBEE", fill, pane),
+                             ("\u2582" * span, fill, pane),
+                             ("\U0001FBED", fill, pane)])
+            rows.append([strip] + pad + [(lines[0].ljust(n), fg, fill),
+                                         (CAP_R, fill, pane)])
+            if last:
+                rows.append([("\U0001FBEC", fill, pane),
+                             ("\U0001FB82" * span, fill, pane),
+                             ("\U0001FBEF", fill, pane)])
+            continue
+        inner = n + 2 * len(pad)
+        rows.append([("\U0001FBEE", fill, pane) if first else strip,
+                     ("\u2582" * inner, fill, pane),
+                     ("\U0001FBED", fill, pane)])
+        rows += body_rows(lines, n, fill, fg, [strip] + pad,
+                          pad + [("\u258C", fill, pane)])
+        rows.append([("\U0001FBEC", fill, pane) if last else strip,
+                     ("\U0001FB82" * inner, fill, pane),
+                     ("\U0001FBEF", fill, pane)])
+    return rows
+
+
+RUN_OPTIONS = {
+    "B-compact": ("B, compact runs share their aligned edge", False),
+    "B+-compact": ("B+, compact runs share their aligned edge", True),
+}
+
+
+def render_runs(key, theme, width):
+    pane, other, own, fg, muted = THEMES[theme]
+    title, roomy = RUN_OPTIONS[key]
+    lines = [emit([(f"{key}  {title}", muted, pane)], width, pane, fg, False),
+             blank(width, pane, fg)]
+    for mine, run in RUNS:
+        rows = run_rows(run, own if mine else other, pane, fg, roomy)
+        if mine:
+            rows = [mirror(r) for r in rows]
+        lines += [emit(r, width, pane, fg, mine) for r in rows]
+        lines.append(blank(width, pane, fg))
+    return lines
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--theme", choices=sorted(THEMES), default="dark")
-    parser.add_argument("--only", choices=sorted(OPTIONS), action="append",
+    parser.add_argument("--only", choices=list(OPTIONS) + list(RUN_OPTIONS),
+                        action="append",
                         help="show only these options (repeatable)")
     parser.add_argument("--width", type=int, default=60,
                         help="pane width in cells (default 60)")
     args = parser.parse_args()
-    keys = args.only or list(OPTIONS)
+    keys = args.only or list(OPTIONS) + list(RUN_OPTIONS)
     pane, _, _, fg, muted = THEMES[args.theme]
 
     term = os.environ.get("TERM", "?")
