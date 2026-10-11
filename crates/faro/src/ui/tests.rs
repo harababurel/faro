@@ -806,8 +806,7 @@ fn one_line_rounded_bubbles_have_half_circle_caps_in_their_colour() {
     // No edge rows around a one-line bubble.
     for row in [y - 1, y + 1] {
         assert!(
-            (0..buffer.area.width)
-                .all(|cx| !super::bubbles::EDGE_GLYPHS.contains(&buffer[(cx, row)].symbol())),
+            (0..buffer.area.width).all(|cx| !super::bubbles::is_edge(buffer[(cx, row)].symbol())),
             "edge on row {row}"
         );
     }
@@ -816,17 +815,15 @@ fn one_line_rounded_bubbles_have_half_circle_caps_in_their_colour() {
 }
 
 #[test]
-fn taller_rounded_bubbles_have_two_thirds_edges_with_diagonal_corners() {
+fn taller_rounded_bubbles_have_quarter_circle_corners_and_thin_edges() {
     let theme = Theme::default();
     let buffer = draw(&rounded(bubbles_state()), 60, 24);
-    let fill_top = "\u{1FB39}";
-    let (_, top) = find(&buffer, fill_top);
-    let left = next(&buffer, 0, top, "\u{1FB4A}");
-    let right = next(&buffer, left, top, "\u{1FB3F}");
+    let (left, top) = find(&buffer, "\u{1FBEE}");
+    let right = next(&buffer, left, top, "\u{1FBED}");
     let bottom = (top + 2..buffer.area.height)
-        .find(|&y| buffer[(left, y)].symbol() == "\u{1FB65}")
+        .find(|&y| buffer[(left, y)].symbol() == "\u{1FBEC}")
         .expect("bottom edge");
-    assert_eq!(buffer[(right, bottom)].symbol(), "\u{1FB5A}");
+    assert_eq!(buffer[(right, bottom)].symbol(), "\u{1FBEF}");
     let colour = buffer[(left + 1, top + 1)].bg;
     assert!(colour == theme.bubble_own || colour == theme.bubble_other);
     for x in left..=right {
@@ -835,14 +832,18 @@ fn taller_rounded_bubbles_have_two_thirds_edges_with_diagonal_corners() {
             assert_eq!(cell.fg, colour, "({x}, {y})");
             assert_ne!(cell.bg, colour, "({x}, {y})");
         }
-        assert_eq!(
-            buffer[(x, bottom)].symbol() == "\u{1FB0E}",
-            x > left && x < right
-        );
-        // The edges are exactly as wide as the bubble.
-        assert_eq!(buffer[(x, top + 1)].bg, colour);
+        if x > left && x < right {
+            assert_eq!(buffer[(x, top)].symbol(), "▂");
+            assert_eq!(buffer[(x, bottom)].symbol(), "\u{1FB82}");
+        }
     }
-    assert_ne!(buffer[(right + 1, top + 1)].bg, colour);
+    // Half-cell sides on the text rows, the fill between them.
+    for y in top + 1..bottom {
+        assert_eq!(buffer[(left, y)].symbol(), "▐", "row {y}");
+        assert_eq!(buffer[(right, y)].symbol(), "▌", "row {y}");
+        assert_eq!(buffer[(left + 1, y)].bg, colour);
+        assert_eq!(buffer[(right - 1, y)].bg, colour);
+    }
 }
 
 #[test]
@@ -875,7 +876,9 @@ fn bars_go_on_the_outer_side_in_the_senders_colour() {
     // No rounded glyphs.
     let text = snapshot(&buffer);
     assert!(
-        !super::bubbles::EDGE_GLYPHS.iter().any(|g| text.contains(g)),
+        !text
+            .chars()
+            .any(|c| super::bubbles::is_edge(c.encode_utf8(&mut [0; 4]))),
         "{text}"
     );
 }
@@ -904,24 +907,20 @@ fn mixed_bubbles_have_the_bar_outside_and_round_inside() {
 fn taller_mixed_bubbles_have_a_square_corner_on_the_bars_side() {
     let buffer = draw(&mixed(bubbles_state()), 60, 24);
     let text = snapshot(&buffer);
-    let fill_top = "\u{1FB39}";
-    let fill_bottom = "\u{1FB0E}";
     let mut seen = 0;
     for y in 0..buffer.area.height {
         let row: Vec<&str> = (0..buffer.area.width)
             .map(|x| buffer[(x, y)].symbol())
             .collect();
         for (fill, rounded) in [
-            (fill_top, ["\u{1FB4A}", "\u{1FB3F}"]),
-            (fill_bottom, ["\u{1FB65}", "\u{1FB5A}"]),
+            ("▂", ["\u{1FBEE}", "\u{1FBED}"]),
+            ("\u{1FB82}", ["\u{1FBEC}", "\u{1FBEF}"]),
         ] {
-            let Some(start) = row.iter().position(|s| *s == fill || rounded.contains(s)) else {
+            let edge = |s: &&str| *s == fill || rounded.contains(s);
+            let (Some(start), Some(end)) = (row.iter().position(edge), row.iter().rposition(edge))
+            else {
                 continue;
             };
-            let end = row
-                .iter()
-                .rposition(|s| *s == fill || rounded.contains(s))
-                .unwrap();
             let ends = [row[start], row[end]];
             // Exactly one end is rounded, the other is the fill (square).
             let rounded_ends = ends.iter().filter(|s| rounded.contains(s)).count();
@@ -966,9 +965,10 @@ fn a_selected_bubble_is_a_clean_tinted_block_in_both_styles() {
         for y in selected {
             for x in 0..buffer.area.width {
                 let cell = &buffer[(x, y)];
-                if cell.bg == theme.background_element {
+                let marker = cell.symbol() == "▌" && cell.fg == theme.primary;
+                if cell.bg == theme.background_element && !marker {
                     assert!(
-                        !super::bubbles::EDGE_GLYPHS.contains(&cell.symbol()),
+                        !super::bubbles::is_edge(cell.symbol()),
                         "edge left at ({x}, {y})"
                     );
                 }
@@ -987,10 +987,90 @@ fn the_system_theme_always_draws_bars() {
         let buffer = draw_with(&state, 100, 34, &Theme::system());
         let text = snapshot(&buffer);
         assert!(
-            !super::bubbles::EDGE_GLYPHS.iter().any(|g| text.contains(g)),
+            !text
+                .chars()
+                .any(|c| super::bubbles::is_edge(c.encode_utf8(&mut [0; 4]))),
             "{text}"
         );
         assert!(text.contains(super::bubbles::BAR), "{text}");
+    }
+}
+
+// --- Compact runs, padding and matched widths (D98) ---
+
+fn compact(mut state: State) -> State {
+    state.config.messages.density = faro_core::config::MessageDensity::Compact;
+    state
+}
+
+/// The column just past the last cell of row `y` filled with `colour`.
+fn fill_end(buffer: &Buffer, y: u16, colour: ratatui::style::Color) -> u16 {
+    (0..buffer.area.width)
+        .rfind(|&x| buffer[(x, y)].bg == colour)
+        .map_or(0, |x| x + 1)
+}
+
+#[test]
+fn bubbles_rounded_compact() {
+    insta::assert_snapshot!(snapshot(&draw(&compact(rounded(bubbles_state())), 100, 34)));
+}
+
+#[test]
+fn compact_rounded_runs_join_on_their_aligned_side() {
+    let theme = Theme::default();
+    let buffer = draw(&compact(rounded(bubbles_state())), 100, 34);
+    // Bob's reply and his follow-up touch: no edge row or blank between.
+    let (x, y) = find(&buffer, "and chalk");
+    assert_eq!(
+        buffer[(x, y - 1)].bg,
+        theme.bubble_other,
+        "the reply's last row"
+    );
+    let side = x - 2;
+    assert_eq!(buffer[(side, y)].symbol(), "▐");
+    assert_eq!(buffer[(side, y - 1)].symbol(), "▐", "one edge down the run");
+    // Different senders keep a blank line between them.
+    let text = snapshot(&buffer);
+    let lines: Vec<&str> = text.lines().collect();
+    let mine = lines.iter().position(|l| l.contains("On my way")).unwrap();
+    assert_eq!(lines[mine + 1].trim_matches(['│', ' ']), "", "{text}");
+}
+
+#[test]
+fn bubble_padding_adds_a_cell_inside_rounded_sides() {
+    for (padding, gap) in [(true, 2), (false, 1)] {
+        let mut state = rounded(bubbles_state());
+        state.config.messages.bubble_padding = padding;
+        let buffer = draw(&state, 100, 34);
+        let (x, y) = find(&buffer, "Count me in");
+        let side = (0..x).rfind(|&cx| buffer[(cx, y)].symbol() == "▐").unwrap();
+        assert_eq!(x - side, gap, "padding {padding}");
+    }
+}
+
+#[test]
+fn match_widths_lines_up_close_bubbles_in_a_run() {
+    let theme = Theme::default();
+    for (matching, same) in [(true, true), (false, false)] {
+        let mut state = compact(rounded(bubbles_state()));
+        state.config.messages.match_widths = matching;
+        let minute = 60_000;
+        state.open.as_mut().unwrap().messages = vec![
+            fixtures::text(climbing(), ALICE, NOW_MS - 3 * minute, "sounds good"),
+            fixtures::text(climbing(), ALICE, NOW_MS - 2 * minute, "sounds great"),
+            fixtures::text(climbing(), ALICE, NOW_MS - minute, "sounds good!"),
+        ];
+        let buffer = draw(&state, 100, 34);
+        let ends: Vec<u16> = ["sounds good ", "sounds great", "sounds good!"]
+            .iter()
+            .map(|t| fill_end(&buffer, find(&buffer, t).1, theme.bubble_other))
+            .collect();
+        assert_eq!(
+            ends.iter().all(|e| *e == ends[0]),
+            same,
+            "match_widths {matching}: {ends:?}\n{}",
+            snapshot(&buffer)
+        );
     }
 }
 
@@ -1594,11 +1674,11 @@ fn compact_density_omits_blank_separator_between_bubbles() {
     let spacious_grid = snapshot(&draw(&comfortable, 100, 30));
     let spacious_first = spacious_grid
         .lines()
-        .position(|l| l.contains("On my way"))
+        .position(|l| l.contains("Count me in"))
         .expect("penultimate message in comfortable layout");
     let spacious_second = spacious_grid
         .lines()
-        .position(|l| l.contains("Running 10 min late"))
+        .position(|l| l.contains("and chalk"))
         .expect("last message in comfortable layout");
 
     let mut compact = loaded_state();
@@ -1607,11 +1687,11 @@ fn compact_density_omits_blank_separator_between_bubbles() {
     let tight_grid = snapshot(&draw(&compact, 100, 30));
     let tight_first = tight_grid
         .lines()
-        .position(|l| l.contains("On my way"))
+        .position(|l| l.contains("Count me in"))
         .expect("penultimate message in compact layout");
     let tight_second = tight_grid
         .lines()
-        .position(|l| l.contains("Running 10 min late"))
+        .position(|l| l.contains("and chalk"))
         .expect("last message in compact layout");
 
     assert!(

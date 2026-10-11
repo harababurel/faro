@@ -6,7 +6,8 @@ Writes <out>/rec.bin (faro's raw output, via pipe-pane) and <out>/frames.txt
 
 usage: record.py <out-dir> <scenario> [--width W] [--height H] [--split N]
               [--activity MS] [--emoji full|compatible] [--seed S]
-              [--layout bubbles|irc] [--steps N] [--binary PATH]
+              [--layout bubbles|irc] [--bubbles STYLE] [--density D]
+              [--steps N] [--binary PATH]
 
 <scenario>: mixed (typing, switching, paging, palette, popups, resizes),
 type (typing only), switch (switching and typing), logo (the logo screen
@@ -39,7 +40,8 @@ ap.add_argument("--activity", type=int, default=300)
 ap.add_argument("--emoji", default="full")
 ap.add_argument("--seed", type=int, default=7)
 ap.add_argument("--layout", default=None)
-ap.add_argument("--bubbles", default=None, help="bubble_style: auto, rounded or bar")
+ap.add_argument("--bubbles", default=None, help="bubble_style: auto, rounded, bar or mixed")
+ap.add_argument("--density", default=None, help="density: comfortable or compact")
 ap.add_argument("--steps", type=int, default=300)
 ap.add_argument("--steady", action="store_true",
                 help="no resizes: a nested replay with --split can't mirror them")
@@ -57,6 +59,8 @@ if args.layout:
     messages.append(f'layout = "{args.layout}"')
 if args.bubbles:
     messages.append(f'bubble_style = "{args.bubbles}"')
+if args.density:
+    messages.append(f'density = "{args.density}"')
 if messages:
     with open(config, "w") as f:
         f.write("[messages]\n" + "\n".join(messages) + "\n")

@@ -343,6 +343,18 @@ In kitty, with an image copied on the machine you type on (e.g. *Copy Image* in 
 - [x] **No leftovers:** after sending a pasted image, `ls <data dir>/attachments/clipboard-*` finds nothing (the sent copy has the message's name); paste one, remove it with `Esc`, restart faro: it's gone too.
 - [x] **Esc after a paste:** a lone `Esc` still dismisses things normally (it can be held back for up to 50 ms after the first paste; that shouldn't be noticeable).
 
+## Bubble shapes (D98)
+
+In kitty (directly and inside tmux), `faro demo`, `Ctrl+P` › Settings › Bubble style › `rounded`.
+
+- [ ] **Taller bubbles:** round quarter-circle corners, thin edges above and below, no diagonal corners and no boxes. Zoom in (`cmd+=`): corners join the edges and sides without visible steps. One-line bubbles are still capsules.
+- [ ] **Padding:** Settings › Bubble padding off: the text moves next to the rounded sides of taller bubbles (B); on again: one blank cell (B+).
+- [ ] **Compact runs:** Settings › Message density › `compact`. Several messages in a row from one person (send a few yourself, or watch a demo chat): they touch, one edge runs down the aligned side, rounded only at the top and bottom of the run; on the other side each step has round outward corners. Messages from someone else, or after a reaction row, start a new run with a blank line before it. In a group, two people's runs never merge.
+- [ ] **Matched widths:** in a compact run, two or three short messages of nearly the same length (e.g. `ok`, `ok!`, `okay`) line up as one block; Settings › Match bubble widths off: each keeps its own width again.
+- [ ] **Selection:** select a bubble in a compact run (`↑`/`↓` in the message pane): its rows are a clean tinted block; neighbours' edges reappear when you move on.
+- [ ] **Mixed:** Bubble style › `mixed`: the bar side is square and continuous down a compact run; the inner side is rounded as above.
+- [ ] **Older kitty or another terminal:** with `rounded` forced, missing glyphs show as boxes (expected); `auto` there draws bars.
+
 ## Version line (D97)
 
 - [x] After `git pull && cargo build`: `faro --version` prints `faro 0.1.0-dev (<hash> <date>)` matching `git log -1 --format='%h %cd' --date=short`; the logo screen (no chat open) shows `v0.1.0-dev (<hash> <date>)` under the tagline ("unofficial Signal client for the terminal"); About shows the same after `faro`. With an uncommitted edit to a tracked file and a rebuild, the hash gets a `+`.

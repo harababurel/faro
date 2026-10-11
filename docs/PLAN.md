@@ -171,7 +171,8 @@ The owner's main complaint after trying the prototype: misaligned borders and st
 4. README: install-from-source instructions, tmux recommended settings, screenshots.
 5. ✅ Make the allowlist guard optional (D95, done 2026-10-11): the Signal backend starts with no flag, `--allowlist` stays for testing, `--no-allowlist` becomes a no-op.
 6. ✅ Sidebar markers (D96, done 2026-10-11): `#` before group names (also in the palette, where direct chats lose their `@`), and on the right edge before the unread count `⊘` for muted and `@` for mentions only, in the muted colour.
-7. Tag `v0.1.0`; build release binaries (manual or cargo-dist). Make the repo public first; then upload `faro-git` to the AUR, add `faro` and `faro-bin` PKGBUILDs and the Homebrew formula in `harababurel/tap` (D86).
+7. Bubble shapes (D98): quarter-circle corners on taller rounded bubbles, `[messages] bubble_padding`, compact runs that join on their aligned side, `[messages] match_widths`, a blank line between runs in compact.
+8. Tag `v0.1.0`; build release binaries (manual or cargo-dist). Make the repo public first; then upload `faro-git` to the AUR, add `faro` and `faro-bin` PKGBUILDs and the Homebrew formula in `harababurel/tap` (D86).
 
 **Acceptance**
 - The owner uses faro as their daily Signal client instead of gurk.

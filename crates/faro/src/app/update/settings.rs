@@ -262,7 +262,9 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
         SettingChoice::Mouse(on)
         | SettingChoice::Bell(on)
         | SettingChoice::Title(on)
-        | SettingChoice::ReduceMotion(on) => choose_toggle(state, choice, on),
+        | SettingChoice::ReduceMotion(on)
+        | SettingChoice::BubblePadding(on)
+        | SettingChoice::MatchWidths(on) => choose_toggle(state, choice, on),
     }
 }
 
@@ -334,7 +336,9 @@ fn choose_media_and_notifications(state: &mut State, choice: SettingChoice) -> V
         | SettingChoice::Mouse(_)
         | SettingChoice::Bell(_)
         | SettingChoice::Title(_)
-        | SettingChoice::ReduceMotion(_) => vec![],
+        | SettingChoice::ReduceMotion(_)
+        | SettingChoice::BubblePadding(_)
+        | SettingChoice::MatchWidths(_) => vec![],
     }
 }
 
@@ -376,6 +380,24 @@ fn choose_toggle(state: &mut State, choice: SettingChoice, on: bool) -> Vec<Effe
                 "The lighthouse's beam turns again"
             };
             save_with_notice(state, key::REDUCE_MOTION, msg)
+        }
+        SettingChoice::BubblePadding(_) => {
+            state.config.messages.bubble_padding = on;
+            let msg = if on {
+                "Rounded bubbles keep a blank cell beside the text"
+            } else {
+                "Rounded bubbles hug the text"
+            };
+            save_with_notice(state, key::BUBBLE_PADDING, msg)
+        }
+        SettingChoice::MatchWidths(_) => {
+            state.config.messages.match_widths = on;
+            let msg = if on {
+                "Compact bubbles of nearly the same width line up"
+            } else {
+                "Compact bubbles keep their own widths"
+            };
+            save_with_notice(state, key::MATCH_WIDTHS, msg)
         }
         SettingChoice::Colors(_)
         | SettingChoice::Emoji(_)

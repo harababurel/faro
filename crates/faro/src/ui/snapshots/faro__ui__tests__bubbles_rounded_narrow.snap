@@ -3,18 +3,18 @@ source: crates/faro/src/ui/tests.rs
 expression: "snapshot(&draw(&rounded(bubbles_state()), 60, 24))"
 ---
 ╭ Climbing 🧗 ─────────────────────────────────────────────╮
-│ 🭊🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬿                       │
-│  Route map from last time                                │
-│  📎 route-map.jpg · 2.3 MB  17:50                        │
-│ 🭥🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🭚                       │
+│ 🯮▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂🯭                     │
+│ ▐ Route map from last time         ▌                     │
+│ ▐ 📎 route-map.jpg · 2.3 MB  17:50 ▌                     │
+│ 🯬🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🯯                     │
 │ ───────────────────── new messages ───────────────────── │
-│ 🭊🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬿                │
-│  Also: the new overhang section opened                   │
-│  last week and apparently the grades are                 │
-│  soft, so bring your project shoes 🧗‍♀️🧗‍♂️                  │
-│  and maybe some tape for your fingers.                   │
-│                                    17:51                 │
-│ 🭥🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🭚                │
+│ 🯮▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂🯭                │
+│ ▐ Also: the new overhang section opened ▌                │
+│ ▐ last week and apparently the grades   ▌                │
+│ ▐ are soft, so bring your project shoes ▌                │
+│ ▐ 🧗‍♀️🧗‍♂️ and maybe some tape for your     ▌                │
+│ ▐ fingers.                        17:51 ▌                │
+│ 🯬🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🯯                │
 │                                                          │
 │                                     On my way  17:54 ✓ │
 │                                                          │

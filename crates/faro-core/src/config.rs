@@ -233,12 +233,30 @@ pub struct Conversations {
     pub allowlist: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Messages {
     pub layout: MessageLayout,
     pub bubble_style: BubbleStyle,
+    /// A padding cell inside each rounded side of a bubble (D98).
+    pub bubble_padding: bool,
+    /// In a compact run, widen bubbles within a few cells of their
+    /// neighbour's width to match it (D98).
+    pub match_widths: bool,
     pub density: MessageDensity,
     pub timestamps: TimestampFormat,
+}
+
+impl Default for Messages {
+    fn default() -> Self {
+        Self {
+            layout: MessageLayout::default(),
+            bubble_style: BubbleStyle::default(),
+            bubble_padding: true,
+            match_widths: true,
+            density: MessageDensity::default(),
+            timestamps: TimestampFormat::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -328,6 +346,8 @@ pub mod key {
     pub const ALLOWLIST: &str = "conversations.allowlist";
     pub const LAYOUT: &str = "messages.layout";
     pub const BUBBLE_STYLE: &str = "messages.bubble_style";
+    pub const BUBBLE_PADDING: &str = "messages.bubble_padding";
+    pub const MATCH_WIDTHS: &str = "messages.match_widths";
     pub const DENSITY: &str = "messages.density";
     pub const TIMESTAMPS: &str = "messages.timestamps";
     pub const AUTO_DOWNLOAD: &str = "media.auto_download";
@@ -478,9 +498,10 @@ pub static SETTINGS: &[Setting] = &[
     },
     Setting {
         path: key::BUBBLE_STYLE,
-        help: "Bubbles: \"rounded\" (needs a terminal or font with Powerline and Legacy \
-               Computing glyphs, as kitty has), \"bar\" (a bar on the outer side), \
-               \"mixed\" (the bar outside, rounded toward the middle) or \"auto\" (rounded in kitty, bars elsewhere). The system theme always draws bars.",
+        help: "Bubbles: \"rounded\" (needs a terminal that draws Powerline and Unicode 16 \
+               block glyphs, as a recent kitty does), \"bar\" (a bar on the outer side), \
+               \"mixed\" (the bar outside, rounded toward the middle) or \"auto\" (rounded in \
+               kitty, bars elsewhere). The system theme always draws bars.",
         get: |c| text(c.messages.bubble_style),
         set: |c, v| {
             c.messages.bubble_style = choice(v)?;
@@ -488,9 +509,29 @@ pub static SETTINGS: &[Setting] = &[
         },
     },
     Setting {
+        path: key::BUBBLE_PADDING,
+        help: "A blank cell between the text and each rounded side of a bubble.",
+        get: |c| ConfigValue::Bool(c.messages.bubble_padding),
+        set: |c, v| {
+            c.messages.bubble_padding = boolean(v)?;
+            Ok(())
+        },
+    },
+    Setting {
+        path: key::MATCH_WIDTHS,
+        help: "In compact density, give consecutive rounded bubbles of nearly the same width \
+               (within 3 cells) the same width, so they line up.",
+        get: |c| ConfigValue::Bool(c.messages.match_widths),
+        set: |c, v| {
+            c.messages.match_widths = boolean(v)?;
+            Ok(())
+        },
+    },
+    Setting {
         path: key::DENSITY,
         help: "Vertical spacing between messages: \"comfortable\" (a blank line between bubbles) \
-               or \"compact\".",
+               or \"compact\" (blank lines only between senders; rounded bubbles from one \
+               sender join up).",
         get: |c| text(c.messages.density),
         set: |c, v| {
             c.messages.density = choice(v)?;

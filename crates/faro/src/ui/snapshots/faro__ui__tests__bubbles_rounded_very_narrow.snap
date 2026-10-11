@@ -3,17 +3,17 @@ source: crates/faro/src/ui/tests.rs
 expression: "snapshot(&draw(&rounded(bubbles_state()), 32, 18))"
 ---
 ╭ Climbing 🧗 ─────────────────╮
-│  your fingers.               │
-│                17:51         │
-│ 🭥🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🭚        │
 │                              │
-│         On my way  17:54 ✓ │
+│                🯮▂▂▂▂▂▂▂▂▂▂▂🯭 │
+│                ▐ On my way ▌ │
+│                ▐   17:54 ✓ ▌ │
+│                🯬🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🯯 │
 │                              │
 │  Alice 🌸                    │
-│ 🭊🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬹🬿        │
-│  Running 10 min late         │
-│  🙈            17:55         │
-│ 🭥🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🭚        │
+│ 🯮▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂🯭           │
+│ ▐ Running 10 min ▌           │
+│ ▐ late 🙈  17:55 ▌           │
+│ 🯬🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🯯           │
 │ Alice 🌸 is typing…          │
 │╭────────────────────────────╮│
 ││ See you there              ││

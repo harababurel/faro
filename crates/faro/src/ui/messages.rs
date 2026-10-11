@@ -3,6 +3,7 @@
 //! coloured per person, continuation lines indented under the text. The
 //! bubbles layout is in `bubbles.rs` (D45).
 
+use std::cell::OnceCell;
 use std::collections::BTreeMap;
 
 use faro_core::config::{MessageDensity, TimestampFormat};
@@ -110,7 +111,16 @@ struct Context<'a> {
     columns: Columns,
     width: usize,
     today: Date,
+    /// Bubbles join into runs (compact density, rounded bubbles; D98).
+    joining: bool,
+    /// Each message's bubble width before lining up, measured when a
+    /// neighbour in its run needs it (D98).
+    widths: Vec<OnceCell<usize>>,
 }
+
+/// In a joined run, bubbles at most this many cells narrower than their
+/// neighbour are widened to match it (`match_widths`, D98).
+const MATCH_CELLS: usize = 3;
 
 /// The lines to show for `height` rows, following `open.scroll`, and moved
 /// if needed so a selected message waiting to be revealed is on screen.
@@ -121,6 +131,9 @@ pub fn window(
     width: usize,
     height: usize,
 ) -> Window {
+    let joining = state.message_layout() == MessageLayout::Bubbles
+        && state.message_density() == MessageDensity::Compact
+        && bubbles::shape(state, view.theme).rounds();
     let context = Context {
         state,
         open,
@@ -128,6 +141,14 @@ pub fn window(
         columns: Columns::for_width(width),
         width,
         today: date_of(view.now, view),
+        joining,
+        widths: if joining {
+            std::iter::repeat_with(OnceCell::new)
+                .take(open.messages.len())
+                .collect()
+        } else {
+            Vec::new()
+        },
     };
     let position = |target: MessageRef| open.messages.iter().rposition(|m| m.reference() == target);
     let anchored = open
@@ -310,6 +331,7 @@ fn block(context: &Context<'_>, i: usize) -> Block {
         columns,
         width,
         today,
+        ..
     } = context;
     let mut block = Vec::new();
     let mut images = Vec::new();
@@ -331,15 +353,7 @@ fn block(context: &Context<'_>, i: usize) -> Block {
         let style = Style::new().fg(view.theme.unread);
         block.push(rule("new messages", *width, style));
     }
-    let continued = !new_day
-        && previous.is_some_and(|p| {
-            p.sender == message.sender
-                && message
-                    .sent_at
-                    .as_millis()
-                    .saturating_sub(p.sent_at.as_millis())
-                    < GROUPING_MS
-        });
+    let continued = continues(context, i);
     let rules = match state.message_layout() {
         MessageLayout::Irc => {
             let rules = block.len();
@@ -356,21 +370,25 @@ fn block(context: &Context<'_>, i: usize) -> Block {
         }
         MessageLayout::Bubbles => {
             // A blank line between bubbles (even from the same sender, or
-            // they'd merge into one box), unless a rule already separates them
-            // or compact density is chosen.
-            if state.message_density() == MessageDensity::Comfortable
-                && block.is_empty()
-                && previous.is_some()
-            {
+            // they'd merge into one box), unless a rule already separates
+            // them; in compact density only between runs (D98).
+            let spaced = match state.message_density() {
+                MessageDensity::Comfortable => true,
+                MessageDensity::Compact => !follows(context, i),
+            };
+            if spaced && block.is_empty() && previous.is_some() {
                 block.push(Line::default());
             }
             let rules = block.len();
             bubbles::render(
                 state,
                 message,
-                !continued,
                 *width,
                 view,
+                bubbles::Run {
+                    first: !continued,
+                    ..run(context, i)
+                },
                 &mut block,
                 &mut images,
             );
@@ -383,6 +401,108 @@ fn block(context: &Context<'_>, i: usize) -> Block {
         message: Some(message.reference()),
         images,
     }
+}
+
+/// Whether message `i` continues its sender's run from message `i - 1`:
+/// same sender, same day, soon after (it then shares the name above).
+fn continues(context: &Context<'_>, i: usize) -> bool {
+    let messages = &context.open.messages;
+    let (Some(previous), Some(message)) = (
+        i.checked_sub(1).and_then(|p| messages.get(p)),
+        messages.get(i),
+    ) else {
+        return false;
+    };
+    previous.sender == message.sender
+        && date_of_message(previous, context.view) == date_of_message(message, context.view)
+        && message
+            .sent_at
+            .as_millis()
+            .saturating_sub(previous.sent_at.as_millis())
+            < GROUPING_MS
+}
+
+/// Whether bubble `i` sits right under bubble `i - 1` in compact density:
+/// it continues the run, with no reaction row or unread rule between them.
+fn follows(context: &Context<'_>, i: usize) -> bool {
+    let messages = &context.open.messages;
+    continues(context, i)
+        && i.checked_sub(1)
+            .and_then(|p| messages.get(p))
+            .is_some_and(|p| p.reactions.is_empty())
+        && messages
+            .get(i)
+            .is_some_and(|m| context.open.unread_marker != Some(m.reference()))
+}
+
+/// Whether bubble `i` joins bubble `i - 1` into one shape (D98).
+fn joins(context: &Context<'_>, i: usize) -> bool {
+    context.joining && follows(context, i)
+}
+
+/// Bubble `i`'s neighbours in its joined run and the width to draw it at.
+fn run(context: &Context<'_>, i: usize) -> bubbles::Run {
+    if !context.joining {
+        return bubbles::Run::default();
+    }
+    let outline = |j: usize| {
+        let message = context.open.messages.get(j)?;
+        Some(bubbles::outline(
+            context.state,
+            message,
+            matched_width(context, j),
+            context.width,
+            context.view,
+        ))
+    };
+    let above = joins(context, i).then(|| i.checked_sub(1)).flatten();
+    let below = joins(context, i + 1).then_some(i + 1);
+    if above.is_none() && below.is_none() {
+        return bubbles::Run::default();
+    }
+    bubbles::Run {
+        first: false,
+        above: above.and_then(outline),
+        below: below.and_then(outline),
+        inner: matched_width(context, i),
+    }
+}
+
+/// Bubble `j`'s width before lining up (measured once per window).
+fn natural_width(context: &Context<'_>, j: usize) -> usize {
+    let measure = || {
+        context.open.messages.get(j).map_or(0, |message| {
+            bubbles::measure(context.state, message, context.width, context.view)
+        })
+    };
+    context
+        .widths
+        .get(j)
+        .map_or_else(measure, |cell| *cell.get_or_init(measure))
+}
+
+/// Bubble `j`'s width in its run: with `match_widths`, the widest of the
+/// chain of joined neighbours each within `MATCH_CELLS` of the next.
+fn matched_width(context: &Context<'_>, j: usize) -> usize {
+    let own = natural_width(context, j);
+    if !context.state.config.messages.match_widths {
+        return own;
+    }
+    let close = |a: usize, b: usize| {
+        natural_width(context, a).abs_diff(natural_width(context, b)) <= MATCH_CELLS
+    };
+    let mut widest = own;
+    let mut k = j;
+    while k > 0 && joins(context, k) && close(k - 1, k) {
+        k -= 1;
+        widest = widest.max(natural_width(context, k));
+    }
+    let mut k = j;
+    while joins(context, k + 1) && close(k, k + 1) {
+        k += 1;
+        widest = widest.max(natural_width(context, k));
+    }
+    widest
 }
 
 fn render_message(

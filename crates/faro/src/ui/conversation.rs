@@ -205,7 +205,7 @@ fn blank_bubble_edges(frame: &mut Frame<'_>, line: Rect, view: &View<'_>) {
     let buffer = frame.buffer_mut();
     for x in line.left()..line.right() {
         if let Some(cell) = buffer.cell_mut((x, line.y))
-            && bubbles::EDGE_GLYPHS.contains(&cell.symbol())
+            && bubbles::is_edge(cell.symbol())
             && !fills.contains(&cell.bg)
         {
             cell.set_symbol(" ");

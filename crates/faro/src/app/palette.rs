@@ -85,6 +85,8 @@ pub enum Setting {
     Emoji,
     Layout,
     BubbleStyle,
+    BubblePadding,
+    MatchWidths,
     Density,
     Timestamps,
     ReduceMotion,
@@ -186,6 +188,8 @@ impl SettingsGroup {
                 Setting::Emoji,
                 Setting::Layout,
                 Setting::BubbleStyle,
+                Setting::BubblePadding,
+                Setting::MatchWidths,
                 Setting::Density,
                 Setting::Timestamps,
                 Setting::ReduceMotion,
@@ -214,6 +218,8 @@ impl Setting {
             Self::Emoji => "Emoji",
             Self::Layout => "Message layout",
             Self::BubbleStyle => "Bubble style",
+            Self::BubblePadding => "Bubble padding",
+            Self::MatchWidths => "Match bubble widths",
             Self::Density => "Message density",
             Self::Timestamps => "Timestamps",
             Self::ReduceMotion => "Reduce motion",
@@ -232,7 +238,13 @@ impl Setting {
     /// Whether it's on or off (flipped by `Enter` in the settings list).
     pub const fn is_switch(self) -> bool {
         match self {
-            Self::ReduceMotion | Self::Bell | Self::Title | Self::Allowlist | Self::Mouse => true,
+            Self::BubblePadding
+            | Self::MatchWidths
+            | Self::ReduceMotion
+            | Self::Bell
+            | Self::Title
+            | Self::Allowlist
+            | Self::Mouse => true,
             Self::Colors
             | Self::Emoji
             | Self::Layout
@@ -257,6 +269,8 @@ impl Setting {
                 true
             }
             Self::Emoji
+            | Self::BubblePadding
+            | Self::MatchWidths
             | Self::ReduceMotion
             | Self::Bell
             | Self::Title
@@ -308,6 +322,8 @@ pub enum SettingChoice {
     Colors(ColorChoice),
     Layout(MessageLayout),
     BubbleStyle(BubbleStyle),
+    BubblePadding(bool),
+    MatchWidths(bool),
     Density(MessageDensity),
     Timestamps(TimestampFormat),
     Allowlist(bool),
@@ -1309,6 +1325,14 @@ fn values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)>
             SettingChoice::Timestamps,
         ),
         Setting::ReduceMotion => on_off(SettingChoice::ReduceMotion, state.config.reduce_motion),
+        Setting::BubblePadding => on_off(
+            SettingChoice::BubblePadding,
+            state.config.messages.bubble_padding,
+        ),
+        Setting::MatchWidths => on_off(
+            SettingChoice::MatchWidths,
+            state.config.messages.match_widths,
+        ),
         Setting::Bell => on_off(SettingChoice::Bell, state.config.notifications.bell),
         Setting::Title => on_off(SettingChoice::Title, state.config.notifications.title),
         Setting::Desktop => choice_values(

@@ -242,12 +242,14 @@ fn prefixes_jump_into_a_category() {
 }
 
 /// `Settings ›` with nothing typed: every setting under its section.
-const SETTINGS_LIST: [&str; 21] = [
+const SETTINGS_LIST: [&str; 23] = [
     "Appearance",
     "Colours",
     "Emoji",
     "Message layout",
     "Bubble style",
+    "Bubble padding",
+    "Match bubble widths",
     "Message density",
     "Timestamps",
     "Reduce motion",
@@ -345,10 +347,16 @@ fn headers_are_skipped() {
     press(&mut state, KeyCode::Down);
     press(&mut state, KeyCode::Down);
     assert_eq!(selected_title(&state), "Colours", "wraps past Appearance");
-    for _ in 0..7 {
+    for _ in 0..9 {
         press(&mut state, KeyCode::Down);
     }
     assert_eq!(selected_title(&state), "Bell", "skips Notifications");
+    press(&mut state, KeyCode::Up);
+    assert_eq!(
+        selected_title(&state),
+        "Reduce motion",
+        "skips Notifications"
+    );
     // A page that lands on a header takes the setting below it.
     press(&mut state, KeyCode::PageUp);
     assert_eq!(at(&state), 1);
@@ -687,9 +695,9 @@ fn mouse_picks_a_result_or_closes() {
     update(&mut state, click(20, 5));
     assert_eq!(level(&state), Level::Settings);
     assert_eq!(selected_title(&state), "Colours");
-    update(&mut state, click(20, 14));
-    assert_eq!(selected_title(&state), "Bell");
-    assert!(!state.config.notifications.bell);
+    update(&mut state, click(20, 10));
+    assert_eq!(selected_title(&state), "Bubble padding");
+    assert!(!state.config.messages.bubble_padding);
     update(&mut state, click(2, 20));
     assert!(state.palette.is_none(), "a click outside closes");
 }
@@ -1113,7 +1121,7 @@ fn left_and_right_cycle_setting_values_in_place_at_settings_level() {
     );
 
     // Move down to Bell (a switch) and cycle with Right and Left.
-    for _ in 0..7 {
+    for _ in 0..9 {
         press(&mut state, KeyCode::Down);
     }
     assert_eq!(selected_title(&state), "Bell");
