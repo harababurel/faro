@@ -219,7 +219,7 @@ Use a separate data dir for the test account, e.g. `--data-dir ~/.local/share/fa
 - [ ] A message from anyone else never appears.
 - [ ] Caught up (D64): quit faro, send a message to the group from the phone, run `faro ids` (it reads the queue), then start faro: the message is there, unread. Restarting again doesn't duplicate it or count it twice.
 - [ ] Names (D64): group members show their Signal profile names (in the sidebar, the palette's `Chats ›` and message senders), not the start of their ID.
-- [ ] The palette's `Chats ›` lists the allowed chats even before they have messages; choosing one opens it.
+- [x] The palette's `Chats ›` lists the allowed chats even before they have messages; choosing one opens it.
 - [ ] Same names (D65): two people with the same profile name show as "Name · xxxx" and "Name · yyyy" (the first 4 hex digits of their IDs) in the palette's `Chats ›`, the sidebar and as message senders.
 - [ ] Nicknames (D65): `Space` on a direct chat › "Set a nickname…", type a name, `Enter`: the name changes everywhere, the other person's tag goes away, and it survives a restart. Opening it again starts from the nickname; clearing the text (or "Remove the nickname") brings the profile name back. `Ctrl+P` › Commands › "Set a nickname…" lists everyone, group members too.
 - [ ] Read on the phone (D70): with faro running and a chat showing unread messages, open that chat on the phone: within a few seconds faro's count for it clears (sidebar, footer total, window title). With the chat open in faro but the terminal unfocused, the "new messages" rule above those messages goes too. Reading only part of a busy group on the phone leaves the newer messages unread.
