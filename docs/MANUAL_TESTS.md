@@ -216,7 +216,7 @@ Use a separate data dir for the test account, e.g. `--data-dir ~/.local/share/fa
 - [x] `faro ids --data-dir … --username <yours>` prints your ID and, after a message in the test group, the group's title and ID, plus an allowlist to copy.
 - [x] `faro --data-dir …` without `--allowlist` refuses to start.
 - [x] With the allowlist: the group and your direct chat appear, with names. A message from the phone shows up as outgoing. Messages, replies, reactions, edits and deletions work both ways. Typing indicators and receipts (✓✓, read) show.
-- [ ] A message from anyone else never appears.
+- [x] A message from anyone else never appears.
 - [x] Caught up (D64): quit faro, send a message to the group from the phone, run `faro ids` (it reads the queue), then start faro: the message is there, unread. Restarting again doesn't duplicate it or count it twice.
 - [x] Names (D64): group members show their Signal profile names (in the sidebar, the palette's `Chats ›` and message senders), not the start of their ID.
 - [x] The palette's `Chats ›` lists the allowed chats even before they have messages; choosing one opens it.
