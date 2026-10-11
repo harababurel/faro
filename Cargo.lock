@@ -1285,8 +1285,13 @@ dependencies = [
  "faro-app",
  "faro-core",
  "jiff",
+ "js-sys",
  "ratatui",
  "tokio",
+ "unicode-width",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

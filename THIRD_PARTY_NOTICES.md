@@ -84,6 +84,15 @@ dealings in these Data Files or Software without prior written
 authorization of the copyright holder.
 ```
 
+## JetBrains Mono
+
+The web demo's font files in [`crates/faro-web/www/fonts/`](crates/faro-web/www/fonts/)
+are subsets (Regular, Bold, Italic) of [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono),
+Copyright 2020 The JetBrains Mono Project Authors, licensed under the SIL Open
+Font License 1.1 ([`OFL.txt`](crates/faro-web/www/fonts/OFL.txt), next to the
+files). The subsets keep the characters faro draws as text (D107); the
+font declares no Reserved Font Name, so they keep its name.
+
 ## Demo cast and images
 
 `faro demo`'s cast is an affectionate parody of characters from NBC's

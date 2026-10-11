@@ -1,0 +1,47 @@
+<!doctype html>
+<!-- faro's web demo, test page (M13 Phase 3). Build with ../build.sh, then
+     serve this folder (any static server) or open dist/demo.html from
+     tools/bundle.py.
+     ?cols=120&rows=34  a fixed grid (default: fill the window)
+     ?bench             repaint 60 times and report the frame time -->
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>faro · web demo</title>
+<style>
+  @font-face { font-family: "JetBrains Mono"; src: url(fonts/JetBrainsMono-Regular.woff2) format("woff2"); font-weight: 400; font-style: normal; }
+  @font-face { font-family: "JetBrains Mono"; src: url(fonts/JetBrainsMono-Bold.woff2) format("woff2"); font-weight: 700; font-style: normal; }
+  @font-face { font-family: "JetBrains Mono"; src: url(fonts/JetBrainsMono-Italic.woff2) format("woff2"); font-weight: 400; font-style: italic; }
+  html, body { margin: 0; height: 100%; background: #101216; overflow: hidden; }
+  #panel { width: 100vw; height: 100vh; }
+  canvas { display: block; }
+  #stats { position: fixed; right: 6px; bottom: 4px; font: 11px monospace; color: #7c838f; }
+</style>
+<div id="panel"><canvas id="faro" role="application" aria-label="faro, a terminal client for Signal, running in your browser with made-up contacts"></canvas></div>
+<div id="stats"></div>
+<script type="module">
+  const { default: init, start } = await import(window.FARO_JS ?? "./pkg/faro_web.js");
+  await init(window.FARO_WASM ? { module_or_path: window.FARO_WASM } : undefined);
+  const q = new URLSearchParams(location.search);
+  const font = "JetBrains Mono", size = Number(q.get("size") ?? 14);
+  await Promise.all(["", "bold ", "italic "].map((w) => document.fonts.load(`${w}${size}px "${font}"`)));
+  const canvas = document.getElementById("faro");
+  const demo = await start(canvas, font, size, Number(q.get("cols") ?? 0), Number(q.get("rows") ?? 0));
+  window.demo = demo;
+  const stats = document.getElementById("stats");
+  if (q.has("bench")) {
+    const times = [];
+    for (let i = 0; i < 60; i++) {
+      times.push(demo.repaint());
+      await new Promise(requestAnimationFrame);
+    }
+    times.sort((a, b) => a - b);
+    const avg = times.reduce((a, b) => a + b, 0) / times.length;
+    window.stats = { avg, p50: times[30], max: times.at(-1) };
+    stats.textContent = `full repaint · ${times.length} frames · avg ${avg.toFixed(2)} ms · p50 ${times[30].toFixed(2)} · max ${times.at(-1).toFixed(2)}`;
+  } else {
+    window.stats = {};
+  }
+  window.done = true;
+</script>
+</html>
