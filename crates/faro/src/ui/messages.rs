@@ -116,11 +116,26 @@ struct Context<'a> {
     /// Each message's bubble width before lining up, measured when a
     /// neighbour in its run needs it (D98).
     widths: Vec<OnceCell<usize>>,
+    /// …and after lining up with its run (`match_widths`, D101).
+    matched: Vec<OnceCell<usize>>,
 }
 
 /// In a joined run, bubbles at most this many cells narrower than their
 /// neighbour are widened to match it (`match_widths`, D98).
 const MATCH_CELLS: usize = 3;
+/// How far either way a run is lined up (D101): keeps very long runs cheap.
+const MATCH_REACH: usize = 64;
+
+/// One empty cell per message when bubbles join, else none.
+fn cells(joining: bool, messages: usize) -> Vec<OnceCell<usize>> {
+    if joining {
+        std::iter::repeat_with(OnceCell::new)
+            .take(messages)
+            .collect()
+    } else {
+        Vec::new()
+    }
+}
 
 /// The lines to show for `height` rows, following `open.scroll`, and moved
 /// if needed so a selected message waiting to be revealed is on screen.
@@ -142,13 +157,8 @@ pub fn window(
         width,
         today: date_of(view.now, view),
         joining,
-        widths: if joining {
-            std::iter::repeat_with(OnceCell::new)
-                .take(open.messages.len())
-                .collect()
-        } else {
-            Vec::new()
-        },
+        widths: cells(joining, open.messages.len()),
+        matched: cells(joining, open.messages.len()),
     };
     let position = |target: MessageRef| open.messages.iter().rposition(|m| m.reference() == target);
     let anchored = open
@@ -481,28 +491,77 @@ fn natural_width(context: &Context<'_>, j: usize) -> usize {
         .map_or_else(measure, |cell| *cell.get_or_init(measure))
 }
 
-/// Bubble `j`'s width in its run: with `match_widths`, the widest of the
-/// chain of joined neighbours each within `MATCH_CELLS` of the next.
+/// Bubble `j`'s width in its run: with `match_widths`, lined up with its
+/// joined neighbours by [`line_up`] (D98, D101). The run (at most
+/// `MATCH_REACH` messages either way) is lined up once per window and every
+/// member's width kept, so neighbours always agree.
 fn matched_width(context: &Context<'_>, j: usize) -> usize {
     let own = natural_width(context, j);
     if !context.state.config.messages.match_widths {
         return own;
     }
-    let close = |a: usize, b: usize| {
-        natural_width(context, a).abs_diff(natural_width(context, b)) <= MATCH_CELLS
+    if let Some(width) = context.matched.get(j).and_then(OnceCell::get) {
+        return *width;
+    }
+    let mut first = j;
+    while first > 0 && j - first < MATCH_REACH && joins(context, first) {
+        first -= 1;
+    }
+    let mut last = j;
+    while last - j < MATCH_REACH && joins(context, last + 1) {
+        last += 1;
+    }
+    let natural: Vec<usize> = (first..=last).map(|k| natural_width(context, k)).collect();
+    let lined = line_up(&natural);
+    for (k, width) in (first..).zip(&lined) {
+        if let Some(cell) = context.matched.get(k) {
+            let _ = cell.set(*width);
+        }
+    }
+    lined.get(j - first).copied().unwrap_or(own)
+}
+
+/// A run's bubble widths, lined up (D101): first no dents (each bubble at
+/// least as wide as the narrower of the widest above it and the widest below
+/// it, so the ragged edge only steps out towards the widest bubble and back
+/// in after it), then neighbours within `MATCH_CELLS` of each other take the
+/// widest of their chain (D98).
+fn line_up(widths: &[usize]) -> Vec<usize> {
+    let above: Vec<usize> = widths
+        .iter()
+        .scan(0, |widest, w| {
+            *widest = (*widest).max(*w);
+            Some(*widest)
+        })
+        .collect();
+    let mut below: Vec<usize> = widths
+        .iter()
+        .rev()
+        .scan(0, |widest, w| {
+            *widest = (*widest).max(*w);
+            Some(*widest)
+        })
+        .collect();
+    below.reverse();
+    let filled = above.iter().zip(&below).map(|(a, b)| *a.min(b));
+    let mut lined = Vec::with_capacity(widths.len());
+    let mut chain: Vec<usize> = Vec::new();
+    let flush = |chain: &mut Vec<usize>, lined: &mut Vec<usize>| {
+        let widest = chain.iter().copied().max().unwrap_or(0);
+        lined.extend(std::iter::repeat_n(widest, chain.len()));
+        chain.clear();
     };
-    let mut widest = own;
-    let mut k = j;
-    while k > 0 && joins(context, k) && close(k - 1, k) {
-        k -= 1;
-        widest = widest.max(natural_width(context, k));
+    for width in filled {
+        if chain
+            .last()
+            .is_some_and(|last| last.abs_diff(width) > MATCH_CELLS)
+        {
+            flush(&mut chain, &mut lined);
+        }
+        chain.push(width);
     }
-    let mut k = j;
-    while joins(context, k + 1) && close(k, k + 1) {
-        k += 1;
-        widest = widest.max(natural_width(context, k));
-    }
-    widest
+    flush(&mut chain, &mut lined);
+    lined
 }
 
 fn render_message(
@@ -1019,6 +1078,26 @@ fn format_size(bytes: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn line_up_fills_dents_then_matches_close_widths() {
+        // A short bubble between two wider ones takes the narrower of them.
+        assert_eq!(line_up(&[32, 19, 41]), [32, 32, 41]);
+        assert_eq!(line_up(&[41, 19, 32]), [41, 32, 32]);
+        // Any run length, any number of dents.
+        assert_eq!(line_up(&[30, 10, 12, 35]), [30, 30, 30, 35]);
+        assert_eq!(line_up(&[10, 50, 12, 48, 11]), [10, 50, 50, 50, 11]);
+        assert_eq!(
+            line_up(&[40, 8, 30, 9, 20, 7, 25]),
+            [40, 30, 30, 25, 25, 25, 25]
+        );
+        // A bubble sticking out leaves no dent: kept.
+        assert_eq!(line_up(&[20, 40, 20]), [20, 40, 20]);
+        // Steps outward and back in stay; close neighbours match.
+        assert_eq!(line_up(&[20, 22, 24, 40]), [24, 24, 24, 40]);
+        assert_eq!(line_up(&[12]), [12]);
+        assert_eq!(line_up(&[]), [] as [usize; 0]);
+    }
 
     #[test]
     fn sizes_read_well() {

@@ -1074,6 +1074,38 @@ fn match_widths_lines_up_close_bubbles_in_a_run() {
     }
 }
 
+#[test]
+fn match_widths_fills_the_dent_of_a_short_bubble_between_wider_ones() {
+    let theme = Theme::default();
+    let texts = [
+        "a message thirty-two cells long.",
+        "nineteen cells long",
+        "and this one is forty-one cells long, ok.",
+    ];
+    assert_eq!(texts.map(str::len), [32, 19, 41]);
+    for (matching, filled) in [(true, true), (false, false)] {
+        let mut state = compact(rounded(bubbles_state()));
+        state.config.messages.match_widths = matching;
+        let minute = 60_000;
+        state.open.as_mut().unwrap().messages = (0..3u64)
+            .zip(texts)
+            .map(|(i, t)| fixtures::text(climbing(), ALICE, NOW_MS - (3 - i) * minute, t))
+            .collect();
+        let buffer = draw(&state, 120, 34);
+        let ends: Vec<u16> = texts
+            .iter()
+            .map(|t| fill_end(&buffer, find(&buffer, t).1, theme.bubble_other))
+            .collect();
+        assert_eq!(
+            ends[1] == ends[0],
+            filled,
+            "{ends:?}\n{}",
+            snapshot(&buffer)
+        );
+        assert!(ends[2] > ends[0], "{ends:?}");
+    }
+}
+
 // --- Emoji every terminal measures alike (M4.5, D47) ---
 
 fn compatible(mut state: State) -> State {
