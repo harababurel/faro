@@ -422,6 +422,7 @@ impl Router {
                 | Effect::ReadElsewhere(_)
                 | Effect::SaveConversationState(..)
                 | Effect::SaveNickname(..)
+                | Effect::SaveRecentReactions(_)
                 | Effect::RememberOpen(_)) => self.effects.send(store).is_ok(),
             };
             if !delivered {

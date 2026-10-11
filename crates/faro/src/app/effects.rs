@@ -12,6 +12,9 @@ use super::update::PAGE;
 
 /// `app_state` key of the conversation to reopen on start.
 const LAST_OPEN: &str = "ui.last_open_conversation";
+/// `app_state` key of the reactions last sent from here, most recent first,
+/// separated by spaces (D104).
+const RECENT_REACTIONS: &str = "ui.recent_reactions";
 
 /// Start the worker. Effects are queued without limit: the reducer must never
 /// wait, and the queue only grows as fast as the backend produces events.
@@ -57,9 +60,17 @@ async fn execute(store: &Store, effect: Effect) -> Result<Option<AppEvent>, Stor
                 .app_state(LAST_OPEN)
                 .await?
                 .and_then(|id| id.parse::<ConversationId>().ok());
+            let recent_reactions = store
+                .app_state(RECENT_REACTIONS)
+                .await?
+                .unwrap_or_default()
+                .split_whitespace()
+                .map(str::to_owned)
+                .collect();
             Some(AppEvent::Loaded {
                 conversations,
                 last_open,
+                recent_reactions,
             })
         }
         Effect::LoadMessages(conversation) => Some(AppEvent::MessagesLoaded {
@@ -108,7 +119,8 @@ async fn execute(store: &Store, effect: Effect) -> Result<Option<AppEvent>, Stor
         | Effect::SaveConversationState(..)
         | Effect::MarkRead(_)
         | Effect::RememberOpen(_)
-        | Effect::SaveNickname(..) => {
+        | Effect::SaveNickname(..)
+        | Effect::SaveRecentReactions(_) => {
             write_effect(store, effect).await?;
             None
         }
@@ -151,6 +163,11 @@ async fn write_effect(store: &Store, effect: Effect) -> Result<(), StoreError> {
                 .await
         }
         Effect::SaveNickname(id, nickname) => store.set_nickname(id, nickname).await,
+        Effect::SaveRecentReactions(recent) => {
+            store
+                .set_app_state(RECENT_REACTIONS, &recent.join(" "))
+                .await
+        }
         Effect::LoadConversations
         | Effect::LoadMessages(_)
         | Effect::LoadOlder { .. }

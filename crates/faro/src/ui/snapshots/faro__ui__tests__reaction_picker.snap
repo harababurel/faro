@@ -12,13 +12,13 @@ expression: "snapshot(&draw(&state, 100, 20))"
 │                            ││ ────────────────────────── new messages ────────────────────────── │
 │                            ││ 17:51            Also: the new overhang section opened last week   │
 │                            ││                  and apparently the grades are soft, so bring your │
-│                            ││ ╭ React ──────────────────────────────╮ maybe some tape for your   │
-│                            ││ │ 1 ❤️  2 👍  3 👎  4 😂  5 😮  6 😢  │                            │
-│                            ││ ╰─────────────────────────────────────╯                            │
+│                            ││ ╭ React ───────────────────────────────────────╮me tape for your   │
+│                            ││ │ 1 ❤️  2 👍  3 👎  4 😂  5 😮  6 😢  / search │                   │
+│                            ││ ╰──────────────────────────────────────────────╯                   │
 │                            ││▌17:55   Alice 🌸 Running 10 min late 🙈                            │
 │                            ││                                                                    │
 │                            ││╭──────────────────────────────────────────────────────────────────╮│
 │                            │││ Message Climbing 🧗…                                             ││
 │                            ││╰──────────────────────────────────────────────────────────────────╯│
 ╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯
- ● connected · 1 unread                              ←→ choose · 1-6 pick · enter react · esc close
+ ● connected · 1 unread                   ←→ choose · 1-6 pick · enter react · / search · esc close

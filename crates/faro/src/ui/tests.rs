@@ -347,7 +347,7 @@ fn keys(state: &mut State, keys: &[crossterm::event::KeyCode]) {
     }
 }
 
-use crossterm::event::KeyCode::{Char, Enter, Up};
+use crossterm::event::KeyCode::{Char, Down, Enter, Up};
 
 #[test]
 fn message_menu_over_a_selected_message() {
@@ -1207,6 +1207,7 @@ fn logo_state() -> State {
         AppEvent::Loaded {
             conversations: fixtures::summaries(),
             last_open: Some(climbing()),
+            recent_reactions: Vec::new(),
         },
     );
     state
@@ -1299,6 +1300,7 @@ fn logo_with_no_conversations() {
         AppEvent::Loaded {
             conversations: vec![],
             last_open: None,
+            recent_reactions: Vec::new(),
         },
     );
     insta::assert_snapshot!(snapshot(&draw(&state, 120, 26)));
@@ -1695,6 +1697,19 @@ fn read_receipt_marker_uses_accent_colour_and_message_info_popup_renders() {
     );
 
     let target = fixtures::climbing_history().get(1).unwrap().reference();
+    let reacted = state
+        .open
+        .as_mut()
+        .and_then(|o| o.messages.iter_mut().find(|m| m.reference() == target))
+        .unwrap();
+    reacted.reactions = ["🔥", "👍", "🔥"]
+        .into_iter()
+        .zip([ALICE, ME, fixtures::BOB])
+        .map(|(emoji, sender)| faro_core::domain::Reaction {
+            sender,
+            emoji: emoji.to_owned(),
+        })
+        .collect();
     state.popup = Some(Popup::MessageInfo {
         target,
         receipts: vec![
@@ -1718,6 +1733,17 @@ fn read_receipt_marker_uses_accent_colour_and_message_info_popup_renders() {
     assert!(popup_text.contains("Alice"), "{popup_text}");
     assert!(popup_text.contains("Delivered to:"), "{popup_text}");
     assert!(popup_text.contains("Bob"), "{popup_text}");
+    // Who reacted with what, the same emoji together.
+    let reactions: Vec<&str> = popup_text
+        .lines()
+        .filter_map(|l| l.split("Reaction: ").nth(1))
+        .map(|r| r.split('│').next().unwrap_or_default().trim_end())
+        .collect();
+    assert_eq!(
+        reactions,
+        ["🔥 Alice 🌸", "🔥 Bob", "👍 You"],
+        "{popup_text}"
+    );
     assert_drawable(&compatible(state), 100, 30);
 }
 
@@ -1856,6 +1882,47 @@ fn shortcode_autocomplete_and_reaction_search_render_and_are_drawable() {
     assert!(react_text.contains(":fire:"), "{react_text}");
     assert!(react_text.contains("🔥"), "{react_text}");
     assert_drawable(&compatible(react_state), 100, 24);
+}
+
+/// More matches than rows (D104): the list scrolls with the selection and
+/// a counter shows where it is.
+#[test]
+fn reaction_search_scrolls_past_the_visible_rows() {
+    use crate::ui::shortcodes::{REACT_SEARCH_LIMIT, REACT_SEARCH_ROWS, search_shortcodes};
+    let matches = search_shortcodes("face", REACT_SEARCH_LIMIT);
+    assert!(matches.len() > REACT_SEARCH_ROWS + 2, "{}", matches.len());
+    let mut state = loaded_state();
+    keys(&mut state, &[Up, Char('+'), Char('/')]);
+    for c in "face".chars() {
+        keys(&mut state, &[Char(c)]);
+    }
+    let rows_of = |text: &str| {
+        matches
+            .iter()
+            .filter(|(code, _)| text.contains(&format!(" :{code}:")))
+            .count()
+    };
+    let text = snapshot(&draw(&state, 100, 30));
+    assert_eq!(rows_of(&text), REACT_SEARCH_ROWS, "{text}");
+    assert!(text.contains(&format!("1/{}", matches.len())), "{text}");
+
+    let steps = REACT_SEARCH_ROWS + 2;
+    for _ in 0..steps {
+        keys(&mut state, &[Down]);
+    }
+    let text = snapshot(&draw(&state, 100, 30));
+    let (code, _) = matches[steps];
+    let chosen = text
+        .lines()
+        .find(|l| l.contains(" › "))
+        .expect("the selection is on screen");
+    assert!(chosen.contains(&format!(":{code}:")), "{text}");
+    assert!(!text.contains(&format!(":{}:", matches[0].0)), "{text}");
+    assert!(
+        text.contains(&format!("{}/{}", steps + 1, matches.len())),
+        "{text}"
+    );
+    assert_drawable(&compatible(state), 100, 30);
 }
 
 #[test]

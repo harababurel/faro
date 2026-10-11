@@ -114,8 +114,21 @@ pub const SHORTCODES: &[(&str, &str)] = &[
     ("house", "🏠"),
 ];
 
-/// Maximum number of `:shortcode:` candidates shown in the reaction search popup.
-pub const REACT_SEARCH_LIMIT: usize = 8;
+/// Maximum number of candidates in the reaction search popup (D104); the
+/// list scrolls past [`REACT_SEARCH_ROWS`].
+pub const REACT_SEARCH_LIMIT: usize = 50;
+/// Rows of candidates the reaction search popup shows at once (D104).
+pub const REACT_SEARCH_ROWS: usize = 10;
+
+/// Whether `emoji` is one faro knows (an alias's or any standard emoji),
+/// with or without variation selectors.
+pub fn is_known(emoji: &str) -> bool {
+    let plain = |s: &str| s.chars().filter(|c| *c != '\u{fe0f}').collect::<String>();
+    let wanted = plain(emoji);
+    !wanted.is_empty()
+        && (SHORTCODES.iter().any(|(_, e)| plain(e) == wanted)
+            || EMOJI.iter().any(|(e, _, _)| plain(e) == wanted))
+}
 
 /// How well an emoji matched, best first (D103).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

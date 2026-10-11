@@ -375,6 +375,13 @@ In kitty (directly and inside tmux), `faro demo`, `Ctrl+P` › Settings › Bubb
 - [ ] In the input, `:cool`: 😎 first, 🆒 among the results; `:coo` also offers the cook 🧑‍🍳, the cookie 🍪 and the Cook Islands flag; `:thumbsup` and `:+1` still give 👍. `:cookie:` (closing colon) turns into 🍪, `:smiling_face_with_sunglasses:` into 😎. In the reaction picker (`+`, then type), the same searches work.
 - [ ] Results look right in kitty directly and inside tmux: no boxes or misaligned rows for anything offered (try `:flag`, `:family`, `:keycap`, `:face`).
 
+## Reaction picker and reactions in Message info (D104)
+
+- [ ] Select a message, `+`: the row ends with a muted `/ search`, and the footer lists `/ search`. On a fresh database the row is ❤️ 👍 👎 😂 😮 😢.
+- [ ] React with `/` → `fire` → `Enter`, then open the picker on another message: 🔥 is first, followed by the defaults (no duplicates). React with 👍 from the row: now 👍 🔥 …. Quit and restart faro: the row is the same.
+- [ ] `+` `/` `face`: 10 rows show, with `1/50` at the right of the prompt; holding `↓` scrolls the list, the `›` row stays visible and the counter follows; `↑` back to the top works. In a short pane (shrink the tmux pane) fewer rows show and nothing overflows. Check in kitty directly and inside tmux (emoji aligned, no stray cells).
+- [ ] On a message with reactions from several people (a group in `faro demo`), `i`: a `Reaction:` row per person, e.g. `❤️ Alice`, yours as `You`, the same emoji next to each other.
+
 ## Version line (D97)
 
 - [x] After `git pull && cargo build`: `faro --version` prints `faro 0.1.0-dev (<hash> <date>)` matching `git log -1 --format='%h %cd' --date=short`; the logo screen (no chat open) shows `v0.1.0-dev (<hash> <date>)` under the tagline ("unofficial Signal client for the terminal"); About shows the same after `faro`. With an uncommitted edit to a tracked file and a rebuild, the hash gets a `+`.

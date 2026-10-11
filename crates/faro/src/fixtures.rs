@@ -183,6 +183,7 @@ pub fn loaded_state() -> State {
         AppEvent::Loaded {
             conversations: summaries(),
             last_open: Some(climbing()),
+            recent_reactions: Vec::new(),
         },
     );
     // Nothing opens by itself (D60): the list highlights Climbing.

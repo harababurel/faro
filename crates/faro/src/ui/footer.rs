@@ -120,6 +120,7 @@ const REACT_HINTS: &[(&str, &str)] = &[
     ("←→", "choose"),
     ("1-6", "pick"),
     ("enter", "react"),
+    ("/", "search"),
     ("esc", "close"),
 ];
 const REACT_SEARCH_HINTS: &[(&str, &str)] =

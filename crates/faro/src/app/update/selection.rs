@@ -20,7 +20,7 @@ use crate::app::input::Input;
 use crate::app::keymap::PopupKey;
 use crate::app::state::{
     AUTO_DOWNLOAD_LIMIT, DownloadJob, Focus, MAX_DOWNLOADS_IN_FLIGHT, MessageAction, Notice,
-    PlayingVoiceNote, Popup, REACTIONS, REMOTE_CONSENT_CHOICES, Selection, State,
+    PlayingVoiceNote, Popup, REACTIONS, REMOTE_CONSENT_CHOICES, Selection, State, same_emoji,
 };
 
 /// At most this many links get their own menu entry.
@@ -670,7 +670,12 @@ pub fn react_picker(state: &mut State, target: MessageRef) {
     };
     let mine = own_reaction(state, message);
     let selected = mine
-        .and_then(|emoji| REACTIONS.iter().position(|r| *r == emoji))
+        .and_then(|emoji| {
+            state
+                .quick_reactions()
+                .iter()
+                .position(|r| same_emoji(r, emoji))
+        })
         .unwrap_or(0);
     state.popup = Some(Popup::React {
         target,
@@ -689,9 +694,14 @@ fn on_react_key(
     if let Some(q) = query {
         return on_react_search_key(state, target, selected, q, key);
     }
+    let quick: Vec<String> = state
+        .quick_reactions()
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
     let chosen = match key {
         PopupKey::Previous | PopupKey::Next => {
-            let selected = cycle(selected, REACTIONS.len(), key == PopupKey::Next);
+            let selected = cycle(selected, quick.len(), key == PopupKey::Next);
             state.popup = Some(Popup::React {
                 target,
                 selected,
@@ -720,7 +730,7 @@ fn on_react_key(
             .to_digit(10)
             .and_then(|d| usize::try_from(d).ok())
             .and_then(|d| d.checked_sub(1))
-            .filter(|i| *i < REACTIONS.len()),
+            .filter(|i| *i < quick.len()),
         PopupKey::Backspace => {
             state.popup = Some(Popup::React {
                 target,
@@ -731,7 +741,7 @@ fn on_react_key(
         }
         PopupKey::Close => None,
     };
-    match chosen.and_then(|i| REACTIONS.get(i)) {
+    match chosen.and_then(|i| quick.get(i)) {
         Some(emoji) => react(state, target, emoji),
         None => vec![],
     }
@@ -815,8 +825,10 @@ fn react(state: &mut State, target: MessageRef, emoji: &str) -> Vec<Effect> {
         return vec![];
     };
     let previous = own_reaction(state, message).map(str::to_owned);
-    let change = if previous.as_deref() == Some(emoji) {
-        ReactionChange::Remove(emoji.to_owned())
+    // Ours already, perhaps without (or with) U+FE0F: the removal names the
+    // emoji as it was sent.
+    let change = if let Some(previous) = previous.as_deref().filter(|p| same_emoji(p, emoji)) {
+        ReactionChange::Remove(previous.to_owned())
     } else {
         ReactionChange::Set(emoji.to_owned())
     };
@@ -827,6 +839,10 @@ fn react(state: &mut State, target: MessageRef, emoji: &str) -> Vec<Effect> {
         change.emoji().map(str::to_owned),
     );
     let mut effects = on_backend(state, event);
+    if let ReactionChange::Set(emoji) = &change {
+        state.remember_reaction(emoji);
+        effects.push(Effect::SaveRecentReactions(state.recent_reactions.clone()));
+    }
     effects.push(Effect::Backend(Command::React {
         conversation,
         target,
@@ -834,6 +850,22 @@ fn react(state: &mut State, target: MessageRef, emoji: &str) -> Vec<Effect> {
         previous,
     }));
     effects
+}
+
+/// The recent reactions arrived from the store with the conversations (D104). Unknown entries are
+/// dropped; any reaction sent before they arrived stays first.
+pub fn on_recent_reactions_loaded(state: &mut State, stored: Vec<String>) {
+    let known = stored.into_iter().filter(|e| {
+        crate::ui::shortcodes::is_known(e) || REACTIONS.iter().any(|r| same_emoji(r, e))
+    });
+    let mut recent = std::mem::take(&mut state.recent_reactions);
+    for emoji in known {
+        if !recent.iter().any(|e| same_emoji(e, &emoji)) {
+            recent.push(emoji);
+        }
+    }
+    recent.truncate(REACTIONS.len());
+    state.recent_reactions = recent;
 }
 
 fn reaction(
@@ -1900,11 +1932,12 @@ pub fn on_fetched(
     effects
 }
 
-pub fn on_saved_to_downloads(state: &mut State, result: Result<PathBuf, String>) {
+pub fn on_saved_to_downloads(state: &mut State, result: Result<PathBuf, String>) -> Vec<Effect> {
     state.notice = Some(match result {
         Ok(path) => Notice::info(format!("Saved to {}", path.display())),
         Err(error) => Notice::error(format!("Couldn't save attachment: {error}")),
     });
+    vec![]
 }
 
 /// http(s) links in `text`, in order, without duplicates. Surrounding

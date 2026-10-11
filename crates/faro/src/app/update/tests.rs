@@ -36,6 +36,7 @@ fn startup_opens_nothing_and_highlights_the_remembered_conversation() {
         AppEvent::Loaded {
             conversations: fixtures::summaries(),
             last_open: Some(climbing()),
+            recent_reactions: Vec::new(),
         },
     );
     // Nothing is opened, so nothing is read (D60).
@@ -71,6 +72,7 @@ fn startup_highlights_the_first_conversation_without_a_remembered_one() {
         AppEvent::Loaded {
             conversations: fixtures::summaries(),
             last_open: None,
+            recent_reactions: Vec::new(),
         },
     );
     assert_eq!(open_id(&state), None);
@@ -88,6 +90,7 @@ fn a_first_message_on_a_fresh_start_opens_nothing() {
         AppEvent::Loaded {
             conversations: vec![empty],
             last_open: None,
+            recent_reactions: Vec::new(),
         },
     );
     assert_eq!(open_id(&state), None);
@@ -122,6 +125,7 @@ fn events_during_loading_are_replayed_on_the_loaded_page() {
         AppEvent::Loaded {
             conversations: fixtures::summaries(),
             last_open: Some(climbing()),
+            recent_reactions: Vec::new(),
         },
     );
     update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
@@ -178,6 +182,7 @@ fn messages_arriving_before_the_list_are_kept() {
         AppEvent::Loaded {
             conversations: fixtures::summaries(),
             last_open: None,
+            recent_reactions: Vec::new(),
         },
     );
     assert_eq!(
@@ -195,6 +200,7 @@ fn messages_arriving_before_the_list_are_kept() {
         AppEvent::Loaded {
             conversations: vec![],
             last_open: None,
+            recent_reactions: Vec::new(),
         },
     );
     assert!(state.summary(bob()).is_some());
@@ -723,6 +729,7 @@ fn drafts_are_saved_after_a_pause_and_on_quit_and_restored() {
         AppEvent::Loaded {
             conversations: summaries,
             last_open: Some(alice()),
+            recent_reactions: Vec::new(),
         },
     );
     update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
@@ -982,6 +989,7 @@ fn reactions_toggle_and_are_undone_on_failure() {
         effects,
         vec![
             Effect::Persist(Box::new(reaction(Some("👍")))),
+            Effect::SaveRecentReactions(vec!["👍".into()]),
             Effect::Backend(Command::React {
                 conversation: climbing(),
                 target,
@@ -1000,13 +1008,14 @@ fn reactions_toggle_and_are_undone_on_failure() {
     };
     assert_eq!(mine(&state).as_deref(), Some("👍"));
 
-    // Picking it again takes it back, naming it (D73); the picker starts on it.
+    // Picking it again takes it back, naming it (D73); the picker starts on
+    // it, now first in the quick row as the most recent reaction (D104).
     press(&mut state, '+');
     assert_eq!(
         state.popup,
         Some(Popup::React {
             target,
-            selected: 1,
+            selected: 0,
             query: None,
         })
     );
@@ -1018,10 +1027,20 @@ fn reactions_toggle_and_are_undone_on_failure() {
         change: ReactionChange::Remove("👍".into()),
         previous: Some("👍".into()),
     })));
+    // Taking one back isn't a use: the quick row is unchanged.
+    assert!(
+        !effects
+            .iter()
+            .any(|e| matches!(e, Effect::SaveRecentReactions(_)))
+    );
+    assert_eq!(
+        state.quick_reactions(),
+        ["👍", "❤️", "👎", "😂", "😮", "😢"]
+    );
 
     // Another emoji replaces ours: a plain `Set`.
     press(&mut state, '+');
-    press(&mut state, '2');
+    press(&mut state, '1');
     press(&mut state, '+');
     let effects = press(&mut state, '3');
     assert!(effects.iter().any(|e| matches!(
@@ -2096,6 +2115,57 @@ fn shortcode_autocomplete_completes_on_tab_enter_and_closing_colon() {
     assert_eq!(state.shortcode_candidates(), [] as [(&str, &str); 0]);
     assert!(state.open.is_some());
     assert!(state.open.as_ref().unwrap().input.text().ends_with(":ro"));
+}
+
+/// The quick row shows recent reactions first, topped up with Signal's
+/// defaults (D104); a reaction found by search joins it.
+#[test]
+fn quick_reactions_prefer_recent_ones() {
+    let mut state = loaded_state();
+    let target = climbing_history().last().unwrap().reference();
+    // Stored: two known emoji, one unknown token and a duplicate of the
+    // default heart without its variation selector.
+    super::selection::on_recent_reactions_loaded(
+        &mut state,
+        vec!["🙏".into(), "notanemoji".into(), "❤".into(), "🎉".into()],
+    );
+    assert_eq!(state.recent_reactions, ["🙏", "❤", "🎉"]);
+    assert_eq!(state.quick_reactions(), ["🙏", "❤", "🎉", "👍", "👎", "😂"]);
+
+    // `1` picks the most recent one.
+    update(&mut state, key(KeyCode::Up, KeyModifiers::NONE));
+    press(&mut state, '+');
+    let effects = press(&mut state, '1');
+    assert!(effects.contains(&Effect::Backend(Command::React {
+        conversation: climbing(),
+        target,
+        change: ReactionChange::Set("🙏".into()),
+        previous: None,
+    })));
+
+    // One found by search goes first and is saved.
+    press(&mut state, '+');
+    for c in "/fire".chars() {
+        press(&mut state, c);
+    }
+    let effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(effects.contains(&Effect::SaveRecentReactions(vec![
+        "🔥".into(),
+        "🙏".into(),
+        "❤".into(),
+        "🎉".into(),
+    ])));
+    assert_eq!(state.quick_reactions(), ["🔥", "🙏", "❤", "🎉", "👍", "👎"]);
+    // The picker opens on ours.
+    press(&mut state, '+');
+    assert!(matches!(
+        state.popup,
+        Some(Popup::React {
+            selected: 0,
+            query: None,
+            ..
+        })
+    ));
 }
 
 #[test]

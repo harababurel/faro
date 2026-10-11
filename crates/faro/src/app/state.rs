@@ -35,8 +35,18 @@ pub const TYPING_REFRESH: Duration = Duration::from_secs(10);
 pub const BELL_INTERVAL: Duration = Duration::from_secs(2);
 /// Informational notices ("Copied") disappear after this long.
 pub const INFO_NOTICE_TIME: Duration = Duration::from_secs(3);
-/// Signal's default reactions, in its order.
+/// Signal's default reactions, in its order. The reaction picker's quick row
+/// shows the reactions last sent from here first and fills the rest of its
+/// `REACTIONS.len()` slots with these (D104).
 pub const REACTIONS: [&str; 6] = ["❤️", "👍", "👎", "😂", "😮", "😢"];
+
+/// The same emoji, with or without variation selectors (`❤` and `❤️`):
+/// clients differ on whether they send U+FE0F.
+pub fn same_emoji(a: &str, b: &str) -> bool {
+    let plain = |s: &'_ str| s.chars().filter(|c| *c != '\u{fe0f}').collect::<String>();
+    a == b || plain(a) == plain(b)
+}
+
 /// At most this many attachments download at the same time (D75).
 pub const MAX_DOWNLOADS_IN_FLIGHT: usize = 3;
 /// Auto-download size ceiling: 25 MB (D75). Larger files wait for `d`.
@@ -141,6 +151,9 @@ pub struct State {
     pub palette: Option<Palette>,
     /// Commands last run from the palette, most recent first.
     pub recent_commands: Vec<PaletteCommand>,
+    /// Reactions last sent from here, most recent first, at most
+    /// `REACTIONS.len()` (D104); kept in `app_state`.
+    pub recent_reactions: Vec<String>,
     /// `sent_at` of the last message sent from here; the next one is later, so
     /// two quick sends can't share an identity.
     pub last_sent_at: Timestamp,
@@ -396,7 +409,8 @@ pub enum Popup {
         items: Vec<MessageAction>,
         selected: usize,
     },
-    /// Pick one of `REACTIONS`, or search `SHORTCODES` (`/` or typing a letter).
+    /// Pick one of `State::quick_reactions` (D104), or search every emoji
+    /// (`/`, `:` or typing a letter).
     React {
         target: MessageRef,
         selected: usize,
@@ -765,6 +779,7 @@ impl State {
             keymap: Keymap::default(),
             palette: None,
             recent_commands: Vec::new(),
+            recent_reactions: Vec::new(),
             last_sent_at: Timestamp::from_millis(0),
             config: Config::default(),
             config_problems: Vec::new(),
@@ -794,6 +809,33 @@ impl State {
         self.nicknames = nicknames;
         self.recount_names();
         self
+    }
+
+    /// The reaction picker's quick row (D104): the reactions last sent from
+    /// here, then Signal's defaults, each once, `REACTIONS.len()` in all.
+    pub fn quick_reactions(&self) -> Vec<&str> {
+        let mut row: Vec<&str> = Vec::with_capacity(REACTIONS.len());
+        let candidates = self
+            .recent_reactions
+            .iter()
+            .map(String::as_str)
+            .chain(REACTIONS);
+        for emoji in candidates {
+            if row.len() == REACTIONS.len() {
+                break;
+            }
+            if !row.iter().any(|e| same_emoji(e, emoji)) {
+                row.push(emoji);
+            }
+        }
+        row
+    }
+
+    /// Put `emoji` first among the recent reactions (D104).
+    pub fn remember_reaction(&mut self, emoji: &str) {
+        self.recent_reactions.retain(|e| !same_emoji(e, emoji));
+        self.recent_reactions.insert(0, emoji.to_owned());
+        self.recent_reactions.truncate(REACTIONS.len());
     }
 
     /// Conversations listed in the sidebar's current view, in display order

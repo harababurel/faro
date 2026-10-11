@@ -37,6 +37,7 @@ fn saved(effects: &[Effect], id: ConversationId) -> Option<ConversationState> {
         | Effect::ReadElsewhere(_)
         | Effect::RememberOpen(_)
         | Effect::SaveNickname(..)
+        | Effect::SaveRecentReactions(_)
         | Effect::SaveSetting(_)
         | Effect::Backend(_)
         | Effect::Copy(_)
@@ -179,6 +180,7 @@ fn hiding_the_last_conversation_closes_it() {
         AppEvent::Loaded {
             conversations: vec![fixtures::summary(alice(), "Alice", 1, 0)],
             last_open: None,
+            recent_reactions: Vec::new(),
         },
     );
     update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
@@ -253,6 +255,7 @@ fn startup_restores_allowlist_mode_and_the_archive_view() {
         AppEvent::Loaded {
             conversations: summaries,
             last_open: Some(climbing()),
+            recent_reactions: Vec::new(),
         },
     );
     assert!(state.list.allowlist);

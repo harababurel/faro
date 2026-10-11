@@ -130,6 +130,7 @@ fn opening_a_conversation_receipts_its_unread_messages() {
         AppEvent::Loaded {
             conversations: fixtures::summaries(),
             last_open: Some(climbing()),
+            recent_reactions: Vec::new(),
         },
     );
     update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));

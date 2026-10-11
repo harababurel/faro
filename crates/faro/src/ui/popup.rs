@@ -10,6 +10,7 @@ use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
 
 use super::View;
 use super::messages::{to_jiff, zoned};
+use super::shortcodes::{REACT_SEARCH_LIMIT, REACT_SEARCH_ROWS, search_shortcodes};
 use super::text::{pad_left, sanitize, truncate, width};
 use faro_core::domain::{
     ConversationId, DeliveryStatus, Direction, MessageRef, Timestamp, format_byte_size,
@@ -17,8 +18,8 @@ use faro_core::domain::{
 use faro_core::store::RecipientReceipt;
 
 use crate::app::state::{
-    Geometry, MUTE_CHOICES, MessageAction, Popup, REACTIONS, REMOTE_CONSENT_CHOICES, SidebarRow,
-    State,
+    Geometry, MUTE_CHOICES, MessageAction, Popup, REMOTE_CONSENT_CHOICES, SidebarRow, State,
+    same_emoji,
 };
 
 /// Shortcut keys of `MUTE_CHOICES`.
@@ -57,7 +58,7 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &
             if let Some(query) = query {
                 react_search(frame, anchor, *selected, query, mine, view);
             } else {
-                react(frame, anchor, *selected, mine, view);
+                react(frame, anchor, state, *selected, mine, view);
             }
         }
         Popup::MessageInfo { target, receipts } => {
@@ -209,6 +210,26 @@ fn message_info_rows(
         let who = sanitize(&name);
         let at = format_time(receipt.updated_at, view);
         rows.push(("Delivered to", format!("{who} {at}"), text_style));
+    }
+    // Who reacted with what, the same emoji together (in the order each
+    // first appeared); ours first within its emoji.
+    let mut reactions: Vec<&faro_core::domain::Reaction> = message.reactions.iter().collect();
+    let first_seen = |emoji: &str| {
+        message
+            .reactions
+            .iter()
+            .position(|r| same_emoji(&r.emoji, emoji))
+            .unwrap_or(usize::MAX)
+    };
+    reactions.sort_by_key(|r| (first_seen(&r.emoji), r.sender != state.me));
+    for reaction in reactions {
+        let who = if reaction.sender == state.me {
+            "You".to_owned()
+        } else {
+            sanitize(&state.person_name(reaction.sender)).into_owned()
+        };
+        let emoji = sanitize(&reaction.emoji);
+        rows.push(("Reaction", format!("{emoji} {who}"), text_style));
     }
     for att in &message.attachments {
         let name = att.file_name.as_deref().map_or_else(
@@ -618,15 +639,16 @@ fn menu(
 fn react(
     frame: &mut Frame<'_>,
     anchor: Anchor,
+    state: &State,
     selected: usize,
     mine: Option<&str>,
     view: &View<'_>,
 ) {
     let theme = view.theme;
     let mut spans = vec![Span::raw(" ")];
-    for (i, emoji) in REACTIONS.iter().enumerate() {
+    for (i, emoji) in state.quick_reactions().into_iter().enumerate() {
         let mut style = Style::new().fg(theme.text);
-        if Some(*emoji) == mine {
+        if mine.is_some_and(|m| same_emoji(m, emoji)) {
             style = style.add_modifier(Modifier::UNDERLINED);
         }
         if i == selected {
@@ -639,6 +661,8 @@ fn react(
         spans.push(Span::styled(format!("{} ", sanitize(emoji)), style));
         spans.push(Span::raw(" "));
     }
+    // Every other emoji is a search away (D104).
+    spans.push(Span::styled("/ search ", theme.muted()));
     let line = Line::from(spans);
     let rect = place(anchor, line.width(), 1);
     let inner = frame_box(frame, rect, "React", view);
@@ -654,23 +678,38 @@ fn react_search(
     view: &View<'_>,
 ) {
     let theme = view.theme;
-    let matches =
-        super::shortcodes::search_shortcodes(query, super::shortcodes::REACT_SEARCH_LIMIT);
+    let matches = search_shortcodes(query, REACT_SEARCH_LIMIT);
+    // At most `REACT_SEARCH_ROWS` at once, fewer if the pane is short (two
+    // border rows and the prompt); the window follows the selection (D104).
+    let room = usize::from(anchor.area.height).saturating_sub(3).max(1);
+    let visible = matches.len().min(REACT_SEARCH_ROWS).min(room).max(1);
+    let clamped = selected.min(matches.len().saturating_sub(1));
+    let offset = (clamped + 1).saturating_sub(visible);
+    let counter = if matches.len() > visible {
+        format!("{}/{}", clamped + 1, matches.len())
+    } else {
+        String::new()
+    };
     let widest = matches
         .iter()
         .map(|(code, emoji)| 3 + width(&sanitize(emoji)) + 3 + width(code) + 1)
         .max()
         .unwrap_or(22)
-        .max(width(query) + 6);
+        .max(width(query) + 6 + width(&counter));
     let max_inner = usize::from(anchor.area.width.saturating_sub(4));
     let inner_width = widest.clamp(22, max_inner.max(22));
-    let item_rows = matches.len().max(1);
-    let rect = place(anchor, inner_width, 1 + item_rows);
+    let rect = place(anchor, inner_width, 1 + visible);
     let inner = frame_box(frame, rect, "React", view);
     let row_width = usize::from(inner.width);
 
-    let prompt_query = truncate(&sanitize(query), row_width.saturating_sub(4)).into_owned();
-    let mut lines = Vec::with_capacity(1 + item_rows);
+    let counter_w = width(&counter);
+    let prompt_query = truncate(
+        &sanitize(query),
+        row_width.saturating_sub(4 + counter_w + 1),
+    )
+    .into_owned();
+    let prompt_pad = row_width.saturating_sub(3 + width(&prompt_query) + counter_w + 1);
+    let mut lines = Vec::with_capacity(1 + visible);
     lines.push(Line::from(vec![
         Span::styled(
             " :",
@@ -678,6 +717,8 @@ fn react_search(
         ),
         Span::styled(prompt_query, Style::new().fg(theme.text)),
         Span::styled("█", Style::new().fg(theme.primary)),
+        Span::raw(" ".repeat(prompt_pad)),
+        Span::styled(counter, theme.muted()),
     ]));
 
     if matches.is_empty() {
@@ -686,8 +727,8 @@ fn react_search(
             theme.muted(),
         )));
     } else {
-        let clamped = selected.min(matches.len().saturating_sub(1));
-        for (i, &(code, emoji)) in matches.iter().enumerate() {
+        let shown = matches.iter().enumerate().skip(offset).take(visible);
+        for (i, &(code, emoji)) in shown {
             let chosen = i == clamped;
             let marker = if chosen { " › " } else { "   " };
             let clean_emoji = sanitize(emoji).into_owned();
@@ -700,7 +741,7 @@ fn react_search(
             } else {
                 Style::new().fg(theme.text)
             };
-            if Some(emoji) == mine {
+            if mine.is_some_and(|m| same_emoji(m, emoji)) {
                 style = style.add_modifier(Modifier::UNDERLINED);
             }
             let code_style = if chosen {

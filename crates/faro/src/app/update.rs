@@ -51,7 +51,8 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
         AppEvent::Loaded {
             conversations,
             last_open,
-        } => on_loaded(state, conversations, last_open),
+            recent_reactions,
+        } => on_loaded(state, conversations, last_open, recent_reactions),
         AppEvent::MessagesLoaded {
             conversation,
             messages,
@@ -93,10 +94,7 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
             index,
             result,
         } => selection::on_fetched(state, conversation, message, index, result),
-        AppEvent::SavedToDownloads(result) => {
-            selection::on_saved_to_downloads(state, result);
-            vec![]
-        }
+        AppEvent::SavedToDownloads(result) => selection::on_saved_to_downloads(state, result),
         AppEvent::FilesListed { query, entries } => {
             palette::on_files_listed(state, &query, &entries);
             vec![]
@@ -357,7 +355,9 @@ fn on_loaded(
     state: &mut State,
     mut conversations: Vec<ConversationSummary>,
     last_open: Option<ConversationId>,
+    recent_reactions: Vec<String>,
 ) -> Vec<Effect> {
+    selection::on_recent_reactions_loaded(state, recent_reactions);
     sort_conversations(&mut conversations);
     state.conversations = conversations;
     state.recount_names();

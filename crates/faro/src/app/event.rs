@@ -21,6 +21,9 @@ pub enum AppEvent {
     Loaded {
         conversations: Vec<ConversationSummary>,
         last_open: Option<ConversationId>,
+        /// The reactions last sent from here, most recent first, as stored
+        /// (D104).
+        recent_reactions: Vec<String>,
     },
     MessagesLoaded {
         conversation: ConversationId,
@@ -185,6 +188,8 @@ pub enum Effect {
     RememberOpen(ConversationId),
     /// Store someone's nickname, or remove it (`None`) (D65).
     SaveNickname(ServiceId, Option<String>),
+    /// Store the reactions last sent from here, most recent first (D104).
+    SaveRecentReactions(Vec<String>),
     /// Write a setting to the config file (D48); routed to the config writer.
     SaveSetting(SettingEdit),
     /// Ask the backend to do something; routed to the command task.
