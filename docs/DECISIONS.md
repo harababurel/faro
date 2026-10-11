@@ -882,3 +882,14 @@ Refines the DESIGN.md §5.1 sketch:
 - **Not done:** no key of its own (the palette is enough), and no animation (the big logo screen has that).
 - **Test:** the `ui::tests::about_popup` snapshot (version masked).
 - **Amended (2026-10-10, owner's requests):** the links are shown in full (`https://getfaro.dev`, `https://github.com/harababurel/faro`) so terminals make them clickable, and the config file faro loaded (`State::config_path`, the default or `--config`) is shown above the data folder, the two labels padded so the paths line up.
+
+### D95. The allowlist guard becomes optional for v0.1 — Accepted (owner, 2026-10-11; not done yet, M8)
+
+- **Why:** the guard (D62) is a safeguard for testing on a real account. It does nothing for real users, and making them type `--no-allowlist` every time (D67) was only a stop-gap. D62 already said the requirement would be lifted for the release.
+- **Decision (to do before tagging v0.1, M8 task 5):**
+  - the Signal backend starts normally with neither flag: no guard, like any Signal client;
+  - `--allowlist FILE` (and `FARO_ALLOWLIST`) stays, as an optional switch for development and testing; everything in D62 still holds when it's given;
+  - `--no-allowlist` is still accepted but does nothing (help text says so), so existing commands keep working;
+  - the footer's muted `no allowlist` marker goes (unguarded becomes the normal case); a guarded run could show `allowlist` instead.
+- **Not affected:** the in-app allowlist mode (D41, `conversations.allowlist`), which only decides which chats the main list shows.
+- **Test account:** keeps running with `--allowlist` as before; its data dir stays separate.
