@@ -2,6 +2,11 @@
 # config.toml. Built into the wasm module; settings changed in the demo last
 # for the visit (D-c).
 
+# Voice notes get the demo's canned transcripts, marked [demo] (no speech
+# recognition, nothing sent anywhere).
+[voice]
+transcribe = "local"
+
 # Chords the browser keeps for itself, unbound so the hints don't offer
 # them. The other bindings work as in the terminal.
 [keybindings.input]

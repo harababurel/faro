@@ -4,27 +4,33 @@
 //! - [`backend`]: a ratatui backend that keeps the cells and the rows that
 //!   changed;
 //! - [`glyphs`]: block, octant, box-drawing and other glyphs as shapes;
+//! - [`blobs`], [`images`]: attachments in memory, images as half-blocks;
 //! - `paint`: paints rows onto the canvas;
 //! - [`demo`]: a still first frame (tests, the poster);
 //! - [`session`]: the mock, the store, the state and the workers;
 //! - [`input`]: DOM input as faro's terminal events;
 //! - [`keys`]: the demo's settings, and which chords faro takes;
 //! - `router`: where effects go;
-//! - `live`: the event loop; `dom`: the page's listeners;
+//! - `live`: the event loop; `dom`: the page's listeners; `media`: Web
+//!   Audio and image decoding;
 //! - `web`: what the page calls (wasm-bindgen).
 //!
-//! `dom`, `live`, `paint` and `web` only build for wasm32: they need the page, and
+//! `dom`, `live`, `media`, `paint` and `web` only build for wasm32: they need the page, and
 //! their tasks aren't `Send` (natively `rt::spawn` wants that).
 
 pub mod backend;
+pub mod blobs;
 pub mod demo;
 #[cfg(target_arch = "wasm32")]
 mod dom;
 pub mod glyphs;
+pub mod images;
 pub mod input;
 pub mod keys;
 #[cfg(target_arch = "wasm32")]
 mod live;
+#[cfg(target_arch = "wasm32")]
+mod media;
 #[cfg(target_arch = "wasm32")]
 mod paint;
 mod router;

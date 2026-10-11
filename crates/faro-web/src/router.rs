@@ -2,11 +2,16 @@
 //! worker, backend commands to the command task, and the rest to the page
 //! or, for what a browser can't do, a notice (WEBSITE.md §4.8).
 
+use std::path::Path;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use faro_app::app::event::{AppEvent, Command, Effect};
 use faro_app::app::state::{BlockGlyphs, GraphicsSupport, State, Terminal};
+use faro_core::domain::MessageRef;
 use tokio::sync::mpsc::UnboundedSender;
+
+use crate::blobs::Blobs;
 
 /// What faro says about files, processes and the like in the browser.
 pub const NOT_HERE: &str = "Not in the web demo: try it in your terminal";
@@ -28,6 +33,11 @@ pub trait Page {
     fn open(&self, url: &str);
     /// Ring: the page shows it (the panel's border flashes).
     fn bell(&self);
+    /// Play a voice note (WAV bytes); `done` hears when it ends, with an
+    /// error if it couldn't play. One at a time: a new one stops the last.
+    fn play(&self, bytes: Arc<[u8]>, done: Box<dyn FnOnce(Option<String>)>);
+    /// Stop what's playing, without calling its `done`.
+    fn stop(&self);
 }
 
 pub struct Router {
@@ -35,6 +45,7 @@ pub struct Router {
     pub effects: UnboundedSender<Effect>,
     pub results: UnboundedSender<AppEvent>,
     pub page: Rc<dyn Page>,
+    pub blobs: Blobs,
 }
 
 impl Router {
@@ -44,7 +55,15 @@ impl Router {
                 Effect::Backend(command) => self.commands.send(command).is_ok(),
                 Effect::CheckTerminal => self.answer(AppEvent::TerminalChecked(BROWSER)),
                 // Settings last for the visit (D-c): the state already has them.
-                Effect::SaveSetting(_) | Effect::DesktopNotify { .. } | Effect::StopAudio => true,
+                Effect::SaveSetting(_) | Effect::DesktopNotify { .. } => true,
+                Effect::StopAudio => {
+                    self.page.stop();
+                    true
+                }
+                // An attachment's path means nothing outside the demo.
+                Effect::Copy(text) if self.blobs.holds(&text) => {
+                    self.answer(AppEvent::Unavailable(NOT_HERE.to_owned()))
+                }
                 Effect::Copy(text) => {
                     self.page.copy(text, self.results.clone());
                     true
@@ -65,13 +84,12 @@ impl Router {
                 Effect::CheckPaste { raw, .. } => {
                     self.answer(AppEvent::PasteChecked { raw, staged: None })
                 }
-                Effect::PlayAudio { message, index, .. } => {
-                    self.answer(AppEvent::PlaybackFinished {
-                        message,
-                        index,
-                        error: Some(NOT_HERE.to_owned()),
-                    })
-                }
+                Effect::PlayAudio {
+                    message,
+                    index,
+                    path,
+                    ..
+                } => self.play(message, index, &path),
                 Effect::OpenFile(_)
                 | Effect::SaveToDownloads { .. }
                 | Effect::ListFiles(_)
@@ -98,6 +116,31 @@ impl Router {
                 tracing::error!("a worker task stopped; dropping an effect");
             }
         }
+    }
+
+    fn play(&self, message: MessageRef, index: usize, path: &Path) -> bool {
+        let Some(blob) = self.blobs.get(path) else {
+            return self.answer(AppEvent::PlaybackFinished {
+                message,
+                index,
+                error: Some("the voice note isn't downloaded".to_owned()),
+            });
+        };
+        let results = self.results.clone();
+        self.page.play(
+            blob.bytes,
+            Box::new(move |error| {
+                let finished = AppEvent::PlaybackFinished {
+                    message,
+                    index,
+                    error,
+                };
+                if results.send(finished).is_err() {
+                    tracing::debug!("the demo stopped before a voice note ended");
+                }
+            }),
+        );
+        true
     }
 
     /// Answer an effect right away (through the loop, like a worker would).
@@ -132,6 +175,13 @@ pub mod tests {
         }
         fn bell(&self) {
             self.log.borrow_mut().push("bell".to_owned());
+        }
+        fn play(&self, bytes: Arc<[u8]>, done: Box<dyn FnOnce(Option<String>)>) {
+            self.log.borrow_mut().push(format!("play {}", bytes.len()));
+            done(None);
+        }
+        fn stop(&self) {
+            self.log.borrow_mut().push("stop".to_owned());
         }
     }
 

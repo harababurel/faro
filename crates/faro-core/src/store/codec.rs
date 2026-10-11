@@ -128,6 +128,7 @@ pub(super) fn transcript_source_to_db(source: TranscriptSource) -> &'static str 
     match source {
         TranscriptSource::Local => "local",
         TranscriptSource::Remote => "remote",
+        TranscriptSource::Demo => "demo",
     }
 }
 
@@ -135,6 +136,7 @@ pub(super) fn transcript_source_from_db(source: &str) -> Result<TranscriptSource
     match source {
         "local" => Ok(TranscriptSource::Local),
         "remote" => Ok(TranscriptSource::Remote),
+        "demo" => Ok(TranscriptSource::Demo),
         _ => Err(StoreError::Corrupt("transcript source")),
     }
 }

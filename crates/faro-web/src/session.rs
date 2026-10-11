@@ -2,6 +2,7 @@
 //! and the two workers, wired the way the terminal app wires them. Nothing
 //! here touches the DOM, so the whole pipeline is tested natively.
 
+use std::path::Path;
 use std::rc::Rc;
 
 use faro_app::app::commands;
@@ -11,11 +12,13 @@ use faro_app::app::storage;
 use faro_app::app::update::{self, affects_view};
 use faro_app::theme::ColorDepth;
 use faro_core::backend::{Backend, BackendError, BackendEvents};
+use faro_core::domain::{AttachmentRef, AttachmentStatus, MessageRef, TranscriptSource};
 use faro_core::mock::{MockBackend, MockConfig};
 use faro_core::rt;
 use faro_core::store::{Profile, Store};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
+use crate::blobs::Blobs;
 use crate::demo::{Error, SEED};
 use crate::keys::demo_config;
 use crate::router::{Page, Router};
@@ -35,6 +38,8 @@ pub fn visitor_mock() -> MockConfig {
 pub struct Session {
     pub state: State,
     pub router: Router,
+    /// The attachments downloaded so far.
+    pub blobs: Blobs,
     /// The workers; stopped when the session ends.
     tasks: Vec<rt::Task>,
 }
@@ -64,18 +69,25 @@ impl Session {
         state.env.graphics = GraphicsSupport::HalfblocksOnly;
         state.env.colors = ColorDepth::Truecolor;
 
+        let blobs = Blobs::default();
         let (results_tx, results) = mpsc::unbounded_channel();
         let (effects, effect_queue) = mpsc::unbounded_channel();
         let (commands, command_queue) = mpsc::unbounded_channel();
         let tasks = vec![
             rt::spawn(store_worker(store, effect_queue, results_tx.clone())),
-            rt::spawn(command_task(backend, command_queue, results_tx.clone())),
+            rt::spawn(command_task(
+                backend,
+                blobs.clone(),
+                command_queue,
+                results_tx.clone(),
+            )),
         ];
         let router = Router {
             commands,
             effects,
             results: results_tx,
             page,
+            blobs: blobs.clone(),
         };
         let (config, problems) = demo_config();
         let configured = update::configure(&mut state, config, problems);
@@ -84,6 +96,7 @@ impl Session {
         let session = Self {
             state,
             router,
+            blobs,
             tasks,
         };
         let inbox = Inbox {
@@ -128,6 +141,7 @@ async fn store_worker(
 /// Backend commands one at a time, in order, as in the terminal app.
 async fn command_task(
     backend: MockBackend,
+    blobs: Blobs,
     mut queue: UnboundedReceiver<Command>,
     results: UnboundedSender<AppEvent>,
 ) {
@@ -137,23 +151,24 @@ async fn command_task(
                 conversation,
                 message,
                 index,
-                ..
+                attachment,
             } => Some(AppEvent::Fetched {
                 conversation,
                 message,
                 index,
-                result: Err(BackendError::Storage("not in the web demo yet".to_owned())),
+                result: fetch(&backend, &blobs, message, index, attachment).await,
             }),
             Command::Transcribe {
                 conversation,
                 message,
                 index,
+                path,
                 ..
             } => Some(AppEvent::Transcribed {
                 conversation,
                 message,
                 index,
-                result: Err("not in the web demo yet".to_owned()),
+                result: canned_transcript(&blobs, &path),
             }),
             command @ (Command::Send { .. }
             | Command::React { .. }
@@ -168,6 +183,52 @@ async fn command_task(
             tracing::debug!("app loop stopped before a backend result arrived");
         }
     }
+}
+
+/// Download an attachment into memory (the terminal app writes a file).
+async fn fetch(
+    backend: &MockBackend,
+    blobs: &Blobs,
+    message: MessageRef,
+    index: usize,
+    mut attachment: AttachmentRef,
+) -> Result<AttachmentRef, BackendError> {
+    let bytes = backend.fetch_attachment(&attachment).await?;
+    if attachment.is_voice_note()
+        && (attachment.duration_secs.is_none() || attachment.waveform.is_none())
+        && let Some(info) = faro_core::audio::inspect_wav(&bytes)
+    {
+        attachment.duration_secs = attachment.duration_secs.or(info.duration_secs);
+        attachment.waveform = attachment.waveform.or(Some(info.waveform));
+    }
+    attachment.size = u64::try_from(bytes.len()).ok();
+    let path = blobs.insert(message, index, attachment.id.clone(), bytes);
+    attachment.status = AttachmentStatus::Downloaded(path);
+    Ok(attachment)
+}
+
+/// What the demo's voice notes say (WEBSITE.md §4.8): no speech
+/// recognition, no network, and marked `[demo]` on screen.
+const TRANSCRIPTS: &[(&str, &str)] = &[
+    (
+        "mock:voice-michael",
+        "Hey, it's Michael. Call me back. It's urgent. Not urgent-urgent, but urgent.",
+    ),
+    (
+        "mock:voice-andy",
+        "Rit-dit-dit-doo, doo-doo, rit-dit-dit-doo… the Here Comes Treble remix.",
+    ),
+];
+
+fn canned_transcript(blobs: &Blobs, path: &Path) -> Result<(String, TranscriptSource), String> {
+    let blob = blobs
+        .get(path)
+        .ok_or_else(|| "the voice note isn't downloaded".to_owned())?;
+    TRANSCRIPTS
+        .iter()
+        .find(|(id, _)| *id == blob.id.0)
+        .map(|(_, text)| ((*text).to_owned(), TranscriptSource::Demo))
+        .ok_or_else(|| "no transcript for this voice note in the demo".to_owned())
 }
 
 #[cfg(test)]
@@ -283,5 +344,55 @@ mod tests {
         pump(&mut session, &mut inbox, Duration::from_millis(100)).await;
         let notice = session.state.notice.as_ref().unwrap();
         assert_eq!(notice.text, NOT_HERE);
+    }
+
+    #[tokio::test(start_paused = true)]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "#[tokio::test] expands to block_on; tests may block"
+    )]
+    async fn voice_notes_download_into_memory_play_and_have_transcripts() {
+        let (mut session, mut inbox, page) = started().await;
+        let message = MessageRef {
+            sender: session.state.me,
+            sent_at: faro_core::domain::Timestamp::from_millis(1),
+        };
+        let note = AttachmentRef::remote("mock:voice-andy", "audio/wav");
+        let (backend, _events) = MockBackend::new(&visitor_mock());
+        // It connects first.
+        rt::sleep(Duration::from_secs(5)).await;
+        let fetched = fetch(&backend, &session.blobs, message, 0, note)
+            .await
+            .unwrap();
+        let AttachmentStatus::Downloaded(path) = &fetched.status else {
+            panic!("{:?}", fetched.status);
+        };
+        assert!(fetched.size.unwrap() > 1000);
+
+        let (text, source) = canned_transcript(&session.blobs, path).unwrap();
+        assert_eq!(source, TranscriptSource::Demo);
+        assert!(text.contains("Treble"), "{text}");
+        assert!(canned_transcript(&session.blobs, Path::new("/nope")).is_err());
+
+        let play = Effect::PlayAudio {
+            message,
+            index: 0,
+            path: path.clone(),
+            player: String::new(),
+        };
+        session.router.dispatch(vec![play], &session.state);
+        pump(&mut session, &mut inbox, Duration::from_millis(10)).await;
+        let played = format!("play {}", fetched.size.unwrap());
+        assert!(
+            page.log.borrow().contains(&played),
+            "{:?}",
+            page.log.borrow()
+        );
+
+        // Copying its path: the path means nothing outside the demo.
+        let copy = Effect::Copy(path.display().to_string());
+        session.router.dispatch(vec![copy], &session.state);
+        pump(&mut session, &mut inbox, Duration::from_millis(10)).await;
+        assert_eq!(session.state.notice.as_ref().unwrap().text, NOT_HERE);
     }
 }

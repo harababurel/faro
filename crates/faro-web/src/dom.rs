@@ -5,6 +5,7 @@
 
 use std::cell::RefCell;
 use std::rc::Weak;
+use std::sync::Arc;
 
 use tokio::sync::mpsc::UnboundedSender;
 use wasm_bindgen::JsCast as _;
@@ -21,6 +22,7 @@ use wasm_bindgen_futures::JsFuture;
 use crate::input::{self, Held, Route};
 use crate::keys;
 use crate::live::{Input, Pointer, Shell};
+use crate::media::Audio;
 use crate::router::Page;
 
 type Handler = Closure<dyn FnMut(web_sys::Event)>;
@@ -28,6 +30,7 @@ type Handler = Closure<dyn FnMut(web_sys::Event)>;
 /// The page around the canvas.
 pub struct CanvasPage {
     pub canvas: HtmlCanvasElement,
+    pub audio: Audio,
 }
 
 /// The event the canvas sends for the bell; the page decides how it looks.
@@ -62,6 +65,14 @@ impl Page for CanvasPage {
             let _ = self.canvas.dispatch_event(&event);
         }
     }
+
+    fn play(&self, bytes: Arc<[u8]>, done: Box<dyn FnOnce(Option<String>)>) {
+        self.audio.play(&bytes, done);
+    }
+
+    fn stop(&self) {
+        self.audio.stop();
+    }
 }
 
 /// The listeners, removed when dropped.
@@ -85,52 +96,28 @@ impl Listeners {
             canvas.set_attribute("tabindex", "0")?;
         }
         let target: &EventTarget = canvas;
-        listeners.on(target, "keydown", page, move |e| keydown(e, &shell), false)?;
-        listeners.on(
-            target,
-            "mousedown",
-            page,
-            |e| pointer(e, Pointer::Down),
-            false,
-        )?;
-        listeners.on(target, "mouseup", page, |e| pointer(e, Pointer::Up), false)?;
-        listeners.on(target, "mousemove", page, mouse_move, false)?;
-        listeners.on(target, "wheel", page, wheel, true)?;
-        listeners.on(
-            target,
-            "contextmenu",
-            page,
-            |e| {
-                e.prevent_default();
-                None
-            },
-            false,
-        )?;
-        listeners.on(
-            target,
-            "focus",
-            page,
-            |e| {
-                e.dyn_ref::<FocusEvent>()
-                    .map(|_| Input::Terminal(Event::FocusGained))
-            },
-            false,
-        )?;
-        listeners.on(
-            target,
-            "blur",
-            page,
-            |e| {
-                e.dyn_ref::<FocusEvent>()
-                    .map(|_| Input::Terminal(Event::FocusLost))
-            },
-            false,
-        )?;
+        listeners.on(target, "keydown", page, move |e| keydown(e, &shell))?;
+        listeners.on(target, "mousedown", page, |e| pointer(e, Pointer::Down))?;
+        listeners.on(target, "mouseup", page, |e| pointer(e, Pointer::Up))?;
+        listeners.on(target, "mousemove", page, mouse_move)?;
+        listeners.on(target, "wheel", page, wheel)?;
+        listeners.on(target, "contextmenu", page, |e| {
+            e.prevent_default();
+            None
+        })?;
+        listeners.on(target, "focus", page, |e| {
+            e.dyn_ref::<FocusEvent>()
+                .map(|_| Input::Terminal(Event::FocusGained))
+        })?;
+        listeners.on(target, "blur", page, |e| {
+            e.dyn_ref::<FocusEvent>()
+                .map(|_| Input::Terminal(Event::FocusLost))
+        })?;
         // Paste goes to the focused element; the canvas isn't editable, so
         // listen on the document and check.
         if let Some(document) = canvas.owner_document() {
             let canvas = canvas.clone();
-            listeners.on(&document, "paste", page, move |e| paste(e, &canvas), false)?;
+            listeners.on(&document, "paste", page, move |e| paste(e, &canvas))?;
         }
         if let Some(parent) = canvas.parent_element() {
             let sender = page.clone();
@@ -145,15 +132,14 @@ impl Listeners {
     }
 
     /// Listen for `kind` on `target`; `read` turns the event into input (or
-    /// nothing). `active`: the listener may call `preventDefault` on events
-    /// browsers make passive by default (`wheel`).
+    /// nothing). Never passive: a passive listener's `preventDefault` is
+    /// ignored, so Tab would move the page's focus and the wheel scroll it.
     fn on(
         &mut self,
         target: &EventTarget,
         kind: &'static str,
         page: &UnboundedSender<Input>,
         mut read: impl FnMut(&web_sys::Event) -> Option<Input> + 'static,
-        active: bool,
     ) -> Result<(), JsValue> {
         let sender = page.clone();
         let handler: Handler = Closure::new(move |event: web_sys::Event| {
@@ -163,7 +149,7 @@ impl Listeners {
             }
         });
         let options = AddEventListenerOptions::new();
-        options.set_passive(!active);
+        options.set_passive(false);
         target.add_event_listener_with_callback_and_add_event_listener_options(
             kind,
             handler.as_ref().unchecked_ref(),

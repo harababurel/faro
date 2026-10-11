@@ -180,6 +180,8 @@ pub enum TranscriptSource {
     Local,
     /// Transcribed by a remote endpoint (`[voice] transcribe = "remote"`).
     Remote,
+    /// A canned transcript of one of the web demo's voice notes (D117).
+    Demo,
 }
 
 impl TranscriptSource {
@@ -188,6 +190,7 @@ impl TranscriptSource {
         match self {
             Self::Local => "local",
             Self::Remote => "remote",
+            Self::Demo => "demo",
         }
     }
 }
@@ -211,7 +214,7 @@ pub struct AttachmentRef {
     pub waveform: Option<Vec<u8>>,
     /// Persisted speech-to-text transcript for a voice note (D82).
     pub transcript: Option<String>,
-    /// Which backend produced `transcript` (`Local` or `Remote`; D82).
+    /// What produced `transcript` (D82, D117).
     pub transcript_source: Option<TranscriptSource>,
 }
 

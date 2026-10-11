@@ -8,18 +8,20 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use faro_app::app::event::AppEvent;
-use faro_app::app::image_cache::NoImages;
+use faro_app::app::image_cache::ImageKey;
 use faro_app::app::state::{Geometry, State};
 use faro_app::app::term_event::{Event, MouseEvent, MouseEventKind};
 use faro_app::theme::Themes;
 use faro_app::ui::{self, View};
 use faro_core::rt::{self, Instant};
 use ratatui::Terminal;
-use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use wasm_bindgen_futures::JsFuture;
 
 use crate::backend::CanvasBackend;
+use crate::images::{Halfblocks, Images};
 use crate::input::{self, Held, Wheel};
+use crate::media;
 use crate::paint::Painter;
 use crate::session::{Inbox, Session};
 
@@ -46,6 +48,8 @@ pub enum Input {
     },
     /// The canvas's parent changed size.
     Resized,
+    /// An image was decoded for the cache (`None`: it couldn't be).
+    Decoded(ImageKey, Option<Halfblocks>),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -84,6 +88,9 @@ pub struct Shell {
     page_title: String,
     title: Option<String>,
     wheel: Wheel,
+    images: Images,
+    /// Where decoded images go (the loop's page input).
+    page: Option<UnboundedSender<Input>>,
     /// The cell under the pointer, so moves within a cell aren't sent.
     pointer: Option<(u16, u16)>,
 }
@@ -115,11 +122,17 @@ impl Shell {
             page_title: document().map(|d| d.title()).unwrap_or_default(),
             title: None,
             wheel: Wheel::default(),
+            images: Images::default(),
+            page: None,
             pointer: None,
         };
         shell.painter.resize(columns, rows);
         shell.handle(AppEvent::Terminal(Event::Resize(columns, rows)));
         shell
+    }
+
+    pub fn set_page(&mut self, page: UnboundedSender<Input>) {
+        self.page = Some(page);
     }
 
     /// The page doesn't have the keys (faro assumes it does at first).
@@ -180,6 +193,10 @@ impl Shell {
                 }
             }
             Input::Resized => self.resized(),
+            Input::Decoded(key, image) => {
+                self.images.insert(key, image);
+                self.dirty = true;
+            }
         }
     }
 
@@ -245,6 +262,7 @@ impl Shell {
         if std::mem::take(&mut state.env.repaint) {
             let Ok(()) = self.terminal.clear();
         }
+        self.images.prepare_frame(state);
         let theme = self
             .themes
             .get(state.theme_name(), state.colors(), &state.user_themes);
@@ -256,7 +274,7 @@ impl Shell {
             tz: &self.tz,
             now: jiff::Timestamp::now(),
             logo_time,
-            images: &NoImages,
+            images: &self.images,
         };
         let mut geometry = Geometry::default();
         let state: &State = state;
@@ -275,8 +293,27 @@ impl Shell {
             self.title = title;
         }
         self.last_draw = Some(Instant::now());
+        self.decode(&geometry.images_wanted);
         // Same picture; only bookkeeping (and maybe loading older messages).
         self.handle(AppEvent::Drawn(geometry));
+    }
+
+    /// Decode the images the frame wanted, in the background.
+    fn decode(&mut self, wanted: &[ImageKey]) {
+        let Some(page) = &self.page else {
+            return;
+        };
+        for key in self.images.to_decode(wanted) {
+            let page = page.clone();
+            let blob = self.session.blobs.get(&key.path);
+            wasm_bindgen_futures::spawn_local(async move {
+                let image = match blob {
+                    Some(blob) => media::decode(blob.bytes, key.width, key.height).await,
+                    None => None,
+                };
+                let _ = page.send(Input::Decoded(key, image));
+            });
+        }
     }
 
     /// faro quit: draw the last frame and tell the page.

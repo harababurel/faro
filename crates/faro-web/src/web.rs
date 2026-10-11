@@ -10,6 +10,7 @@ use web_sys::HtmlCanvasElement;
 
 use crate::dom::{CanvasPage, Listeners};
 use crate::live::{self, Shell};
+use crate::media::Audio;
 use crate::paint::Painter;
 use crate::session::{Session, visitor_mock};
 
@@ -37,6 +38,7 @@ pub async fn start(
 ) -> Result<Demo, JsValue> {
     let page = Rc::new(CanvasPage {
         canvas: canvas.clone(),
+        audio: Audio::default(),
     });
     let (session, inbox) = Session::start(&visitor_mock(), page)
         .await
@@ -51,8 +53,9 @@ pub async fn start(
     if !focused {
         shell.unfocus();
     }
-    let shell = Rc::new(RefCell::new(shell));
     let (page, page_rx) = mpsc::unbounded_channel();
+    shell.set_page(page.clone());
+    let shell = Rc::new(RefCell::new(shell));
     let listeners = Listeners::attach(&canvas, &page, Rc::downgrade(&shell))?;
     let task = rt::spawn(live::run(Rc::clone(&shell), page_rx, inbox));
     shell.borrow_mut().draw();
@@ -78,6 +81,24 @@ impl Demo {
         let started = now_ms();
         self.shell.borrow_mut().repaint();
         now_ms() - started
+    }
+
+    /// Where faro is, for tests: focus, the open chat's selection, the
+    /// notice.
+    pub fn inspect(&self) -> String {
+        let shell = self.shell.borrow();
+        let state = shell.state();
+        let selected = state
+            .open
+            .as_ref()
+            .and_then(|open| open.selected)
+            .map(|s| s.message.sent_at.as_millis());
+        let notice = state.notice.as_ref().map(|n| n.text.as_str());
+        format!(
+            "focus={:?} selected={selected:?} playing={} notice={notice:?}",
+            state.focus,
+            state.playing.is_some()
+        )
     }
 
     /// The screen as text, one line per row (for tests).
