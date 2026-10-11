@@ -213,11 +213,11 @@ Use a separate data dir for the test account, e.g. `--data-dir ~/.local/share/fa
 
 - [ ] `faro link --data-dir …` shows a QR code that the phone scans at once (Signal › Settings › Linked devices › Link new device). The phone lists "faro (<host>)". faro prints the account's ID.
 - [ ] Running `faro link` again on the same data dir refuses and explains how to start over.
-- [ ] `faro ids --data-dir … --username <yours>` prints your ID and, after a message in the test group, the group's title and ID, plus an allowlist to copy.
+- [x] `faro ids --data-dir … --username <yours>` prints your ID and, after a message in the test group, the group's title and ID, plus an allowlist to copy.
 - [x] `faro --data-dir …` without `--allowlist` refuses to start.
 - [x] With the allowlist: the group and your direct chat appear, with names. A message from the phone shows up as outgoing. Messages, replies, reactions, edits and deletions work both ways. Typing indicators and receipts (✓✓, read) show.
 - [ ] A message from anyone else never appears.
-- [ ] Caught up (D64): quit faro, send a message to the group from the phone, run `faro ids` (it reads the queue), then start faro: the message is there, unread. Restarting again doesn't duplicate it or count it twice.
+- [x] Caught up (D64): quit faro, send a message to the group from the phone, run `faro ids` (it reads the queue), then start faro: the message is there, unread. Restarting again doesn't duplicate it or count it twice.
 - [x] Names (D64): group members show their Signal profile names (in the sidebar, the palette's `Chats ›` and message senders), not the start of their ID.
 - [x] The palette's `Chats ›` lists the allowed chats even before they have messages; choosing one opens it.
 - [x] Same names (D65): two people with the same profile name show as "Name · xxxx" and "Name · yyyy" (the first 4 hex digits of their IDs) in the palette's `Chats ›`, the sidebar and as message senders.
@@ -227,7 +227,7 @@ Use a separate data dir for the test account, e.g. `--data-dir ~/.local/share/fa
 - [x] Mentions (D72): in the test group, have someone mention you and someone else from their phone (type `@` and pick). In faro both show as `@Name` in bold accent, yours (`@You`) reversed, in IRC and in bubbles (`Ctrl+P` › `:` › Layout), never as a blank box; wrapped mentions keep their colour on the next line. `y` on the message copies the names as text. Set the group to "mentions only" (`@`), unfocus the terminal: a message mentioning you rings the bell, one mentioning only someone else doesn't. Mute the group: a mention of you no longer rings. Edit a message on the phone to add or remove a mention: faro follows.
 - [x] Reaction removal (D73): react to a message in faro (`+`), check the phone shows it, then pick the same emoji again in faro: the reaction disappears on the phone (Android and iOS), not only in faro. Switching to another emoji replaces it on the phone.
 - [ ] Wi-Fi off: the footer shows the connection dropping and coming back. Messages sent meanwhile arrive after reconnecting.
-- [ ] Restarting keeps the history.
+- [x] Restarting keeps the history.
 
 ## M9: attachments and inline images (D75–D79)
 
