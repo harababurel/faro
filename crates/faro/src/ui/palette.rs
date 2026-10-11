@@ -275,7 +275,7 @@ fn result_line(
             None,
         ) => "  ",
     };
-    let opens = matches!(item.kind, ItemKind::Level(_) | ItemKind::EnterDir(_));
+    let opens = matches!(item.kind, ItemKind::Level(_) | ItemKind::EnterDir(_)) && !item.disabled;
     let suffix = if opens { width(OPENS) } else { 0 };
     let detail = sanitize(&item.detail).into_owned();
     let detail_width = if detail.is_empty() {
@@ -297,6 +297,8 @@ fn result_line(
     }
     let title_style = if selected {
         base.add_modifier(Modifier::BOLD)
+    } else if item.disabled {
+        base.patch(theme.muted())
     } else {
         base
     };

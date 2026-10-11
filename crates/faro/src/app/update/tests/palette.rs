@@ -242,17 +242,19 @@ fn prefixes_jump_into_a_category() {
 }
 
 /// `Settings ›` with nothing typed: every setting under its section.
-const SETTINGS_LIST: [&str; 23] = [
+const SETTINGS_LIST: [&str; 25] = [
     "Appearance",
     "Colours",
     "Emoji",
+    "Reduce motion",
+    "Messages",
     "Message layout",
+    "Timestamps",
+    "Bubbles",
     "Bubble style",
     "Bubble padding",
     "Match bubble widths",
     "Message density",
-    "Timestamps",
-    "Reduce motion",
     "Notifications",
     "Bell",
     "Unread count in the window title",
@@ -347,15 +349,15 @@ fn headers_are_skipped() {
     press(&mut state, KeyCode::Down);
     press(&mut state, KeyCode::Down);
     assert_eq!(selected_title(&state), "Colours", "wraps past Appearance");
-    for _ in 0..9 {
+    for _ in 0..5 {
         press(&mut state, KeyCode::Down);
     }
     assert_eq!(selected_title(&state), "Bell", "skips Notifications");
     press(&mut state, KeyCode::Up);
     assert_eq!(
         selected_title(&state),
-        "Reduce motion",
-        "skips Notifications"
+        "Timestamps",
+        "skips Notifications and the bubble settings (IRC layout)"
     );
     // A page that lands on a header takes the setting below it.
     press(&mut state, KeyCode::PageUp);
@@ -695,9 +697,13 @@ fn mouse_picks_a_result_or_closes() {
     update(&mut state, click(20, 5));
     assert_eq!(level(&state), Level::Settings);
     assert_eq!(selected_title(&state), "Colours");
-    update(&mut state, click(20, 10));
-    assert_eq!(selected_title(&state), "Bubble padding");
-    assert!(!state.config.messages.bubble_padding);
+    update(&mut state, click(20, 8));
+    assert_eq!(selected_title(&state), "Reduce motion");
+    assert!(state.config.reduce_motion);
+    // A click on a disabled setting does nothing either.
+    update(&mut state, click(20, 14));
+    assert_eq!(selected_title(&state), "Reduce motion");
+    assert!(state.config.messages.bubble_padding);
     update(&mut state, click(2, 20));
     assert!(state.palette.is_none(), "a click outside closes");
 }
@@ -914,6 +920,9 @@ fn moving_through_themes_previews_them() {
 #[test]
 fn moving_through_a_visual_setting_previews_its_values() {
     let mut state = loaded_state();
+    // Bubble settings are only enabled with the bubbles layout (D99).
+    state.layout = MessageLayout::Bubbles;
+    state.config.messages.layout = MessageLayout::Bubbles;
     assert_eq!(state.config.messages.bubble_style, BubbleStyle::Auto);
     palette_open(&mut state, ":bubble");
     enter(&mut state);
@@ -968,6 +977,8 @@ fn moving_through_a_visual_setting_previews_its_values() {
     assert!(state.palette.is_none());
 
     // The layout and the colours preview the same way.
+    state.layout = MessageLayout::Irc;
+    state.config.messages.layout = MessageLayout::Irc;
     palette_open(&mut state, ":layout");
     enter(&mut state);
     assert_eq!(state.layout, MessageLayout::Irc, "the fixtures' layout");
@@ -1121,7 +1132,7 @@ fn left_and_right_cycle_setting_values_in_place_at_settings_level() {
     );
 
     // Move down to Bell (a switch) and cycle with Right and Left.
-    for _ in 0..9 {
+    for _ in 0..5 {
         press(&mut state, KeyCode::Down);
     }
     assert_eq!(selected_title(&state), "Bell");
@@ -1340,4 +1351,31 @@ fn jump_to_unread_selects_unread_marker_or_notifies() {
         state.notice.as_ref().map(|n| n.text.as_str()),
         Some("No unread marker in this conversation")
     );
+}
+
+#[test]
+fn bubble_settings_are_dimmed_and_skipped_in_the_irc_layout() {
+    let mut state = loaded_state();
+    assert_eq!(state.message_layout(), MessageLayout::Irc);
+    update(&mut state, ctrl('p'));
+    typed(&mut state, ":padding");
+    // Still found, with the reason, but nothing acts on it.
+    assert_eq!(titles(&state), vec!["Bubbles", "Bubble padding"]);
+    let palette = state.palette.as_ref().unwrap();
+    let item = &palette.items[palette.matches[1].item];
+    assert!(item.disabled);
+    assert_eq!(item.detail, "bubbles layout only");
+    assert_eq!(selected(&state), None);
+    enter(&mut state);
+    assert!(state.config.messages.bubble_padding);
+
+    // In the bubbles layout they're ordinary settings.
+    let mut state = loaded_state();
+    state.layout = MessageLayout::Bubbles;
+    state.config.messages.layout = MessageLayout::Bubbles;
+    update(&mut state, ctrl('p'));
+    typed(&mut state, ":padding");
+    assert_eq!(selected_title(&state), "Bubble padding");
+    enter(&mut state);
+    assert!(!state.config.messages.bubble_padding);
 }

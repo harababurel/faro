@@ -174,6 +174,10 @@ pub fn loaded_state() -> State {
     // The older snapshots and tests were written for IRC (D45).
     state.layout = crate::app::state::MessageLayout::Irc;
     state.config.messages.layout = crate::app::state::MessageLayout::Irc;
+    // …and for comfortable density with absolute times (the defaults
+    // before D99).
+    state.config.messages.density = faro_core::config::MessageDensity::Comfortable;
+    state.config.messages.timestamps = faro_core::config::TimestampFormat::Absolute;
     update(
         &mut state,
         AppEvent::Loaded {

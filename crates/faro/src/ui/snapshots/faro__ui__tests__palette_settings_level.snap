@@ -12,16 +12,16 @@ expression: "snapshot(&draw(&with_palette(\":\"), 100, 30))"
 │           │ Appearance                                                               │           │
 │           │▌  Colours ›                                    auto (truecolor detected) │           │
 │           │   Emoji ›                                                           auto │           │
-│           │   Message layout ›                                                   IRC │────────── │
-│           │   Bubble style ›                                                    auto │hursday?   │
-│           │   Bubble padding                                                      on │ss         │
-│           │   Match bubble widths                                                 on │           │
-│           │   Message density ›                                          comfortable │           │
+│           │   Reduce motion                                                      off │────────── │
+│           │ Messages                                                                 │hursday?   │
+│           │   Message layout ›                                                   IRC │ss         │
 │           │   Timestamps ›                                                  absolute │           │
-│           │   Reduce motion                                                      off │           │
-│           │ Notifications                                                            │────────── │
-│           │   Bell                                                                on │ast week   │
-│           │   Unread count in the window title                                    on │bring your │
+│           │ Bubbles                                                                  │           │
+│           │   Bubble style                                       bubbles layout only │           │
+│           │   Bubble padding                                     bubbles layout only │           │
+│           │   Match bubble widths                                bubbles layout only │────────── │
+│           │   Message density                                    bubbles layout only │ast week   │
+│           │ Notifications                                                            │bring your │
 │           ╰──────────────────────────────────────────────────────────────────────────╯for your   │
 │                            ││                  fingers.                                          │
 │                            ││ 17:54        You On my way ✓                                       │

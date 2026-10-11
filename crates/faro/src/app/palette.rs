@@ -71,6 +71,9 @@ pub enum Level {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsGroup {
     Appearance,
+    Messages,
+    /// Settings that only change the bubbles layout (D99).
+    Bubbles,
     Notifications,
     Conversations,
     Media,
@@ -161,8 +164,10 @@ impl Level {
 }
 
 impl SettingsGroup {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 7] = [
         Self::Appearance,
+        Self::Messages,
+        Self::Bubbles,
         Self::Notifications,
         Self::Conversations,
         Self::Media,
@@ -172,6 +177,8 @@ impl SettingsGroup {
     pub const fn title(self) -> &'static str {
         match self {
             Self::Appearance => "Appearance",
+            Self::Messages => "Messages",
+            Self::Bubbles => "Bubbles",
             Self::Notifications => "Notifications",
             Self::Conversations => "Conversations",
             Self::Media => "Media",
@@ -183,16 +190,13 @@ impl SettingsGroup {
     /// root, not a row here (D60).
     const fn settings(self) -> &'static [Setting] {
         match self {
-            Self::Appearance => &[
-                Setting::Colors,
-                Setting::Emoji,
-                Setting::Layout,
+            Self::Appearance => &[Setting::Colors, Setting::Emoji, Setting::ReduceMotion],
+            Self::Messages => &[Setting::Layout, Setting::Timestamps],
+            Self::Bubbles => &[
                 Setting::BubbleStyle,
                 Setting::BubblePadding,
                 Setting::MatchWidths,
                 Setting::Density,
-                Setting::Timestamps,
-                Setting::ReduceMotion,
             ],
             Self::Notifications => &[
                 Setting::Bell,
@@ -232,6 +236,28 @@ impl Setting {
             Self::AutoDownload => "Auto-download media",
             Self::Transcribe => "Voice note transcription",
             Self::Mouse => "Mouse",
+        }
+    }
+
+    /// Whether it only changes the bubbles layout (dimmed and skipped in the
+    /// settings list while the IRC layout is in use, D99).
+    pub const fn bubbles_only(self) -> bool {
+        match self {
+            Self::BubbleStyle | Self::BubblePadding | Self::MatchWidths | Self::Density => true,
+            Self::Colors
+            | Self::Emoji
+            | Self::Layout
+            | Self::Timestamps
+            | Self::ReduceMotion
+            | Self::Bell
+            | Self::Title
+            | Self::Desktop
+            | Self::Privacy
+            | Self::Allowlist
+            | Self::InlineImages
+            | Self::AutoDownload
+            | Self::Transcribe
+            | Self::Mouse => false,
         }
     }
 
@@ -400,6 +426,9 @@ pub struct Item {
     /// For one of a setting's values: whether it's the one in use (drawn as
     /// a radio button).
     pub current: Option<bool>,
+    /// Shown dimmed and never selected: a setting that does nothing right
+    /// now (D99).
+    pub disabled: bool,
 }
 
 impl Item {
@@ -411,6 +440,7 @@ impl Item {
             detail: String::new(),
             recent: None,
             current: None,
+            disabled: false,
         }
     }
 
@@ -424,9 +454,9 @@ impl Item {
         self
     }
 
-    /// Whether it can be selected (headers can't).
+    /// Whether it can be selected (headers and disabled items can't).
     pub fn selectable(&self) -> bool {
-        self.kind != ItemKind::Header
+        self.kind != ItemKind::Header && !self.disabled
     }
 }
 
@@ -570,9 +600,11 @@ impl Palette {
         }
     }
 
+    /// The selected item, if it can be selected (never a header or a
+    /// disabled item, so nothing acts on those).
     pub fn selected_item(&self) -> Option<&Item> {
         let found = self.matches.get(self.selected)?;
-        self.items.get(found.item)
+        self.items.get(found.item).filter(|item| item.selectable())
     }
 
     /// Match the query again; back to the best result.
@@ -618,7 +650,7 @@ impl Palette {
             let score = score.map(|score| if typed { score + bonus } else { 0 });
             found.push((score, highlight));
         }
-        let (matches, best) = if self.items.iter().any(|item| !item.selectable()) {
+        let (matches, best) = if self.items.iter().any(|item| item.kind == ItemKind::Header) {
             grouped(&self.items, found)
         } else {
             ranked(found)
@@ -712,7 +744,7 @@ fn grouped(items: &[Item], found: Vec<(Option<u32>, Vec<u32>)>) -> (Vec<Match>, 
     // The header above, its score and highlight, and whether it's shown.
     let mut header: Option<(usize, Option<u32>, Vec<u32>, bool)> = None;
     for (i, ((score, highlight), item)) in found.into_iter().zip(items).enumerate() {
-        if !item.selectable() {
+        if item.kind == ItemKind::Header {
             header = Some((i, score, highlight, false));
             continue;
         }
@@ -729,7 +761,7 @@ fn grouped(items: &[Item], found: Vec<(Option<u32>, Vec<u32>)>) -> (Vec<Match>, 
                 highlight: std::mem::take(highlight),
             });
         }
-        if best.is_none_or(|(top, _)| score > top) {
+        if item.selectable() && best.is_none_or(|(top, _)| score > top) {
             best = Some((score, matches.len()));
         }
         matches.push(Match { item: i, highlight });
@@ -1119,6 +1151,12 @@ fn setting_item(state: &State, setting: Setting) -> Item {
     } else {
         ItemKind::Level(Level::Setting(setting))
     };
+    if setting.bubbles_only() && state.message_layout() != MessageLayout::Bubbles {
+        return Item {
+            disabled: true,
+            ..Item::new(kind, setting.title()).detail("bubbles layout only")
+        };
+    }
     Item::new(kind, setting.title()).detail(value)
 }
 

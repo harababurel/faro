@@ -92,6 +92,9 @@ async fn toggling_the_layout_from_the_palette_keeps_the_file_s_comments() {
     let mut state: State = loaded_state();
     state.layout = MessageLayout::Bubbles;
     state.config.messages.layout = MessageLayout::Bubbles;
+    // The template's defaults (the fixture pins older ones).
+    state.config.messages.density = faro_core::config::MessageDensity::default();
+    state.config.messages.timestamps = faro_core::config::TimestampFormat::default();
     update(&mut state, AppEvent::Terminal(ctrl('p')));
     // Settings › Message layout › IRC.
     for c in ":layout\rirc".chars() {

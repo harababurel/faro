@@ -355,6 +355,12 @@ In kitty (directly and inside tmux), `faro demo`, `Ctrl+P` › Settings › Bubb
 - [ ] **Mixed:** Bubble style › `mixed`: the bar side is square and continuous down a compact run; the inner side is rounded as above.
 - [ ] **Older kitty or another terminal:** with `rounded` forced, missing glyphs show as boxes (expected); `auto` there draws bars.
 
+## Defaults and the Bubbles section (D99)
+
+- [ ] **Defaults:** with a fresh config (`faro demo --config /tmp/faro-new.toml`): compact density and relative times (`now`, `5m`, `2h`); the written template says `# density = "compact"` and `# timestamps = "relative"`.
+- [ ] **Sections:** `Ctrl+P` › Settings: `Appearance` (Colours, Emoji, Reduce motion), `Messages` (Message layout, Timestamps), `Bubbles` (Bubble style, Bubble padding, Match bubble widths, Message density).
+- [ ] **IRC layout:** switch Message layout to IRC: the four Bubbles rows turn dim and say "bubbles layout only"; arrows, PageUp/PageDown, the wheel and clicks skip them; typing `padding` still finds the row, and Enter does nothing. Back to bubbles: they work again.
+
 ## Version line (D97)
 
 - [x] After `git pull && cargo build`: `faro --version` prints `faro 0.1.0-dev (<hash> <date>)` matching `git log -1 --format='%h %cd' --date=short`; the logo screen (no chat open) shows `v0.1.0-dev (<hash> <date>)` under the tagline ("unofficial Signal client for the terminal"); About shows the same after `faro`. With an uncommitted edit to a tracked file and a rebuild, the hash gets a `+`.

@@ -51,7 +51,8 @@ fn editing_the_file_changes_behaviour() {
 #[test]
 fn reading_back_the_same_settings_does_nothing() {
     let mut state = loaded_state();
-    let text = "[messages]\nlayout = \"irc\"\n";
+    let text = "[messages]\nlayout = \"irc\"\ndensity = \"comfortable\"\n\
+                timestamps = \"absolute\"\n";
     state.notice = None;
     assert_eq!(reload(&mut state, text), vec![]);
     assert_eq!(notice(&state), None, "nothing changed");

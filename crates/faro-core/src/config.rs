@@ -92,8 +92,8 @@ choice! {
 choice! {
     /// Vertical spacing between messages (DESIGN.md §9, D83).
     MessageDensity {
-        #[default]
         Comfortable = "comfortable",
+        #[default]
         Compact = "compact",
     }
 }
@@ -101,8 +101,8 @@ choice! {
 choice! {
     /// How message timestamps are shown (DESIGN.md §9, D83).
     TimestampFormat {
-        #[default]
         Absolute = "absolute",
+        #[default]
         Relative = "relative",
         Off = "off",
     }
@@ -501,7 +501,7 @@ pub static SETTINGS: &[Setting] = &[
         help: "Bubbles: \"rounded\" (needs a terminal that draws Powerline and Unicode 16 \
                block glyphs, as a recent kitty does), \"bar\" (a bar on the outer side), \
                \"mixed\" (the bar outside, rounded toward the middle) or \"auto\" (rounded in \
-               kitty, bars elsewhere). The system theme always draws bars.",
+               kitty, bars elsewhere). The system theme always draws bars. Bubbles layout only.",
         get: |c| text(c.messages.bubble_style),
         set: |c, v| {
             c.messages.bubble_style = choice(v)?;
@@ -510,7 +510,8 @@ pub static SETTINGS: &[Setting] = &[
     },
     Setting {
         path: key::BUBBLE_PADDING,
-        help: "A blank cell between the text and each rounded side of a bubble.",
+        help: "A blank cell between the text and each rounded side of a bubble. Bubbles \
+               layout only.",
         get: |c| ConfigValue::Bool(c.messages.bubble_padding),
         set: |c, v| {
             c.messages.bubble_padding = boolean(v)?;
@@ -520,7 +521,7 @@ pub static SETTINGS: &[Setting] = &[
     Setting {
         path: key::MATCH_WIDTHS,
         help: "In compact density, give consecutive rounded bubbles of nearly the same width \
-               (within 3 cells) the same width, so they line up.",
+               (within 3 cells) the same width, so they line up. Bubbles layout only.",
         get: |c| ConfigValue::Bool(c.messages.match_widths),
         set: |c, v| {
             c.messages.match_widths = boolean(v)?;
@@ -531,7 +532,7 @@ pub static SETTINGS: &[Setting] = &[
         path: key::DENSITY,
         help: "Vertical spacing between messages: \"comfortable\" (a blank line between bubbles) \
                or \"compact\" (blank lines only between senders; rounded bubbles from one \
-               sender join up).",
+               sender join up). Bubbles layout only.",
         get: |c| text(c.messages.density),
         set: |c, v| {
             c.messages.density = choice(v)?;
