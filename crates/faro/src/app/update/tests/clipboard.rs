@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use faro_core::clipboard::ReadError;
 
 use super::*;
-use crate::app::clipboard::ClipboardError;
+use crate::app::event::ClipboardError;
 use crate::app::state::{Popup, StagedAttachment};
 
 fn ctrl(c: char) -> AppEvent {

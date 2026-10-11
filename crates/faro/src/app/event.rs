@@ -2,20 +2,23 @@
 
 use std::path::PathBuf;
 
-use faro_core::backend::{BackendError, BackendEvent};
-use faro_core::config::SettingEdit;
+use faro_core::backend::{
+    BackendError, BackendEvent, OutgoingEdit, OutgoingMessage, ReactionChange,
+};
+use faro_core::clipboard::ReadError;
+use faro_core::config::{SettingEdit, Voice};
 use faro_core::domain::{
     AttachmentRef, ConversationId, Message, MessageRef, ServiceId, Timestamp, TranscriptSource,
+    TypingState,
 };
 use faro_core::store::{ConversationState, ConversationSummary, RecipientReceipt, SearchHit};
 
-use super::commands::Command;
-use super::state::Geometry;
+use super::state::{Geometry, Notice};
 use crate::theme::ThemeText;
 
 #[derive(Debug)]
 pub enum AppEvent {
-    Terminal(crossterm::event::Event),
+    Terminal(crate::app::term_event::Event),
     Backend(BackendEvent),
     /// Startup data from the store.
     Loaded {
@@ -103,12 +106,10 @@ pub enum AppEvent {
     /// first (input was paused for the read, D90).
     ClipboardImage {
         conversation: ConversationId,
-        result: Result<super::state::StagedAttachment, super::clipboard::ClipboardError>,
+        result: Result<super::state::StagedAttachment, ClipboardError>,
     },
     /// A late clipboard reply was drained (D90); input resumes.
     ClipboardDrained,
-    /// An inline image finished decoding and slicing off the UI thread (D79).
-    ImageDecoded(super::images::DecodedImage),
     /// External audio playback finished or failed (D81).
     PlaybackFinished {
         message: MessageRef,
@@ -119,7 +120,7 @@ pub enum AppEvent {
     OpenFailed(String),
     /// What's between faro and the user: mosh (D47), and who draws block
     /// glyphs (D58).
-    TerminalChecked(super::system::Terminal),
+    TerminalChecked(super::state::Terminal),
     /// The config file changed and was read again (D48); the error is safe
     /// to show.
     ConfigRead(Result<String, String>),
@@ -245,4 +246,104 @@ pub enum Effect {
         title: String,
         body: String,
     },
+}
+
+/// Work for the backend.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Command {
+    /// Answered with `AppEvent::SendResult`. The message is already stored
+    /// locally as `Sending`.
+    Send {
+        conversation: ConversationId,
+        message: OutgoingMessage,
+    },
+    /// Answered with `AppEvent::ReactResult`. Already applied locally;
+    /// `previous` is what to restore if it fails.
+    React {
+        conversation: ConversationId,
+        target: MessageRef,
+        change: ReactionChange,
+        previous: Option<String>,
+    },
+    /// Answered with `AppEvent::EditResult`. Already applied locally.
+    Edit {
+        conversation: ConversationId,
+        target: MessageRef,
+        edit: OutgoingEdit,
+    },
+    /// Answered with `AppEvent::DeleteResult`. Already applied locally.
+    DeleteForEveryone {
+        conversation: ConversationId,
+        target: MessageRef,
+    },
+    /// Download an attachment and write it to `attachments/` (`0600`, D75).
+    /// Answered with `AppEvent::Fetched`.
+    Fetch {
+        conversation: ConversationId,
+        message: MessageRef,
+        index: usize,
+        attachment: AttachmentRef,
+    },
+    /// Transcribe a downloaded voice note (`local` or `remote`, D82).
+    /// Answered with `AppEvent::Transcribed`.
+    Transcribe {
+        conversation: ConversationId,
+        message: MessageRef,
+        index: usize,
+        path: PathBuf,
+        voice: Voice,
+    },
+    /// Read receipts for messages that have been seen (D42). No answer;
+    /// failures are only logged.
+    MarkRead(Vec<MessageRef>),
+    /// Our typing indicator (D42). No answer; failures are only logged.
+    Typing {
+        conversation: ConversationId,
+        state: TypingState,
+    },
+}
+
+/// Why no image was staged.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClipboardError {
+    /// No kitty between faro and the user (directly, or attached to faro's
+    /// tmux session).
+    NotKitty,
+    /// mosh relays the screen, not the bytes: the request never arrives.
+    Mosh,
+    /// The clipboard has no image type faro can send.
+    NoImage,
+    /// The type list never came.
+    NoAnswer,
+    /// The prompt wasn't answered in time.
+    PromptTimedOut,
+    Read(ReadError),
+    /// Reading the tty or saving the file failed.
+    Failed(String),
+}
+
+impl ClipboardError {
+    /// What the footer says.
+    pub fn notice(&self) -> Notice {
+        match self {
+            Self::NotKitty => Notice::warning("Pasting images needs kitty"),
+            Self::Mosh => Notice::warning("Pasting images doesn't work over mosh"),
+            Self::NoImage => Notice::info("No image on the clipboard"),
+            Self::NoAnswer => Notice::warning("No answer from the terminal"),
+            Self::PromptTimedOut => {
+                Notice::warning("No answer from kitty: the prompt wasn't answered")
+            }
+            Self::Read(ReadError::Denied) => Notice::info("Clipboard access denied in kitty"),
+            Self::Read(ReadError::Busy) => Notice::warning("The clipboard is busy; try again"),
+            Self::Read(ReadError::TooLarge { limit }) => Notice::warning(format!(
+                "Image too large (over {})",
+                faro_core::domain::format_byte_size(u64::try_from(*limit).unwrap_or(u64::MAX))
+            )),
+            Self::Read(ReadError::Malformed(_) | ReadError::Incomplete) => {
+                Notice::warning("The image didn't arrive intact; try again")
+            }
+            Self::Read(error) => Notice::warning(format!("Couldn't paste the image: {error}")),
+            Self::Failed(error) => Notice::error(format!("Couldn't paste the image: {error}")),
+        }
+    }
 }

@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use anyhow::Context as _;
-use crossterm::event::{Event, EventStream};
+use crossterm::event::EventStream;
 use faro_core::backend::{Backend, BackendEvents};
 use faro_core::domain::{Contact, ConversationId, Group, ServiceId};
 use faro_core::store::Store;
@@ -23,17 +23,21 @@ pub mod clipboard;
 pub mod commands;
 mod effects;
 pub mod event;
+pub mod files;
+pub mod image_cache;
 pub mod images;
 pub mod input;
 pub mod keymap;
 pub mod palette;
 pub mod state;
 pub mod system;
+pub mod term_event;
 mod timeline;
 pub mod update;
 
 use event::{AppEvent, Effect};
 use state::State;
+use term_event::Event;
 
 /// At most this often (about 60 fps); floods of events are coalesced into one frame.
 const FRAME: Duration = Duration::from_millis(16);
@@ -121,6 +125,10 @@ fn initial_state(directory: Directory, detected: state::Detected, startup: &mut 
 
 /// Run the TUI until the user quits or faro is told to stop. Must run inside a
 /// `LocalSet`: the backend is driven by a local task (`commands.rs`).
+#[expect(
+    clippy::too_many_lines,
+    reason = "the app loop: one select over every input source reads best in one place"
+)]
 pub async fn run<B: Backend + 'static>(
     backend: B,
     mut backend_events: BackendEvents,
@@ -173,7 +181,7 @@ pub async fn run<B: Backend + 'static>(
         if dirty && last_draw.is_none_or(|t| t.elapsed() >= FRAME) {
             let logo = logo_time(&mut logo_since, &state);
             let geometry = draw(&mut tui, &mut state, &mut themes, &mut images, &tz, logo)?;
-            images.spawn_wanted(&geometry.images_wanted, &router.results);
+            images.spawn_wanted(&geometry.images_wanted);
             last_draw = Some(Instant::now());
             dirty = false;
             // Same picture; only bookkeeping (and maybe loading older messages).
@@ -206,6 +214,12 @@ pub async fn run<B: Backend + 'static>(
             }
             Some(event) = backend_events.recv() => vec![AppEvent::Backend(event)],
             Some(event) = results.recv() => vec![event],
+            // Decoded off the UI thread (D79): straight into the cache.
+            Some(decoded) = images.next_decoded() => {
+                images.insert(decoded);
+                dirty = true;
+                continue;
+            }
             () = sleep_until(redraw_at), if dirty => continue,
             () = sleep_until(logo_at.unwrap_or_else(Instant::now)), if logo_at.is_some() => {
                 dirty = true;
@@ -220,7 +234,7 @@ pub async fn run<B: Backend + 'static>(
         for event in events {
             paste.resume(&mut input, &event);
             dirty |= affects_view(&event);
-            handle(event, &mut state, &router, &mut images);
+            handle(event, &mut state, &router);
         }
     }
 
@@ -245,12 +259,8 @@ async fn detect_images(state: &mut State) -> images::Images {
     images
 }
 
-/// One event: decoded images go to the cache, everything else to the reducer.
-fn handle(event: AppEvent, state: &mut State, router: &Router, images: &mut images::Images) {
-    if let AppEvent::ImageDecoded(decoded) = event {
-        images.insert(decoded);
-        return;
-    }
+/// One event, through the reducer.
+fn handle(event: AppEvent, state: &mut State, router: &Router) {
     let effects = update::update(state, event);
     router.dispatch(effects, state);
 }
@@ -258,7 +268,10 @@ fn handle(event: AppEvent, state: &mut State, router: &Router, images: &mut imag
 /// The next terminal event; never, while a clipboard read has the tty.
 async fn next_input(input: &mut Option<EventStream>) -> Option<std::io::Result<Event>> {
     match input {
-        Some(stream) => stream.next().await,
+        Some(stream) => stream
+            .next()
+            .await
+            .map(|e| e.map(crate::tui::input::convert)),
         None => std::future::pending().await,
     }
 }
@@ -299,7 +312,7 @@ fn sense_terminal(state: &mut State, detected: state::Detected) {
 /// the command task, settings to the config writer; terminal and system
 /// effects run here, on the app loop.
 struct Router {
-    commands: mpsc::UnboundedSender<commands::Command>,
+    commands: mpsc::UnboundedSender<event::Command>,
     effects: mpsc::UnboundedSender<Effect>,
     config: mpsc::UnboundedSender<faro_core::config::SettingEdit>,
     results: mpsc::UnboundedSender<AppEvent>,
@@ -311,7 +324,7 @@ struct Router {
 impl Router {
     /// The router, and where clipboard reads arrive for the app loop.
     fn new(
-        commands: mpsc::UnboundedSender<commands::Command>,
+        commands: mpsc::UnboundedSender<event::Command>,
         effects: mpsc::UnboundedSender<Effect>,
         config: mpsc::UnboundedSender<faro_core::config::SettingEdit>,
         results: mpsc::UnboundedSender<AppEvent>,
@@ -521,7 +534,6 @@ fn affects_view(event: &AppEvent) -> bool {
         | AppEvent::PasteChecked { .. }
         | AppEvent::ClipboardImage { .. }
         | AppEvent::ClipboardDrained
-        | AppEvent::ImageDecoded(_)
         | AppEvent::PlaybackFinished { .. }
         | AppEvent::Transcribed { .. }
         | AppEvent::OpenFailed(_)

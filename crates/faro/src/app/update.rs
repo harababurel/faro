@@ -2,7 +2,7 @@
 //! I/O, so the UI can never wait on the network or disk here. Store work is
 //! returned as `Effect`s.
 
-use crossterm::event::Event;
+use crate::app::term_event::Event;
 use faro_core::backend::BackendEvent;
 use faro_core::config::{BubbleStyle, InlineImages};
 use faro_core::domain::{
@@ -11,16 +11,16 @@ use faro_core::domain::{
 use faro_core::store::{ConversationState, ConversationSummary};
 use std::time::Duration;
 
-use tokio::time::Instant;
+use faro_core::rt::Instant;
 
 use super::event::{AppEvent, Effect};
 use super::input::Input;
 use super::keymap;
+use super::state::Terminal;
 use super::state::{
     DRAFT_SAVE_DELAY, EmojiMode, Focus, Geometry, Notice, OpenConversation, Popup, Selection,
     SidebarScroll, State, TYPING_TIMEOUT, Typist, sort_conversations,
 };
-use super::system::Terminal;
 use super::timeline;
 
 mod curation;
@@ -111,7 +111,7 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
             sending::on_clipboard_image(state, conversation, result);
             vec![]
         }
-        AppEvent::ImageDecoded(_) | AppEvent::ClipboardDrained => vec![],
+        AppEvent::ClipboardDrained => vec![],
         AppEvent::PlaybackFinished {
             message,
             index,

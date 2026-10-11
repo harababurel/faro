@@ -12,8 +12,8 @@ use faro_core::domain::{
 use faro_core::paths;
 
 use super::{on_backend, summary_entry};
-use crate::app::clipboard::ClipboardError;
-use crate::app::commands::Command;
+use crate::app::event::ClipboardError;
+use crate::app::event::Command;
 use crate::app::event::Effect;
 use crate::app::input::Input;
 use crate::app::keymap::Action;

@@ -1,7 +1,7 @@
 //! Acting on keys and the mouse: focus, conversation switching, scrolling and
 //! simple input editing (M4 task 1).
 
-use crossterm::event::{
+use crate::app::term_event::{
     KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 use faro_core::domain::ConversationId;
@@ -129,7 +129,7 @@ pub fn on_mention_key(state: &mut State, key: KeyEvent) -> Option<Vec<Effect>> {
             open.mention_selected = 0;
             open.mention_dismissed_at = None;
             if open.editing.is_none() {
-                open.draft_edited = Some(tokio::time::Instant::now());
+                open.draft_edited = Some(faro_core::rt::Instant::now());
                 Some(super::presence::on_edited(state))
             } else {
                 Some(vec![])
@@ -180,7 +180,7 @@ pub fn on_shortcode_key(state: &mut State, key: KeyEvent) -> Option<Vec<Effect>>
             open.shortcode_selected = 0;
             open.shortcode_dismissed_at = None;
             if open.editing.is_none() {
-                open.draft_edited = Some(tokio::time::Instant::now());
+                open.draft_edited = Some(faro_core::rt::Instant::now());
                 Some(super::presence::on_edited(state))
             } else {
                 Some(vec![])
@@ -195,7 +195,7 @@ pub fn on_shortcode_key(state: &mut State, key: KeyEvent) -> Option<Vec<Effect>>
             open.shortcode_selected = 0;
             open.shortcode_dismissed_at = None;
             if open.editing.is_none() {
-                open.draft_edited = Some(tokio::time::Instant::now());
+                open.draft_edited = Some(faro_core::rt::Instant::now());
                 Some(super::presence::on_edited(state))
             } else {
                 Some(vec![])
@@ -298,7 +298,7 @@ fn apply_edit(state: &mut State, edit: Edit) -> bool {
         open.mention_selected = 0;
         open.shortcode_selected = 0;
         if open.editing.is_none() {
-            open.draft_edited = Some(tokio::time::Instant::now());
+            open.draft_edited = Some(faro_core::rt::Instant::now());
         }
     }
     changed
@@ -384,7 +384,7 @@ pub fn edit_input(input: &mut Input, edit: Edit) -> bool {
 pub fn paste(state: &mut State, text: &str) -> Vec<Effect> {
     state.focus = Focus::Input;
     if state.open.is_some()
-        && let Some(path) = crate::app::system::candidate_paste_path(text)
+        && let Some(path) = crate::app::files::candidate_paste_path(text)
     {
         return vec![Effect::CheckPaste {
             raw: text.to_owned(),
@@ -399,7 +399,7 @@ pub fn insert_pasted_text(state: &mut State, text: &str) {
     state.focus = Focus::Input;
     if let Some(open) = state.open.as_mut() {
         open.input.insert_str(text);
-        open.draft_edited = Some(tokio::time::Instant::now());
+        open.draft_edited = Some(faro_core::rt::Instant::now());
     }
 }
 

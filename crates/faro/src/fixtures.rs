@@ -1,6 +1,6 @@
 //! Test fixtures: a small cast and a conversation with every kind of message.
 
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+use crate::app::term_event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use faro_core::backend::BackendEvent;
 use faro_core::domain::{
     AttachmentRef, Contact, ConversationId, DeliveryStatus, Direction, Group, GroupId, Message,

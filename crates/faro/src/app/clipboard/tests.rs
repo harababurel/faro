@@ -2,9 +2,9 @@ use std::collections::VecDeque;
 use std::io;
 use std::time::Instant;
 
+use crate::app::term_event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use faro_core::clipboard::{LIST, ReadError};
 
 use super::guard::{Filtered, LateGuard};

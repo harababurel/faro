@@ -6,7 +6,7 @@
 use std::os::unix::fs::PermissionsExt as _;
 use std::time::Duration;
 
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+use crate::app::term_event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use faro_core::config::{MessageLayout, key};
 
 use super::*;

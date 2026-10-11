@@ -21,6 +21,7 @@ use ratatui::{Frame, Terminal};
 use crate::frames::FrameLog;
 
 mod backend;
+pub mod input;
 
 pub struct Tui {
     terminal: Terminal<backend::Backend<CrosstermBackend<Stdout>>>,

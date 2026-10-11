@@ -10,11 +10,11 @@ use faro_core::domain::{
     AttachmentRef, AttachmentStatus, ConversationId, DeliveryStatus, Direction, Message,
     MessageBody, MessageRef, Quote, ServiceId, Timestamp, TranscriptSource,
 };
+use faro_core::rt::Instant;
 use faro_core::store::{RecipientReceipt, RemoteTranscription};
-use tokio::time::Instant;
 
 use super::{curation, on_backend};
-use crate::app::commands::Command;
+use crate::app::event::Command;
 use crate::app::event::Effect;
 use crate::app::input::Input;
 use crate::app::keymap::PopupKey;

@@ -2,12 +2,12 @@
 
 use std::time::Duration;
 
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crate::app::term_event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use faro_core::backend::{BackendError, BackendEvent, OutgoingMessage, ReactionChange};
 use faro_core::domain::{DeliveryStatus, MessageBody, Quote, Timestamp, TypingState};
 
 use super::*;
-use crate::app::commands::Command;
+use crate::app::event::Command;
 use crate::app::state::{MessageAction, NoticeLevel, Popup};
 use crate::fixtures::{
     self, ALICE, BOB, CAROL, ME, alice, bob, climbing, climbing_history, loaded_state, text,
@@ -438,7 +438,7 @@ fn shutdown_and_store_failures() {
 
 // --- M4 task 1: focus, sidebar navigation, scrolling, mouse ---
 
-use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+use crate::app::term_event::{MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 
 use crate::app::state::{Anchor, Focus, Geometry, SidebarRow};

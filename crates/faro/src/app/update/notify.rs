@@ -4,7 +4,7 @@
 
 use faro_core::config::{DesktopNotifications, NotificationPrivacy};
 use faro_core::domain::{ConversationId, Message};
-use tokio::time::Instant;
+use faro_core::rt::Instant;
 
 use super::sending::wall_clock;
 use crate::app::event::Effect;

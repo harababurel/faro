@@ -1199,6 +1199,7 @@ version = "0.1.0-dev"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
+ "bitflags 2.13.2",
  "clap",
  "crossterm",
  "faro-core",

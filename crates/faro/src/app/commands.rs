@@ -9,72 +9,16 @@
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use faro_core::backend::{Backend, BackendError, OutgoingEdit, OutgoingMessage, ReactionChange};
+use faro_core::backend::{Backend, BackendError, OutgoingMessage};
 use faro_core::config::{TranscribeMode, Voice};
 use faro_core::domain::{
-    AttachmentRef, AttachmentStatus, ConversationId, MessageRef, ServiceId, Timestamp,
-    TranscriptSource, TypingState,
+    AttachmentRef, AttachmentStatus, MessageRef, ServiceId, Timestamp, TranscriptSource,
 };
 use faro_core::paths;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
-use super::event::AppEvent;
-
-/// Work for the backend.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Command {
-    /// Answered with `AppEvent::SendResult`. The message is already stored
-    /// locally as `Sending`.
-    Send {
-        conversation: ConversationId,
-        message: OutgoingMessage,
-    },
-    /// Answered with `AppEvent::ReactResult`. Already applied locally;
-    /// `previous` is what to restore if it fails.
-    React {
-        conversation: ConversationId,
-        target: MessageRef,
-        change: ReactionChange,
-        previous: Option<String>,
-    },
-    /// Answered with `AppEvent::EditResult`. Already applied locally.
-    Edit {
-        conversation: ConversationId,
-        target: MessageRef,
-        edit: OutgoingEdit,
-    },
-    /// Answered with `AppEvent::DeleteResult`. Already applied locally.
-    DeleteForEveryone {
-        conversation: ConversationId,
-        target: MessageRef,
-    },
-    /// Download an attachment and write it to `attachments/` (`0600`, D75).
-    /// Answered with `AppEvent::Fetched`.
-    Fetch {
-        conversation: ConversationId,
-        message: MessageRef,
-        index: usize,
-        attachment: AttachmentRef,
-    },
-    /// Transcribe a downloaded voice note (`local` or `remote`, D82).
-    /// Answered with `AppEvent::Transcribed`.
-    Transcribe {
-        conversation: ConversationId,
-        message: MessageRef,
-        index: usize,
-        path: PathBuf,
-        voice: Voice,
-    },
-    /// Read receipts for messages that have been seen (D42). No answer;
-    /// failures are only logged.
-    MarkRead(Vec<MessageRef>),
-    /// Our typing indicator (D42). No answer; failures are only logged.
-    Typing {
-        conversation: ConversationId,
-        state: TypingState,
-    },
-}
+use super::event::{AppEvent, Command};
 
 /// Abort spawned download tasks when the main command task is aborted.
 #[derive(Default)]

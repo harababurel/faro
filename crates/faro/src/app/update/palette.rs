@@ -1,6 +1,6 @@
 //! The command palette's keys, mouse and commands (D44; tree, D52).
 
-use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+use crate::app::term_event::{MouseButton, MouseEvent, MouseEventKind};
 use faro_core::domain::{ConversationId, MessageRef, ServiceId};
 use faro_core::store::SearchHit;
 use ratatui::layout::Position;
@@ -98,12 +98,12 @@ pub fn on_key(state: &mut State, key: PaletteKey) -> Vec<Effect> {
         PaletteKey::Edit(Edit::DeleteBackward) if palette.input.is_empty() => up(state),
         PaletteKey::Edit(Edit::Right) if at_end && opens_level => return choose(state),
         PaletteKey::Edit(edit) => {
-            let (old_dir, old_file) = crate::app::system::split_file_query(palette.input.text());
+            let (old_dir, old_file) = crate::app::files::split_file_query(palette.input.text());
             let (old_dir, old_dot) = (old_dir.to_owned(), old_file.starts_with('.'));
             if navigation::edit_input(&mut palette.input, edit) {
                 if palette.level() == Level::AttachFile {
                     let (new_dir, new_file) =
-                        crate::app::system::split_file_query(palette.input.text());
+                        crate::app::files::split_file_query(palette.input.text());
                     if new_dir != old_dir || new_file.starts_with('.') != old_dot {
                         let query = palette.input.text().to_owned();
                         palette.items.clear();
@@ -162,7 +162,7 @@ fn selected_setting(palette: &Palette) -> Option<Setting> {
 /// Pasted text goes into the query, on one line.
 pub fn paste(state: &mut State, text: &str) -> Vec<Effect> {
     if let Some(palette) = state.palette.as_mut() {
-        let (old_dir, old_file) = crate::app::system::split_file_query(palette.input.text());
+        let (old_dir, old_file) = crate::app::files::split_file_query(palette.input.text());
         let (old_dir, old_dot) = (old_dir.to_owned(), old_file.starts_with('.'));
         let line: String = text
             .chars()
@@ -170,7 +170,7 @@ pub fn paste(state: &mut State, text: &str) -> Vec<Effect> {
             .collect();
         palette.input.insert_str(&line);
         if palette.level() == Level::AttachFile {
-            let (new_dir, new_file) = crate::app::system::split_file_query(palette.input.text());
+            let (new_dir, new_file) = crate::app::files::split_file_query(palette.input.text());
             let effects = if new_dir != old_dir || new_file.starts_with('.') != old_dot {
                 palette.items.clear();
                 vec![Effect::ListFiles(palette.input.text().to_owned())]
@@ -197,8 +197,8 @@ pub fn on_files_listed(state: &mut State, query: &str, entries: &[crate::app::st
     if palette.level() != Level::AttachFile {
         return;
     }
-    let (cur_dir, cur_file) = crate::app::system::split_file_query(palette.input.text());
-    let (listed_dir, listed_file) = crate::app::system::split_file_query(query);
+    let (cur_dir, cur_file) = crate::app::files::split_file_query(palette.input.text());
+    let (listed_dir, listed_file) = crate::app::files::split_file_query(query);
     if cur_dir != listed_dir || cur_file.starts_with('.') != listed_file.starts_with('.') {
         return;
     }

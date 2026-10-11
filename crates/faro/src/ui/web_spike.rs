@@ -11,7 +11,7 @@
 use std::fmt::Write as _;
 use std::time::Duration;
 
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+use crate::app::term_event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use faro_core::backend::{Backend, BackendEvent};
 use faro_core::config::BubbleStyle;
 use faro_core::domain::{ConnectionState, ConversationId};

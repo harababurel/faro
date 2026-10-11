@@ -281,7 +281,7 @@ async fn terminal_setting(
     {
         app::system::inspect_terminal().await
     } else {
-        app::system::Terminal::default()
+        app::state::Terminal::default()
     };
     let mode = match choice {
         EmojiChoice::Compatible => EmojiMode::Compatible,

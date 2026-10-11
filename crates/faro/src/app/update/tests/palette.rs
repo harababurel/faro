@@ -1,6 +1,6 @@
 //! The command palette (M4 task 8, D44).
 
-use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+use crate::app::term_event::{MouseButton, MouseEvent, MouseEventKind};
 use faro_core::config::{BubbleStyle, ColorChoice, ConfigValue, EmojiChoice, SettingEdit, key};
 use faro_core::store::ConversationState;
 use ratatui::layout::Rect;

@@ -9,7 +9,7 @@
 
 use std::time::Duration;
 
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+use crate::app::term_event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use tokio::time::Instant;
 
 /// How long keys that might start a reply are held back. A reply's bytes

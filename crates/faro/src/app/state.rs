@@ -13,9 +13,9 @@ use faro_core::domain::{
     AttachmentRef, BodyPart, ConnectionState, Contact, ConversationId, Direction, Group, GroupId,
     Message, MessageRef, Quote, ServiceId, Timestamp, mention_parts,
 };
+use faro_core::rt::Instant;
 use faro_core::store::{ConversationSummary, NotifyLevel, Profile, RecipientReceipt};
 use ratatui::layout::Rect;
-use tokio::time::Instant;
 
 use super::input::Input;
 use super::keymap::Keymap;
@@ -363,6 +363,21 @@ pub struct Detected {
     pub graphics: GraphicsSupport,
 }
 
+/// What faro can find out about the terminals between it and the user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Terminal {
+    /// mosh is in the way: it measures emoji the old way (D47).
+    pub mosh: bool,
+    /// Who draws block, Powerline and Legacy Computing glyphs (D58).
+    pub glyphs: BlockGlyphs,
+    /// Whether terminal graphics protocols are safe to use, or mixed/mosh
+    /// clients require Unicode half-blocks (D78).
+    pub graphics: GraphicsSupport,
+    /// A kitty can be reached without mosh: directly, or as at least one of
+    /// the clients attached to faro's tmux session (clipboard images, D91).
+    pub kitty: bool,
+}
+
 /// Who draws the glyphs rounded bubbles are made of (D58).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BlockGlyphs {
@@ -655,7 +670,7 @@ pub struct Geometry {
     pub logo_animated: bool,
     /// Inline image slices that the frame wanted to draw but weren't in the
     /// cache yet (D78); decoded off-thread by `app::run`.
-    pub images_wanted: Vec<super::images::ImageKey>,
+    pub images_wanted: Vec<super::image_cache::ImageKey>,
 }
 
 /// Where the palette was drawn.

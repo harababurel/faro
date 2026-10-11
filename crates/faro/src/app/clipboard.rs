@@ -19,15 +19,16 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crossterm::event::{Event, EventStream};
+use crossterm::event::EventStream;
 use faro_core::clipboard::{self as protocol, Credentials, Focus, ReadError};
 use faro_core::domain::ConversationId;
 use tokio::sync::mpsc;
 
 use self::guard::{Filtered, LateGuard};
 use self::tty::{Failure, Tty};
-use super::event::AppEvent;
-use super::state::{Notice, StagedAttachment};
+use super::event::{AppEvent, ClipboardError};
+use super::state::StagedAttachment;
+use super::term_event::Event;
 
 /// The largest image faro takes from the clipboard (owner, D91): the same as
 /// the automatic image download limit.
@@ -44,51 +45,6 @@ const PROMPT_WAIT: Duration = Duration::from_secs(120);
 const BETWEEN_PACKETS: Duration = Duration::from_secs(5);
 /// The largest type list taken (a few dozen bytes in practice).
 const LIST_LIMIT: usize = 64 * 1024;
-
-/// Why no image was staged.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ClipboardError {
-    /// No kitty between faro and the user (directly, or attached to faro's
-    /// tmux session).
-    NotKitty,
-    /// mosh relays the screen, not the bytes: the request never arrives.
-    Mosh,
-    /// The clipboard has no image type faro can send.
-    NoImage,
-    /// The type list never came.
-    NoAnswer,
-    /// The prompt wasn't answered in time.
-    PromptTimedOut,
-    Read(ReadError),
-    /// Reading the tty or saving the file failed.
-    Failed(String),
-}
-
-impl ClipboardError {
-    /// What the footer says.
-    pub fn notice(&self) -> Notice {
-        match self {
-            Self::NotKitty => Notice::warning("Pasting images needs kitty"),
-            Self::Mosh => Notice::warning("Pasting images doesn't work over mosh"),
-            Self::NoImage => Notice::info("No image on the clipboard"),
-            Self::NoAnswer => Notice::warning("No answer from the terminal"),
-            Self::PromptTimedOut => {
-                Notice::warning("No answer from kitty: the prompt wasn't answered")
-            }
-            Self::Read(ReadError::Denied) => Notice::info("Clipboard access denied in kitty"),
-            Self::Read(ReadError::Busy) => Notice::warning("The clipboard is busy; try again"),
-            Self::Read(ReadError::TooLarge { limit }) => Notice::warning(format!(
-                "Image too large (over {})",
-                faro_core::domain::format_byte_size(u64::try_from(*limit).unwrap_or(u64::MAX))
-            )),
-            Self::Read(ReadError::Malformed(_) | ReadError::Incomplete) => {
-                Notice::warning("The image didn't arrive intact; try again")
-            }
-            Self::Read(error) => Notice::warning(format!("Couldn't paste the image: {error}")),
-            Self::Failed(error) => Notice::error(format!("Couldn't paste the image: {error}")),
-        }
-    }
-}
 
 /// Per run: kitty's password (so "allow all" covers this run only, D91) and
 /// request ids (so a late reply is told from the current one).

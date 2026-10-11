@@ -18,6 +18,7 @@ use ratatui::text::{Line, Span};
 use super::View;
 use super::bubbles;
 use super::text::{one_line, pad_left, sanitize, truncate, width, wrap_pieces};
+use crate::app::image_cache::{MAX_IMAGE_COLS, MAX_IMAGE_ROWS, MAX_STICKER_ROWS, box_size};
 use crate::app::state::{Anchor, Focus, MessageLayout, OpenConversation, State};
 
 /// Consecutive messages from one sender within this window share one name.
@@ -678,15 +679,14 @@ pub(super) fn content(
                         .as_ref()
                         .is_some_and(|b| b.expose().starts_with("[sticker]")));
             let max_rows = if is_sticker {
-                crate::app::images::MAX_STICKER_ROWS
+                MAX_STICKER_ROWS
             } else {
-                crate::app::images::MAX_IMAGE_ROWS
+                MAX_IMAGE_ROWS
             };
-            let max_cols = crate::app::images::MAX_IMAGE_COLS
+            let max_cols = MAX_IMAGE_COLS
                 .min(u16::try_from(max).unwrap_or(u16::MAX))
                 .max(1);
-            let size =
-                crate::app::images::box_size(w, h, view.images.font_size(), max_cols, max_rows);
+            let size = box_size(w, h, view.images.font_size(), max_cols, max_rows);
             pending_images.push(PendingImage {
                 row: body.len(),
                 width: size.width,

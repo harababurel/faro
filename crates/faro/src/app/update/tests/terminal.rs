@@ -1,11 +1,11 @@
 //! Terminal checks: emoji mode and mosh (D47), kitty for the bubble style
 //! (D58), Ctrl+L.
 
-use crossterm::event::Event;
+use crate::app::term_event::Event;
 
 use super::*;
+use crate::app::state::Terminal;
 use crate::app::state::{BlockGlyphs, EmojiMode, EmojiSetting, GraphicsSupport};
-use crate::app::system::Terminal;
 use faro_core::config::{BubbleStyle, InlineImages};
 
 fn checked(mosh: bool) -> AppEvent {

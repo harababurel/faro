@@ -664,7 +664,7 @@ impl Palette {
             return;
         }
         let filter_text = if self.level() == Level::AttachFile {
-            super::system::split_file_query(self.input.text()).1.trim()
+            super::files::split_file_query(self.input.text()).1.trim()
         } else {
             self.input.text().trim()
         };

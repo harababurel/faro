@@ -36,7 +36,7 @@ pub struct View<'a> {
     /// Seconds into the logo's animation (D61); `None` draws it still.
     pub logo_time: Option<f64>,
     /// Inline image protocol and cache of decoded slices (D78).
-    pub images: &'a crate::app::images::Images,
+    pub images: &'a dyn crate::app::image_cache::ImageCache,
 }
 
 impl View<'_> {
@@ -97,8 +97,7 @@ pub(super) fn render_image_box(
     path: Option<&std::path::Path>,
     overlay_blocks_graphics: bool,
 ) {
-    use crate::app::images::{CachedImage, ImageKey, render_sliced, visible_rect};
-    use ratatui_image::sliced::SignedPosition;
+    use crate::app::image_cache::{CachedImage, ImageKey, visible_rect};
 
     let Some(vis) = visible_rect(x, y, width, height, clip_area) else {
         return;
@@ -121,11 +120,8 @@ pub(super) fn render_image_box(
             if overlay_blocks_graphics && view.images.is_graphics_protocol() {
                 draw_image_placeholder(frame, vis, "", view);
             } else {
-                let pos = SignedPosition {
-                    x: i16::try_from(x).unwrap_or(i16::MAX),
-                    y,
-                };
-                render_sliced(sliced, pos, clip_area, frame.buffer_mut(), state.colors());
+                let x = i16::try_from(x).unwrap_or(i16::MAX);
+                sliced.draw(x, y, clip_area, frame.buffer_mut(), state.colors());
             }
         }
         Some(CachedImage::Failed) => {

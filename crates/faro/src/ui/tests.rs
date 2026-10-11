@@ -70,8 +70,8 @@ fn typing_state() -> State {
     for c in "See you there".chars() {
         update(
             &mut state,
-            AppEvent::Terminal(crossterm::event::Event::Key(
-                crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char(c)),
+            AppEvent::Terminal(crate::app::term_event::Event::Key(
+                crate::app::term_event::KeyEvent::from(crate::app::term_event::KeyCode::Char(c)),
             )),
         );
     }
@@ -134,7 +134,7 @@ fn colours_carry_meaning() {
 /// Every screen worth checking colours on: the main view with the info
 /// panel and a selected message, the palette, and a popup, in both layouts.
 fn screens() -> Vec<State> {
-    use crossterm::event::KeyCode::{Enter, Esc, Up};
+    use crate::app::term_event::KeyCode::{Enter, Esc, Up};
     let mut screens = Vec::new();
     for layout in [MessageLayout::Irc, MessageLayout::Bubbles] {
         let mut state = typing_state();
@@ -154,10 +154,10 @@ fn screens() -> Vec<State> {
         keys(&mut palette, &[Esc]);
         update(
             &mut palette,
-            AppEvent::Terminal(crossterm::event::Event::Key(
-                crossterm::event::KeyEvent::new(
-                    crossterm::event::KeyCode::Char('p'),
-                    crossterm::event::KeyModifiers::CONTROL,
+            AppEvent::Terminal(crate::app::term_event::Event::Key(
+                crate::app::term_event::KeyEvent::new(
+                    crate::app::term_event::KeyCode::Char('p'),
+                    crate::app::term_event::KeyModifiers::CONTROL,
                 ),
             )),
         );
@@ -336,18 +336,18 @@ fn scrolled_up_with_messages_focus() {
     insta::assert_snapshot!(snapshot(&draw(&state, 100, 18)));
 }
 
-fn keys(state: &mut State, keys: &[crossterm::event::KeyCode]) {
+fn keys(state: &mut State, keys: &[crate::app::term_event::KeyCode]) {
     for key in keys {
         update(
             state,
-            AppEvent::Terminal(crossterm::event::Event::Key(
-                crossterm::event::KeyEvent::from(*key),
+            AppEvent::Terminal(crate::app::term_event::Event::Key(
+                crate::app::term_event::KeyEvent::from(*key),
             )),
         );
     }
 }
 
-use crossterm::event::KeyCode::{Char, Down, Enter, Up};
+use crate::app::term_event::KeyCode::{Char, Down, Enter, Up};
 
 #[test]
 fn message_menu_over_a_selected_message() {
@@ -387,7 +387,7 @@ fn the_selected_message_is_tinted_only_while_the_pane_has_focus() {
     // The newest message is one line: one tinted row, one bar.
     assert!(tinted(&buffer) >= 60);
     assert_eq!(bars(&buffer), 1);
-    keys(&mut state, &[crossterm::event::KeyCode::Esc]);
+    keys(&mut state, &[crate::app::term_event::KeyCode::Esc]);
     let buffer = draw(&state, 100, 20);
     assert_eq!(bars(&buffer), 0);
 }
@@ -409,7 +409,7 @@ fn selecting_an_old_message_scrolls_to_it() {
 
 // --- Curation (M4 task 5, D41) ---
 
-fn sidebar_keys(state: &mut State, list: &[crossterm::event::KeyCode]) {
+fn sidebar_keys(state: &mut State, list: &[crate::app::term_event::KeyCode]) {
     state.focus = Focus::Conversations;
     keys(state, list);
 }
@@ -481,7 +481,7 @@ fn sidebar_markers_for_groups_muted_and_mentions_only() {
 }
 
 fn with_palette(query: &str) -> State {
-    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    use crate::app::term_event::{Event, KeyCode, KeyEvent, KeyModifiers};
     let mut state = loaded_state();
     let press = |state: &mut State, code, modifiers| {
         update(
@@ -519,7 +519,7 @@ fn palette_settings_level() {
 
 #[test]
 fn palette_image_protocols_and_live_note() {
-    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    use crate::app::term_event::{Event, KeyCode, KeyEvent, KeyModifiers};
     use faro_core::config::InlineImages;
     let mut state = with_palette(":Inline images");
     state.env.colors = crate::theme::ColorDepth::Truecolor;
@@ -547,7 +547,7 @@ fn palette_settings_filtered() {
 
 #[test]
 fn palette_themes_at_256_colours() {
-    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    use crate::app::term_event::{Event, KeyCode, KeyEvent, KeyModifiers};
     let mut state = with_palette("themes");
     state.env.colors = crate::theme::ColorDepth::Indexed256;
     update(
@@ -564,7 +564,7 @@ fn palette_themes_at_256_colours() {
 
 #[test]
 fn palette_themes() {
-    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    use crate::app::term_event::{Event, KeyCode, KeyEvent, KeyModifiers};
     let mut state = with_palette("themes");
     for code in [KeyCode::Enter, KeyCode::Up] {
         update(
@@ -1429,7 +1429,7 @@ fn inline_images_show_a_placeholder_then_draw_halfblocks_and_map_to_256_colours(
     use ratatui::layout::Size;
     use ratatui::style::Color;
     use ratatui_image::Resize;
-    use ratatui_image::picker::{Picker, ProtocolType};
+    use ratatui_image::picker::Picker;
     use ratatui_image::sliced::SlicedProtocol;
 
     use crate::app::images::{DecodedImage, Images};
@@ -1457,7 +1457,10 @@ fn inline_images_show_a_placeholder_then_draw_halfblocks_and_map_to_256_colours(
     assert_eq!(geometry.images_wanted.len(), 1);
     let key = geometry.images_wanted[0].clone();
     assert_eq!(key.path, path);
-    assert_eq!(key.protocol, ProtocolType::Halfblocks);
+    assert_eq!(
+        key.protocol,
+        crate::app::image_cache::ImageProtocol::Halfblocks
+    );
 
     let dyn_img = image::DynamicImage::ImageRgba8(image::RgbaImage::from_fn(400, 200, |_, y| {
         if (y / 10).is_multiple_of(2) {
@@ -1484,7 +1487,7 @@ fn inline_images_show_a_placeholder_then_draw_halfblocks_and_map_to_256_colours(
     assert!(!text.contains("loading image…"), "{text}");
     assert_eq!(
         geometry.images_wanted,
-        [] as [crate::app::images::ImageKey; 0]
+        [] as [crate::app::image_cache::ImageKey; 0]
     );
     assert!(
         buffer

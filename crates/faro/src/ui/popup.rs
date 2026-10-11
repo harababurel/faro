@@ -453,7 +453,7 @@ fn image_viewer(
     let img_avail_h = inner.height.saturating_sub(info_rows);
     if img_avail_h > 0 && inner.width > 0 {
         let size = match (shown.width, shown.height) {
-            (Some(w), Some(h)) if w > 0 && h > 0 => crate::app::images::box_size(
+            (Some(w), Some(h)) if w > 0 && h > 0 => crate::app::image_cache::box_size(
                 w,
                 h,
                 view.images.font_size(),

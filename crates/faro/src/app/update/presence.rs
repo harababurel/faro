@@ -2,9 +2,9 @@
 //! read receipts once messages have actually been seen.
 
 use faro_core::domain::{Direction, Message, MessageRef, TypingState};
-use tokio::time::Instant;
+use faro_core::rt::Instant;
 
-use crate::app::commands::Command;
+use crate::app::event::Command;
 use crate::app::event::Effect;
 use crate::app::state::{State, TYPING_PAUSE, TYPING_REFRESH, TypingSent};
 

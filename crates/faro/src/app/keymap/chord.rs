@@ -4,7 +4,7 @@
 
 use std::fmt;
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crate::app::term_event::{KeyCode, KeyEvent, KeyModifiers};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct KeyChord {

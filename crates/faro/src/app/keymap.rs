@@ -13,7 +13,7 @@ mod tests;
 
 use std::fmt;
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crate::app::term_event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 pub use self::chord::KeyChord;
 use crate::app::state::Focus;

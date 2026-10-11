@@ -1,6 +1,6 @@
 //! Curation (M4 task 5, D41): pin, mute, hide, archive, allowlist, views.
 
-use crossterm::event::{MouseButton, MouseEventKind};
+use crate::app::term_event::{MouseButton, MouseEventKind};
 use faro_core::config::{Config, ConfigValue, SettingEdit, key};
 use faro_core::store::ConversationState;
 
