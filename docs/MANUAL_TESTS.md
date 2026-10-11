@@ -338,7 +338,7 @@ In kitty, with an image copied on the machine you type on (e.g. *Copy Image* in 
 - [ ] **Two kitty windows attached** to the same tmux session (as on the Mac mini): `Ctrl+V` in one stages the image from that machine's clipboard; the other screen may show a kitty prompt. Answering it later (allow or deny) changes nothing in faro and types nothing.
 - [x] **Late answer:** `Ctrl+V` and leave kitty's prompt unanswered for over 2 minutes. The prompt covers faro, so you won't see "No answer from kitty…" until it's gone. Then allow: nothing is staged, nothing is typed into faro, and keys keep working. (A demo fault notice may replace the footer meanwhile; use `faro demo --no-faults` to avoid it.)
 - [x] **Elsewhere:** in a terminal that isn't kitty, `Ctrl+V` says "Pasting images needs kitty" at once.
-- [ ] **Over mosh:** from kitty through mosh, `Ctrl+V` says "Pasting images doesn't work over mosh".
+- [x] **Over mosh:** from kitty through mosh, `Ctrl+V` says "Pasting images doesn't work over mosh".
 - [x] **No leftovers:** after sending a pasted image, `ls <data dir>/attachments/clipboard-*` finds nothing (the sent copy has the message's name); paste one, remove it with `Esc`, restart faro: it's gone too.
 - [x] **Esc after a paste:** a lone `Esc` still dismisses things normally (it can be held back for up to 50 ms after the first paste; that shouldn't be noticeable).
 
@@ -353,7 +353,7 @@ Columns: **direct** = faro straight in kitty; **tmux** = kitty → tmux (with th
 | Check (what to look for) | Linux direct | Linux tmux | Linux SSH | Linux mosh | macOS direct | macOS tmux | macOS SSH | macOS mosh |
 |---|---|---|---|---|---|---|---|---|
 | **Rendering †:** borders straight, no stray characters after scrolling, resizing and flooding (`faro demo --activity 50 --no-faults`) | | | | | | | | |
-| **Emoji:** emoji-heavy chats aligned; under mosh the "mosh detected" notice and compatible emoji, elsewhere full emoji | | | | | | | | |
+| **Emoji:** emoji-heavy chats aligned; under mosh compatible emoji (no notice at startup; "mosh detected" appears only when you reattach to a running faro through mosh, and `Ctrl+P` › Settings › Inline images says "mosh"), elsewhere full emoji | | | | | | | | |
 | **Colours †:** `:` Colours shows the expected detection (truecolor in kitty and tmux; 256 in Terminal.app / plain SSH without tmux); each theme readable; `system` follows the terminal scheme | | | | | | | | |
 | **Mouse:** click a conversation, a message, the input; wheel scrolls messages and the list; right-click menu; `:` Mouse › off lets the terminal select text | | | | | | | | |
 | **Clipboard (OSC 52):** select a message, `y`, paste in another app on the machine you sit at | | | | | | | | |
