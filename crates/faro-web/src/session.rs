@@ -2,6 +2,8 @@
 //! and the two workers, wired the way the terminal app wires them. Nothing
 //! here touches the DOM, so the whole pipeline is tested natively.
 
+use std::rc::Rc;
+
 use faro_app::app::commands;
 use faro_app::app::event::{AppEvent, Command, Effect};
 use faro_app::app::state::{BlockGlyphs, GraphicsSupport, State};
@@ -16,7 +18,7 @@ use faro_core::store::{Profile, Store};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use crate::demo::{Error, SEED};
-use crate::router::Router;
+use crate::router::{Page, Router};
 
 /// The mock as visitors get it (D-b): the demo's seed, today's dates, the
 /// default activity rate, no scripted outages or errors.
@@ -46,7 +48,7 @@ pub struct Inbox {
 impl Session {
     /// Start the mock and the workers, and ask for the chat list, as the
     /// terminal app does on start.
-    pub async fn start(mock: &MockConfig) -> Result<(Self, Inbox), Error> {
+    pub async fn start(mock: &MockConfig, page: Rc<dyn Page>) -> Result<(Self, Inbox), Error> {
         let (backend, backend_events) = MockBackend::new(mock);
         let me = backend.whoami().await?.service_id;
         let contacts = backend.contacts().await?;
@@ -73,6 +75,7 @@ impl Session {
             commands,
             effects,
             results: results_tx,
+            page,
         };
         let configured = update::configure(&mut state, Config::default(), Vec::new());
         router.dispatch(configured, &state);
@@ -174,6 +177,16 @@ mod tests {
     use faro_core::domain::{ConnectionState, Direction};
 
     use super::*;
+    use crate::router::NOT_HERE;
+    use crate::router::tests::FakePage;
+
+    async fn started() -> (Session, Inbox, Rc<FakePage>) {
+        let page = Rc::new(FakePage::default());
+        let shared: Rc<dyn Page> = page.clone();
+        let (mut session, mut inbox) = Session::start(&visitor_mock(), shared).await.unwrap();
+        pump(&mut session, &mut inbox, Duration::from_secs(1)).await;
+        (session, inbox, page)
+    }
 
     /// Feed everything that arrives within `time` to the session.
     async fn pump(session: &mut Session, inbox: &mut Inbox, time: Duration) {
@@ -198,8 +211,7 @@ mod tests {
         reason = "#[tokio::test] expands to block_on; tests may block"
     )]
     async fn a_visitor_can_open_a_chat_and_send_a_message() {
-        let (mut session, mut inbox) = Session::start(&visitor_mock()).await.unwrap();
-        pump(&mut session, &mut inbox, Duration::from_secs(1)).await;
+        let (mut session, mut inbox, _page) = started().await;
         let state = &session.state;
         assert!(!state.loading, "the chat list loaded");
         assert_eq!(state.connection, ConnectionState::Connected);
@@ -234,5 +246,41 @@ mod tests {
             Some("hello")
         );
         assert!(session.state.notice.is_none(), "{:?}", session.state.notice);
+    }
+
+    #[tokio::test(start_paused = true)]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "#[tokio::test] expands to block_on; tests may block"
+    )]
+    async fn the_page_copies_and_files_get_a_notice() {
+        let (mut session, mut inbox, page) = started().await;
+        key(&mut session, KeyCode::Enter);
+        pump(&mut session, &mut inbox, Duration::from_millis(100)).await;
+
+        // A path pasted into the input is just text.
+        let paste = Event::Paste("/etc/hosts".to_owned());
+        session.handle(AppEvent::Terminal(paste));
+        pump(&mut session, &mut inbox, Duration::from_millis(100)).await;
+        let open = session.state.open.as_ref().unwrap();
+        assert_eq!(open.input.text(), "/etc/hosts");
+        assert!(open.staged_attachment.is_none());
+
+        // Copying goes to the page.
+        session
+            .router
+            .dispatch(vec![Effect::Copy("hi".to_owned())], &session.state);
+        assert_eq!(
+            page.log.borrow().last().map(String::as_str),
+            Some("copy hi")
+        );
+
+        // Files aren't here.
+        session
+            .router
+            .dispatch(vec![Effect::ListFiles("~".to_owned())], &session.state);
+        pump(&mut session, &mut inbox, Duration::from_millis(100)).await;
+        let notice = session.state.notice.as_ref().unwrap();
+        assert_eq!(notice.text, NOT_HERE);
     }
 }

@@ -118,6 +118,9 @@ pub enum AppEvent {
     },
     /// Opening a link or attachment failed; the text is safe to show.
     OpenFailed(String),
+    /// The platform can't do what an effect asked for (the web demo has no
+    /// files or processes, D115); the text is safe to show.
+    Unavailable(String),
     /// What's between faro and the user: mosh (D47), and who draws block
     /// glyphs (D58).
     TerminalChecked(super::state::Terminal),

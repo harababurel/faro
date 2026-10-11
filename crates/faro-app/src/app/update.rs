@@ -74,6 +74,7 @@ pub fn affects_view(event: &AppEvent) -> bool {
         | AppEvent::PlaybackFinished { .. }
         | AppEvent::Transcribed { .. }
         | AppEvent::OpenFailed(_)
+        | AppEvent::Unavailable(_)
         | AppEvent::TerminalChecked { .. }
         | AppEvent::ConfigRead(_)
         | AppEvent::ThemesRead(_)
@@ -173,6 +174,7 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
         } => selection::on_transcribed(state, conversation, message, index, result),
         AppEvent::TerminalChecked(terminal) => terminal_checked(state, terminal),
         AppEvent::OpenFailed(error) => notice_err(state, "Couldn't open", Err(error)),
+        AppEvent::Unavailable(text) => unavailable(state, text),
         AppEvent::ConfigRead(read) => settings::on_config_read(state, read),
         AppEvent::ThemesRead(files) => settings::on_themes_read(state, files),
         AppEvent::SettingNotSaved(error) => {
@@ -728,6 +730,21 @@ fn expire_typing(state: &mut State, now: Instant) {
         typists.retain(|t| now < t.since + TYPING_TIMEOUT);
         !typists.is_empty()
     });
+}
+
+/// Say the platform can't do it, and leave what was waiting for the answer:
+/// the file picker, a clipboard read.
+fn unavailable(state: &mut State, text: String) -> Vec<Effect> {
+    if state
+        .palette
+        .as_ref()
+        .is_some_and(|p| p.level() == crate::app::palette::Level::AttachFile)
+    {
+        state.palette = None;
+    }
+    state.pasting = None;
+    state.notice = Some(Notice::warning(text));
+    vec![]
 }
 
 #[cfg(test)]

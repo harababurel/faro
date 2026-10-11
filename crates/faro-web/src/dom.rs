@@ -11,11 +11,52 @@ use web_sys::{
     KeyboardEvent, MouseEvent, ResizeObserver, WheelEvent,
 };
 
+use faro_app::app::event::AppEvent;
+use faro_app::app::term_event::Event;
+use wasm_bindgen_futures::JsFuture;
+
 use crate::input::{self, Held, Route};
 use crate::live::{Input, Pointer};
-use faro_app::app::term_event::Event;
+use crate::router::Page;
 
 type Handler = Closure<dyn FnMut(web_sys::Event)>;
+
+/// The page around the canvas.
+pub struct CanvasPage {
+    pub canvas: HtmlCanvasElement,
+}
+
+/// The event the canvas sends for the bell; the page decides how it looks.
+pub const BELL_EVENT: &str = "faro-bell";
+
+impl Page for CanvasPage {
+    fn copy(&self, text: String, results: UnboundedSender<AppEvent>) {
+        let Some(window) = web_sys::window() else {
+            return;
+        };
+        let promise = window.navigator().clipboard().write_text(&text);
+        wasm_bindgen_futures::spawn_local(async move {
+            if JsFuture::from(promise).await.is_err() {
+                let text = "Couldn't copy: the browser kept the clipboard closed".to_owned();
+                let _ = results.send(AppEvent::Unavailable(text));
+            }
+        });
+    }
+
+    fn open(&self, url: &str) {
+        let opened = web_sys::window()
+            .map(|w| w.open_with_url_and_target_and_features(url, "_blank", "noopener,noreferrer"));
+        if !matches!(opened, Some(Ok(_))) {
+            tracing::warn!("opening a link failed");
+        }
+    }
+
+    fn bell(&self) {
+        if let Ok(event) = web_sys::CustomEvent::new(BELL_EVENT) {
+            let _ = self.canvas.dispatch_event(&event);
+        }
+    }
+}
 
 /// The listeners, removed when dropped.
 pub struct Listeners {

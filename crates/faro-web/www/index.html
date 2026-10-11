@@ -16,6 +16,7 @@
   html, body { margin: 0; height: 100%; background: #101216; overflow: hidden; }
   #panel { width: 100vw; height: 100vh; }
   canvas { display: block; }
+  #panel.bell { outline: 2px solid #e8a33d; outline-offset: -2px; }
   #stats { position: fixed; right: 6px; bottom: 4px; font: 11px monospace; color: #7c838f; }
 </style>
 <div id="panel"><canvas id="faro" role="application" aria-label="faro, a terminal client for Signal, running in your browser with made-up contacts"></canvas></div>
@@ -30,6 +31,14 @@
   const demo = await start(canvas, font, size, Number(q.get("cols") ?? 0), Number(q.get("rows") ?? 0));
   window.demo = demo;
   if (!q.has("unfocused")) canvas.focus();
+  // faro rang: flash the panel's border (WEBSITE.md §4.8).
+  window.bells = 0;
+  const panel = document.getElementById("panel");
+  canvas.addEventListener("faro-bell", () => {
+    window.bells++;
+    panel.classList.add("bell");
+    setTimeout(() => panel.classList.remove("bell"), 150);
+  });
   const stats = document.getElementById("stats");
   if (q.has("bench")) {
     const times = [];

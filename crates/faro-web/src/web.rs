@@ -8,12 +8,14 @@ use tokio::sync::mpsc;
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 
-use crate::dom::Listeners;
+use crate::dom::{CanvasPage, Listeners};
 use crate::live::{self, Shell};
 use crate::paint::Painter;
 use crate::session::{Session, visitor_mock};
 
-/// The demo running in a canvas. Dropping it (`demo.free()`) stops it.
+/// The demo running in a canvas. Dropping it (`demo.free()`) stops it. The
+/// canvas sends `faro-bell` events when faro rings; `document.title` follows
+/// faro's window title.
 #[wasm_bindgen]
 pub struct Demo {
     shell: Rc<RefCell<Shell>>,
@@ -32,7 +34,10 @@ pub async fn start(
     columns: u16,
     rows: u16,
 ) -> Result<Demo, JsValue> {
-    let (session, inbox) = Session::start(&visitor_mock())
+    let page = Rc::new(CanvasPage {
+        canvas: canvas.clone(),
+    });
+    let (session, inbox) = Session::start(&visitor_mock(), page)
         .await
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
     let painter = Painter::new(canvas.clone(), &font, size)?;

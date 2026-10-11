@@ -29,8 +29,10 @@ wasm-bindgen-futures = "0.4.79"
 web-sys = { version = "0.3.106", features = [
     "AddEventListenerOptions",
     "CanvasRenderingContext2d",
+    "Clipboard",
     "ClipboardEvent",
     "CssStyleDeclaration",
+    "CustomEvent",
     "DataTransfer",
     "Document",
     "Element",
@@ -39,6 +41,7 @@ web-sys = { version = "0.3.106", features = [
     "HtmlCanvasElement",
     "KeyboardEvent",
     "MouseEvent",
+    "Navigator",
     "Performance",
     "ResizeObserver",
     "TextMetrics",
