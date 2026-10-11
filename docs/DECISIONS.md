@@ -904,3 +904,10 @@ Refines the DESIGN.md §5.1 sketch:
   - Single characters, not emoji (🔕): one cell everywhere, themed, no tmux/mosh width risk (D55), fine in the `system` theme and in terminals without emoji fonts.
 - **When (Judgement, agent's recommendation; easy to move):** before the v0.1 release: it's small, settled, and visible in daily use and screenshots.
 - **As built (Judgement):** the marker comes *after* the unread count (` ● # Climbing   3 @ `), not before it, so markers stay in one column whatever the counts; a row with neither ends at the border as before. `ui/sidebar.rs`: `kind_glyph`, `notify_glyph` (muted wins); the `#` is in the muted colour too. Palette `Chats ›` and *Forward to*: direct chats get a blank glyph. Test: `ui::tests::sidebar_markers_for_groups_muted_and_mentions_only`; sidebar snapshots updated.
+
+### D97. The version line: version, commit and commit date — Accepted (owner, 2026-10-11; details Judgement)
+
+- **Why:** the logo screen didn't say which faro was running; with frequent pulls and rebuilds on two machines, the version alone (`0.1.0-dev`) doesn't tell builds apart.
+- **What:** `0.1.0-dev · 8fe5755 · 2026-10-11`: the crate version, the short commit hash (`+` when tracked files had uncommitted changes; untracked files don't count) and the **commit's** date, not the build date, so rebuilding the same commit gives the same line. Without git (a release tarball, crates.io, or the crate unpacked inside some other repository: `git ls-files` must know `Cargo.toml`) it's just the version. Packagers can set `FARO_BUILD_COMMIT` / `FARO_BUILD_DATE`.
+- **Where:** a muted `v…` line under the tagline on the logo screen (full, stacked and small-beside forms; dropped when it doesn't fit; the word-only form has none), `faro <line>` in About, and `faro --version`.
+- **How:** `crates/faro/build.rs` runs git at build time and sets `FARO_VERSION`; it reruns when `HEAD`, the index, `crates/` or `Cargo.lock` change, so the `+` follows edits. `version::shown()` returns a fixed line under `cfg(test)` so snapshots don't change with every commit.

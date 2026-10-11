@@ -277,7 +277,7 @@ fn about(frame: &mut Frame<'_>, state: &State, view: &View<'_>) {
     let repository = env!("CARGO_PKG_REPOSITORY");
     let mut rows: Vec<(String, Style)> = vec![
         (
-            format!("faro {}", env!("CARGO_PKG_VERSION")),
+            format!("faro {}", crate::version::shown()),
             Style::new().fg(theme.primary).add_modifier(Modifier::BOLD),
         ),
         (super::logo::TAGLINE.to_owned(), theme.muted()),

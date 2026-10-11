@@ -7,7 +7,7 @@ use clap::{CommandFactory as _, FromArgMatches as _, Parser};
 ///
 /// faro is unofficial and not affiliated with Signal.
 #[derive(Debug, Parser)]
-#[command(name = "faro", version, about, long_about)]
+#[command(name = "faro", version = crate::version::LINE, about, long_about)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Command>,

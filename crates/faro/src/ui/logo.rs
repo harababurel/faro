@@ -81,7 +81,8 @@ impl Tier {
             }
             Self::Stacked(scale) => {
                 let (word_width, word_height) = art::wordmark_size(scale);
-                let tag = if fits { 2 } else { 0 };
+                // A blank line, the tagline and the version under it (D97).
+                let tag = if fits { 3 } else { 0 };
                 (
                     LIGHTHOUSE_WIDTH.max(word_width),
                     LIGHTHOUSE_HEIGHT + 1 + word_height + tag,
@@ -138,14 +139,15 @@ pub fn render(
     let top = area.y + area.height.saturating_sub(h + below) / 2;
     let block = Rect::new(centred(area, w), top, w, h).intersection(area);
     let t = view.logo_time.unwrap_or(STILL);
+    let version = version_text();
     let buffer = frame.buffer_mut();
     match (tier, art) {
-        (Tier::Full, Some(art)) => draw_full(buffer, area, block, art, t, theme),
+        (Tier::Full, Some(art)) => draw_full(buffer, area, block, art, t, theme, &version),
         (Tier::Stacked(scale), Some(art)) => {
-            draw_stacked(buffer, area, block, art, scale, t, theme);
+            draw_stacked(buffer, area, block, (art, scale, t), theme, &version);
         }
         (Tier::Full | Tier::Stacked(_), None) | (Tier::Small, _) => {
-            draw_small(buffer, area, block, theme);
+            draw_small(buffer, area, block, theme, &version);
         }
         (Tier::Word, _) => draw_text(buffer, area, centred(area, w), top, WORD, brand(theme)),
     }
@@ -227,24 +229,44 @@ fn notes(state: &State, geometry: &Geometry) -> Vec<Note> {
     notes
 }
 
-fn draw_full(buffer: &mut Buffer, area: Rect, block: Rect, art: Art, t: f64, theme: &Theme) {
+/// The version line under the tagline (D97).
+fn version_text() -> String {
+    format!("v{}", crate::version::shown())
+}
+
+/// The version under the tagline at `y`, if it fits there.
+fn draw_version(buffer: &mut Buffer, area: Rect, x: u16, y: u16, version: &str, theme: &Theme) {
+    if x + width_of(version) <= area.right() {
+        draw_text(buffer, area, x, y, version, theme.muted());
+    }
+}
+
+fn draw_full(
+    buffer: &mut Buffer,
+    area: Rect,
+    block: Rect,
+    art: Art,
+    t: f64,
+    theme: &Theme,
+    version: &str,
+) {
     draw_picture(buffer, area, block.x, block.y, &art.lighthouse(t), theme);
     let (_, word_height) = art::wordmark_size(2);
-    let column = word_height + 2;
+    let column = word_height + 3;
     let x = block.x + LIGHTHOUSE_WIDTH + GUTTER;
     let y = block.y + LIGHTHOUSE_HEIGHT.saturating_sub(column) / 2;
     draw_picture(buffer, area, x, y, &art.wordmark(2), theme);
     draw_text(buffer, area, x, y + word_height + 1, TAGLINE, theme.muted());
+    draw_version(buffer, area, x, y + word_height + 2, version, theme);
 }
 
 fn draw_stacked(
     buffer: &mut Buffer,
     area: Rect,
     block: Rect,
-    art: Art,
-    scale: u16,
-    t: f64,
+    (art, scale, t): (Art, u16, f64),
     theme: &Theme,
+    version: &str,
 ) {
     let lighthouse = art.lighthouse(t);
     let x = centred(area, lighthouse.width);
@@ -263,10 +285,12 @@ fn draw_stacked(
             TAGLINE,
             theme.muted(),
         );
+        let x = centred(area, width_of(version));
+        draw_version(buffer, area, x, y + 1, version, theme);
     }
 }
 
-fn draw_small(buffer: &mut Buffer, area: Rect, block: Rect, theme: &Theme) {
+fn draw_small(buffer: &mut Buffer, area: Rect, block: Rect, theme: &Theme, version: &str) {
     let picture = art::small(theme);
     if block.width > SMALL_WIDTH {
         // Beside: the word level with the tower, the tagline under it.
@@ -276,6 +300,7 @@ fn draw_small(buffer: &mut Buffer, area: Rect, block: Rect, theme: &Theme) {
         draw_text(buffer, area, x, y, WORD, brand(theme));
         if x + width_of(TAGLINE) <= area.right() {
             draw_text(buffer, area, x, y + 1, TAGLINE, theme.muted());
+            draw_version(buffer, area, x, y + 2, version, theme);
         }
     } else {
         let x = centred(area, SMALL_WIDTH);

@@ -343,6 +343,10 @@ In kitty, with an image copied on the machine you type on (e.g. *Copy Image* in 
 - [x] **No leftovers:** after sending a pasted image, `ls <data dir>/attachments/clipboard-*` finds nothing (the sent copy has the message's name); paste one, remove it with `Esc`, restart faro: it's gone too.
 - [x] **Esc after a paste:** a lone `Esc` still dismisses things normally (it can be held back for up to 50 ms after the first paste; that shouldn't be noticeable).
 
+## Version line (D97)
+
+- [ ] After `git pull && cargo build`: `faro --version` prints `faro 0.1.0-dev · <hash> · <date>` matching `git log -1 --format='%h %cd' --date=short`; the logo screen (no chat open) shows `v0.1.0-dev · <hash> · <date>` under the tagline; About shows the same after `faro`. With an uncommitted edit to a tracked file and a rebuild, the hash gets a `+`.
+
 ## Sidebar markers (D96)
 
 - [x] In `faro demo`: groups show `#` before the name (sidebar and `Ctrl+P` › Chats; people have no mark in either). Set a group to mentions only (`@` in the sidebar): an `@` appears at the row's right edge. Mute a chat (`Space` › Mute): `⊘` there instead. With unread messages the count comes first (`3 ⊘`). Markers stay visible on the open chat's row and line up in one column. Unmute / notify all: the marker goes.

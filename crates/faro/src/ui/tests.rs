@@ -1471,7 +1471,7 @@ fn about_popup() {
     state.attachments_dir = std::path::PathBuf::from("/home/me/.local/share/faro/attachments");
     let text = snapshot(&draw(&state, 100, 24));
     assert!(
-        text.contains(&format!("faro {}", env!("CARGO_PKG_VERSION"))),
+        text.contains(&format!("faro {}", crate::version::shown())),
         "{text}"
     );
     assert!(text.contains("https://getfaro.dev"), "{text}");
@@ -1484,7 +1484,7 @@ fn about_popup() {
         "{text}"
     );
     assert!(text.contains("not affiliated with Signal"), "{text}");
-    insta::assert_snapshot!(text.replace(env!("CARGO_PKG_VERSION"), "<version>"));
+    insta::assert_snapshot!(text);
     assert_drawable(&compatible(state), 100, 24);
 }
 

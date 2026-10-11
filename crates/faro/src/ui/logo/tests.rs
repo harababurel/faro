@@ -143,9 +143,10 @@ fn the_largest_form_that_fits_with_its_hints() {
     assert_eq!(tier(200, 60, true), (Tier::Full, 4));
     // A short pane drops the last hint rather than the big picture.
     assert_eq!(tier(90, 17, true), (Tier::Full, 3));
-    // Stacked at scale 2: 46 wide, 13 + 1 + 7 + 2 (tagline) tall.
-    assert_eq!(tier(89, 28, true), (Tier::Stacked(2), 4));
-    assert_eq!(tier(60, 25, true), (Tier::Stacked(1), 4));
+    // Stacked at scale 2: 46 wide, 13 + 1 + 7 + 3 (tagline, version) tall.
+    assert_eq!(tier(89, 29, true), (Tier::Stacked(2), 4));
+    assert_eq!(tier(89, 28, true), (Tier::Stacked(2), 3));
+    assert_eq!(tier(60, 26, true), (Tier::Stacked(1), 4));
     // Without the tagline (narrower than it), stacked needs only 40 columns.
     assert_eq!(tier(42, 23, true), (Tier::Stacked(1), 4));
     assert_eq!(tier(60, 13, true), (Tier::Small, 4));

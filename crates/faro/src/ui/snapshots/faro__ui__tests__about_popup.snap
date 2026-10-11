@@ -1,6 +1,6 @@
 ---
 source: crates/faro/src/ui/tests.rs
-expression: "text.replace(env!(\"CARGO_PKG_VERSION\"), \"<version>\")"
+expression: text
 ---
 ╭ Conversations ─────────────╮╭ Climbing 🧗 ───────────────────────────────────────────────────────╮
 │ ▾ Pinned                   ││ 16:30   Alice 🌸 Anyone up for the wall on Thursday?               │
@@ -8,7 +8,7 @@ expression: "text.replace(env!(\"CARGO_PKG_VERSION\"), \"<version>\")"
 │ ▾ Recent                   ││                  👍 2  ❤️                                          │
 │   # Climbing 🧗            ││ ───────────────────────────── Today ────────────────────────────── │
 │ ●   Alice 🌸      ╭ About ──────────────────────────────────────────────────╮wall on Thursday?   │
-│                   │            faro <version>                               │are harness         │
+│                   │            faro 1.2.3 · abc1234 · 2026-01-01            │are harness         │
 │                   │    ▄█▄     terminal messenger · unofficial Signal client│                    │
 │                   │    ███                                                  │                    │
 │                   │   ▀▀▀▀▀    https://getfaro.dev                          │                    │

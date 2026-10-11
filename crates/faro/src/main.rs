@@ -9,6 +9,7 @@ mod signal;
 mod theme;
 mod tui;
 mod ui;
+mod version;
 
 use anyhow::Context as _;
 use faro_core::backend::{Backend, BackendEvents};
