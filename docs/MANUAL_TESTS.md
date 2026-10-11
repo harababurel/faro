@@ -336,7 +336,7 @@ In kitty, with an image copied on the machine you type on (e.g. *Copy Image* in 
 - [x] **No image:** copy some text, `Ctrl+V`: "No image on the clipboard".
 - [ ] **Too large:** an image over 25 MB: "Image too large (over 25.0 MB)", and typing works afterwards.
 - [ ] **Two kitty windows attached** to the same tmux session (as on the Mac mini): `Ctrl+V` in one stages the image from that machine's clipboard; the other screen may show a kitty prompt. Answering it later (allow or deny) changes nothing in faro and types nothing.
-- [ ] **Late answer:** `Ctrl+V`, wait over 2 minutes without answering ("No answer from kitty…"), then allow: nothing is typed into faro, and keys keep working.
+- [x] **Late answer:** `Ctrl+V` and leave kitty's prompt unanswered for over 2 minutes. The prompt covers faro, so you won't see "No answer from kitty…" until it's gone. Then allow: nothing is staged, nothing is typed into faro, and keys keep working. (A demo fault notice may replace the footer meanwhile; use `faro demo --no-faults` to avoid it.)
 - [x] **Elsewhere:** in a terminal that isn't kitty, `Ctrl+V` says "Pasting images needs kitty" at once.
 - [ ] **Over mosh:** from kitty through mosh, `Ctrl+V` says "Pasting images doesn't work over mosh".
 - [x] **No leftovers:** after sending a pasted image, `ls <data dir>/attachments/clipboard-*` finds nothing (the sent copy has the message's name); paste one, remove it with `Esc`, restart faro: it's gone too.
