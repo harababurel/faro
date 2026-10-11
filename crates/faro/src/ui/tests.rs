@@ -1106,6 +1106,31 @@ fn match_widths_fills_the_dent_of_a_short_bubble_between_wider_ones() {
     }
 }
 
+#[test]
+fn a_link_longer_than_a_bubble_widens_it_instead_of_being_split() {
+    let url = "https://example.org/a/rather/long/path/that/would/not/fit/in/a/bubble?q=1";
+    for state in [rounded(bubbles_state()), bar(bubbles_state())] {
+        let mut state = state;
+        let minute = 60_000;
+        state.open.as_mut().unwrap().messages = vec![
+            fixtures::text(
+                climbing(),
+                ALICE,
+                NOW_MS - 2 * minute,
+                &format!("look: {url}."),
+            ),
+            fixtures::text(climbing(), ME, NOW_MS - minute, &format!("{url} nice")),
+        ];
+        let buffer = draw(&state, 120, 34);
+        let text = snapshot(&buffer);
+        assert_eq!(
+            text.lines().filter(|l| l.contains(url)).count(),
+            2,
+            "each link on one row\n{text}"
+        );
+    }
+}
+
 // --- Emoji every terminal measures alike (M4.5, D47) ---
 
 fn compatible(mut state: State) -> State {

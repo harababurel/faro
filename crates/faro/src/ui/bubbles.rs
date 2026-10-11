@@ -36,6 +36,7 @@ use super::View;
 use super::messages::{ImageSlot, content, delivery, message_time, reactions};
 use super::text::{sanitize, truncate, width};
 use crate::app::state::{BlockGlyphs, State};
+use crate::app::update::selection::find_links;
 use crate::theme::Theme;
 
 pub(super) use self::grid::is_edge;
@@ -151,6 +152,26 @@ impl Frame {
         }
     }
 
+    /// The widest `message`'s text area may be: `max_inner`, or wider, up to
+    /// the whole pane, so that a link fits on one line and stays clickable
+    /// (D102). Text wraps at spaces, so it's the widest word holding a link.
+    fn max_inner_for(&self, message: &Message, pane: usize) -> usize {
+        let full = pane.saturating_sub(2 + self.pads.0 + self.pads.1).max(1);
+        let longest = message.body.as_ref().map_or(0, |body| {
+            body.expose()
+                .split_whitespace()
+                .filter(|word| !find_links(word).is_empty())
+                .map(|word| width(&sanitize(word)))
+                .max()
+                .unwrap_or(0)
+        });
+        if longest > self.max_inner {
+            longest.min(full)
+        } else {
+            self.max_inner
+        }
+    }
+
     /// The outline of a bubble whose text area is `inner` wide.
     fn outline(&self, inner: usize, pane: usize, own: bool) -> Outline {
         let width = inner + 2 + self.pads.0 + self.pads.1;
@@ -173,8 +194,9 @@ impl Frame {
 pub(super) fn measure(state: &State, message: &Message, pane: usize, view: &View<'_>) -> usize {
     let own = matches!(message.direction, Direction::Outgoing(_));
     let frame = Frame::new(state, view.theme, pane, own);
-    let (lines, _) = content(state, message, frame.max_inner, view);
-    with_meta(lines, state, message, view, frame.max_inner, 0).1
+    let max_inner = frame.max_inner_for(message, pane);
+    let (lines, _) = content(state, message, max_inner, view);
+    with_meta(lines, state, message, view, max_inner, 0).1
 }
 
 /// Where `message` sits when its text area is `inner` wide (D98).
@@ -215,15 +237,9 @@ pub(super) fn render(
         ]));
     }
 
-    let (content_lines, pending_images) = content(state, message, frame.max_inner, view);
-    let (lines, inner) = with_meta(
-        content_lines,
-        state,
-        message,
-        view,
-        frame.max_inner,
-        run.inner,
-    );
+    let max_inner = frame.max_inner_for(message, pane);
+    let (content_lines, pending_images) = content(state, message, max_inner, view);
+    let (lines, inner) = with_meta(content_lines, state, message, view, max_inner, run.inner);
     let colour = if own {
         theme.bubble_own
     } else {

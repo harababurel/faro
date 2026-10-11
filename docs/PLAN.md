@@ -347,6 +347,7 @@ Start after Wave 2 is merged to `origin/main`. Run **Tracks 3A and 3B in paralle
 - Drag-resizable sidebars with hover highlight
 - Optional sync of hidden/allowlist state via config
 - Recording and sending voice notes
+- Terminal hyperlinks (OSC 8) for links in messages, so a link split over lines still opens whole (kitty; tmux 3.4+ with the `hyperlinks` terminal feature). ratatui has no support, so it goes through `tui/backend.rs`; needs replays and hands-on checks (D102).
 - Packaging (cargo-dist binaries, Homebrew tap, AUR `faro-bin`/`faro-git`, `.deb`, Nix flake)
 - Paste images from the local clipboard over SSH (kitty OSC 5522, tmux passthrough, not mosh; D89). Tested by hand on the owner's setup; phased plan in [research/clipboard-image-paste.md](research/clipboard-image-paste.md). Phase 0 (input-handling spike) done: pause crossterm and read the tty directly (D90). Phase 1 done: `faro-core::clipboard` (requests, `Reader`). Phase 2 done: `Ctrl+V` stages the image, `Ctrl+O` shows it (D91; owner's hands-on checks in MANUAL_TESTS "Clipboard images"). Phase 3 (kitty paste events, plain `Cmd+V`) later, starting with a hand test.
 

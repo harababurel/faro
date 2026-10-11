@@ -7,6 +7,8 @@ use std::ops::Range;
 use unicode_segmentation::UnicodeSegmentation as _;
 use unicode_width::UnicodeWidthStr as _;
 
+use crate::app::update::selection::find_links;
+
 /// What Signal puts in a body where someone is mentioned.
 const MENTION_PLACEHOLDER: char = '\u{FFFC}';
 
@@ -134,6 +136,38 @@ fn cut_pieces<T: Copy>(
         .collect()
 }
 
+/// Where `text` may break: Unicode word boundaries (spaces, punctuation,
+/// between CJK characters…), except inside a link, which stays whole so it
+/// fits on a line of its own and stays clickable when it can (D102).
+fn words<'a>(text: &'a str) -> Vec<(usize, &'a str)> {
+    let mut words = Vec::new();
+    let mut run_start = 0;
+    let mut run_space = None;
+    let add_run = |from: usize, to: usize, words: &mut Vec<(usize, &'a str)>| {
+        let Some(run) = text.get(from..to).filter(|r| !r.is_empty()) else {
+            return;
+        };
+        if !run.starts_with(char::is_whitespace) && !find_links(run).is_empty() {
+            words.push((from, run));
+        } else {
+            words.extend(
+                run.split_word_bound_indices()
+                    .map(|(offset, word)| (from + offset, word)),
+            );
+        }
+    };
+    for (at, c) in text.char_indices() {
+        let space = c.is_whitespace();
+        if run_space.is_some_and(|was| was != space) {
+            add_run(run_start, at, &mut words);
+            run_start = at;
+        }
+        run_space = Some(space);
+    }
+    add_run(run_start, text.len(), &mut words);
+    words
+}
+
 /// The byte ranges of `text` (one paragraph, sanitised) that make up its
 /// wrapped lines, trailing spaces left out. Always at least one range.
 fn wrap_ranges(text: &str, max: usize) -> Vec<Range<usize>> {
@@ -151,7 +185,7 @@ fn wrap_ranges(text: &str, max: usize) -> Vec<Range<usize>> {
         lines.push(from..from + trimmed);
         *used = 0;
     };
-    for (at, word) in text.split_word_bound_indices() {
+    for (at, word) in words(text) {
         let w = width(word);
         if word.chars().all(char::is_whitespace) {
             if used + w > max {
@@ -193,6 +227,22 @@ fn wrap_ranges(text: &str, max: usize) -> Vec<Range<usize>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn links_move_to_a_line_of_their_own_instead_of_splitting() {
+        let url = "https://example.org/a/long/path";
+        assert_eq!(
+            wrap(&format!("see this: {url}, ok"), 32),
+            ["see this:", "https://example.org/a/long/path,", "ok"]
+        );
+        // Wider than a line: still split, between graphemes.
+        assert_eq!(wrap(url, 20), ["https://example.org/", "a/long/path"]);
+        // Other words still break at punctuation as before.
+        assert_eq!(
+            wrap("one/two/three/four", 8),
+            ["one/two/", "three/", "four"]
+        );
+    }
 
     /// Plain text wrapped paragraph by paragraph, without pieces: what
     /// [`wrap_pieces`] must agree with.

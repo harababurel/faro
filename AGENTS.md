@@ -129,6 +129,7 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 - 2026-10-11: D99: defaults `density = "compact"`, `timestamps = "relative"` (`bubble_style` stays `auto`; the owner sets `rounded` in their own config); palette sections `Appearance` / `Messages` / `Bubbles`, the Bubbles rows dimmed and unselectable under IRC (`Item::disabled`, `Setting::bubbles_only`; `Palette::selected_item` never returns a header or a disabled row). Fixtures pin comfortable/absolute. Owner's hands-on checks pending (MANUAL_TESTS "Defaults and the Bubbles section").
 - 2026-10-11: D100: `Ctrl+R` in `Settings ›` puts one setting back to its default and writes the value out (`settings::reset` → `apply` + `save`); `*` marks settings that differ from their default (`Setting::key`, `Setting::changed`, `Item::changed`). Owner's hands-on check pending (MANUAL_TESTS "Reset a setting").
 - 2026-10-11: D101: `match_widths` fills dents in a compact run before the 3-cell matching (`messages::line_up`, run lined up once per window within `MATCH_REACH`, kept in `Context::matched`). Owner's hands-on check pending (MANUAL_TESTS "No dents").
+- 2026-10-11: D102: links stay whole when wrapping (`text::words`) and a bubble may widen up to the pane for a long link (`Frame::max_inner_for`); OSC 8 hyperlinks added to the PLAN backlog. Owner's hands-on check pending (MANUAL_TESTS "Links on one line").
 
 ### Gotchas found so far
 
