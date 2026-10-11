@@ -202,16 +202,16 @@ Switch with the palette (`Ctrl+P` › Themes) or `theme = "…"` in the config; 
 
 - [ ] `faro demo --allowlist <file>` with a missing file, or with `people = ["someone"]`: faro exits at once with an error naming the file and the problem.
 - [ ] With an empty list (`people = []` and `groups = []`): no conversations show up in the demo. The log says `allowlist guard on … people=0 groups=0` and counts dropped events, never names or text.
-- [ ] With a real account (M7): a message from someone off the list never appears. Sending to an allowed chat works.
+- [x] With a real account (M7): a message from someone off the list never appears. Sending to an allowed chat works.
 
 ## M7: the Signal backend (D63)
 
-- [ ] Contacts (D68), personal account: a minute after starting, `Ctrl+P` › Chats lists your Signal contacts (no restart needed; an iPhone answers only once Signal is opened on it); the log says "asked the phone for its contacts" and "contacts synced from the phone".
-- [ ] `--no-allowlist` (D67), on your own account: faro starts, the footer says `no allowlist`, and every chat shows up as messages arrive. Without either flag faro refuses and names both.
+- [x] Contacts (D68), personal account: a minute after starting, `Ctrl+P` › Chats lists your Signal contacts (no restart needed; an iPhone answers only once Signal is opened on it); the log says "asked the phone for its contacts" and "contacts synced from the phone".
+- [x] `--no-allowlist` (D67), on your own account: faro starts, the footer says `no allowlist`, and every chat shows up as messages arrive. Without either flag faro refuses and names both.
 
 Use a separate data dir for the test account, e.g. `--data-dir ~/.local/share/faro-test`.
 
-- [ ] `faro link --data-dir …` shows a QR code that the phone scans at once (Signal › Settings › Linked devices › Link new device). The phone lists "faro (<host>)". faro prints the account's ID.
+- [x] `faro link --data-dir …` shows a QR code that the phone scans at once (Signal › Settings › Linked devices › Link new device). The phone lists "faro (<host>)". faro prints the account's ID.
 - [x] Running `faro link` again on the same data dir refuses and explains how to start over.
 - [x] `faro ids --data-dir … --username <yours>` prints your ID and, after a message in the test group, the group's title and ID, plus an allowlist to copy.
 - [x] `faro --data-dir …` without `--allowlist` refuses to start.
@@ -226,7 +226,7 @@ Use a separate data dir for the test account, e.g. `--data-dir ~/.local/share/fa
 - [x] Read in faro (D71): send a message to the test account from another phone or person, leave it unread on the test phone, then open the chat in faro (terminal focused, at the bottom): within a few seconds the test phone's unread badge for that chat clears. The sender still sees it as read (✓✓ filled).
 - [x] Mentions (D72): in the test group, have someone mention you and someone else from their phone (type `@` and pick). In faro both show as `@Name` in bold accent, yours (`@You`) reversed, in IRC and in bubbles (`Ctrl+P` › `:` › Layout), never as a blank box; wrapped mentions keep their colour on the next line. `y` on the message copies the names as text. Set the group to "mentions only" (`@`), unfocus the terminal: a message mentioning you rings the bell, one mentioning only someone else doesn't. Mute the group: a mention of you no longer rings. Edit a message on the phone to add or remove a mention: faro follows.
 - [x] Reaction removal (D73): react to a message in faro (`+`), check the phone shows it, then pick the same emoji again in faro: the reaction disappears on the phone (Android and iOS), not only in faro. Switching to another emoji replaces it on the phone.
-- [ ] Wi-Fi off: the footer shows the connection dropping and coming back. Messages sent meanwhile arrive after reconnecting.
+- [ ] Wi-Fi off: the footer shows the connection dropping and coming back. Messages sent meanwhile arrive after reconnecting. *(Deferred by the owner, 2026-10-11: do it on the Mac mini.)*
 - [x] Restarting keeps the history.
 
 ## M9: attachments and inline images (D75–D79)
