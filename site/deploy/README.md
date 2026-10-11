@@ -16,6 +16,11 @@ It assumes a Debian/Ubuntu server with Docker (and the Compose plugin), nginx, c
 
 The nginx files are **copied**, not included from the repo, because certbot edits the files it finds. If one changes in the repo, copy it again and re-run certbot. Don't edit the installed copy by hand.
 
+**Other layouts.** The paths above are Debian's. Adapt them as needed; the runbook was also followed on a server without `sites-available`/`sites-enabled`:
+- **nginx:** if all sites live in one `nginx.conf`, make a folder (say `/etc/nginx/sites.d/`), put the two site files there, and add `include /etc/nginx/sites.d/*.conf;` inside `http {}`. Skip the `ln -s` steps. certbot edits the files in that folder as usual.
+- **logrotate:** `create 0640 www-data adm` needs a user and group that exist. Use `root adm` (nginx's master process opens the logs as root). Check that the logrotate timer is enabled and that `/run/nginx.pid` exists.
+- **Dynamic DNS:** if the IP changes, the DNS records for both domains have to be kept up to date by your dynamic-DNS client.
+
 ---
 
 ## 0. Checks
@@ -51,7 +56,7 @@ sudo chown -R "$USER": /srv/plausible
 cp <repo>/site/deploy/plausible/compose.override.yml /srv/plausible/
 <repo>/site/deploy/plausible/write-env.sh /srv/plausible     # secrets; never overwrites
 cd /srv/plausible && docker compose up -d
-curl -sI http://127.0.0.1:8000 | head -1                     # HTTP/1.1 200 OK (give it a minute)
+curl -sI http://127.0.0.1:8000 | head -1                     # 200 OK or 302 Found (a redirect to the login page); give it a minute
 ss -ltn | grep 8000                                          # must show 127.0.0.1:8000, not 0.0.0.0
 ```
 
