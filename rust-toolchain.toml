@@ -1,4 +1,6 @@
 [toolchain]
 channel = "1.99"
 components = ["rustfmt", "clippy"]
+# The web demo (M13).
+targets = ["wasm32-unknown-unknown"]
 profile = "minimal"

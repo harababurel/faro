@@ -50,3 +50,19 @@ jobs:
 
       - name: Test
         run: cargo test --locked
+
+  # The shared code builds for the browser (M13): no protoc needed, nothing native.
+  wasm:
+    name: wasm32
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Installs the toolchain and the wasm32 target pinned in rust-toolchain.toml.
+      - name: Install Rust
+        run: rustup toolchain install && rustc --version
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Clippy (faro-core, wasm32)
+        run: cargo clippy -p faro-core --target wasm32-unknown-unknown --no-default-features --locked -- -D warnings

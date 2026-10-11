@@ -20,3 +20,4 @@ deploy-test/etc/
 deploy-test/log/
 deploy-test/run/
 deploy-test/origin/
+wasm-deps/

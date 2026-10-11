@@ -1,16 +1,23 @@
 //! faro's own database: message history, conversations and UI state (DESIGN §6).
 //!
-//! The store runs as one tokio task that owns the only connection (D22). The rest
+//! The store runs as one task that owns the only connection (D22). The rest
 //! of the app holds a cheap, cloneable [`Store`] handle and talks to the task over a
 //! channel, so nothing outside this module ever waits on SQLite directly.
+//!
+//! Two engines serve the same requests: SQLite (`db.rs`, the `sqlite` feature,
+//! the native app) and memory (`mem.rs`, always built, the web demo, M13). The
+//! test suite runs against both.
 //!
 //! Applying the same backend event twice is harmless: duplicates are ignored,
 //! receipts never regress and only newer edits win.
 
 use std::collections::HashMap;
+#[cfg(feature = "sqlite")]
 use std::path::{Path, PathBuf};
+#[cfg(feature = "sqlite")]
 use std::str::FromStr as _;
 
+#[cfg(feature = "sqlite")]
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous};
 use tokio::sync::{mpsc, oneshot};
 
@@ -19,21 +26,29 @@ use crate::domain::{
     AttachmentRef, Contact, ConversationId, DeliveryStatus, Group, Message, MessageBody,
     MessageRef, PhoneNumber, ServiceId, Timestamp,
 };
+#[cfg(feature = "sqlite")]
 use crate::paths;
 
 mod codec;
+#[cfg(feature = "sqlite")]
 mod db;
+mod mem;
 #[cfg(test)]
+#[cfg(feature = "sqlite")]
 mod tests;
 
+#[cfg(feature = "sqlite")]
 use db::Db;
+use mem::Mem;
 
 pub type Result<T, E = StoreError> = std::result::Result<T, E>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
+    #[cfg(feature = "sqlite")]
     #[error("database error: {0}")]
     Database(#[from] sqlx::Error),
+    #[cfg(feature = "sqlite")]
     #[error("database migration failed: {0}")]
     Migration(#[from] sqlx::migrate::MigrateError),
     #[error("could not prepare the database file: {0}")]
@@ -102,6 +117,41 @@ pub enum ProfileMismatch {
     /// Marked by something this version doesn't know.
     #[error("this database is marked as `{0}`, which this version of faro doesn't know")]
     Unknown(String),
+}
+
+/// What a database says about its [`Profile`] (D87).
+pub(super) enum StoredProfile {
+    /// No tables at all: a brand-new (or empty) file.
+    #[cfg_attr(
+        not(feature = "sqlite"),
+        expect(dead_code, reason = "only the SQLite engine has files")
+    )]
+    New,
+    /// No profile yet; `empty` if it holds no history or app state either.
+    Unmarked { empty: bool },
+    /// The stored value, possibly one this version doesn't know.
+    Marked(String),
+}
+
+/// Whether a database may be used as `wanted`: `Ok(true)` if it still has to
+/// be marked, `Ok(false)` if it already is (D87).
+pub(super) fn decide(wanted: Profile, stored: StoredProfile) -> Result<bool, ProfileMismatch> {
+    match stored {
+        StoredProfile::Marked(text) => match (wanted, Profile::parse(&text)) {
+            (Profile::Demo, Some(Profile::Demo)) | (Profile::Signal, Some(Profile::Signal)) => {
+                Ok(false)
+            }
+            (Profile::Signal, Some(Profile::Demo)) => Err(ProfileMismatch::DemoDatabase),
+            (Profile::Demo, Some(Profile::Signal)) => Err(ProfileMismatch::SignalDatabase),
+            (Profile::Demo | Profile::Signal, None) => Err(ProfileMismatch::Unknown(text)),
+        },
+        // History from before profiles existed is a real account's; the demo
+        // only takes a database with nothing in it.
+        StoredProfile::Unmarked { empty: false } if wanted == Profile::Demo => {
+            Err(ProfileMismatch::UnmarkedHistory)
+        }
+        StoredProfile::New | StoredProfile::Unmarked { .. } => Ok(true),
+    }
 }
 
 /// One row of the conversation list.
@@ -285,6 +335,7 @@ impl Store {
     /// before anything touches it (no permission change, journal mode switch
     /// or migration); one that fits is marked as `profile` once it's up to
     /// date ([`Store::claim_profile`], D87).
+    #[cfg(feature = "sqlite")]
     pub async fn open(path: &Path, profile: Profile) -> Result<Self> {
         let owned: PathBuf = path.to_owned();
         let exists = tokio::task::spawn_blocking(move || paths::exists(&owned))
@@ -312,21 +363,36 @@ impl Store {
     /// The profile the database at `path` is marked with, read without
     /// changing anything; `None` if it isn't marked (D87). For `faro demo
     /// --fresh`, which only deletes a demo database.
+    #[cfg(feature = "sqlite")]
     pub async fn profile_of(path: &Path) -> Result<Option<Profile>> {
         db::profile_of(path).await
     }
 
-    /// A throwaway in-memory store, for tests and the mock.
+    /// A throwaway SQLite database in memory, for tests.
+    #[cfg(feature = "sqlite")]
     pub async fn open_in_memory() -> Result<Self> {
         let options = SqliteConnectOptions::from_str("sqlite::memory:")?.foreign_keys(true);
         Self::start(&options).await
     }
 
+    #[cfg(feature = "sqlite")]
     async fn start(options: &SqliteConnectOptions) -> Result<Self> {
         let db = Db::open(options).await?;
+        Ok(Self::serving(Engine::Sqlite(db)))
+    }
+
+    /// A store on the in-memory engine (no SQLite): the web demo's (M13).
+    /// Nothing outlives the store. Starts the store task, so it must be called
+    /// where [`crate::rt::spawn`] works.
+    pub fn memory() -> Self {
+        Self::serving(Engine::Memory(Mem::default()))
+    }
+
+    fn serving(engine: Engine) -> Self {
         let (requests, queue) = mpsc::channel(QUEUE);
-        tokio::spawn(serve(db, queue));
-        Ok(Self { requests })
+        // Runs until every `Store` handle is dropped; the handle isn't needed.
+        let _server = crate::rt::spawn(serve(engine, queue));
+        Self { requests }
     }
 
     /// Persist a backend event. Transient events (connection, typing, errors) are ignored.
@@ -522,37 +588,72 @@ impl Store {
     }
 }
 
+/// The engine behind a [`Store`].
+enum Engine {
+    #[cfg(feature = "sqlite")]
+    Sqlite(Db),
+    Memory(Mem),
+}
+
+/// Close the engine (flush and close SQLite; nothing to do in memory).
+#[cfg_attr(
+    not(feature = "sqlite"),
+    expect(clippy::unused_async, reason = "only the SQLite engine awaits")
+)]
+async fn close(engine: Engine) -> Result<()> {
+    match engine {
+        #[cfg(feature = "sqlite")]
+        Engine::Sqlite(db) => db.close().await,
+        Engine::Memory(_) => Ok(()),
+    }
+}
+
+/// Run the same operation on either engine (SQLite's are async).
+macro_rules! call {
+    ($engine:expr, $method:ident($($arg:expr),*)) => {
+        match $engine {
+            #[cfg(feature = "sqlite")]
+            Engine::Sqlite(db) => db.$method($($arg),*).await,
+            Engine::Memory(mem) => mem.$method($($arg),*),
+        }
+    };
+}
+
 /// The store task: handle requests one at a time until closed or every handle is gone.
-async fn serve(mut db: Db, mut queue: mpsc::Receiver<Request>) {
+async fn serve(mut engine: Engine, mut queue: mpsc::Receiver<Request>) {
     while let Some(request) = queue.recv().await {
-        if let Some(reply) = handle(&mut db, request).await {
+        if let Some(reply) = handle(&mut engine, request).await {
             queue.close();
             // The caller may have stopped waiting; nothing to do then.
-            let _ = reply.send(db.close().await);
+            let _ = reply.send(close(engine).await);
             return;
         }
     }
-    if let Err(error) = db.close().await {
+    if let Err(error) = close(engine).await {
         tracing::warn!(%error, "closing the store failed");
     }
 }
 
 /// Handle one request. Returns the reply channel if it was `Close`.
-async fn handle(db: &mut Db, request: Request) -> Option<Reply<()>> {
+#[cfg_attr(
+    not(feature = "sqlite"),
+    expect(clippy::unused_async, reason = "only the SQLite engine awaits")
+)]
+async fn handle(engine: &mut Engine, request: Request) -> Option<Reply<()>> {
     // A caller that stopped waiting (dropped its future) just misses the reply,
     // hence the ignored `send` results.
     match request {
         Request::Apply(event, reply) => {
-            let _ = reply.send(db.apply(*event).await);
+            let _ = reply.send(call!(engine, apply(*event)));
         }
         Request::UpsertContacts(contacts, reply) => {
-            let _ = reply.send(db.upsert_contacts(&contacts).await);
+            let _ = reply.send(call!(engine, upsert_contacts(&contacts)));
         }
         Request::UpsertGroups(groups, reply) => {
-            let _ = reply.send(db.upsert_groups(&groups).await);
+            let _ = reply.send(call!(engine, upsert_groups(&groups)));
         }
         Request::Conversations(reply) => {
-            let _ = reply.send(db.conversations().await);
+            let _ = reply.send(call!(engine, conversations()));
         }
         Request::Messages {
             conversation,
@@ -560,7 +661,7 @@ async fn handle(db: &mut Db, request: Request) -> Option<Reply<()>> {
             limit,
             reply,
         } => {
-            let _ = reply.send(db.messages(conversation, before, limit).await);
+            let _ = reply.send(call!(engine, messages(conversation, before, limit)));
         }
         Request::MessagesAround {
             conversation,
@@ -568,7 +669,7 @@ async fn handle(db: &mut Db, request: Request) -> Option<Reply<()>> {
             radius,
             reply,
         } => {
-            let _ = reply.send(db.messages_around(conversation, target, radius).await);
+            let _ = reply.send(call!(engine, messages_around(conversation, target, radius)));
         }
         Request::SearchMessages {
             conversation,
@@ -576,46 +677,46 @@ async fn handle(db: &mut Db, request: Request) -> Option<Reply<()>> {
             limit,
             reply,
         } => {
-            let _ = reply.send(db.search_messages(conversation, &query, limit).await);
+            let _ = reply.send(call!(engine, search_messages(conversation, &query, limit)));
         }
         Request::MessageReceipts(message, reply) => {
-            let _ = reply.send(db.message_receipts(message).await);
+            let _ = reply.send(call!(engine, message_receipts(message)));
         }
         Request::SetConversationState(conversation, state, reply) => {
-            let _ = reply.send(db.set_conversation_state(conversation, &state).await);
+            let _ = reply.send(call!(engine, set_conversation_state(conversation, &state)));
         }
         Request::SetAttachment(message, index, attachment, reply) => {
-            let _ = reply.send(db.set_attachment(message, index, &attachment).await);
+            let _ = reply.send(call!(engine, set_attachment(message, index, &attachment)));
         }
         Request::MarkRead(conversation, reply) => {
-            let _ = reply.send(db.mark_read(conversation).await);
+            let _ = reply.send(call!(engine, mark_read(conversation)));
         }
         Request::ReadElsewhere(messages, reply) => {
-            let _ = reply.send(db.read_elsewhere(&messages).await);
+            let _ = reply.send(call!(engine, read_elsewhere(&messages)));
         }
         Request::FailUnsent(reply) => {
-            let _ = reply.send(db.fail_unsent().await);
+            let _ = reply.send(call!(engine, fail_unsent()));
         }
         Request::ClaimProfile(profile, reply) => {
-            let _ = reply.send(db.claim_profile(profile).await);
+            let _ = reply.send(call!(engine, claim_profile(profile)));
         }
         Request::AppState(key, reply) => {
-            let _ = reply.send(db.app_state(&key).await);
+            let _ = reply.send(call!(engine, app_state(&key)));
         }
         Request::SetAppState(key, value, reply) => {
-            let _ = reply.send(db.set_app_state(&key, &value).await);
+            let _ = reply.send(call!(engine, set_app_state(&key, &value)));
         }
         Request::RemoveAppState(key, reply) => {
-            let _ = reply.send(db.remove_app_state(&key).await);
+            let _ = reply.send(call!(engine, remove_app_state(&key)));
         }
         Request::Stats(reply) => {
-            let _ = reply.send(db.stats().await);
+            let _ = reply.send(call!(engine, stats()));
         }
         Request::Nicknames(reply) => {
-            let _ = reply.send(db.nicknames().await);
+            let _ = reply.send(call!(engine, nicknames()));
         }
         Request::SetNickname(id, nickname, reply) => {
-            let _ = reply.send(db.set_nickname(id, nickname.as_deref()).await);
+            let _ = reply.send(call!(engine, set_nickname(id, nickname.as_deref())));
         }
         Request::Close(reply) => return Some(reply),
     }

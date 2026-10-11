@@ -13,8 +13,8 @@ use super::codec::{
     timestamp_from_db, timestamp_to_db,
 };
 use super::{
-    ConversationState, ConversationSummary, NotifyLevel, PROFILE_KEY, Profile, ProfileMismatch,
-    RecipientReceipt, Result, SearchHit, StoreError, StoreStats,
+    ConversationState, ConversationSummary, NotifyLevel, PROFILE_KEY, Profile, RecipientReceipt,
+    Result, SearchHit, StoreError, StoreStats, StoredProfile, decide,
 };
 use crate::backend::BackendEvent;
 use crate::domain::{
@@ -901,16 +901,6 @@ impl Db {
     }
 }
 
-/// What a database says about its [`Profile`] (D87).
-enum StoredProfile {
-    /// No tables at all: a brand-new (or empty) file.
-    New,
-    /// No profile yet; `empty` if it holds no history or app state either.
-    Unmarked { empty: bool },
-    /// The stored value, possibly one this version doesn't know.
-    Marked(String),
-}
-
 /// Read the profile without changing anything; works before migrations.
 async fn stored_profile(conn: &mut SqliteConnection) -> Result<StoredProfile> {
     let tables: Vec<(String,)> =
@@ -961,27 +951,6 @@ async fn peek_profile(path: &Path) -> Result<StoredProfile> {
     let stored = stored_profile(&mut conn).await;
     conn.close().await?;
     stored
-}
-
-/// Whether a database may be used as `wanted`: `Ok(true)` if it still has to
-/// be marked, `Ok(false)` if it already is (D87).
-fn decide(wanted: Profile, stored: StoredProfile) -> Result<bool, ProfileMismatch> {
-    match stored {
-        StoredProfile::Marked(text) => match (wanted, Profile::parse(&text)) {
-            (Profile::Demo, Some(Profile::Demo)) | (Profile::Signal, Some(Profile::Signal)) => {
-                Ok(false)
-            }
-            (Profile::Signal, Some(Profile::Demo)) => Err(ProfileMismatch::DemoDatabase),
-            (Profile::Demo, Some(Profile::Signal)) => Err(ProfileMismatch::SignalDatabase),
-            (Profile::Demo | Profile::Signal, None) => Err(ProfileMismatch::Unknown(text)),
-        },
-        // History from before profiles existed is a real account's; the demo
-        // only takes a database with nothing in it.
-        StoredProfile::Unmarked { empty: false } if wanted == Profile::Demo => {
-            Err(ProfileMismatch::UnmarkedHistory)
-        }
-        StoredProfile::New | StoredProfile::Unmarked { .. } => Ok(true),
-    }
 }
 
 /// The profile the database at `path` is marked with, read without

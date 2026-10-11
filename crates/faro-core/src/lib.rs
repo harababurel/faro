@@ -8,15 +8,14 @@ pub mod config;
 pub mod domain;
 pub mod guard;
 pub mod mock;
-#[cfg(feature = "native")]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod paths;
-#[cfg(feature = "native")]
+pub mod rt;
 pub mod store;
 pub mod theme_file;
 
-// M13 Phase 0 spike: the browser build needs the spike's timers and clock.
-#[cfg(all(target_arch = "wasm32", not(feature = "wasm-spike")))]
-compile_error!("faro-core on wasm32 needs `--no-default-features --features wasm-spike`");
+#[cfg(all(target_arch = "wasm32", feature = "sqlite"))]
+compile_error!("the SQLite store doesn't build for wasm32: use `--no-default-features`");
 
 #[cfg(test)]
 mod architecture {

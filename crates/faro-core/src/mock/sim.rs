@@ -1196,7 +1196,7 @@ pub(super) fn millis(d: Duration) -> Millis {
 }
 
 fn wall_clock_ms() -> u64 {
-    super::rt::since_unix_epoch().map_or(0, millis)
+    crate::rt::since_unix_epoch().map_or(0, millis)
 }
 
 #[cfg(test)]

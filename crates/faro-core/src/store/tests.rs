@@ -16,6 +16,66 @@ use crate::domain::{
 };
 use crate::mock::{MockBackend, MockConfig};
 
+/// The engine a test runs on: each test in [`engines!`] runs on both.
+#[derive(Clone, Copy)]
+enum Kind {
+    Sqlite,
+    Memory,
+}
+
+impl Kind {
+    async fn open(self) -> Store {
+        match self {
+            Self::Sqlite => Store::open_in_memory().await.unwrap(),
+            Self::Memory => Store::memory(),
+        }
+    }
+}
+
+/// For each `async fn name(kind: Kind)`, the tests `name::sqlite` and
+/// `name::memory`: the engines must agree on everything.
+macro_rules! engines {
+    ($($name:ident),* $(,)?) => {$(
+        mod $name {
+            use super::Kind;
+
+            #[tokio::test]
+            async fn sqlite() {
+                super::$name(Kind::Sqlite).await;
+            }
+
+            #[tokio::test]
+            async fn memory() {
+                super::$name(Kind::Memory).await;
+            }
+        }
+    )*};
+}
+
+engines! {
+    message_round_trips_with_quote_reactions_and_attachments,
+    attachment_status_updates_and_duplicate_replay_heals_pre_m9_pointer,
+    duplicates_are_ignored_and_only_incoming_counts_as_unread,
+    reads_on_the_phone_clear_what_came_before,
+    receipts_never_regress,
+    per_recipient_receipts_upsert_and_never_downgrade,
+    unsent_messages_fail_on_startup,
+    reactions_are_set_replaced_and_removed,
+    only_newer_edits_win_and_deletes_drop_content,
+    mentions_are_kept_replaced_by_edits_and_dropped_on_delete,
+    conversations_are_ordered_and_titled,
+    pages_walk_back_without_gaps_or_overlap,
+    conversation_and_app_state_round_trip,
+    a_mute_without_end_round_trips,
+    handles_fail_cleanly_after_close,
+    a_new_database_takes_either_profile_and_keeps_it,
+    an_unmarked_database_with_history_is_a_real_account,
+    profiles_never_cross,
+    nicknames_are_kept_apart_from_contact_updates,
+    search_messages_matches_bodies_and_transcripts,
+    messages_around_returns_oldest_first_window,
+}
+
 fn aci(n: u128) -> ServiceId {
     ServiceId::Aci(Uuid::from_u128(n))
 }
@@ -60,8 +120,8 @@ fn outgoing(conversation: ConversationId, sent_at: u64, status: DeliveryStatus) 
     }
 }
 
-async fn store_with(messages: &[Message]) -> Store {
-    let store = Store::open_in_memory().await.unwrap();
+async fn store_with(kind: Kind, messages: &[Message]) -> Store {
+    let store = kind.open().await;
     for message in messages {
         store
             .apply(BackendEvent::Message(message.clone()))
@@ -87,8 +147,7 @@ async fn summary(store: &Store, id: ConversationId) -> ConversationSummary {
         .unwrap()
 }
 
-#[tokio::test]
-async fn message_round_trips_with_quote_reactions_and_attachments() {
+async fn message_round_trips_with_quote_reactions_and_attachments(kind: Kind) {
     let original = incoming(direct(ALICE), ALICE, 100, "first");
     let mut reply = incoming(direct(ALICE), ALICE, 200, "reply");
     reply.quote = Some(Quote {
@@ -114,13 +173,12 @@ async fn message_round_trips_with_quote_reactions_and_attachments() {
     }];
     reply.edited_at = Some(ts(250));
 
-    let store = store_with(&[original.clone(), reply.clone()]).await;
+    let store = store_with(kind, &[original.clone(), reply.clone()]).await;
     let page = store.messages(direct(ALICE), None, 10).await.unwrap();
     assert_eq!(page, vec![original, reply]);
 }
 
-#[tokio::test]
-async fn attachment_status_updates_and_duplicate_replay_heals_pre_m9_pointer() {
+async fn attachment_status_updates_and_duplicate_replay_heals_pre_m9_pointer(kind: Kind) {
     use crate::domain::{AttachmentStatus, TranscriptSource};
 
     let mut message = incoming(direct(ALICE), ALICE, 100, "photo");
@@ -129,7 +187,7 @@ async fn attachment_status_updates_and_duplicate_replay_heals_pre_m9_pointer() {
         size: Some(4_096),
         ..AttachmentRef::remote("cdn:12345", "image/png")
     }];
-    let store = store_with(std::slice::from_ref(&message)).await;
+    let store = store_with(kind, std::slice::from_ref(&message)).await;
 
     // Duplicate replay with full pointer + dimensions + voice_note heals metadata.
     let mut replayed = message.clone();
@@ -163,14 +221,16 @@ async fn attachment_status_updates_and_duplicate_replay_heals_pre_m9_pointer() {
     assert_eq!(stored.attachments, vec![downloaded]);
 }
 
-#[tokio::test]
-async fn duplicates_are_ignored_and_only_incoming_counts_as_unread() {
+async fn duplicates_are_ignored_and_only_incoming_counts_as_unread(kind: Kind) {
     let message = incoming(direct(ALICE), ALICE, 100, "hi");
-    let store = store_with(&[
-        message.clone(),
-        message,
-        outgoing(direct(ALICE), 200, DeliveryStatus::Sent),
-    ])
+    let store = store_with(
+        kind,
+        &[
+            message.clone(),
+            message,
+            outgoing(direct(ALICE), 200, DeliveryStatus::Sent),
+        ],
+    )
     .await;
     assert_eq!(
         store.stats().await.unwrap(),
@@ -187,19 +247,21 @@ async fn duplicates_are_ignored_and_only_incoming_counts_as_unread() {
     assert_eq!(summary(&store, direct(ALICE)).await.unread, 0);
 }
 
-#[tokio::test]
-async fn reads_on_the_phone_clear_what_came_before() {
+async fn reads_on_the_phone_clear_what_came_before(kind: Kind) {
     let alice = |at| incoming(direct(ALICE), ALICE, at, "hi");
     let in_group = |sender, at| incoming(group(), sender, at, "hey");
-    let store = store_with(&[
-        alice(100),
-        alice(200),
-        alice(300),
-        outgoing(direct(ALICE), 350, DeliveryStatus::Sent),
-        alice(400),
-        in_group(BOB, 100),
-        in_group(CAROL, 200),
-    ])
+    let store = store_with(
+        kind,
+        &[
+            alice(100),
+            alice(200),
+            alice(300),
+            outgoing(direct(ALICE), 350, DeliveryStatus::Sent),
+            alice(400),
+            in_group(BOB, 100),
+            in_group(CAROL, 200),
+        ],
+    )
     .await;
     assert_eq!(summary(&store, direct(ALICE)).await.unread, 4);
     assert_eq!(summary(&store, group()).await.unread, 2);
@@ -241,10 +303,9 @@ async fn reads_on_the_phone_clear_what_came_before() {
     assert_eq!(summary(&store, direct(ALICE)).await.unread, 0);
 }
 
-#[tokio::test]
-async fn receipts_never_regress() {
+async fn receipts_never_regress(kind: Kind) {
     let sent = outgoing(direct(ALICE), 100, DeliveryStatus::Sending);
-    let store = store_with(std::slice::from_ref(&sent)).await;
+    let store = store_with(kind, std::slice::from_ref(&sent)).await;
     let update = |status| BackendEvent::DeliveryUpdate {
         message: sent.reference(),
         status,
@@ -273,11 +334,10 @@ async fn receipts_never_regress() {
     store.apply(unknown).await.unwrap();
 }
 
-#[tokio::test]
-async fn per_recipient_receipts_upsert_and_never_downgrade() {
+async fn per_recipient_receipts_upsert_and_never_downgrade(kind: Kind) {
     let sent = outgoing(group(), 100, DeliveryStatus::Sent);
     let target = sent.reference();
-    let store = store_with(std::slice::from_ref(&sent)).await;
+    let store = store_with(kind, std::slice::from_ref(&sent)).await;
 
     let receipt = |who, status, at| BackendEvent::DeliveryUpdate {
         message: target,
@@ -321,12 +381,14 @@ async fn per_recipient_receipts_upsert_and_never_downgrade() {
     );
 }
 
-#[tokio::test]
-async fn unsent_messages_fail_on_startup() {
-    let store = store_with(&[
-        outgoing(direct(ALICE), 100, DeliveryStatus::Sending),
-        outgoing(direct(ALICE), 200, DeliveryStatus::Delivered),
-    ])
+async fn unsent_messages_fail_on_startup(kind: Kind) {
+    let store = store_with(
+        kind,
+        &[
+            outgoing(direct(ALICE), 100, DeliveryStatus::Sending),
+            outgoing(direct(ALICE), 200, DeliveryStatus::Delivered),
+        ],
+    )
     .await;
     assert_eq!(store.fail_unsent().await.unwrap(), 1);
     let statuses: Vec<_> = store
@@ -346,10 +408,9 @@ async fn unsent_messages_fail_on_startup() {
     assert_eq!(store.fail_unsent().await.unwrap(), 0);
 }
 
-#[tokio::test]
-async fn reactions_are_set_replaced_and_removed() {
+async fn reactions_are_set_replaced_and_removed(kind: Kind) {
     let message = incoming(group(), ALICE, 100, "hi all");
-    let store = store_with(std::slice::from_ref(&message)).await;
+    let store = store_with(kind, std::slice::from_ref(&message)).await;
     let react = |sender, emoji: Option<&str>| BackendEvent::Reaction {
         conversation: group(),
         target: message.reference(),
@@ -370,10 +431,9 @@ async fn reactions_are_set_replaced_and_removed() {
     );
 }
 
-#[tokio::test]
-async fn only_newer_edits_win_and_deletes_drop_content() {
+async fn only_newer_edits_win_and_deletes_drop_content(kind: Kind) {
     let message = incoming(direct(ALICE), ALICE, 100, "tpyo");
-    let store = store_with(std::slice::from_ref(&message)).await;
+    let store = store_with(kind, std::slice::from_ref(&message)).await;
     let edit = |body: &str, at| BackendEvent::Edited {
         conversation: direct(ALICE),
         target: message.reference(),
@@ -410,8 +470,7 @@ async fn only_newer_edits_win_and_deletes_drop_content() {
     assert_eq!(stored.reactions, vec![]);
 }
 
-#[tokio::test]
-async fn mentions_are_kept_replaced_by_edits_and_dropped_on_delete() {
+async fn mentions_are_kept_replaced_by_edits_and_dropped_on_delete(kind: Kind) {
     let mention = |who, start| Mention {
         who: aci(who),
         start,
@@ -419,7 +478,7 @@ async fn mentions_are_kept_replaced_by_edits_and_dropped_on_delete() {
     };
     let mut message = incoming(group(), ALICE, 100, "\u{FFFC} and \u{FFFC}");
     message.mentions = vec![mention(ME, 0), mention(BOB, 8)];
-    let store = store_with(std::slice::from_ref(&message)).await;
+    let store = store_with(kind, std::slice::from_ref(&message)).await;
     let stored = only_message(&store, group()).await;
     assert_eq!(stored.mentions, message.mentions);
 
@@ -449,9 +508,8 @@ async fn mentions_are_kept_replaced_by_edits_and_dropped_on_delete() {
     assert_eq!(only_message(&store, group()).await.mentions, vec![]);
 }
 
-#[tokio::test]
-async fn conversations_are_ordered_and_titled() {
-    let store = Store::open_in_memory().await.unwrap();
+async fn conversations_are_ordered_and_titled(kind: Kind) {
+    let store = kind.open().await;
     let contact = |n, name: Option<&str>, profile: Option<&str>| Contact {
         service_id: aci(n),
         name: name.map(str::to_owned),
@@ -509,12 +567,11 @@ async fn conversations_are_ordered_and_titled() {
     assert_eq!(list.first().map(|c| c.state.pinned), Some(Some(0)));
 }
 
-#[tokio::test]
-async fn pages_walk_back_without_gaps_or_overlap() {
+async fn pages_walk_back_without_gaps_or_overlap(kind: Kind) {
     let messages: Vec<_> = (1..=25)
         .map(|i| incoming(direct(ALICE), ALICE, i, "m"))
         .collect();
-    let store = store_with(&messages).await;
+    let store = store_with(kind, &messages).await;
     let mut seen = Vec::new();
     let mut before = None;
     let mut sizes = Vec::new();
@@ -531,9 +588,8 @@ async fn pages_walk_back_without_gaps_or_overlap() {
     assert_eq!(seen, (1..=25).collect::<Vec<_>>());
 }
 
-#[tokio::test]
-async fn conversation_and_app_state_round_trip() {
-    let store = Store::open_in_memory().await.unwrap();
+async fn conversation_and_app_state_round_trip(kind: Kind) {
+    let store = kind.open().await;
     let state = ConversationState {
         hidden: true,
         archived: true,
@@ -562,9 +618,8 @@ async fn conversation_and_app_state_round_trip() {
     store.remove_app_state("never set").await.unwrap();
 }
 
-#[tokio::test]
-async fn a_mute_without_end_round_trips() {
-    let store = Store::open_in_memory().await.unwrap();
+async fn a_mute_without_end_round_trips(kind: Kind) {
+    let store = kind.open().await;
     let state = ConversationState {
         muted_until: Some(ConversationState::MUTED_FOREVER),
         ..ConversationState::default()
@@ -601,9 +656,8 @@ async fn file_store_is_private_and_reopens() {
     store.close().await.unwrap();
 }
 
-#[tokio::test]
-async fn handles_fail_cleanly_after_close() {
-    let store = Store::open_in_memory().await.unwrap();
+async fn handles_fail_cleanly_after_close(kind: Kind) {
+    let store = kind.open().await;
     let other = store.clone();
     store.close().await.unwrap();
     assert!(matches!(other.stats().await, Err(StoreError::Closed)));
@@ -616,10 +670,9 @@ fn mismatch(result: Result<()>) -> ProfileMismatch {
     }
 }
 
-#[tokio::test]
-async fn a_new_database_takes_either_profile_and_keeps_it() {
+async fn a_new_database_takes_either_profile_and_keeps_it(kind: Kind) {
     for profile in [Profile::Demo, Profile::Signal] {
-        let store = Store::open_in_memory().await.unwrap();
+        let store = kind.open().await;
         store.claim_profile(profile).await.unwrap();
         assert_eq!(
             store.app_state(PROFILE_KEY).await.unwrap().as_deref(),
@@ -629,10 +682,9 @@ async fn a_new_database_takes_either_profile_and_keeps_it() {
     }
 }
 
-#[tokio::test]
-async fn an_unmarked_database_with_history_is_a_real_account() {
+async fn an_unmarked_database_with_history_is_a_real_account(kind: Kind) {
     let history = [incoming(direct(ALICE), ALICE, 100, "hi")];
-    let store = store_with(&history).await;
+    let store = store_with(kind, &history).await;
     assert_eq!(
         mismatch(store.claim_profile(Profile::Demo).await),
         ProfileMismatch::UnmarkedHistory
@@ -649,7 +701,7 @@ async fn an_unmarked_database_with_history_is_a_real_account() {
     );
 
     // Any app state at all counts as history, too.
-    let store = Store::open_in_memory().await.unwrap();
+    let store = kind.open().await;
     store.set_app_state("ui.last_open", "x").await.unwrap();
     assert_eq!(
         mismatch(store.claim_profile(Profile::Demo).await),
@@ -657,21 +709,20 @@ async fn an_unmarked_database_with_history_is_a_real_account() {
     );
 }
 
-#[tokio::test]
-async fn profiles_never_cross() {
-    let demo = Store::open_in_memory().await.unwrap();
+async fn profiles_never_cross(kind: Kind) {
+    let demo = kind.open().await;
     demo.claim_profile(Profile::Demo).await.unwrap();
     assert_eq!(
         mismatch(demo.claim_profile(Profile::Signal).await),
         ProfileMismatch::DemoDatabase
     );
-    let real = Store::open_in_memory().await.unwrap();
+    let real = kind.open().await;
     real.claim_profile(Profile::Signal).await.unwrap();
     assert_eq!(
         mismatch(real.claim_profile(Profile::Demo).await),
         ProfileMismatch::SignalDatabase
     );
-    let odd = Store::open_in_memory().await.unwrap();
+    let odd = kind.open().await;
     odd.set_app_state(PROFILE_KEY, "staging").await.unwrap();
     for profile in [Profile::Demo, Profile::Signal] {
         assert_eq!(
@@ -812,9 +863,8 @@ async fn restart_keeps_mock_history() {
     store.close().await.unwrap();
 }
 
-#[tokio::test]
-async fn nicknames_are_kept_apart_from_contact_updates() {
-    let store = Store::open_in_memory().await.unwrap();
+async fn nicknames_are_kept_apart_from_contact_updates(kind: Kind) {
+    let store = kind.open().await;
     assert_eq!(store.nicknames().await.unwrap(), HashMap::new());
     store
         .set_nickname(aci(ALICE), Some("Ali".to_owned()))
@@ -838,8 +888,7 @@ async fn nicknames_are_kept_apart_from_contact_updates() {
     assert_eq!(store.nicknames().await.unwrap(), HashMap::new());
 }
 
-#[tokio::test]
-async fn search_messages_matches_bodies_and_transcripts() {
+async fn search_messages_matches_bodies_and_transcripts(kind: Kind) {
     let m1 = incoming(direct(ALICE), ALICE, 100, "Meet at the crag at 9am");
     let m2 = incoming(direct(BOB), BOB, 200, "100% ready_now for the crag");
     let mut voice = incoming(direct(ALICE), ALICE, 300, "");
@@ -860,7 +909,11 @@ async fn search_messages_matches_bodies_and_transcripts() {
     }];
     let deleted = incoming(direct(ALICE), ALICE, 400, "crag secret");
 
-    let store = store_with(&[m1.clone(), m2.clone(), voice.clone(), deleted.clone()]).await;
+    let store = store_with(
+        kind,
+        &[m1.clone(), m2.clone(), voice.clone(), deleted.clone()],
+    )
+    .await;
     store
         .set_attachment(voice.reference(), 0, voice.attachments[0].clone())
         .await
@@ -900,12 +953,11 @@ async fn search_messages_matches_bodies_and_transcripts() {
     );
 }
 
-#[tokio::test]
-async fn messages_around_returns_oldest_first_window() {
+async fn messages_around_returns_oldest_first_window(kind: Kind) {
     let msgs: Vec<Message> = (1..=7)
         .map(|i| incoming(direct(ALICE), ALICE, i * 100, &format!("m{i}")))
         .collect();
-    let store = store_with(&msgs).await;
+    let store = store_with(kind, &msgs).await;
 
     let window = store
         .messages_around(direct(ALICE), ts(400), 2)

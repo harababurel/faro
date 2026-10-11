@@ -16,7 +16,6 @@
 
 mod assets;
 mod cast;
-mod rt;
 mod scenes;
 mod sim;
 mod world;
@@ -27,7 +26,6 @@ use std::time::Duration;
 
 use tokio::sync::{Notify, mpsc};
 
-use self::rt::{Instant, Task};
 use self::sim::{Millis, Sim, millis};
 use self::world::World;
 use crate::backend::{
@@ -37,6 +35,7 @@ use crate::backend::{
 use crate::domain::{
     AttachmentRef, Contact, ConversationId, Group, MessageRef, Timestamp, TypingState,
 };
+use crate::rt::{self, Instant, Task};
 
 /// Wall-clock time at which deterministic runs start: 2026-01-01T00:00:00Z.
 pub const DETERMINISTIC_EPOCH: Timestamp = Timestamp::from_millis(1_767_225_600_000);

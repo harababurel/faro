@@ -192,7 +192,8 @@ pub fn guard<B: Backend>(
         members: Mutex::new(HashMap::new()),
     });
     let (tx, rx) = mpsc::channel(EVENT_CHANNEL_CAPACITY);
-    tokio::spawn(forward(events, tx, Arc::clone(&shared)));
+    // Runs until either side closes; the handle isn't needed.
+    let _forwarder = crate::rt::spawn(forward(events, tx, Arc::clone(&shared)));
     (
         Guarded {
             inner: backend,

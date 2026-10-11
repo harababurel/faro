@@ -12,21 +12,15 @@ publish.workspace = true
 workspace = true
 
 [features]
-default = ["native"]
-# Everything that needs an operating system: the SQLite store and the XDG paths.
-native = ["dep:sqlx", "dep:etcetera", "dep:rustix"]
-# M13 Phase 0 spike (throwaway; replaced by Phase 2's seams): the mock backend on
-# wasm32-unknown-unknown, with browser timers and clock instead of tokio's.
-# cargo build -p faro-core --target wasm32-unknown-unknown --no-default-features --features wasm-spike
-wasm-spike = ["dep:gloo-timers", "dep:wasm-bindgen-futures", "dep:web-time"]
+default = ["sqlite"]
+# The SQLite store engine (native only; the web demo uses the in-memory engine).
+# For wasm32: cargo build -p faro-core --target wasm32-unknown-unknown --no-default-features
+sqlite = ["dep:sqlx"]
 
 [dependencies]
 # Already in the lock file (0.22.1); OSC 5522 payloads (D89).
 base64 = "0.22.1"
-etcetera = { version = "0.11.0", optional = true }
 fastrand = "2.5.0"
-# Already in the lock file; `process` adds `getuid` for the demo directory checks (D87).
-rustix = { version = "1.1.5", default-features = false, features = ["std", "process"], optional = true }
 serde_json = "1.0.151"
 sqlx = { version = "0.9.0", default-features = false, features = ["sqlite", "runtime-tokio", "migrate", "macros"], optional = true }
 thiserror = "2.0.21"
@@ -34,9 +28,18 @@ tokio = { version = "1.53.2", features = ["macros", "rt", "sync", "time"] }
 toml_edit = "0.25.15"
 tracing = "0.1.44"
 uuid = "1.27.0"
-gloo-timers = { version = "0.3.0", features = ["futures"], optional = true }
-wasm-bindgen-futures = { version = "0.4.79", optional = true }
-web-time = { version = "1.1.0", optional = true }
+
+# Files and paths (`paths`): native only.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+etcetera = "0.11.0"
+# Already in the lock file; `process` adds `getuid` for the demo directory checks (D87).
+rustix = { version = "1.1.5", default-features = false, features = ["std", "process"] }
+
+# The browser's clock, timers and event loop (`rt`).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+gloo-timers = { version = "0.3.0", features = ["futures"] }
+wasm-bindgen-futures = "0.4.79"
+web-time = "1.1.0"
 
 [dev-dependencies]
 tempfile = "3.27.0"

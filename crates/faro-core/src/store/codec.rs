@@ -2,6 +2,16 @@
 //!
 //! Every value read back is validated: a bad row becomes `StoreError::Corrupt`
 //! naming the column, never a panic or a silently wrong value.
+//!
+//! The memory engine (`mem.rs`) uses only the keys and range checks, so
+//! without SQLite most of this is unused.
+#![cfg_attr(
+    not(feature = "sqlite"),
+    expect(
+        dead_code,
+        reason = "the read-back codecs serve only the SQLite engine"
+    )
+)]
 
 use std::path::PathBuf;
 

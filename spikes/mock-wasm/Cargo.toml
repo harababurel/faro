@@ -16,7 +16,7 @@ faro-core = { path = "../../crates/faro-core", default-features = false }
 tokio = { version = "1.53.2", features = ["sync"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-faro-core = { path = "../../crates/faro-core", default-features = false, features = ["wasm-spike"] }
+faro-core = { path = "../../crates/faro-core", default-features = false }
 wasm-bindgen = "=0.2.129"
 wasm-bindgen-futures = "0.4.79"
 
