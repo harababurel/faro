@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 use faro_core::config::{
     AutoDownload, BubbleStyle, Choice as _, ColorChoice, DesktopNotifications, EmojiChoice,
-    InlineImages, MessageDensity, NotificationPrivacy, TimestampFormat, TranscribeMode,
+    InlineImages, MessageDensity, NotificationPrivacy, TimestampFormat, TranscribeMode, key,
 };
 use faro_core::domain::{ConversationId, MessageRef, ServiceId};
 use faro_core::store::{NotifyLevel, RemoteTranscription, SearchHit};
@@ -239,6 +239,36 @@ impl Setting {
         }
     }
 
+    /// Its key in the config file.
+    pub const fn key(self) -> &'static str {
+        match self {
+            Self::Colors => key::COLORS,
+            Self::Emoji => key::EMOJI,
+            Self::Layout => key::LAYOUT,
+            Self::BubbleStyle => key::BUBBLE_STYLE,
+            Self::BubblePadding => key::BUBBLE_PADDING,
+            Self::MatchWidths => key::MATCH_WIDTHS,
+            Self::Density => key::DENSITY,
+            Self::Timestamps => key::TIMESTAMPS,
+            Self::ReduceMotion => key::REDUCE_MOTION,
+            Self::Bell => key::BELL,
+            Self::Title => key::TITLE,
+            Self::Desktop => key::DESKTOP,
+            Self::Privacy => key::PRIVACY,
+            Self::Allowlist => key::ALLOWLIST,
+            Self::InlineImages => key::INLINE_IMAGES,
+            Self::AutoDownload => key::AUTO_DOWNLOAD,
+            Self::Transcribe => key::VOICE_TRANSCRIBE,
+            Self::Mouse => key::MOUSE,
+        }
+    }
+
+    /// Whether it differs from its default (marked in the settings list,
+    /// D100).
+    pub fn changed(self, state: &State) -> bool {
+        state.config.value(self.key()) != faro_core::config::Config::default().value(self.key())
+    }
+
     /// Whether it only changes the bubbles layout (dimmed and skipped in the
     /// settings list while the IRC layout is in use, D99).
     pub const fn bubbles_only(self) -> bool {
@@ -429,6 +459,9 @@ pub struct Item {
     /// Shown dimmed and never selected: a setting that does nothing right
     /// now (D99).
     pub disabled: bool,
+    /// A setting that differs from its default: marked before its value
+    /// (D100).
+    pub changed: bool,
 }
 
 impl Item {
@@ -441,6 +474,7 @@ impl Item {
             recent: None,
             current: None,
             disabled: false,
+            changed: false,
         }
     }
 
@@ -1141,11 +1175,7 @@ fn settings(state: &State) -> Vec<Item> {
 /// The row for `setting`, showing its current value: flipped by `Enter`
 /// if it's on/off, else opening its values.
 fn setting_item(state: &State, setting: Setting) -> Item {
-    let value = values(state, setting)
-        .into_iter()
-        .find(|(_, _, current)| *current)
-        .map(|(_, title, _)| title)
-        .unwrap_or_default();
+    let value = value_title(state, setting);
     let kind = if setting.is_switch() {
         ItemKind::Switch(setting)
     } else {
@@ -1157,7 +1187,19 @@ fn setting_item(state: &State, setting: Setting) -> Item {
             ..Item::new(kind, setting.title()).detail("bubbles layout only")
         };
     }
-    Item::new(kind, setting.title()).detail(value)
+    Item {
+        changed: setting.changed(state),
+        ..Item::new(kind, setting.title()).detail(value)
+    }
+}
+
+/// How the value of `setting` in use is shown (`on`, `compact`, …).
+pub fn value_title(state: &State, setting: Setting) -> String {
+    values(state, setting)
+        .into_iter()
+        .find(|(_, _, current)| *current)
+        .map(|(_, title, _)| title)
+        .unwrap_or_default()
 }
 
 /// The value an on/off `setting` changes to: the one not in use.

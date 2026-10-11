@@ -122,6 +122,11 @@ pub fn on_key(state: &mut State, key: PaletteKey) -> Vec<Effect> {
         }
         PaletteKey::Close => state.palette = None,
         PaletteKey::Choose => return choose(state),
+        PaletteKey::Reset => {
+            if let Some(setting) = setting_at_cursor {
+                return reset(state, setting);
+            }
+        }
     }
     vec![]
 }
@@ -637,6 +642,14 @@ fn flip(state: &mut State, setting: Setting) -> Vec<Effect> {
         return vec![];
     };
     let effects = settings::choose(state, choice);
+    refresh_in_place(state, &setting_row_kind(setting));
+    effects
+}
+
+/// Put a setting back to its default from the list (`Ctrl+R`, D100): applied
+/// and written to the file explicitly, the row updated in place.
+fn reset(state: &mut State, setting: Setting) -> Vec<Effect> {
+    let effects = settings::reset(state, setting);
     refresh_in_place(state, &setting_row_kind(setting));
     effects
 }

@@ -21,4 +21,4 @@ expression: "snapshot(&draw(&with_palette(\":notif\"), 100, 20))"
 │                            │││ Message Climbing 🧗…                                             ││
 │                            ││╰──────────────────────────────────────────────────────────────────╯│
 ╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯
- ● connected · 1 unread                            ↑↓ move · ←→ cycle · enter flip/open · esc close
+ ● connected · 1 unread           ↑↓ move · ←→ cycle · enter flip/open · ctrl+r default · esc close

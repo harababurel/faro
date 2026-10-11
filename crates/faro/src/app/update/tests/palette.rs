@@ -1379,3 +1379,46 @@ fn bubble_settings_are_dimmed_and_skipped_in_the_irc_layout() {
     enter(&mut state);
     assert!(!state.config.messages.bubble_padding);
 }
+
+#[test]
+fn ctrl_r_puts_a_setting_back_to_its_default_and_writes_it() {
+    use faro_core::config::TimestampFormat;
+    let mut state = loaded_state();
+    // The fixtures use absolute times; the default is relative (D99).
+    assert_eq!(state.config.messages.timestamps, TimestampFormat::Absolute);
+    palette_open(&mut state, ":timestamps");
+    assert_eq!(selected_title(&state), "Timestamps");
+    let changed = |state: &State| {
+        state
+            .palette
+            .as_ref()
+            .unwrap()
+            .selected_item()
+            .unwrap()
+            .changed
+    };
+    assert!(changed(&state), "marked as changed");
+
+    let effects = update(&mut state, ctrl('r'));
+    assert_eq!(state.config.messages.timestamps, TimestampFormat::Relative);
+    // Written out explicitly, not commented out.
+    assert_eq!(
+        effects,
+        vec![saved(key::TIMESTAMPS, ConfigValue::Text("relative".into()))]
+    );
+    assert!(state.palette.is_some(), "the palette stays open");
+    assert_eq!(selected_title(&state), "Timestamps");
+    assert!(!changed(&state));
+    let text = &state.notice.as_ref().unwrap().text;
+    assert!(text.contains("back to its default"), "{text}");
+
+    // Again: nothing to do.
+    assert_eq!(update(&mut state, ctrl('r')), vec![]);
+    let text = &state.notice.as_ref().unwrap().text;
+    assert!(text.contains("already at its default"), "{text}");
+
+    // Elsewhere in the palette Ctrl+R does nothing.
+    update(&mut state, ctrl('u'));
+    typed(&mut state, "@bo");
+    assert_eq!(update(&mut state, ctrl('r')), vec![]);
+}

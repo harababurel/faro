@@ -94,6 +94,8 @@ pub enum PaletteKey {
     PageDown,
     Choose,
     Close,
+    /// Put the selected setting back to its default (D100).
+    Reset,
     Edit(Edit),
 }
 
@@ -455,6 +457,7 @@ pub fn palette_action(keymap: &Keymap, key: KeyEvent) -> Option<Action> {
         (KeyCode::PageDown, _) => PaletteKey::PageDown,
         (KeyCode::Enter, KeyModifiers::NONE) => PaletteKey::Choose,
         (KeyCode::Esc, _) => PaletteKey::Close,
+        (KeyCode::Char('r'), KeyModifiers::CONTROL) => PaletteKey::Reset,
         _ => {
             let Some(Action::Edit(edit)) = keymap.lookup(key, Focus::Input) else {
                 return None;

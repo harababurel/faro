@@ -37,7 +37,7 @@ faro is an unofficial, independent project. It is not affiliated with, endorsed 
 - Full-text message and voice-note transcript search (`Ctrl+F` or `/`), in the open chat or across all conversations, plus jump to unread (`u`) and a per-chat links & files browser (`Alt+I` info panel and palette)
 - Attachments and inline images: images and stickers render in the message pane (kitty graphics, sixel, iTerm2 or half-block fallback) and in a full-size viewer (`v`); receive, download (`d`), save to `Downloads` (`s`) and send files from the palette or by pasting a path
 - Voice notes and opt-in Whisper transcription: voice notes show their duration and a 16-bar waveform (`▶ 0:14 ▁▃▆█▅▂…`), play locally (`x`) with live progress (`■ 0:05 / 0:14`), and can be transcribed (`t` or automatically) with a local Whisper CLI or an OpenAI-compatible remote endpoint (with explicit consent and per-conversation permission)
-- A command palette (`Ctrl+P`): chats, themes, settings, commands, key bindings and search as categories you open and fuzzy-search; every setting in one list with its current value, cycled in place with `←`/`→` or flipped with `Enter`
+- A command palette (`Ctrl+P`): chats, themes, settings, commands, key bindings and search as categories you open and fuzzy-search; every setting in one list with its current value (`*` marks the ones you changed), cycled in place with `←`/`→`, flipped with `Enter`, or put back to its default with `Ctrl+R`
 - Read receipts only for what you've actually seen (terminal focus + scrolled to the bottom), typing indicators
 - Terminal bell (with a do-not-disturb key, `Alt+N`), unread count in the window/tmux title, and OSC 99 / 777 desktop notifications (with tmux passthrough and configurable privacy)
 - A commented config file that faro reloads while running and writes back to without losing your comments
@@ -105,7 +105,7 @@ Press `F1` (or `?` outside the input box) for the full list, or search it in the
 
 | Key | What |
 |---|---|
-| `Ctrl+P` | Command palette: `Enter`/`→` opens a category, `←`/`Backspace` goes back (`←`/`→` cycles settings); `@` chats, `/` search, `:` settings, `>` commands, `?` keys jump straight in |
+| `Ctrl+P` | Command palette: `Enter`/`→` opens a category, `←`/`Backspace` goes back (`←`/`→` cycles settings, `Ctrl+R` puts one back to its default); `@` chats, `/` search, `:` settings, `>` commands, `?` keys jump straight in |
 | `Ctrl+F` (or `/` in messages) | Search messages and voice-note transcripts (in the open chat or across all chats) |
 | `Alt+J` / `Alt+K` (or `Alt+↓` / `Alt+↑`) | Next / previous conversation |
 | `Alt+1`…`Alt+9` | Pinned conversation 1–9 |

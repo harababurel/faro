@@ -361,6 +361,10 @@ In kitty (directly and inside tmux), `faro demo`, `Ctrl+P` › Settings › Bubb
 - [ ] **Sections:** `Ctrl+P` › Settings: `Appearance` (Colours, Emoji, Reduce motion), `Messages` (Message layout, Timestamps), `Bubbles` (Bubble style, Bubble padding, Match bubble widths, Message density).
 - [ ] **IRC layout:** switch Message layout to IRC: the four Bubbles rows turn dim and say "bubbles layout only"; arrows, PageUp/PageDown, the wheel and clicks skip them; typing `padding` still finds the row, and Enter does nothing. Back to bubbles: they work again.
 
+## Reset a setting (D100)
+
+- [ ] `Ctrl+P` › Settings: settings you changed show `*` before their value. On one of them, `Ctrl+R`: it goes back to its default at once (e.g. Timestamps → relative), the `*` goes, the footer says "… back to its default (…)", and `config.toml` now has the default written out (`timestamps = "relative"`, not commented). `Ctrl+R` again: "already at its default". The footer lists `ctrl+r default`.
+
 ## Version line (D97)
 
 - [x] After `git pull && cargo build`: `faro --version` prints `faro 0.1.0-dev (<hash> <date>)` matching `git log -1 --format='%h %cd' --date=short`; the logo screen (no chat open) shows `v0.1.0-dev (<hash> <date>)` under the tagline ("unofficial Signal client for the terminal"); About shows the same after `faro`. With an uncommitted edit to a tracked file and a rebuild, the hash gets a `+`.

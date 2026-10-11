@@ -98,6 +98,7 @@ const SETTINGS_HINTS: &[(&str, &str)] = &[
     ("↑↓", "move"),
     ("←→", "cycle"),
     ("enter", "flip/open"),
+    ("ctrl+r", "default"),
     ("esc", "close"),
 ];
 /// Moving through themes, or the values of a setting that changes how things

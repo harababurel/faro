@@ -221,6 +221,9 @@ fn draw_results(
     frame.render_widget(Paragraph::new(lines), area);
 }
 
+/// Before the value of a setting that differs from its default (D100).
+const CHANGED: &str = "*";
+
 /// `▌ @ path › title ›        detail`
 fn result_line(
     item: &Item,
@@ -278,10 +281,12 @@ fn result_line(
     let opens = matches!(item.kind, ItemKind::Level(_) | ItemKind::EnterDir(_)) && !item.disabled;
     let suffix = if opens { width(OPENS) } else { 0 };
     let detail = sanitize(&item.detail).into_owned();
+    // A setting changed from its default gets a mark before its value (D100).
+    let mark = if item.changed { CHANGED } else { "" };
     let detail_width = if detail.is_empty() {
         0
     } else {
-        width(&detail) + 2
+        width(&detail) + 2 + width(mark)
     };
     let mut room = row_width.saturating_sub(1 + width(glyph) + detail_width + suffix);
     let mut used = 1 + width(glyph);
@@ -314,6 +319,9 @@ fn result_line(
     let gap = row_width.saturating_sub(used + detail_width);
     spans.push(Span::styled(" ".repeat(gap), base));
     if !detail.is_empty() {
+        if !mark.is_empty() {
+            spans.push(Span::styled(mark, base.fg(theme.primary)));
+        }
         spans.push(Span::styled(
             format!(" {detail} "),
             base.patch(theme.muted()),

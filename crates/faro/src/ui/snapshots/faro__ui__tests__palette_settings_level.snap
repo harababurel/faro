@@ -14,8 +14,8 @@ expression: "snapshot(&draw(&with_palette(\":\"), 100, 30))"
 │           │   Emoji ›                                                           auto │           │
 │           │   Reduce motion                                                      off │────────── │
 │           │ Messages                                                                 │hursday?   │
-│           │   Message layout ›                                                   IRC │ss         │
-│           │   Timestamps ›                                                  absolute │           │
+│           │   Message layout ›                                                 * IRC │ss         │
+│           │   Timestamps ›                                                * absolute │           │
 │           │ Bubbles                                                                  │           │
 │           │   Bubble style                                       bubbles layout only │           │
 │           │   Bubble padding                                     bubbles layout only │           │
@@ -31,4 +31,4 @@ expression: "snapshot(&draw(&with_palette(\":\"), 100, 30))"
 │                            │││ Message Climbing 🧗…                                             ││
 │                            ││╰──────────────────────────────────────────────────────────────────╯│
 ╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯
- ● connected · 1 unread                            ↑↓ move · ←→ cycle · enter flip/open · esc close
+ ● connected · 1 unread           ↑↓ move · ←→ cycle · enter flip/open · ctrl+r default · esc close

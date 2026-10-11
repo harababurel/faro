@@ -10,7 +10,7 @@ use faro_core::config::{
 use super::{check_terminal, curation, selection};
 use crate::app::event::Effect;
 use crate::app::keymap::Keymap;
-use crate::app::palette::SettingChoice;
+use crate::app::palette::{self, Setting, SettingChoice};
 use crate::app::state::{EmojiMode, MessageLayout, Notice, State};
 use crate::theme::{ColorDepth, Theme, ThemeText};
 
@@ -412,6 +412,36 @@ fn choose_toggle(state: &mut State, choice: SettingChoice, on: bool) -> Vec<Effe
         | SettingChoice::AutoDownload(_)
         | SettingChoice::Transcribe(_) => vec![],
     }
+}
+
+/// Put `setting` back to its default (`Ctrl+R` in the settings list, D100):
+/// applied like a reload, then written to the file with the default value
+/// spelled out (not commented out), so the file says what's in use.
+pub fn reset(state: &mut State, setting: Setting) -> Vec<Effect> {
+    let path = setting.key();
+    let Some(default) = Config::default().value(path) else {
+        return vec![];
+    };
+    if state.config.value(path).as_ref() == Some(&default) {
+        state.notice = Some(Notice::info(format!(
+            "{} is already at its default",
+            setting.title()
+        )));
+        return vec![];
+    }
+    let mut config = state.config.clone();
+    if let Err(error) = config.set(path, &default) {
+        tracing::warn!(%error, path, "resetting a setting failed");
+        return vec![];
+    }
+    let mut effects = apply(state, config, Vec::new(), false);
+    effects.extend(save(state, path));
+    let value = palette::value_title(state, setting);
+    state.notice = Some(Notice::info(format!(
+        "{}: back to its default ({value})",
+        setting.title()
+    )));
+    effects
 }
 
 fn save_with_notice(state: &mut State, path: &'static str, text: impl Into<String>) -> Vec<Effect> {
