@@ -29,7 +29,7 @@ pub const STILL: f64 = 0.35;
 /// How often the logo is redrawn while it moves (10 fps).
 pub const FRAME: Duration = Duration::from_millis(100);
 
-pub const TAGLINE: &str = "terminal messenger · unofficial Signal client";
+pub const TAGLINE: &str = "unofficial Signal client for the terminal";
 const WORD: &str = "faro";
 /// Columns between the big lighthouse and the wordmark beside it.
 const GUTTER: u16 = 4;

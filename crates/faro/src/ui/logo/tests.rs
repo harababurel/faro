@@ -55,7 +55,7 @@ fn only_single_cell_symbols() {
             assert_eq!(c.width(), Some(1), "{c:?}");
         }
     }
-    assert_eq!(width_of(TAGLINE), 45);
+    assert_eq!(width_of(TAGLINE), 41);
 }
 
 #[test]

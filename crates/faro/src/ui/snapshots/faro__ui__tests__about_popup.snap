@@ -7,19 +7,19 @@ expression: text
 │     Bob                    ││ 16:40        You Yes! 7pm at the usual place 👍 ✓✓                 │
 │ ▾ Recent                   ││                  👍 2  ❤️                                          │
 │   # Climbing 🧗            ││ ───────────────────────────── Today ────────────────────────────── │
-│ ●   Alice 🌸      ╭ About ──────────────────────────────────────────────────╮wall on Thursday?   │
-│                   │            faro 1.2.3 · abc1234 · 2026-01-01            │are harness         │
-│                   │    ▄█▄     terminal messenger · unofficial Signal client│                    │
-│                   │    ███                                                  │                    │
-│                   │   ▀▀▀▀▀    https://getfaro.dev                          │                    │
-│                   │    ███     https://github.com/harababurel/faro          │                    │
-│                   │    ███                                                  │─────────────────── │
-│                   │   █████    AGPL-3.0-only · not affiliated with Signal   │ opened last week   │
-│                   │   █████    Signal protocol: presage and libsignal       │soft, so bring your │
-│                   │ ▄▄▄▄▄▄▄▄▄  Themes: faro's own and OpenCode's (MIT)      │ome tape for your   │
-│                   │            Config: /home/me/.config/faro/config.toml    │                    │
-│                   │            Data:   /home/me/.local/share/faro           │                    │
-│                   ╰─────────────────────────────────────────────────────────╯                    │
+│ ●   Alice 🌸        ╭ About ───────────────────────────────────────────────╮ wall on Thursday?   │
+│                     │            faro 1.2.3 (abc1234 2026-01-01)           │pare harness         │
+│                     │    ▄█▄     unofficial Signal client for the terminal │                     │
+│                     │    ███                                               │                     │
+│                     │   ▀▀▀▀▀    https://getfaro.dev                       │                     │
+│                     │    ███     https://github.com/harababurel/faro       │                     │
+│                     │    ███                                               │──────────────────── │
+│                     │   █████    AGPL-3.0-only · not affiliated with Signal│n opened last week   │
+│                     │   █████    Signal protocol: presage and libsignal    │ soft, so bring your │
+│                     │ ▄▄▄▄▄▄▄▄▄  Themes: faro's own and OpenCode's (MIT)   │some tape for your   │
+│                     │            Config: /home/me/.config/faro/config.toml │                     │
+│                     │            Data:   /home/me/.local/share/faro        │                     │
+│                     ╰──────────────────────────────────────────────────────╯                     │
 │                            ││                                                                    │
 │                            ││╭──────────────────────────────────────────────────────────────────╮│
 │                            │││ Message Climbing 🧗…                                             ││

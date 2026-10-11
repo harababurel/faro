@@ -1,6 +1,6 @@
 //! Build script: the version line faro shows (D97), as `FARO_VERSION`.
 //!
-//! `0.1.0-dev · 8fe5755 · 2026-10-11` from a git checkout (the commit's
+//! `0.1.0-dev (8fe5755 2026-10-11)` from a git checkout (the commit's
 //! short hash, `+` if tracked files had changes, and the commit's date), or
 //! just `0.1.0` where there's no git (a release tarball, crates.io).
 //! Packagers can set `FARO_BUILD_COMMIT` and `FARO_BUILD_DATE` instead.
@@ -20,8 +20,8 @@ fn main() {
         (None, _) => from_git(),
     };
     let line = match (commit, date) {
-        (Some(commit), Some(date)) => format!("{version} · {commit} · {date}"),
-        (Some(commit), None) => format!("{version} · {commit}"),
+        (Some(commit), Some(date)) => format!("{version} ({commit} {date})"),
+        (Some(commit), None) => format!("{version} ({commit})"),
         (None, _) => version,
     };
     println!("cargo:rustc-env=FARO_VERSION={line}");

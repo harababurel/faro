@@ -1470,7 +1470,7 @@ ENTRIES = [
     dict(name="coo", group="earlier", fn=plain(icon_coo), stops=[(180, 188, 200), (90, 190, 145), (160, 105, 200)],
          meaning="The sound a pigeon makes: carrier pigeons.", avail="1 AUR package. Reads like 'COO' (exec title)."),
 ]
-TAGLINE = "terminal messenger · unofficial Signal client"
+TAGLINE = "unofficial Signal client for the terminal"
 GREY = (130, 130, 145)
 
 

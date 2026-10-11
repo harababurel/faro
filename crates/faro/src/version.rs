@@ -1,4 +1,4 @@
-//! The version line (D97): `0.1.0-dev · 8fe5755 · 2026-10-11`, made by
+//! The version line (D97): `0.1.0-dev (8fe5755 2026-10-11)`, made by
 //! `build.rs`; just the version where the build had no git.
 
 /// The version, then the commit and its date when known. `faro --version`
@@ -9,7 +9,7 @@ pub const LINE: &str = env!("FARO_VERSION");
 /// with every commit.
 pub const fn shown() -> &'static str {
     if cfg!(test) {
-        "1.2.3 · abc1234 · 2026-01-01"
+        "1.2.3 (abc1234 2026-01-01)"
     } else {
         LINE
     }

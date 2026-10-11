@@ -5,14 +5,14 @@ expression: "snapshot(&draw(&logo_state(), 100, 20))"
 ╭ Conversations ─────────────╮╭────────────────────────────────────────────────────────────────────╮
 │ ▾ Pinned                   ││                                                                    │
 │     Bob                    ││                                                                    │
-│ ▾ Recent                   ││        ▄█▄                                                         │
-│ ● # Climbing 🧗          2 ││        ███                                                         │
-│ ●   Alice 🌸             1 ││       ▀▀▀▀▀                                                        │
-│                            ││        ███      faro                                               │
-│                            ││        ███      terminal messenger · unofficial Signal client      │
-│                            ││       █████     v1.2.3 · abc1234 · 2026-01-01                      │
-│                            ││       █████                                                        │
-│                            ││     ▄▄▄▄▄▄▄▄▄                                                      │
+│ ▾ Recent                   ││          ▄█▄                                                       │
+│ ● # Climbing 🧗          2 ││          ███                                                       │
+│ ●   Alice 🌸             1 ││         ▀▀▀▀▀                                                      │
+│                            ││          ███      faro                                             │
+│                            ││          ███      unofficial Signal client for the terminal        │
+│                            ││         █████     v1.2.3 (abc1234 2026-01-01)                      │
+│                            ││         █████                                                      │
+│                            ││       ▄▄▄▄▄▄▄▄▄                                                    │
 │                            ││                                                                    │
 │                            ││                   alt+j/k  choose a chat                           │
 │                            ││                     enter  open it, or click one                   │

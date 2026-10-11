@@ -25,8 +25,8 @@ expression: "snapshot(&draw(&logo_state(), 100, 32))"
 │                            ││           ▀▀          ▀▀      ▀▀  ▀▀    ▀▀    ▀▀      ▀▀           │
 │                            ││           ▀▀          ▀▀      ▀▀  ▀▀      ▀▀    ▀▀▀▀▀▀             │
 │                            ││                                                                    │
-│                            ││           terminal messenger · unofficial Signal client            │
-│                            ││                   v1.2.3 · abc1234 · 2026-01-01                    │
+│                            ││             unofficial Signal client for the terminal              │
+│                            ││                    v1.2.3 (abc1234 2026-01-01)                     │
 │                            ││                                                                    │
 │                            ││                   alt+j/k  choose a chat                           │
 │                            ││                     enter  open it, or click one                   │
