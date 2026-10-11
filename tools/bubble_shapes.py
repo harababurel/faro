@@ -22,8 +22,9 @@ change:
      (Unicode 13 wedges only).
   B-compact, B+-compact
      compact density (no blank lines): consecutive bubbles from one sender
-     share one continuous edge on their aligned side, rounded only at the
-     run's top and bottom; the other side stays rounded per bubble.
+     touch and share one edge on their aligned side, rounded only at the
+     run's top and bottom; on the other side a wider bubble's rounded corner
+     is drawn in its neighbour's row (needs Unicode 16 octants too).
 
     python3 tools/bubble_shapes.py --only B-compact --only B+-compact
 """
@@ -167,65 +168,108 @@ RUNS = [
     (True, [["by the big boulder"]]),
     (False, [["found you"], ["coming"]]),
     (True, [["the left one, with the", "orange bag next to it"]]),
+    (False, [["sounds good"], ["sounds great"], ["sounds good"]]),
+    (True, [["see you"], ["see you!"], ["see you"]]),
 ]
 
-# Left-aligned glyphs and their mirror images for right-aligned bubbles.
-MIRROR = {
-    "\u2590": "\u258C", "\u258C": "\u2590",
-    "\U0001FBEE": "\U0001FBED", "\U0001FBED": "\U0001FBEE",
-    "\U0001FBEC": "\U0001FBEF", "\U0001FBEF": "\U0001FBEC",
-    CAP_R: CAP_L, CAP_L: CAP_R,
+def octant_glyphs():
+    """Every 2x4 sub-cell pattern -> its glyph. Bit `y * 2 + x` is the octant
+    at column x (0 left, 1 right) and row y (0 top .. 3 bottom). Unicode 16's
+    octants (U+1CD00..) fill in, in ascending order, the patterns older block
+    characters don't already cover."""
+    older = {
+        "\u2580": "1234", "\u2584": "5678", "\u258C": "1357", "\u2590": "2468",
+        "\u2598": "13", "\u259D": "24", "\u2596": "57", "\u2597": "68",
+        "\u259A": "1368", "\u259E": "2457", "\u2599": "135678",
+        "\u259B": "123457", "\u259C": "123468", "\u259F": "245678",
+        "\U0001FB82": "12", "\u2582": "78", "\u2586": "345678",
+        "\U0001FB85": "123456", "\U0001CEA8": "1", "\U0001CEAB": "2",
+        "\U0001CEA3": "7", "\U0001CEA0": "8", "\U0001FBE6": "35",
+        "\U0001FBE7": "46",
+    }
+    table = {0: " ", 255: "\u2588"}
+    for glyph, octants in older.items():
+        table[sum(1 << (int(k) - 1) for k in octants)] = glyph
+    code = 0x1CD00
+    for mask in range(256):
+        if mask not in table:
+            table[mask] = chr(code)
+            code += 1
+    return table
+
+
+OCTANT = octant_glyphs()
+
+
+def bit(sx, sy):
+    return 1 << ((sy % 4) * 2 + sx % 2)
+
+
+# A rectangle's rounded corner, when it's alone in its cell: a quarter circle
+# of radius half a cell wide, centred on the cell's corner (Unicode 16).
+DISK = {
+    ("TL", bit(1, 3)): "\U0001FBEE",
+    ("TR", bit(0, 3)): "\U0001FBED",
+    ("BL", bit(1, 0)): "\U0001FBEC",
+    ("BR", bit(0, 0)): "\U0001FBEF",
 }
 
 
-def mirror(row):
-    """A left-aligned row flipped for the right side (text kept as is)."""
-    return [(MIRROR.get(text, text), f, b) for text, f, b in reversed(row)]
-
-
-def run_rows(run, fill, pane, fg, roomy):
-    """A run from one sender, drawn left-aligned: the outer side is one
-    half-cell strip, rounded only at the run's top and bottom; the inner side
-    is rounded per bubble (capsule ends, or quarter circles on taller ones)."""
+def run_rows(run, fill, pane, fg, roomy, right):
+    """A run from one sender. Each bubble is a rectangle on a grid of 2x4
+    sub-cells: half a cell in from its side cells, a quarter row above and
+    below its text, with rounded corners. Bubbles touch; a wider bubble's
+    edge and corner land in its neighbour's row, past the neighbour's end.
+    Cells covered by several bubbles merge, so the aligned side is one edge."""
     if len(run) == 1 and len(run[0]) == 1:
         return capsule(run[0][0], fill, pane, fg)
-    if len(run) == 1:
-        lines = run[0]
-        return shape_b(lines, max(len(t) for t in lines), fill, pane, fg, roomy)
-    pad = [(" ", fg, fill)] if roomy else []
-    strip = ("\u2590", fill, pane)
-    rows = []
-    for i, lines in enumerate(run):
-        first, last = i == 0, i == len(run) - 1
+    pad = 1 if roomy else 0
+    box = max(max(len(t) for t in lines) + 2 + 2 * pad for lines in run)
+    total = 2 + sum(len(lines) for lines in run)
+    masks, corners, texts = {}, {}, {}
+    row = 1
+    for lines in run:
         n = max(len(t) for t in lines)
-        if len(lines) == 1:
-            span = n + len(pad)
-            if first:
-                rows.append([("\U0001FBEE", fill, pane),
-                             ("\u2582" * span, fill, pane),
-                             ("\U0001FBED", fill, pane)])
-            rows.append([strip] + pad + [(lines[0].ljust(n), fg, fill),
-                                         (CAP_R, fill, pane)])
-            if last:
-                rows.append([("\U0001FBEC", fill, pane),
-                             ("\U0001FB82" * span, fill, pane),
-                             ("\U0001FBEF", fill, pane)])
-            continue
-        inner = n + 2 * len(pad)
-        rows.append([("\U0001FBEE", fill, pane) if first else strip,
-                     ("\u2582" * inner, fill, pane),
-                     ("\U0001FBED", fill, pane)])
-        rows += body_rows(lines, n, fill, fg, [strip] + pad,
-                          pad + [("\u258C", fill, pane)])
-        rows.append([("\U0001FBEC", fill, pane) if last else strip,
-                     ("\U0001FB82" * inner, fill, pane),
-                     ("\U0001FBEF", fill, pane)])
+        w = n + 2 + 2 * pad
+        x0 = box - w if right else 0
+        sx0, sx1 = 2 * x0 + 1, 2 * (x0 + w) - 1
+        sy0, sy1 = 4 * row - 1, 4 * (row + len(lines)) + 1
+        for sy in range(sy0, sy1):
+            for sx in range(sx0, sx1):
+                cell = (sy // 4, sx // 2)
+                masks[cell] = masks.get(cell, 0) | bit(sx, sy)
+        for kind, sx, sy in (("TL", sx0, sy0), ("TR", sx1 - 1, sy0),
+                             ("BL", sx0, sy1 - 1), ("BR", sx1 - 1, sy1 - 1)):
+            corners.setdefault((sy // 4, sx // 2), []).append(
+                (kind, bit(sx, sy)))
+        for i, line in enumerate(lines):
+            for j, ch in enumerate(line.ljust(n)):
+                texts[(row + i, x0 + 1 + pad + j)] = ch
+        row += len(lines)
+    rows = []
+    for y in range(total):
+        cells_ = []
+        for x in range(box):
+            mask = masks.get((y, x), 0)
+            if (y, x) in texts:
+                cells_.append((texts[(y, x)], fg, fill))
+            elif mask == 0:
+                cells_.append((" ", fg, pane))
+            elif mask == 255:
+                cells_.append((" ", fg, fill))
+            else:
+                glyph = OCTANT[mask]
+                for corner in corners.get((y, x), []):
+                    if corner[1] == mask and corner in DISK:
+                        glyph = DISK[corner]
+                cells_.append((glyph, fill, pane))
+        rows.append(cells_)
     return rows
 
 
 RUN_OPTIONS = {
-    "B-compact": ("B, compact runs share their aligned edge", False),
-    "B+-compact": ("B+, compact runs share their aligned edge", True),
+    "B-compact": ("B, compact: bubbles in a run touch", False),
+    "B+-compact": ("B+, compact: bubbles in a run touch", True),
 }
 
 
@@ -235,9 +279,7 @@ def render_runs(key, theme, width):
     lines = [emit([(f"{key}  {title}", muted, pane)], width, pane, fg, False),
              blank(width, pane, fg)]
     for mine, run in RUNS:
-        rows = run_rows(run, own if mine else other, pane, fg, roomy)
-        if mine:
-            rows = [mirror(r) for r in rows]
+        rows = run_rows(run, own if mine else other, pane, fg, roomy, mine)
         lines += [emit(r, width, pane, fg, mine) for r in rows]
         lines.append(blank(width, pane, fg))
     return lines
