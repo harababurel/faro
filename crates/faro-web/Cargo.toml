@@ -50,4 +50,5 @@ web-sys = { version = "0.3.106", features = [
 ] }
 
 [dev-dependencies]
+faro-app = { workspace = true, features = ["test-support"] }
 tokio = { version = "1.53.2", features = ["rt", "macros", "time", "test-util"] }

@@ -3,6 +3,9 @@
 //! browser dispatches while Rust is running (a `focus()` call, say) can't
 //! find the state borrowed.
 
+use std::cell::RefCell;
+use std::rc::Weak;
+
 use tokio::sync::mpsc::UnboundedSender;
 use wasm_bindgen::JsCast as _;
 use wasm_bindgen::prelude::*;
@@ -16,7 +19,8 @@ use faro_app::app::term_event::Event;
 use wasm_bindgen_futures::JsFuture;
 
 use crate::input::{self, Held, Route};
-use crate::live::{Input, Pointer};
+use crate::keys;
+use crate::live::{Input, Pointer, Shell};
 use crate::router::Page;
 
 type Handler = Closure<dyn FnMut(web_sys::Event)>;
@@ -28,6 +32,8 @@ pub struct CanvasPage {
 
 /// The event the canvas sends for the bell; the page decides how it looks.
 pub const BELL_EVENT: &str = "faro-bell";
+/// The event the canvas sends when faro quits; the page offers a restart.
+pub const EXIT_EVENT: &str = "faro-exit";
 
 impl Page for CanvasPage {
     fn copy(&self, text: String, results: UnboundedSender<AppEvent>) {
@@ -68,6 +74,7 @@ impl Listeners {
     pub fn attach(
         canvas: &HtmlCanvasElement,
         page: &UnboundedSender<Input>,
+        shell: Weak<RefCell<Shell>>,
     ) -> Result<Self, JsValue> {
         let mut listeners = Self {
             attached: Vec::new(),
@@ -78,7 +85,7 @@ impl Listeners {
             canvas.set_attribute("tabindex", "0")?;
         }
         let target: &EventTarget = canvas;
-        listeners.on(target, "keydown", page, keydown, false)?;
+        listeners.on(target, "keydown", page, move |e| keydown(e, &shell), false)?;
         listeners.on(
             target,
             "mousedown",
@@ -197,13 +204,27 @@ fn held_mouse(event: &MouseEvent) -> Held {
     }
 }
 
-fn keydown(event: &web_sys::Event) -> Option<Input> {
+fn keydown(event: &web_sys::Event, shell: &Weak<RefCell<Shell>>) -> Option<Input> {
     let event = event.dyn_ref::<KeyboardEvent>()?;
     if event.is_composing() {
         return None;
     }
     match input::route(&event.key(), &event.code(), held_keys(event)) {
         Route::Faro(key) => {
+            // Busy only if the browser dispatched this while Rust runs
+            // (rare); faro then gets the key.
+            let theirs = shell
+                .upgrade()
+                .and_then(|shell| {
+                    shell
+                        .try_borrow()
+                        .ok()
+                        .map(|s| !keys::takes(s.state(), key))
+                })
+                .unwrap_or(false);
+            if theirs {
+                return None;
+            }
             event.prevent_default();
             Some(Input::Terminal(Event::Key(key)))
         }

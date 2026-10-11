@@ -11,13 +11,13 @@ use faro_app::app::storage;
 use faro_app::app::update::{self, affects_view};
 use faro_app::theme::ColorDepth;
 use faro_core::backend::{Backend, BackendError, BackendEvents};
-use faro_core::config::Config;
 use faro_core::mock::{MockBackend, MockConfig};
 use faro_core::rt;
 use faro_core::store::{Profile, Store};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use crate::demo::{Error, SEED};
+use crate::keys::demo_config;
 use crate::router::{Page, Router};
 
 /// The mock as visitors get it (D-b): the demo's seed, today's dates, the
@@ -77,7 +77,8 @@ impl Session {
             results: results_tx,
             page,
         };
-        let configured = update::configure(&mut state, Config::default(), Vec::new());
+        let (config, problems) = demo_config();
+        let configured = update::configure(&mut state, config, problems);
         router.dispatch(configured, &state);
         router.dispatch(vec![Effect::LoadConversations], &state);
         let session = Self {

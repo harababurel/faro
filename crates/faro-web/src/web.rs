@@ -14,8 +14,9 @@ use crate::paint::Painter;
 use crate::session::{Session, visitor_mock};
 
 /// The demo running in a canvas. Dropping it (`demo.free()`) stops it. The
-/// canvas sends `faro-bell` events when faro rings; `document.title` follows
-/// faro's window title.
+/// canvas sends `faro-bell` events when faro rings and `faro-exit` when it
+/// quits (free it and start again); `document.title` follows faro's window
+/// title.
 #[wasm_bindgen]
 pub struct Demo {
     shell: Rc<RefCell<Shell>>,
@@ -52,7 +53,7 @@ pub async fn start(
     }
     let shell = Rc::new(RefCell::new(shell));
     let (page, page_rx) = mpsc::unbounded_channel();
-    let listeners = Listeners::attach(&canvas, &page)?;
+    let listeners = Listeners::attach(&canvas, &page, Rc::downgrade(&shell))?;
     let task = rt::spawn(live::run(Rc::clone(&shell), page_rx, inbox));
     shell.borrow_mut().draw();
     Ok(Demo {

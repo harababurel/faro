@@ -8,6 +8,7 @@
 //! - [`demo`]: a still first frame (tests, the poster);
 //! - [`session`]: the mock, the store, the state and the workers;
 //! - [`input`]: DOM input as faro's terminal events;
+//! - [`keys`]: the demo's settings, and which chords faro takes;
 //! - `router`: where effects go;
 //! - `live`: the event loop; `dom`: the page's listeners;
 //! - `web`: what the page calls (wasm-bindgen).
@@ -21,6 +22,7 @@ pub mod demo;
 mod dom;
 pub mod glyphs;
 pub mod input;
+pub mod keys;
 #[cfg(target_arch = "wasm32")]
 mod live;
 #[cfg(target_arch = "wasm32")]

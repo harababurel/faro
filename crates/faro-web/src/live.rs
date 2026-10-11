@@ -133,6 +133,10 @@ impl Shell {
         self.session.state.config.mouse.enabled
     }
 
+    pub const fn state(&self) -> &State {
+        &self.session.state
+    }
+
     pub fn buffer(&self) -> &ratatui::buffer::Buffer {
         self.terminal.backend().buffer()
     }
@@ -275,6 +279,17 @@ impl Shell {
         self.handle(AppEvent::Drawn(geometry));
     }
 
+    /// faro quit: draw the last frame and tell the page.
+    fn exited(&mut self) {
+        self.draw();
+        let event = web_sys::CustomEvent::new(crate::dom::EXIT_EVENT);
+        if let Ok(event) = event
+            && self.painter.canvas().dispatch_event(&event).is_err()
+        {
+            tracing::warn!("telling the page faro quit failed");
+        }
+    }
+
     /// Paint every row again without drawing (to measure the renderer).
     pub fn repaint(&mut self) {
         let backend = self.terminal.backend_mut();
@@ -326,7 +341,13 @@ pub async fn run(shell: Rc<RefCell<Shell>>, mut page: UnboundedReceiver<Input>, 
             }
             else => break,
         };
-        shell.borrow_mut().take(wake);
+        let mut shell = shell.borrow_mut();
+        shell.take(wake);
+        if shell.session.state.quit {
+            // Quitting the demo (D116): the page offers to start again.
+            shell.exited();
+            break;
+        }
     }
 }
 

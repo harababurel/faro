@@ -1,0 +1,14 @@
+# faro's settings in the web demo (M13, WEBSITE.md §4.3), in the format of
+# config.toml. Built into the wasm module; settings changed in the demo last
+# for the visit (D-c).
+
+# Chords the browser keeps for itself, unbound so the hints don't offer
+# them. The other bindings work as in the terminal.
+[keybindings.input]
+# Closes the tab. Alt+Backspace and Ctrl+Backspace still delete a word.
+"ctrl+w" = "none"
+
+[keybindings.global]
+# Paste: the browser's paste event brings the text. Clipboard images are a
+# terminal feature (D91).
+"ctrl+v" = "none"
