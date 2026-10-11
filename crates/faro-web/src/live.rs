@@ -89,6 +89,8 @@ pub struct Shell {
     title: Option<String>,
     wheel: Wheel,
     images: Images,
+    /// How long recent frames took.
+    pub timings: Timings,
     /// Where decoded images go (the loop's page input).
     page: Option<UnboundedSender<Input>>,
     /// The cell under the pointer, so moves within a cell aren't sent.
@@ -123,6 +125,7 @@ impl Shell {
             title: None,
             wheel: Wheel::default(),
             images: Images::default(),
+            timings: Timings::default(),
             page: None,
             pointer: None,
         };
@@ -278,6 +281,7 @@ impl Shell {
         };
         let mut geometry = Geometry::default();
         let state: &State = state;
+        let started = now_ms();
         let Ok(_) = self.terminal.draw(|frame| {
             geometry = ui::render(frame, state, &view);
         });
@@ -285,7 +289,13 @@ impl Shell {
         let backend = self.terminal.backend_mut();
         let rows = backend.take_dirty();
         let cursor = backend.cursor();
+        let rendered = now_ms();
         self.painter.paint(backend.buffer(), &rows, cursor);
+        self.timings.record(Timing {
+            render: rendered - started,
+            paint: now_ms() - rendered,
+            rows: rows.len(),
+        });
         if title != self.title {
             if let Some(document) = document() {
                 document.set_title(title.as_deref().unwrap_or(&self.page_title));
@@ -327,6 +337,12 @@ impl Shell {
         }
     }
 
+    /// Forget the last frame and draw everything.
+    pub fn full_frame(&mut self) {
+        let Ok(()) = self.terminal.clear();
+        self.draw();
+    }
+
     /// Paint every row again without drawing (to measure the renderer).
     pub fn repaint(&mut self) {
         let backend = self.terminal.backend_mut();
@@ -344,6 +360,63 @@ impl Shell {
             self.last_draw
                 .map_or_else(Instant::now, |t| t + ui::logo::FRAME)
         })
+    }
+}
+
+/// One frame: milliseconds spent rendering (faro's UI and ratatui's diff)
+/// and painting, and how many rows were painted.
+#[derive(Debug, Clone, Copy)]
+pub struct Timing {
+    pub render: f64,
+    pub paint: f64,
+    pub rows: usize,
+}
+
+/// The last [`Timings::KEEP`] frames.
+#[derive(Debug, Default)]
+pub struct Timings {
+    frames: std::collections::VecDeque<Timing>,
+}
+
+impl Timings {
+    const KEEP: usize = 256;
+
+    fn record(&mut self, timing: Timing) {
+        if self.frames.len() == Self::KEEP {
+            self.frames.pop_front();
+        }
+        self.frames.push_back(timing);
+    }
+
+    /// How many frames, the rows painted per frame on average, and the
+    /// median, 95th percentile and worst frame time, render and paint, as
+    /// JSON.
+    pub fn summary(&self) -> String {
+        let pick = |f: fn(&Timing) -> f64| {
+            let mut values: Vec<f64> = self.frames.iter().map(f).collect();
+            values.sort_by(f64::total_cmp);
+            let at = |q: usize| {
+                values
+                    .get((values.len().saturating_sub(1)) * q / 100)
+                    .copied()
+                    .unwrap_or(0.0)
+            };
+            format!(
+                r#"{{"p50":{:.2},"p95":{:.2},"max":{:.2}}}"#,
+                at(50),
+                at(95),
+                at(100)
+            )
+        };
+        let rows: usize = self.frames.iter().map(|t| t.rows).sum();
+        format!(
+            r#"{{"frames":{},"rows":{},"total":{},"render":{},"paint":{}}}"#,
+            self.frames.len(),
+            rows / self.frames.len().max(1),
+            pick(|t| t.render + t.paint),
+            pick(|t| t.render),
+            pick(|t| t.paint),
+        )
     }
 }
 
@@ -440,6 +513,12 @@ fn local_time_zone() -> jiff::tz::TimeZone {
     let seconds = (-minutes * 60.0).round() as i32;
     jiff::tz::Offset::from_seconds(seconds)
         .map_or(jiff::tz::TimeZone::UTC, jiff::tz::TimeZone::fixed)
+}
+
+fn now_ms() -> f64 {
+    web_sys::window()
+        .and_then(|w| w.performance())
+        .map_or(0.0, |p| p.now())
 }
 
 fn document() -> Option<web_sys::Document> {

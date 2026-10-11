@@ -71,9 +71,22 @@ jobs:
       - name: Clippy (faro-app, wasm32)
         run: cargo clippy -p faro-app --target wasm32-unknown-unknown --locked -- -D warnings
 
-      # The web demo (M13). A library for now: Phase 3 makes it the wasm module.
-      - name: Build (faro-web, wasm32)
-        run: cargo build -p faro-web --target wasm32-unknown-unknown --locked
-
       - name: Clippy (faro-web, wasm32)
         run: cargo clippy -p faro-web --target wasm32-unknown-unknown --locked -- -D warnings
+
+      # The web demo's module, built as the site serves it (build.sh), and
+      # its size budget (WEBSITE.md §7 Phase 3): at most 1.5 MB gzipped.
+      - name: wasm-bindgen version (from Cargo.lock)
+        id: bindgen
+        run: echo "version=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/version = |"/, ""); print; exit }' Cargo.lock)" >> "$GITHUB_OUTPUT"
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ steps.bindgen.outputs.version }}
+
+      - name: Build the demo and check its size
+        run: |
+          crates/faro-web/build.sh
+          size=$(gzip -9 < crates/faro-web/www/pkg/faro_web_bg.wasm | wc -c)
+          echo "faro_web_bg.wasm: $size bytes gzipped (budget: 1572864)"
+          test "$size" -le 1572864

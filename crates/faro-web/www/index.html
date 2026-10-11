@@ -3,7 +3,7 @@
      serve this folder (any static server) or open dist/demo.html from
      tools/bundle.py.
      ?cols=120&rows=34  a fixed grid (default: fill the window)
-     ?bench             repaint 60 times and report the frame time
+     ?bench             measure frame times (also: await window.bench())
      ?unfocused         start without the keys (as on the website) -->
 <html lang="en">
 <meta charset="utf-8">
@@ -58,20 +58,25 @@
     panel.classList.add("bell");
     setTimeout(() => panel.classList.remove("bell"), 150);
   });
+  // Frame times (WEBSITE.md §7 Phase 3: under 4 ms): `repaint` paints every
+  // row; `frame` renders, diffs and paints a whole frame from scratch.
   const stats = document.getElementById("stats");
-  if (q.has("bench")) {
+  const measure = async (run, n = 60) => {
     const times = [];
-    for (let i = 0; i < 60; i++) {
-      times.push(demo.repaint());
+    for (let i = 0; i < n; i++) {
+      times.push(run());
       await new Promise(requestAnimationFrame);
     }
     times.sort((a, b) => a - b);
-    const avg = times.reduce((a, b) => a + b, 0) / times.length;
-    window.stats = { avg, p50: times[30], max: times.at(-1) };
-    stats.textContent = `full repaint · ${times.length} frames · avg ${avg.toFixed(2)} ms · p50 ${times[30].toFixed(2)} · max ${times.at(-1).toFixed(2)}`;
-  } else {
-    window.stats = {};
-  }
+    const avg = times.reduce((a, b) => a + b, 0) / n;
+    return { avg: +avg.toFixed(2), p50: +times[n >> 1].toFixed(2), p95: +times[Math.floor(n * 0.95)].toFixed(2), max: +times.at(-1).toFixed(2) };
+  };
+  window.bench = async () => {
+    const result = { repaint: await measure(() => window.demo.repaint()), frame: await measure(() => window.demo.frame()) };
+    stats.textContent = `repaint avg ${result.repaint.avg} ms · frame avg ${result.frame.avg} ms, p95 ${result.frame.p95}`;
+    return result;
+  };
+  window.stats = q.has("bench") ? await window.bench() : {};
   window.done = true;
 </script>
 </html>

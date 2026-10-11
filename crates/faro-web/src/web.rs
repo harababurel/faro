@@ -75,6 +75,15 @@ impl Demo {
         now_ms() - started
     }
 
+    /// Draw a whole frame from scratch, as after a resize or a theme switch:
+    /// render, diff and paint every row (to measure); returns the
+    /// milliseconds it took.
+    pub fn frame(&self) -> f64 {
+        let started = now_ms();
+        self.shell.borrow_mut().full_frame();
+        now_ms() - started
+    }
+
     /// Paint every row again (to measure the renderer); returns the
     /// milliseconds it took.
     pub fn repaint(&self) -> f64 {
@@ -99,6 +108,12 @@ impl Demo {
             state.focus,
             state.playing.is_some()
         )
+    }
+
+    /// How long the last frames took (JSON: median, 95th percentile and
+    /// worst, in milliseconds, for the whole frame, rendering and painting).
+    pub fn timings(&self) -> String {
+        self.shell.borrow().timings.summary()
     }
 
     /// The screen as text, one line per row (for tests).
