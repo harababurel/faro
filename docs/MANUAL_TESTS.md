@@ -345,7 +345,7 @@ In kitty, with an image copied on the machine you type on (e.g. *Copy Image* in 
 
 ## Version line (D97)
 
-- [ ] After `git pull && cargo build`: `faro --version` prints `faro 0.1.0-dev (<hash> <date>)` matching `git log -1 --format='%h %cd' --date=short`; the logo screen (no chat open) shows `v0.1.0-dev (<hash> <date>)` under the tagline ("unofficial Signal client for the terminal"); About shows the same after `faro`. With an uncommitted edit to a tracked file and a rebuild, the hash gets a `+`.
+- [x] After `git pull && cargo build`: `faro --version` prints `faro 0.1.0-dev (<hash> <date>)` matching `git log -1 --format='%h %cd' --date=short`; the logo screen (no chat open) shows `v0.1.0-dev (<hash> <date>)` under the tagline ("unofficial Signal client for the terminal"); About shows the same after `faro`. With an uncommitted edit to a tracked file and a rebuild, the hash gets a `+`.
 
 ## Sidebar markers (D96)
 
