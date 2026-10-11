@@ -121,6 +121,7 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 - 2026-10-09: About popup (D94): `PaletteCommand::About` → `Popup::About` (`ui/popup.rs::about`, `ui::logo::draw_small_lighthouse`, `logo::TAGLINE` now `pub`).
 - 2026-10-10: owner's hands-on clipboard checks in real kitty on the Mac mini: paste, look before sending, typing afterwards, deny, "Always" (allow all; asks again after a restart), no image, no leftovers, Esc after a paste and a non-kitty terminal all pass. 2026-10-11: late answer, too large and over mosh pass too. Still to do: two kitty windows on one tmux session (deferred by the owner). About amended (D94): full `https://` links and the config file (`State::config_path`, from `Startup::path`) above the data folder; checked by the owner.
 - 2026-10-11: D95 (owner): before v0.1 the allowlist guard becomes optional (new M8 task 5; the release is now task 6): no flag needed for the Signal backend, `--allowlist` kept for testing, `--no-allowlist` a no-op. Not done yet.
+- 2026-10-11: D96 (owner): sidebar markers (`#` groups in sidebar and palette, `⊘` muted / `@` mentions only on the right edge), new M8 task 6; the release is now task 7. Not done yet.
 
 ### Gotchas found so far
 
