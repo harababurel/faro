@@ -22,7 +22,7 @@ bitflags = "2.13.2"
 faro-core.workspace = true
 jiff = "0.2.38"
 nucleo-matcher = "0.3.1"
-ratatui = { version = "0.30.2", default-features = false, features = ["layout-cache", "underline-color"] }
+ratatui = { version = "0.30.2", default-features = false, features = ["std", "layout-cache", "underline-color"] }
 tracing = "0.1.44"
 unicode-segmentation = "1.13.3"
 unicode-width = "0.2.2"

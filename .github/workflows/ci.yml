@@ -70,3 +70,10 @@ jobs:
       # The shared app: everything but the terminal binary (M13).
       - name: Clippy (faro-app, wasm32)
         run: cargo clippy -p faro-app --target wasm32-unknown-unknown --locked -- -D warnings
+
+      # The web demo (M13). A library for now: Phase 3 makes it the wasm module.
+      - name: Build (faro-web, wasm32)
+        run: cargo build -p faro-web --target wasm32-unknown-unknown --locked
+
+      - name: Clippy (faro-web, wasm32)
+        run: cargo clippy -p faro-web --target wasm32-unknown-unknown --locked -- -D warnings

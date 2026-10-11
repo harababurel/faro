@@ -1,6 +1,7 @@
 //! Inline images as drawing sees them (D78): which protocol is active, how big
 //! an image box is, and the cache to draw decoded images from. The terminal
-//! implements [`ImageCache`] with ratatui-image (`app::images`).
+//! implements [`ImageCache`] with ratatui-image (`app::images`); renderers
+//! without images use [`NoImages`].
 
 use std::path::PathBuf;
 
@@ -92,6 +93,23 @@ pub trait DrawImage {
     /// is scrolled off), clipped to it, with half-block colours mapped to the
     /// 256-colour palette when `colors` is `Indexed256`.
     fn draw(&self, x: i16, y: i16, clip_area: Rect, buf: &mut Buffer, colors: ColorDepth);
+}
+
+/// No inline images at all (the web demo, for now).
+pub struct NoImages;
+
+impl ImageCache for NoImages {
+    fn active_protocol(&self) -> Option<ImageProtocol> {
+        None
+    }
+
+    fn font_size(&self) -> CellSize {
+        HALFBLOCK_FONT
+    }
+
+    fn get(&self, _key: &ImageKey) -> Option<CachedImage<'_>> {
+        None
+    }
 }
 
 /// The visible intersection of an image box `(x, y, width, height)` (relative

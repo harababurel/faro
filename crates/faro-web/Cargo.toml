@@ -1,0 +1,22 @@
+[package]
+name = "faro-web"
+description = "faro's web demo (M13): the shared app on the mock, in the browser"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+faro-app.workspace = true
+faro-core.workspace = true
+jiff = "0.2.38"
+ratatui = { version = "0.30.2", default-features = false, features = ["std", "layout-cache", "underline-color"] }
+tokio = { version = "1.53.2", default-features = false, features = ["sync"] }
+
+[dev-dependencies]
+tokio = { version = "1.53.2", features = ["rt", "macros", "time", "test-util"] }

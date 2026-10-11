@@ -56,10 +56,19 @@ fn no_sqlite_and_no_crossterm_backend() {
                 !line.contains("sqlite"),
                 "{section}: faro-core's SQLite engine is native-only (the web uses the memory store)"
             ),
-            "ratatui" => assert!(
-                !line.contains("crossterm") && line.contains("default-features = false"),
-                "{section}: ratatui must not pull in its crossterm backend"
-            ),
+            "ratatui" => {
+                assert!(
+                    !line.contains("crossterm") && line.contains("default-features = false"),
+                    "{section}: ratatui must not pull in its crossterm backend"
+                );
+                // Without it (and without crossterm, which implies it) ratatui
+                // builds `no_std`: its layout cache then needs a
+                // critical-section implementation and nothing links.
+                assert!(
+                    line.contains("\"std\""),
+                    "{section}: ratatui needs its `std` feature"
+                );
+            }
             _ => {}
         }
     }
