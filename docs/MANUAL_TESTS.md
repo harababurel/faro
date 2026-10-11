@@ -212,7 +212,7 @@ Switch with the palette (`Ctrl+P` › Themes) or `theme = "…"` in the config; 
 Use a separate data dir for the test account, e.g. `--data-dir ~/.local/share/faro-test`.
 
 - [ ] `faro link --data-dir …` shows a QR code that the phone scans at once (Signal › Settings › Linked devices › Link new device). The phone lists "faro (<host>)". faro prints the account's ID.
-- [ ] Running `faro link` again on the same data dir refuses and explains how to start over.
+- [x] Running `faro link` again on the same data dir refuses and explains how to start over.
 - [x] `faro ids --data-dir … --username <yours>` prints your ID and, after a message in the test group, the group's title and ID, plus an allowlist to copy.
 - [x] `faro --data-dir …` without `--allowlist` refuses to start.
 - [x] With the allowlist: the group and your direct chat appear, with names. A message from the phone shows up as outgoing. Messages, replies, reactions, edits and deletions work both ways. Typing indicators and receipts (✓✓, read) show.
