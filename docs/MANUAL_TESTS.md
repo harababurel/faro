@@ -214,7 +214,7 @@ Use a separate data dir for the test account, e.g. `--data-dir ~/.local/share/fa
 - [ ] `faro link --data-dir …` shows a QR code that the phone scans at once (Signal › Settings › Linked devices › Link new device). The phone lists "faro (<host>)". faro prints the account's ID.
 - [ ] Running `faro link` again on the same data dir refuses and explains how to start over.
 - [ ] `faro ids --data-dir … --username <yours>` prints your ID and, after a message in the test group, the group's title and ID, plus an allowlist to copy.
-- [ ] `faro --data-dir …` without `--allowlist` refuses to start.
+- [x] `faro --data-dir …` without `--allowlist` refuses to start.
 - [ ] With the allowlist: the group and your direct chat appear, with names. A message from the phone shows up as outgoing. Messages, replies, reactions, edits and deletions work both ways. Typing indicators and receipts (✓✓, read) show.
 - [ ] A message from anyone else never appears.
 - [ ] Caught up (D64): quit faro, send a message to the group from the phone, run `faro ids` (it reads the queue), then start faro: the message is there, unread. Restarting again doesn't duplicate it or count it twice.
