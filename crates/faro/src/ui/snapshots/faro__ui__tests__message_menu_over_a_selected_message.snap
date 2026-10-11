@@ -4,10 +4,10 @@ expression: "snapshot(&draw(&state, 100, 20))"
 ---
 ╭ Conversations ─────────────╮╭ Climbing 🧗 ───────────────────────────────────────────────────────╮
 │ ▾ Pinned                   ││ 17:20        Bob ▎ Alice 🌸: Anyone up for the wall on Thursday?   │
-│   Bob                      ││                  Count me in, I'll bring the spare harness         │
+│     Bob                    ││                  Count me in, I'll bring the spare harness         │
 │ ▾ Recent                   ││ ╭ Message ─────────────────╮edited)                                │
-│   Climbing 🧗              ││ │ › Reply                 r│e was deleted                          │
-│ ● Alice 🌸               1 ││ │   React…                +│rom last time                          │
+│   # Climbing 🧗            ││ │ › Reply                 r│e was deleted                          │
+│ ●   Alice 🌸             1 ││ │   React…                +│rom last time                          │
 │                            ││ │   Copy text             y│p.jpg · 2.3 MB                         │
 │                            ││ │   Forward…              f│ew messages ────────────────────────── │
 │                            ││ │   Message info          i│ew overhang section opened last week   │

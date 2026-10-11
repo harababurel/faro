@@ -4,10 +4,10 @@ expression: "snapshot(&draw(&state, 100, 18))"
 ---
 ╭ Conversations ─────────────╮╭ Climbing 🧗 ───────────────────────────────────────────────────────╮
 │ ▾ Pinned                   ││ 16:30   Alice 🌸 Anyone up for the wall on Thursday?               │
-│   Bob                      ││ 16:40        You Yes! 7pm at the usual place 👍 ✓✓                 │
+│     Bob                    ││ 16:40        You Yes! 7pm at the usual place 👍 ✓✓                 │
 │ ▾ Recent                   ││                  👍 2  ❤️                                          │
-│   Climbing 🧗              ││ ───────────────────────────── Today ────────────────────────────── │
-│ ● Alice 🌸               1 ││ 17:20        Bob ▎ Alice 🌸: Anyone up for the wall on Thursday?   │
+│   # Climbing 🧗            ││ ───────────────────────────── Today ────────────────────────────── │
+│ ●   Alice 🌸             1 ││ 17:20        Bob ▎ Alice 🌸: Anyone up for the wall on Thursday?   │
 │                            ││                  Count me in, I'll bring the spare harness         │
 │                            ││ 17:22            and chalk (edited)                                │
 │                            ││ 17:40 Carol Bar… This message was deleted                          │

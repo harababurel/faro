@@ -342,6 +342,10 @@ In kitty, with an image copied on the machine you type on (e.g. *Copy Image* in 
 - [x] **No leftovers:** after sending a pasted image, `ls <data dir>/attachments/clipboard-*` finds nothing (the sent copy has the message's name); paste one, remove it with `Esc`, restart faro: it's gone too.
 - [x] **Esc after a paste:** a lone `Esc` still dismisses things normally (it can be held back for up to 50 ms after the first paste; that shouldn't be noticeable).
 
+## Sidebar markers (D96)
+
+- [ ] In `faro demo`: groups show `#` before the name (sidebar and `Ctrl+P` › Chats; people have no mark in either). Set a group to mentions only (`@` in the sidebar): an `@` appears at the row's right edge. Mute a chat (`Space` › Mute): `⊘` there instead. With unread messages the count comes first (`3 ⊘`). Markers stay visible on the open chat's row and line up in one column. Unmute / notify all: the marker goes.
+
 ## About (D94)
 
 - [x] `Ctrl+P` › Commands › *About faro*: a centred box with the small lighthouse in the theme's colours, the version, https://getfaro.dev and the repository as full, clickable links, the licence, credits, then your config file and data folder with the paths lined up; `Esc` closes it. In a narrow window (about 60 columns) the lighthouse is left out and the text is cut cleanly.

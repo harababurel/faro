@@ -251,16 +251,14 @@ fn result_line(
             },
             None,
         ) => "# ",
+        // Direct chats: blank, as in the sidebar (D96).
         (
             ItemKind::Conversation(ConversationId::Direct(_))
             | ItemKind::ForwardTo {
                 destination: ConversationId::Direct(_),
                 ..
-            },
-            None,
-        ) => "@ ",
-        (
-            ItemKind::Level(_)
+            }
+            | ItemKind::Level(_)
             | ItemKind::EnterDir(_)
             | ItemKind::AttachFile(_)
             | ItemKind::SearchHit { .. }

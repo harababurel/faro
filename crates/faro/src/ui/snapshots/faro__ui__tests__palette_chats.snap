@@ -4,13 +4,13 @@ expression: "snapshot(&draw(&with_palette(\"@\"), 100, 20))"
 ---
 ╭ Conversations ─────────────╮╭ Climbing 🧗 ───────────────────────────────────────────────────────╮
 │ ▾ Pinned                   ││ 17:20        Bob ▎ Alice 🌸: Anyone up for the wall on Thursday?   │
-│   Bob                      ││                  Count me in, I'll bring the spare harness         │
+│     Bob                    ││                  Count me in, I'll bring the spare harness         │
 │ ▾ Recent  ╭ Chats ───────────────────────────────────────────────────────────────────╮           │
-│   Climbing│ ›                                                                 ← back │           │
-│ ● Alice 🌸│──────────────────────────────────────────────────────────────────────────│           │
-│           │▌@ Bob                                                             pinned │           │
+│   # Climbi│ ›                                                                 ← back │           │
+│ ●   Alice │──────────────────────────────────────────────────────────────────────────│           │
+│           │▌  Bob                                                             pinned │           │
 │           │ # Climbing 🧗                                                       open │────────── │
-│           │ @ Alice 🌸                                                      1 unread │ast week   │
+│           │   Alice 🌸                                                      1 unread │ast week   │
 │           ╰──────────────────────────────────────────────────────────────────────────╯bring your │
 │                            ││                  project shoes 🧗‍♀️🧗‍♂️ and maybe some tape for your   │
 │                            ││                  fingers.                                          │

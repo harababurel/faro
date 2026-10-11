@@ -4,10 +4,10 @@ expression: "snapshot(&draw(&with_palette(\"?\"), 100, 26))"
 ---
 ╭ Conversations ─────────────╮╭ Climbing 🧗 ───────────────────────────────────────────────────────╮
 │ ▾ Pinned                   ││                                                                    │
-│   Bob                      ││ ─────────────────────────── Yesterday ──────────────────────────── │
+│     Bob                    ││ ─────────────────────────── Yesterday ──────────────────────────── │
 │ ▾ Recent                   ││ 16:30   Alice 🌸 Anyone up for the wall on Thursday?               │
-│   Climbing╭ Keys ────────────────────────────────────────────────────────────────────╮           │
-│ ● Alice 🌸│ ›                                                                 ← back │           │
+│   # Climbi╭ Keys ────────────────────────────────────────────────────────────────────╮           │
+│ ●   Alice │ ›                                                                 ← back │           │
 │           │──────────────────────────────────────────────────────────────────────────│────────── │
 │           │▌  Everywhere › Command palette                                    ctrl+p │hursday?   │
 │           │   Everywhere › Keybindings                                            f1 │ss         │

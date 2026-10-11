@@ -4,10 +4,10 @@ expression: "snapshot(&draw(&typing_state(), 100, 30))"
 ---
 ╭ Conversations ─────────────╮╭ Climbing 🧗 ───────────────────────────────────────────────────────╮
 │ ▾ Pinned                   ││                                                                    │
-│   Bob                      ││                                                                    │
+│     Bob                    ││                                                                    │
 │ ▾ Recent                   ││                                                                    │
-│   Climbing 🧗 …            ││                                                                    │
-│ ● Alice 🌸               1 ││                                                                    │
+│   # Climbing 🧗 …          ││                                                                    │
+│ ●   Alice 🌸             1 ││                                                                    │
 │                            ││ ─────────────────────────── Yesterday ──────────────────────────── │
 │                            ││ 16:30   Alice 🌸 Anyone up for the wall on Thursday?               │
 │                            ││ 16:40        You Yes! 7pm at the usual place 👍 ✓✓                 │

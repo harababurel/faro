@@ -4,10 +4,10 @@ expression: "snapshot(&draw(&state, 100, 30))"
 ---
 ╭ Conversations ─────────────╮╭ Climbing 🧗 ───────────────────────────────────────────────────────╮
 │ ▾ Pinned                   ││                                                                    │
-│   Bob                      ││                                                                    │
+│     Bob                    ││                                                                    │
 │ ▾ Recent                   ││                                                                    │
-│   Climbing╭ Settings › Inline images ────────────────────────────────────────────────╮           │
-│ ● Alice 🌸│ ›                                                                 ← back │           │
+│   # Climbi╭ Settings › Inline images ────────────────────────────────────────────────╮           │
+│ ●   Alice │ ›                                                                 ← back │           │
 │           │──────────────────────────────────────────────────────────────────────────│────────── │
 │           │ Auto: halfblocks — mixed or detached tmux clients.                       │           │
 │           │▌● auto                                                                   │           │

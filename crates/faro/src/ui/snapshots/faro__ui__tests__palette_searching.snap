@@ -4,10 +4,10 @@ expression: "snapshot(&draw(&with_palette(\">mute\"), 100, 20))"
 ---
 ╭ Conversations ─────────────╮╭ Climbing 🧗 ───────────────────────────────────────────────────────╮
 │ ▾ Pinned                   ││ 17:20        Bob ▎ Alice 🌸: Anyone up for the wall on Thursday?   │
-│   Bob                      ││                  Count me in, I'll bring the spare harness         │
+│     Bob                    ││                  Count me in, I'll bring the spare harness         │
 │ ▾ Recent  ╭ Commands ────────────────────────────────────────────────────────────────╮           │
-│   Climbing│ › mute                                                                   │           │
-│ ● Alice 🌸│──────────────────────────────────────────────────────────────────────────│           │
+│   # Climbi│ › mute                                                                   │           │
+│ ●   Alice │──────────────────────────────────────────────────────────────────────────│           │
 │           │▌  Climbing 🧗 › Mute for 1 hour                                          │           │
 │           │   Climbing 🧗 › Mute for 8 hours                                         │────────── │
 │           │   Climbing 🧗 › Mute for 1 day                                           │ast week   │

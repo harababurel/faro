@@ -4,10 +4,10 @@ expression: "snapshot(&draw(&with_palette(\":notif\"), 100, 20))"
 ---
 ╭ Conversations ─────────────╮╭ Climbing 🧗 ───────────────────────────────────────────────────────╮
 │ ▾ Pinned                   ││ 17:20        Bob ▎ Alice 🌸: Anyone up for the wall on Thursday?   │
-│   Bob                      ││                  Count me in, I'll bring the spare harness         │
+│     Bob                    ││                  Count me in, I'll bring the spare harness         │
 │ ▾ Recent  ╭ Settings ────────────────────────────────────────────────────────────────╮           │
-│   Climbing│ › notif                                                                  │           │
-│ ● Alice 🌸│──────────────────────────────────────────────────────────────────────────│           │
+│   # Climbi│ › notif                                                                  │           │
+│ ●   Alice │──────────────────────────────────────────────────────────────────────────│           │
 │           │ Notifications                                                            │           │
 │           │▌  Bell                                                                on │────────── │
 │           │   Unread count in the window title                                    on │ast week   │

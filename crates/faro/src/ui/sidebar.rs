@@ -161,6 +161,27 @@ fn section_label(section: Section) -> &'static str {
     }
 }
 
+/// Marks a group, beside the unread dot (D96). Direct chats get blanks, so
+/// every name starts in the same column.
+fn kind_glyph(id: ConversationId) -> &'static str {
+    match id {
+        ConversationId::Group(_) => "# ",
+        ConversationId::Direct(_) => "  ",
+    }
+}
+
+/// The right-edge marker for a chat that won't notify as usual (D96): muted
+/// wins over "mentions only".
+fn notify_glyph(summary: &ConversationSummary, view: &View<'_>) -> Option<&'static str> {
+    if summary.state.muted_at(view.now_timestamp()) {
+        return Some("⊘");
+    }
+    match summary.state.notify {
+        NotifyLevel::Mentions => Some("@"),
+        NotifyLevel::All => None,
+    }
+}
+
 fn row(
     state: &State,
     view: &View<'_>,
@@ -174,9 +195,9 @@ fn row(
     let open = selected && state.open.is_some();
     let unread = summary.unread > 0;
     let typing = !state.typists(summary.id).is_empty();
+    let quiet = notify_glyph(summary, view);
     // Muted or mentions only: drawn quietly, as it won't notify (D49).
-    let muted = summary.state.muted_at(view.now_timestamp())
-        || summary.state.notify == NotifyLevel::Mentions;
+    let muted = quiet.is_some();
 
     let marker = if unread {
         let style = if muted {
@@ -188,13 +209,23 @@ fn row(
     } else {
         Span::raw("   ")
     };
+    let kind = kind_glyph(summary.id);
     let count = if unread {
-        format!(" {} ", summary.unread)
+        format!(" {}", summary.unread)
     } else {
         String::new()
     };
+    // The notification marker sits at the edge, after the count, so markers
+    // line up whatever the counts; its room is kept before the name is cut.
+    let quiet = quiet.map(|glyph| format!(" {glyph}")).unwrap_or_default();
+    let end = if count.is_empty() && quiet.is_empty() {
+        ""
+    } else {
+        " "
+    };
     let suffix = if typing { " …" } else { "" };
-    let room = width.saturating_sub(3 + text::width(&count) + text::width(suffix));
+    let fixed = 3 + text::width(kind) + text::width(&count) + text::width(&quiet) + end.len();
+    let room = width.saturating_sub(fixed + text::width(suffix));
     let title = state.conversation_title(summary.id);
     let name = truncate(&sanitize(&title), room).into_owned();
     let pad = room.saturating_sub(text::width(&name));
@@ -220,10 +251,13 @@ fn row(
     };
     let mut line = Line::from(vec![
         marker,
+        Span::styled(kind, theme.muted()),
         Span::styled(name, name_style),
         Span::styled(suffix, Style::new().fg(theme.accent)),
         Span::raw(" ".repeat(pad)),
         Span::styled(count, count_style),
+        Span::styled(quiet, theme.muted()),
+        Span::raw(end),
     ]);
     if selected {
         line = line.style(theme.selected());

@@ -894,11 +894,12 @@ Refines the DESIGN.md §5.1 sketch:
 - **Not affected:** the in-app allowlist mode (D41, `conversations.allowlist`), which only decides which chats the main list shows.
 - **Test account:** keeps running with `--allowlist` as before; its data dir stays separate.
 
-### D96. Sidebar markers for groups, muted and mentions-only chats — Accepted (owner, 2026-10-11; not done yet, M8 task 6)
+### D96. Sidebar markers for groups, muted and mentions-only chats — Accepted (owner, 2026-10-11; done the same day, M8 task 6)
 
 - **Why:** in the sidebar a muted chat is only dimmed, the same as a "mentions only" one, and the open highlight hides even that; groups and direct chats look the same. The owner noticed neither while testing M7. The info panel (`Alt+I`) says it, but it's easy to miss.
 - **Decision:**
   - **Kind:** `#` before a group's name, nothing before a direct chat, in the left column beside the unread dot (` ● # Climbing`). Every row gets the same two cells, so names stay aligned. The palette's `Chats ›` does the same: direct chats lose their `@ `.
-  - **Notifications:** on the right edge, just before the unread count, with room kept so it's never cut off: `⊘` muted, `@` mentions only, nothing when notifications are on. Drawn in the theme's muted colour, and shown even when the chat is open. Dimming stays as it is.
+  - **Notifications:** on the right edge, with room kept so it's never cut off: `⊘` muted, `@` mentions only, nothing when notifications are on. Drawn in the theme's muted colour, and shown even when the chat is open. Dimming stays as it is.
   - Single characters, not emoji (🔕): one cell everywhere, themed, no tmux/mosh width risk (D55), fine in the `system` theme and in terminals without emoji fonts.
 - **When (Judgement, agent's recommendation; easy to move):** before the v0.1 release: it's small, settled, and visible in daily use and screenshots.
+- **As built (Judgement):** the marker comes *after* the unread count (` ● # Climbing   3 @ `), not before it, so markers stay in one column whatever the counts; a row with neither ends at the border as before. `ui/sidebar.rs`: `kind_glyph`, `notify_glyph` (muted wins); the `#` is in the muted colour too. Palette `Chats ›` and *Forward to*: direct chats get a blank glyph. Test: `ui::tests::sidebar_markers_for_groups_muted_and_mentions_only`; sidebar snapshots updated.

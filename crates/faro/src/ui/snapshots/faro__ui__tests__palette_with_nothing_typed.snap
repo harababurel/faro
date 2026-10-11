@@ -4,10 +4,10 @@ expression: "snapshot(&draw(&with_palette(\"\"), 100, 26))"
 ---
 ╭ Conversations ─────────────╮╭ Climbing 🧗 ───────────────────────────────────────────────────────╮
 │ ▾ Pinned                   ││                                                                    │
-│   Bob                      ││ ─────────────────────────── Yesterday ──────────────────────────── │
+│     Bob                    ││ ─────────────────────────── Yesterday ──────────────────────────── │
 │ ▾ Recent                   ││ 16:30   Alice 🌸 Anyone up for the wall on Thursday?               │
-│   Climbing╭ Command palette ─────────────────────────────────────────────────────────╮           │
-│ ● Alice 🌸│ ›                                @ chats  : settings  > commands  ? keys │           │
+│   # Climbi╭ Command palette ─────────────────────────────────────────────────────────╮           │
+│ ●   Alice │ ›                                @ chats  : settings  > commands  ? keys │           │
 │           │──────────────────────────────────────────────────────────────────────────│────────── │
 │           │▌  Chats ›                                                              @ │hursday?   │
 │           │   Themes ›                                                     faro-dark │ss         │

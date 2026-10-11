@@ -4,10 +4,10 @@ expression: "snapshot(&draw(&bubbles_state(), 100, 34))"
 ---
 ╭ Conversations ─────────────╮╭ Climbing 🧗 ───────────────────────────────────────────────────────╮
 │ ▾ Pinned                   ││                                                                    │
-│   Bob                      ││                          Yes! 7pm at the usual place 👍  16:40 ✓✓┃ │
+│     Bob                    ││                          Yes! 7pm at the usual place 👍  16:40 ✓✓┃ │
 │ ▾ Recent                   ││                                                          👍 2  ❤️  │
-│   Climbing 🧗 …            ││ ───────────────────────────── Today ────────────────────────────── │
-│ ● Alice 🌸               1 ││  Bob                                                               │
+│   # Climbing 🧗 …          ││ ───────────────────────────── Today ────────────────────────────── │
+│ ●   Alice 🌸             1 ││  Bob                                                               │
 │                            ││ ┃▎ Alice 🌸: Anyone up for the wall on Thursday?                   │
 │                            ││ ┃Count me in, I'll bring the spare harness                         │
 │                            ││ ┃                                          17:20                   │

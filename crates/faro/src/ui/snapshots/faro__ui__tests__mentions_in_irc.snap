@@ -4,10 +4,10 @@ expression: "snapshot(&draw(&state, 100, 20))"
 ---
 ╭ Conversations ─────────────╮╭ Climbing 🧗 ───────────────────────────────────────────────────────╮
 │ ▾ Pinned                   ││                  Count me in, I'll bring the spare harness         │
-│   Bob                      ││ 17:22            and chalk (edited)                                │
+│     Bob                    ││ 17:22            and chalk (edited)                                │
 │ ▾ Recent                   ││ 17:40 Carol Bar… This message was deleted                          │
-│   Climbing 🧗              ││ 17:50 Carol Bar… Route map from last time                          │
-│ ● Alice 🌸               1 ││                  📎 route-map.jpg · 2.3 MB                         │
+│   # Climbing 🧗            ││ 17:50 Carol Bar… Route map from last time                          │
+│ ●   Alice 🌸             1 ││                  📎 route-map.jpg · 2.3 MB                         │
 │                            ││ ────────────────────────── new messages ────────────────────────── │
 │                            ││ 17:51            Also: the new overhang section opened last week   │
 │                            ││                  and apparently the grades are soft, so bring your │

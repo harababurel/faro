@@ -4,10 +4,10 @@ expression: "snapshot(&draw(&state, 120, 32))"
 ---
 ╭ Conversations ─────────────╮╭ Climbing 🧗 ───────────────────────────────────────────────╮╭ Info ────────────────────╮
 │ ▾ Pinned                   ││                                                            ││ Climbing 🧗              │
-│   Bob                      ││                                                            ││ Group · 4 members        │
+│     Bob                    ││                                                            ││ Group · 4 members        │
 │ ▾ Recent                   ││                                                            ││                          │
-│   Climbing 🧗 …            ││                                                            ││ Members                  │
-│ ● Alice 🌸               1 ││                                                            ││ You                      │
+│   # Climbing 🧗 …          ││                                                            ││ Members                  │
+│ ●   Alice 🌸             1 ││                                                            ││ You                      │
 │                            ││                                                            ││ Alice 🌸                 │
 │                            ││                                                            ││ Bob                      │
 │                            ││ ─────────────────────── Yesterday ──────────────────────── ││ Carol Bartholomew-Smythe │

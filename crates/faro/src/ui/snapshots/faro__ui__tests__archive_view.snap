@@ -5,9 +5,9 @@ expression: "snapshot(&draw(&state, 100, 14))"
 ╭ Archive ───────────────────╮╭ Bob ───────────────────────────────────────────────────────────────╮
 │ ◂ Chats                    ││                              Loading…                              │
 │ ▾ Archived                 ││                                                                    │
-│   Climbing 🧗              ││                                                                    │
+│   # Climbing 🧗            ││                                                                    │
 │ ▾ Hidden until a message   ││                                                                    │
-│   Alice 🌸                 ││                                                                    │
+│     Alice 🌸               ││                                                                    │
 │                            ││                                                                    │
 │                            ││                                                                    │
 │                            ││                                                                    │

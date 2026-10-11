@@ -448,6 +448,38 @@ fn allowlist_mode_shows_in_the_title() {
     assert!(text.contains("▸ Archive (1)"), "{text}");
 }
 
+/// D96: `#` before groups, and at the right edge (after any unread count)
+/// `⊘` for muted and `@` for mentions only.
+#[test]
+fn sidebar_markers_for_groups_muted_and_mentions_only() {
+    use faro_core::domain::ConversationId;
+    use faro_core::store::{ConversationState, NotifyLevel};
+
+    let mut state = loaded_state();
+    for summary in &mut state.conversations {
+        match summary.id {
+            ConversationId::Group(_) => summary.state.notify = NotifyLevel::Mentions,
+            ConversationId::Direct(_) if summary.unread > 0 => {
+                summary.state.muted_until = Some(ConversationState::MUTED_FOREVER);
+            }
+            ConversationId::Direct(_) => {}
+        }
+    }
+    let text = snapshot(&draw(&state, 100, 14));
+    // Only the sidebar's columns (its right border included).
+    let row = |name: &str| {
+        text.lines()
+            .map(|line| line.chars().take(30).collect::<String>())
+            .find(|line| line.contains(name))
+            .unwrap_or_default()
+    };
+    assert!(row("Climbing").contains("# Climbing"), "{text}");
+    assert!(row("Climbing").contains("@ │"), "{text}");
+    assert!(row("Alice").contains("1 ⊘ │"), "{text}");
+    assert!(!row("Bob").contains('#'), "{text}");
+    assert!(!row("Bob").contains('⊘'), "{text}");
+}
+
 fn with_palette(query: &str) -> State {
     use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
     let mut state = loaded_state();

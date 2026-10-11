@@ -4,10 +4,10 @@ expression: "snapshot(&draw(&with_palette(\":\"), 100, 30))"
 ---
 ╭ Conversations ─────────────╮╭ Climbing 🧗 ───────────────────────────────────────────────────────╮
 │ ▾ Pinned                   ││                                                                    │
-│   Bob                      ││                                                                    │
+│     Bob                    ││                                                                    │
 │ ▾ Recent                   ││                                                                    │
-│   Climbing╭ Settings ────────────────────────────────────────────────────────────────╮           │
-│ ● Alice 🌸│ ›                                                 ←/→ cycle · enter list │           │
+│   # Climbi╭ Settings ────────────────────────────────────────────────────────────────╮           │
+│ ●   Alice │ ›                                                 ←/→ cycle · enter list │           │
 │           │──────────────────────────────────────────────────────────────────────────│────────── │
 │           │ Appearance                                                               │           │
 │           │▌  Colours ›                                    auto (truecolor detected) │           │

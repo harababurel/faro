@@ -4,10 +4,10 @@ expression: "snapshot(&draw(&mixed(bubbles_state()), 100, 34))"
 ---
 ╭ Conversations ─────────────╮╭ Climbing 🧗 ───────────────────────────────────────────────────────╮
 │ ▾ Pinned                   ││ ┃▎ Alice 🌸: Anyone up for the wall on Thursday?                   │
-│   Bob                      ││ ┃Count me in, I'll bring the spare harness                         │
+│     Bob                    ││ ┃Count me in, I'll bring the spare harness                         │
 │ ▾ Recent                   ││ ┃                                          17:20                   │
-│   Climbing 🧗 …            ││ 🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🭚                  │
-│ ● Alice 🌸               1 ││                                                                    │
+│   # Climbing 🧗 …          ││ 🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🬎🭚                  │
+│ ●   Alice 🌸             1 ││                                                                    │
 │                            ││ ┃and chalk  edited 17:22                                          │
 │                            ││                                                                    │
 │                            ││  Carol Bartholomew-Smythe                                          │
