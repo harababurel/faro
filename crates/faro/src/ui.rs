@@ -22,6 +22,9 @@ mod sidebar;
 #[cfg(test)]
 mod tests;
 pub mod text;
+// M13 Phase 0 spike (throwaway): frames for the web renderer prototypes.
+#[cfg(test)]
+mod web_spike;
 
 /// Everything rendering needs besides the state.
 pub struct View<'a> {

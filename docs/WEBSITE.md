@@ -289,7 +289,7 @@ The site uses faro's own built-in themes, so the page and the app look like they
 ### 5.2 Type
 
 Two families at most:
-- **Monospace** for the wordmark, headings, the terminal panel, commands and key names: a single self-hosted, subset woff2 (about 40–60 KB). Candidates are JetBrains Mono, Iosevka and Cascadia Code. Pick by how it looks at 13–15 px and by its box-drawing glyphs; the renderer draws blocks and octants itself.
+- **Monospace** for the wordmark, headings, the terminal panel, commands and key names: **JetBrains Mono** (D107), self-hosted as three subset woff2 files (Regular, Bold, Italic; about 32 KB in total). The subset is ASCII, Latin-1, Latin Extended-A and the ~30 symbols faro uses. The renderer draws blocks, octants, box drawing, Powerline, Braille and the three symbols the font lacks (`↳ ✎ ❝`) itself.
 - **System UI sans** (`system-ui, -apple-system, "Segoe UI", Roboto, …`) for prose. It costs zero bytes.
 - **Sizes:** headline 40–56 px (fluid), prose 17–18 px with a line height of 1.6. Prose is capped at 70 characters per line. The terminal panel and tables can be wider.
 - No web fonts from third-party hosts.
@@ -443,15 +443,16 @@ What it replaces:
 ### 6.3 Rendering
 
 - faro already draws through ratatui's `Backend` trait, so the web needs a backend that paints cells onto a `<canvas>`.
-- **Recommended:** a small **custom Canvas 2D renderer** (about 1,000 lines):
+- **Chosen (D106):** a small **custom Canvas 2D renderer** (about 1,000 lines):
   - it paints cell backgrounds, then text glyphs from the bundled monospace font;
   - **draws faro's block, octant, quarter-circle, Powerline and half-block glyphs as shapes** (the full set is already listed in `ui/bubbles/grid.rs`, `bubbles.rs` and `logo/art.rs`);
   - draws emoji at exactly the width faro's layout chose;
   - handles device pixel ratio for crisp output.
+  - paints a wide glyph's background across every cell it covers: ratatui leaves the hidden cell with no background (D106).
 
   This gives the highest fidelity: rounded bubbles and the logo look exactly as in kitty.
-- **The alternative:** Ratzilla's WebGL2 backend (ratatui's official web crate, compatible with faro's ratatui 0.30). It's quicker to start, but octants depend on font coverage and its emoji widths may differ from faro's.
-- **How the choice is made (D-d, agreed):** in Phase 0, build a throwaway prototype of each, about a day in total. Each draws the same real faro frame: bubbles with octant corners, the logo, ZWJ and flag emoji, a theme switch, and a flood of messages. Judge them on fidelity first (does it look exactly like faro in kitty?), then frame time and bundle size. **Keep one and delete the other;** both are never maintained. The custom renderer is expected to win on fidelity.
+- **Rejected (D106):** Ratzilla's WebGL2 backend (ratatui's official web crate). It can only draw glyphs its font atlas has: the Phase 0 prototype showed missing-glyph boxes on every bubble edge and Powerline cap, thin lines between half-block rows, and 1.1 MB gzipped before any faro code.
+- **How the choice is made (D-d, agreed):** in Phase 0, build a throwaway prototype of each, about a day in total. Each draws the same real faro frame: bubbles with octant corners, the logo, ZWJ and flag emoji, a theme switch, and a flood of messages. Judge them on fidelity first (does it look exactly like faro in kitty?), then frame time and bundle size. **Keep one and delete the other;** both are never maintained. The custom renderer is expected to win on fidelity. **Done (D106):** Canvas 2D matched the frame cell for cell and was kept.
 - Not recommended: xterm.js (its own width tables would bring back the misalignment bugs faro already fixed for tmux, and it adds a large JS dependency).
 
 ### 6.4 Poster, phone frames and OG image
@@ -595,6 +596,9 @@ Ways to stay inside the budget:
 **Backups:** the statistics aren't critical. A weekly `pg_dump` of the settings database is enough. ClickHouse data can be rebuilt by starting over, losing only history.
 
 ### 6.10 Server runbook (draft)
+
+> [!NOTE]
+> **Superseded by the files in `site/deploy/`** (D109), which are the ones to use: [site/deploy/README.md](../site/deploy/README.md) is the runbook. They differ from this draft in two ways. Plausible CE 3.1+'s per-site script is proxied as `/js/s.js`, with its init in a same-origin `/js/init.js` (the snippet's inline script would break the CSP). The logs live in `/var/log/nginx/getfaro/` (Debian's nginx logrotate rule already matches `/var/log/nginx/*.log`). The dashboard host is `plausible.harababurel.com`.
 
 These steps assume a Linux server with Docker, nginx and certbot, and a CPU that ClickHouse supports (§6.9). `<plausible-host>` is the analytics dashboard's hostname. Paths and ports are examples; check that the ports are free with `ss -ltn` first.
 
@@ -841,7 +845,7 @@ Agreed on 2026-10-11 and recorded as D105 in DECISIONS.md. Phase 0's renderer an
 | D-a | Start the demo on click, or preload? | **Preload and autostart** on capable desktops, unfocused until clicked; poster and a start button on phones and slow connections (§4.2) |
 | D-b | Demo settings for visitors | Fixed seed, default activity (~4 s), no outages, fresh each visit |
 | D-c | Remember settings changed in the demo? | No, for the visit only; the page's light/dark choice is remembered |
-| D-d | Renderer | Throwaway prototypes of both in Phase 0, judged on fidelity first, then speed and size; keep one (§6.3) |
+| D-d | Renderer | Throwaway prototypes of both in Phase 0, judged on fidelity first, then speed and size; keep one (§6.3). **Kept: custom Canvas 2D (D106)**; webfont: JetBrains Mono (D107) |
 | D-e | Crate layout | One repo and workspace either way; split into `faro-app` + `faro` + `faro-web` (§6.5) |
 | D-f | Hosting | A self-managed server behind nginx; static files, built on the server (§6.8, §6.10) |
 | D-g | Analytics | Self-hosted Plausible Community Edition, served from getfaro.dev's own origin (§6.9); privacy policy and terms in §5.5 |

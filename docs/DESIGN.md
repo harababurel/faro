@@ -464,7 +464,7 @@ Sketch:
 - **Arch (D86):** AUR `faro-git` (PKGBUILD in `packaging/aur/faro-git/`, ready, uploaded once the repo is public), then `faro` (release from source) and `faro-bin` (pre-built) with the first release; all `provides`/`conflicts` `faro`. Runtime depends: `glibc`, `libgcc`, `openssl` (SQLCipher). Official repos only if a packager adopts it.
 - **Debian/Ubuntu:** `.deb` via `cargo-deb` attached to releases.
 - **Nix:** flake in the repo.
-- **Names (D85):** `faro` everywhere (repo, command, Homebrew, AUR, `.deb`, Nix); `faro-chat` only on crates.io. Website: `getfaro.dev`, designed in [WEBSITE.md](WEBSITE.md) (D105).
+- **Names (D85):** `faro` everywhere (repo, command, Homebrew, AUR, `.deb`, Nix); `faro-chat` only on crates.io. Website: `getfaro.dev`, designed in [WEBSITE.md](WEBSITE.md) (D105); the web demo draws with a custom Canvas 2D renderer (D106) and JetBrains Mono (D107).
 
 ## 14. Release plan (confirmed, D14)
 

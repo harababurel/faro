@@ -1,0 +1,22 @@
+# M13 Phase 0 spikes: generated or downloaded, never committed.
+target/
+Cargo.lock
+pkg/
+*.txt
+renderers/frames/
+renderers/dist/
+renderers/shots/
+renderers/fonts/
+renderers/.browsers/
+fonts/.venv/
+fonts/src/
+fonts/subset/
+fonts/charset.json
+plausible-ref/
+deploy-test/pkg/
+deploy-test/nginx-root/
+deploy-test/srv/
+deploy-test/etc/
+deploy-test/log/
+deploy-test/run/
+deploy-test/origin/

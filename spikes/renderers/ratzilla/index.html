@@ -1,0 +1,49 @@
+<!doctype html>
+<!-- M13 Phase 0 spike (throwaway): the Ratzilla WebGL2 prototype.
+     ?frame=conv-faro-dark (default) | ?flood  ·  &font=JetBrains Mono&size=14 -->
+<meta charset="utf-8">
+<title>faro · Ratzilla WebGL2 prototype</title>
+<style>
+  @font-face { font-family: "JetBrains Mono"; src: url(../fonts/JetBrainsMono-Regular.woff2) format("woff2"); font-weight: 400; }
+  @font-face { font-family: "JetBrains Mono"; src: url(../fonts/JetBrainsMono-Bold.woff2) format("woff2"); font-weight: 700; }
+  html, body { margin: 0; background: #101216; }
+  #grid canvas { display: block; }
+  #stats { position: fixed; right: 4px; bottom: 2px; font: 11px monospace; color: #7c838f; }
+</style>
+<div id="grid"></div>
+<div id="stats"></div>
+<script type="module">
+  const { default: init, start, draw } = await import(window.GLUE_JS ?? "./pkg/ratzilla_spike.js");
+  const q = new URLSearchParams(location.search);
+  const font = q.get("font") ?? "JetBrains Mono";
+  const size = Number(q.get("size") ?? 14);
+  const stats = document.getElementById("stats");
+  try {
+    await document.fonts.load(`${size}px "${font}"`);
+    await document.fonts.load(`700 ${size}px "${font}"`);
+    await init(window.WASM_BYTES ? { module_or_path: window.WASM_BYTES } : undefined);
+    const info = start(font, size, 120, 34, q.get("atlas") !== "static");
+    console.log(info);
+    const get = async (n) => window.FRAMES?.[n] ? JSON.stringify(window.FRAMES[n]) : fetch(`../frames/${n}.json`).then((x) => x.text());
+    if (q.has("flood")) {
+      const frames = await Promise.all([...Array(60).keys()].map((i) => get(`flood-${String(i).padStart(3, "0")}`)));
+      const times = [];
+      for (const f of frames) {
+        times.push(draw(f));
+        await new Promise(requestAnimationFrame);
+      }
+      times.sort((a, b) => a - b);
+      const avg = times.reduce((a, b) => a + b, 0) / times.length;
+      window.stats = { info, avg, p50: times[30], max: times.at(-1) };
+      stats.textContent = `ratzilla webgl2 · ${frames.length} frames · avg ${avg.toFixed(2)} ms (incl. JSON parse) · p50 ${times[30].toFixed(2)} · max ${times.at(-1).toFixed(2)}`;
+    } else {
+      const ms = draw(await get(q.get("frame") ?? "conv-faro-dark"));
+      await new Promise(requestAnimationFrame);
+      window.stats = { info, first: ms };
+    }
+  } catch (e) {
+    console.error(String(e));
+    window.stats = { error: String(e) };
+  }
+  window.done = true;
+</script>

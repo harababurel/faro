@@ -1,0 +1,16 @@
+# getfaro.dev logs: kept 30 days, as the privacy policy says (WEBSITE.md §5.5, §8).
+# If this changes, the policy changes in the same commit.
+# Install as /etc/logrotate.d/getfaro. Check with: logrotate -d /etc/logrotate.d/getfaro
+/var/log/nginx/getfaro/*.log {
+    daily
+    rotate 30
+    missingok
+    compress
+    delaycompress
+    notifempty
+    create 0640 www-data adm
+    sharedscripts
+    postrotate
+        [ -s /run/nginx.pid ] && kill -USR1 "$(cat /run/nginx.pid)"
+    endscript
+}

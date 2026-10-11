@@ -1,0 +1,11 @@
+/* Placeholder page: faro-dark / faro-light colours (WEBSITE.md §5.1). */
+:root { color-scheme: dark light; --bg: #101216; --fg: #e6e6e6; --muted: #7c838f; --accent: #f5b94a; }
+@media (prefers-color-scheme: light) {
+  :root { --bg: #f7f4ee; --fg: #24272e; --muted: #656a73; --accent: #9a5c06; }
+}
+html, body { margin: 0; background: var(--bg); color: var(--fg); }
+body { font: 18px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 38rem; margin: 18vh auto; padding: 0 1.5rem; }
+h1 { font: 700 3rem/1 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; color: var(--accent); margin: 0 0 .5rem; }
+.lead { font-size: 1.4rem; margin: 0 0 1rem; }
+.small { color: var(--muted); font-size: .9rem; }

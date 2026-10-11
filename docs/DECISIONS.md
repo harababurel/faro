@@ -994,3 +994,50 @@ Refines the DESIGN.md §5.1 sketch:
   - **WASI in a browser terminal:** crossterm has no WASI support, and it would need SharedArrayBuffer headers.
   - **A server running `faro demo` for each visitor:** hosting cost and a sandboxing burden, since the demo still touches real files (D87).
   - **Third-party hosting and a hosted analytics service.**
+
+### D106. The web demo's renderer: a custom Canvas 2D renderer, not Ratzilla — Accepted (owner, 2026-10-11; details Judgement)
+
+- **Why:** D105 left the renderer to a Phase 0 bake-off (WEBSITE.md §6.3, D-d): a custom Canvas 2D renderer against Ratzilla's WebGL2 backend, judged on fidelity first, then speed and size.
+- **How it was tested (Judgement):** both drew the same real faro frames, exported by an ignored test (`crates/faro/src/ui/web_spike.rs`). The frames come from the demo's cast and the deterministic mock (seed 42, no outages), run through the real store, reducer and `ui::render`: rounded bubbles, flags and ZWJ emoji, seven themes, the palette, the logo and 60 flood frames. Both used the same webfont and size. The prototypes are under `spikes/renderers/` (throwaway): `canvas/canvas.js` and `ratzilla/`.
+- **Results:**
+  - **Fidelity:** Canvas 2D matches the frame cell for cell. Ratzilla can only draw glyphs its font atlas has, so every octant edge, Unicode 16 quarter circle and Powerline cap showed as a missing-glyph box. Half blocks left thin lines between rows (the logo), and italic slanted block glyphs. Its built-in static atlas drew wrong emoji. The owner confirmed by eye: Ratzilla "almost passable", Canvas 2D "looks perfect".
+  - **Speed** (owner's machine, 60 flood frames, full redraws): Canvas 2D avg 1.64 ms, max 5.0 ms; Ratzilla avg 0.58 ms, max 7.4 ms. Both are within the 4 ms budget on average.
+  - **Size:** Ratzilla, beamterm and serde_json alone are 1.1 MB gzipped; the Canvas renderer is a few KB.
+- **Decision (owner):** keep the custom Canvas 2D renderer and drop Ratzilla. Block elements, octants, sextants, quarter circles, Powerline caps, box drawing and Braille are drawn as shapes; text comes from the webfont (D107), and emoji from the system's colour emoji font, centred in the cells faro gave them.
+- **Found while building it (rules for the real renderer):**
+  - **Wide glyphs:** ratatui leaves the cell behind a wide glyph with no background. Terminals paint the wide glyph's background across every cell it covers, so the renderer must too. Without that, every flag had a dark box beside it.
+  - **Braille:** the logo's beam and stars are Braille characters made at runtime (`0x2800 + dots`), so they are drawn as dots, not taken from a font.
+- **Rejected:** Ratzilla/beamterm, for the fidelity and size above. Patching beamterm to draw block glyphs itself would mean maintaining a fork.
+
+### D107. The site's webfont: JetBrains Mono, subset — Accepted (owner, 2026-10-11; details Judgement)
+
+- **Why:** WEBSITE.md §5.2 asked for one self-hosted monospace webfont of 60 KB or less, to be picked in Phase 0.
+- **What the font must cover (Judgement):** found by `spikes/fonts/charset.py` from faro's UI and demo sources and the exported frames. The renderer draws blocks, octants, box drawing, Powerline and Braille (D106); emoji and other scripts (CJK, Arabic, Devanagari) go to system fonts at faro's width. That leaves ASCII, Latin-1, Latin Extended-A and about 30 symbols: `– — ‘ ’ “ ” • … · ‹ ›`, `← ↑ → ↓ ↳`, `≤ ≥ ⊘`, `■ ▶ ▸ ▾ ◂ ○ ◌ ●`, `✓ ✗ ✎ ❝`, `�`.
+- **Compared** (`spikes/fonts/coverage.py`; the same frame drawn by the Canvas renderer at 13 and 14 px with each subset):
+  - **JetBrains Mono:** missing `↳ ✎ ❝`; 20.7 KB regular + bold, plus 11.4 KB for the italic.
+  - **Cascadia Mono:** missing 5 of the symbols; 24.6 KB.
+  - **Iosevka:** missing `✎ ❝`; 24.6 KB, but 0.5 em wide, so it needs about 16 px to fill the same width, and it crowds emoji.
+  - **IBM Plex Mono:** missing 13; **Fira Code:** missing 10.
+- **Decision (owner):** JetBrains Mono (OFL-1.1), self-hosted as three subset woff2 files (Regular, Bold, Italic), about 32 KB in total. Faro draws quotes in italic, and a real italic looks better than the browser's fake slant. The three missing symbols `↳ ✎ ❝` are drawn as shapes by the renderer, so they look the same on every OS. Credited in `THIRD_PARTY_NOTICES.md` and the site footer when the site is built.
+- **Rejected:** Iosevka (too narrow at a readable size), Cascadia Mono (a close second on looks; more missing symbols), IBM Plex Mono and Fira Code (too many missing symbols).
+
+### D108. The mock draws the same on every target; a throwaway wasm build of it — Accepted (owner, 2026-10-11; details Judgement)
+
+- **Why:** M13 Phase 0 builds `MockBackend` and `Sim` for wasm32 (WEBSITE.md §7). The same seed told a different story there: fastrand's `choice` and `shuffle` pick indices with `usize`, which takes 32 random bits on wasm32 and 64 on 64-bit targets. The poster is rendered natively and must match the live demo's first frame (§6.4).
+- **Decision (owner):** `mock/sim.rs` uses its own `pick` and `shuffle`, which draw `u64` indices. On 64-bit targets they make exactly the draws fastrand makes, so native event sequences, tests and snapshots are unchanged. The first 300 events of seed 42 are byte-identical on wasm32 and natively (`spikes/mock-wasm`).
+- **As built (Judgement), throwaway until M13 Phase 2:**
+  - `faro-core` has a default `native` feature (sqlx, etcetera, rustix; the `store` and `paths` modules) and a `wasm-spike` feature (gloo-timers, wasm-bindgen-futures, web-time). `cargo build -p faro-core --target wasm32-unknown-unknown --no-default-features --features wasm-spike` builds the core; wasm32 without `wasm-spike` stops with a `compile_error!`.
+  - `mock/rt.rs` gives the mock its clock, sleep and spawn: tokio natively (tests still pause it), browser timers on wasm32.
+  - Phase 2 replaces these with the planned seams (§6.5).
+
+### D109. Server files for getfaro.dev in `site/deploy/`; two changes to the runbook draft — Accepted (owner, 2026-10-11; details Judgement)
+
+- **Why:** M13 Phase 0 prepares the server from WEBSITE.md §6.10. The owner runs the server steps; the Plausible dashboard's hostname is `plausible.harababurel.com` (owner).
+- **As built (Judgement):**
+  - **Files and runbook:** `site/deploy/README.md` (the runbook, step by step); `site/deploy/nginx/{getfaro.dev.conf, plausible.harababurel.com.conf, snippets/getfaro-headers.conf}`; `logrotate/getfaro`; `plausible/{compose.override.yml, write-env.sh}`.
+  - **Deploying:** `update.sh` pulls, builds into `releases/<commit>/` through `site/build.sh`, switches `current` atomically and keeps 5 releases. Until Phase 1, `site/build.sh` copies `site/placeholder/` and gzips it.
+  - **Checked locally** with Debian's nginx 1.30.4 and a fake Plausible (`spikes/deploy-test/check.sh`, throwaway): config syntax, gzip_static, security headers, the www redirect, the proxied script and event endpoint (Host and `X-Forwarded-For`), the dashboard websocket upgrade, release pruning, and `.env` written `0600` and never overwritten. TLS, Docker and DNS weren't tested here.
+- **Changed from the §6.10 draft:**
+  - **Tracker snippet:** Plausible CE 3.1+ gives each site its own script (`/js/pa-….js`) and an *inline* `plausible.init()`, which `script-src 'self'` blocks. nginx proxies `/js/s.js` to the per-site script (`PLAUSIBLE_SCRIPT` in the template, filled in by the owner), and the init lives in a same-origin file, `/js/init.js`, loaded first. The CSP stays as designed.
+  - **Log folder:** getfaro.dev's logs go in `/var/log/nginx/getfaro/`, not `/var/log/nginx/getfaro.dev.*.log`. Debian's `/etc/logrotate.d/nginx` already matches `/var/log/nginx/*.log` (14 days), and logrotate rejects two rules for one file. Retention stays 30 days, as the privacy policy says.
+  - **Smaller changes:** the dashboard's websocket `Connection` header comes from a `map` with a name of its own (`$plausible_connection_upgrade`), so it can't clash with another site's map; `DISABLE_REGISTRATION=invite_only` until the owner's account exists, then `true`.

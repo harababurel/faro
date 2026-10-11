@@ -1,0 +1,6 @@
+# Plausible CE behind nginx (WEBSITE.md §6.9, §6.10). Copy to /srv/plausible/.
+# Localhost only: Docker's port rules bypass host firewalls otherwise.
+services:
+  plausible:
+    ports:
+      - 127.0.0.1:8000:${HTTP_PORT}

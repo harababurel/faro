@@ -1,0 +1,53 @@
+<!doctype html>
+<!-- M13 Phase 0 spike (throwaway): the Canvas 2D prototype.
+     ?frame=conv-faro-dark (default) | ?flood  ·  &font=JetBrains Mono&size=14 -->
+<meta charset="utf-8">
+<title>faro · canvas 2D prototype</title>
+<style>
+  @font-face { font-family: "JetBrains Mono"; src: url(../fonts/JetBrainsMono-Regular.woff2) format("woff2"); font-weight: 400; }
+  @font-face { font-family: "JetBrains Mono"; src: url(../fonts/JetBrainsMono-Bold.woff2) format("woff2"); font-weight: 700; }
+  @font-face { font-family: "Cascadia Code"; src: url(../fonts/cascadia-code-400.woff2) format("woff2"); font-weight: 400; }
+  @font-face { font-family: "Iosevka"; src: url(../fonts/iosevka-400.woff2) format("woff2"); font-weight: 400; }
+  @font-face { font-family: "S JetBrains Mono"; src: url(../fonts/JetBrainsMono-400.woff2) format("woff2"); font-weight: 400; }
+  @font-face { font-family: "S JetBrains Mono"; src: url(../fonts/JetBrainsMono-700.woff2) format("woff2"); font-weight: 700; }
+  @font-face { font-family: "S Cascadia Mono"; src: url(../fonts/CascadiaMono-400.woff2) format("woff2"); font-weight: 400; }
+  @font-face { font-family: "S Cascadia Mono"; src: url(../fonts/CascadiaMono-700.woff2) format("woff2"); font-weight: 700; }
+  @font-face { font-family: "S Iosevka"; src: url(../fonts/Iosevka-400.woff2) format("woff2"); font-weight: 400; }
+  @font-face { font-family: "S Iosevka"; src: url(../fonts/Iosevka-700.woff2) format("woff2"); font-weight: 700; }
+  @font-face { font-family: "S IBM Plex Mono"; src: url(../fonts/IBMPlexMono-400.woff2) format("woff2"); font-weight: 400; }
+  @font-face { font-family: "S IBM Plex Mono"; src: url(../fonts/IBMPlexMono-700.woff2) format("woff2"); font-weight: 700; }
+  @font-face { font-family: "S Fira Code"; src: url(../fonts/FiraCode-400.woff2) format("woff2"); font-weight: 400; }
+  @font-face { font-family: "S Fira Code"; src: url(../fonts/FiraCode-700.woff2) format("woff2"); font-weight: 700; }
+  html, body { margin: 0; background: #101216; }
+  canvas { display: block; }
+  #stats { position: fixed; right: 4px; bottom: 2px; font: 11px monospace; color: #7c838f; }
+</style>
+<canvas id="c"></canvas>
+<div id="stats"></div>
+<script type="module">
+  const { CanvasRenderer } = await import(window.CANVAS_JS ?? "./canvas.js");
+  const q = new URLSearchParams(location.search);
+  const font = q.get("font") ?? "JetBrains Mono";
+  const size = Number(q.get("size") ?? 14);
+  await document.fonts.load(`${size}px "${font}"`);
+  await document.fonts.load(`700 ${size}px "${font}"`);
+  const r = new CanvasRenderer(document.getElementById("c"), { font, size });
+  const get = async (n) => window.FRAMES?.[n] ?? fetch(`../frames/${n}.json`).then((x) => x.json());
+  const stats = document.getElementById("stats");
+  if (q.has("flood")) {
+    const frames = await Promise.all([...Array(60).keys()].map((i) => get(`flood-${String(i).padStart(3, "0")}`)));
+    const times = [];
+    for (const f of frames) {
+      times.push(r.draw(f));
+      await new Promise(requestAnimationFrame);
+    }
+    times.sort((a, b) => a - b);
+    const avg = times.reduce((a, b) => a + b, 0) / times.length;
+    window.stats = { avg, p50: times[30], max: times.at(-1) };
+    stats.textContent = `canvas2d · ${frames.length} frames · avg ${avg.toFixed(2)} ms · p50 ${times[30].toFixed(2)} · max ${times.at(-1).toFixed(2)}`;
+  } else {
+    const ms = r.draw(await get(q.get("frame") ?? "conv-faro-dark"));
+    window.stats = { first: ms };
+  }
+  window.done = true;
+</script>
