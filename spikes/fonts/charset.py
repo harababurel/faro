@@ -17,6 +17,7 @@ import unicodedata
 REPO = pathlib.Path(__file__).resolve().parents[2]
 SOURCES = [
     *REPO.glob("crates/faro/src/**/*.rs"),
+    *REPO.glob("crates/faro-app/src/**/*.rs"),
     *REPO.glob("crates/faro-core/src/mock/*.rs"),
     *REPO.glob("crates/faro-core/src/config*.rs"),
 ]

@@ -10,7 +10,7 @@ Downloads (or reads from --cache) two pinned files:
     name and search keywords (annotations.json, plus annotationsDerived for
     sequences such as people with professions).
 
-and writes crates/faro/src/ui/shortcodes/table.rs: every fully-qualified emoji
+and writes crates/faro-app/src/ui/shortcodes/table.rs: every fully-qualified emoji
 up to MAX_VERSION, without skin-tone variants, with its name and keywords.
 Both files are under the Unicode License v3 (THIRD_PARTY_NOTICES.md).
 Re-run after changing a version below; the result is committed.
@@ -43,7 +43,7 @@ SOURCES = {
 }
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-OUT = os.path.join(REPO, "crates/faro/src/ui/shortcodes/table.rs")
+OUT = os.path.join(REPO, "crates/faro-app/src/ui/shortcodes/table.rs")
 SKIN_TONES = range(0x1F3FB, 0x1F400)
 LINE = re.compile(r"^([0-9A-F ]+?)\s*; fully-qualified\s*# (\S+) E(\d+\.\d+) (.*)$")
 

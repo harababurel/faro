@@ -1,5 +1,5 @@
 //! The themes faro ships: its own (`builtin.rs`) and OpenCode's (D54),
-//! whose files are in `crates/faro/themes/opencode/` (MIT, see the `LICENSE`
+//! whose files are in `crates/faro-app/themes/opencode/` (MIT, see the `LICENSE`
 //! there and `THIRD_PARTY_NOTICES.md`). OpenCode's are read the first time a
 //! theme is looked up past faro's own.
 

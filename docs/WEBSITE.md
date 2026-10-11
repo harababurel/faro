@@ -785,6 +785,8 @@ Each phase ends with something usable. Estimates assume one developer working se
 - every store test passes on SQLite and in memory;
 - native faro behaves exactly as before (snapshots unchanged).
 
+**Done (2026-10-11):** as built in D110–D112. Differences from the plan above: no `clock` module (`faro_core::rt::Instant` covers it); faro-web is still a plain library under the workspace lints, so its own lint table comes with wasm-bindgen in Phase 3.
+
 ### Phase 3: the web shell and renderer (1.5–2 weeks)
 
 - The event loop: DOM events → `AppEvent`, rAF drawing, deadlines, focus and visibility, and resize → grid size.

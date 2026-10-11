@@ -1021,7 +1021,7 @@ Refines the DESIGN.md §5.1 sketch:
 - **Decision (owner):** JetBrains Mono (OFL-1.1), self-hosted as three subset woff2 files (Regular, Bold, Italic), about 32 KB in total. Faro draws quotes in italic, and a real italic looks better than the browser's fake slant. The three missing symbols `↳ ✎ ❝` are drawn as shapes by the renderer, so they look the same on every OS. Credited in `THIRD_PARTY_NOTICES.md` and the site footer when the site is built.
 - **Rejected:** Iosevka (too narrow at a readable size), Cascadia Mono (a close second on looks; more missing symbols), IBM Plex Mono and Fira Code (too many missing symbols).
 
-### D108. The mock draws the same on every target; a throwaway wasm build of it — Accepted (owner, 2026-10-11; details Judgement)
+### D108. The mock draws the same on every target; a throwaway wasm build of it — Accepted (owner, 2026-10-11; details Judgement; the throwaway build superseded by D110)
 
 - **Why:** M13 Phase 0 builds `MockBackend` and `Sim` for wasm32 (WEBSITE.md §7). The same seed told a different story there: fastrand's `choice` and `shuffle` pick indices with `usize`, which takes 32 random bits on wasm32 and 64 on 64-bit targets. The poster is rendered natively and must match the live demo's first frame (§6.4).
 - **Decision (owner):** `mock/sim.rs` uses its own `pick` and `shuffle`, which draw `u64` indices. On 64-bit targets they make exactly the draws fastrand makes, so native event sequences, tests and snapshots are unchanged. The first 300 events of seed 42 are byte-identical on wasm32 and natively (`spikes/mock-wasm`).
@@ -1029,6 +1029,7 @@ Refines the DESIGN.md §5.1 sketch:
   - `faro-core` has a default `native` feature (sqlx, etcetera, rustix; the `store` and `paths` modules) and a `wasm-spike` feature (gloo-timers, wasm-bindgen-futures, web-time). `cargo build -p faro-core --target wasm32-unknown-unknown --no-default-features --features wasm-spike` builds the core; wasm32 without `wasm-spike` stops with a `compile_error!`.
   - `mock/rt.rs` gives the mock its clock, sleep and spawn: tokio natively (tests still pause it), browser timers on wasm32.
   - Phase 2 replaces these with the planned seams (§6.5).
+- **Superseded by D110** (the features and `mock/rt.rs`); the `pick`/`shuffle` decision stands.
 
 ### D109. Server files for getfaro.dev in `site/deploy/`; two changes to the runbook draft — Accepted (owner, 2026-10-11; details Judgement)
 
@@ -1041,3 +1042,35 @@ Refines the DESIGN.md §5.1 sketch:
   - **Tracker snippet:** Plausible CE 3.1+ gives each site its own script (`/js/pa-….js`) and an *inline* `plausible.init()`, which `script-src 'self'` blocks. nginx proxies `/js/s.js` to the per-site script (`PLAUSIBLE_SCRIPT` in the template, filled in by the owner), and the init lives in a same-origin file, `/js/init.js`, loaded first. The CSP stays as designed.
   - **Log folder:** getfaro.dev's logs go in `/var/log/nginx/getfaro/`, not `/var/log/nginx/getfaro.dev.*.log`. Debian's `/etc/logrotate.d/nginx` already matches `/var/log/nginx/*.log` (14 days), and logrotate rejects two rules for one file. Retention stays 30 days, as the privacy policy says.
   - **Smaller changes:** the dashboard's websocket `Connection` header comes from a `map` with a name of its own (`$plausible_connection_upgrade`), so it can't clash with another site's map; `DISABLE_REGISTRATION=invite_only` until the owner's account exists, then `true`.
+
+### D110. faro-core on the web: a runtime shim and an in-memory store engine — Judgement (M13 Phase 2, 2026-10-11)
+
+- **Why:** the web demo runs the mock and the store in the browser (WEBSITE.md §6.5), where there's no tokio runtime, no file system and no SQLite. D108's throwaway features were only enough for the mock.
+- **Decision:**
+  - **`faro_core::rt`** (was `mock/rt.rs`): `Instant`, `sleep`, `sleep_until`, `spawn` (an abortable `Task`) and `since_unix_epoch`. Natively tokio's (tests keep the paused clock; `rt::Instant` *is* `tokio::time::Instant`); on wasm32 browser timers, `web-time` and `wasm_bindgen_futures::spawn_local`. The store, the mock and the guard use it.
+  - **One feature, `sqlite`** (on by default), replaces `native` and `wasm-spike`. wasm-only and native-only dependencies are chosen by target, not by feature. `paths` is native-only by target. faro-core builds for wasm32 with `--no-default-features` (CI); with `sqlite` on wasm32 it stops with a `compile_error!`. The workspace dependency has default features off; the binary asks for `sqlite`.
+  - **A second store engine, not a second store:** `Store` serves the same `Request`s from an `Engine`, `Sqlite(Db)` or `Memory(Mem)`, so the reducer and the effects worker can't tell them apart. `Store::memory()` opens the memory one. `store/mem.rs` mirrors `db.rs` query by query: senders sort by their string form (SQL compares the TEXT column), search lowercases ASCII only (SQLite's `lower()`), a replaced reaction keeps its place (an upsert keeps its row id), and the checks run in SQL's order so a failed write changes nothing.
+  - **Every engine-agnostic store test runs on both** (`engines!` generates `name::sqlite` and `name::memory`); the four that use real files stay SQLite-only. The memory engine passed all 21 on its first run.
+  - Pure attachment-name helpers (`attachment_file_name`, `sanitize_file_name`, `extension_for`, `content_type_for`) moved from `paths` into an always-built `file_names` module, which `paths` re-exports.
+- **Rejected:** a separate "web store" type (two APIs to keep in step); keeping D108's features (they fenced whole modules by feature where the line is really the target).
+
+### D111. The shared app in its own crate, `faro-app`, with seams instead of `cfg` — Judgement (M13 Phase 2, 2026-10-11; the split itself is WEBSITE.md D-e, option A)
+
+- **Why:** the web demo runs faro's real reducer and renderer (D105). Fencing native code with `#[cfg]` inside `crates/faro` would spread through many files and only the wasm CI build would catch a missing fence (§6.5, option B).
+- **Decision:**
+  - **`crates/faro-app`** (a library): `app::{event, files, image_cache, input, keymap, palette, state, term_event, timeline, update}`, `theme` (with the bundled `themes/`), `ui`, `version` (with `build.rs`), and `fixtures` (test-only, and for the binary's tests behind a `test-support` feature). Moved with `git mv`. **`crates/faro`** keeps the loop and the outside world and re-exports faro-app's modules under its own `app::`, `ui` and `theme`, so its code didn't change.
+  - **No target `cfg` in faro-app.** What it needs from the platform comes in through types it owns:
+    - **Terminal input:** `app::term_event` mirrors the part of crossterm's event types faro uses (same names and shape, so call sites only changed their imports). The binary converts at the boundary (`tui/input.rs`). Keys faro has no name for become `KeyCode::Other` rather than being dropped, so they still count as input (focus, catching up on receipts), and modifier bits are copied as they are.
+    - **Time:** `faro_core::rt::Instant`; `jiff` with its `js` feature on wasm32.
+    - **Images:** the `ImageCache` trait (`active_protocol`, `font_size`, `get` → a `DrawImage`) with faro's own `ImageProtocol`, `CellSize` and `ImageKey`, and the pure sizing and protocol choice. The binary implements it with ratatui-image; `NoImages` is for renderers without images. Finished decodes go straight from the decode tasks into the cache on its own channel (`Images::next_decoded`), not through the reducer: `AppEvent::ImageDecoded` carried a ratatui-image type and the reducer ignored it.
+    - **Plain data out of native modules:** `Command` and `ClipboardError` into `app::event`, `Terminal` into `app::state`, the file-query and pasted-path helpers into `app::files`, `grid` into `ui::text`.
+  - **Kept honest by tools:** `faro-app/tests/architecture.rs` fails if its manifest gains crossterm, ratatui-image, tokio, notify, mio, rustix, sqlx, clap or faro-presage, SQLite in faro-core, ratatui's crossterm backend, or loses ratatui's `std` feature (without it, and without crossterm, ratatui builds `no_std` and its layout cache can't link; workspace builds hid that because the binary's crossterm turns `std` on). CI runs clippy on faro-app for wasm32.
+  - **Snapshots moved with their tests:** insta names files after the crate, so `faro__ui__tests__*` became `faro_app__ui__tests__*`; only the `source:` header changed. The ui tests use `fixtures::Undecoded`, which reports what the real cache does before decoding; the one test that decodes a real image moved to the binary (`app/images.rs`).
+  - `app::run` grew past clippy's 100 lines with the decode branch; it has an `#[expect(clippy::too_many_lines, reason)]` rather than a split loop.
+- **Rejected:** re-exporting crossterm's types by target (faro-app would then depend on crossterm natively, and the web build would need a `cfg` switch); a `Box<dyn Any>` payload to keep decodes in `AppEvent`.
+
+### D112. `faro-web` starts as a stub that draws a real frame — Judgement (M13 Phase 2, 2026-10-11)
+
+- **Why:** Phase 2 is done when `cargo build -p faro-web --target wasm32-unknown-unknown` passes in CI (§7); the shell is Phase 3.
+- **Decision:** `faro_web::first_frame(width, height)` builds a frame the way the demo will: `MockBackend` (seed 42, no outages or errors, no live activity), its backlog applied to `Store::memory()`, `State` loaded through the real reducer, the newest chat opened with Enter, rendered by `ui::render` with `NoImages` into a ratatui `TestBackend`. It waits for the backlog with `rt::sleep` polls (the mock sends it in one go after `Connected`), so it runs on either target. A native test checks the frame (the chat list, an open chat with its messages, connected). CI builds and lints it for wasm32.
+- **For Phase 3:** it's a plain library for now, under the workspace lints. The wasm-bindgen module (a `cdylib`), its own lint table (§6.5: wasm-bindgen generates `unsafe` code), which chat opens first, the browser time zone and the poster match (§6.4) all come with the shell.
