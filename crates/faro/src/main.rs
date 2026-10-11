@@ -76,14 +76,8 @@ fn main() -> anyhow::Result<()> {
         }
         Some(cli::Command::Demo(_)) | None => {}
     }
-    // The Signal backend runs behind the allowlist guard (D62) unless the
-    // user says otherwise, every time (D67).
-    if demo.is_none() && allowlist.is_none() && !cli.no_allowlist {
-        anyhow::bail!(
-            "the Signal backend needs --allowlist FILE (`faro ids` prints the IDs for it), \
-             or --no-allowlist to talk to everyone; run `faro demo` to try faro without an account"
-        );
-    }
+    // The allowlist guard (D62) is for testing: on only with --allowlist
+    // (D95); `--no-allowlist` is still accepted and changes nothing.
     let db_file = paths.db_file();
     let data_dir = paths.data_dir().to_owned();
     local.block_on(&runtime, async {
@@ -115,10 +109,9 @@ fn main() -> anyhow::Result<()> {
             let (backend, events) = signal::start(&data_dir).await?;
             if let Some(list) = allowlist {
                 let (backend, events) = guard::guard(backend, events, list);
-                Box::pin(serve(backend, events, &store, tz, detected, startup, false)).await
-            } else {
-                tracing::warn!("no allowlist: faro talks to everyone (D67)");
                 Box::pin(serve(backend, events, &store, tz, detected, startup, true)).await
+            } else {
+                Box::pin(serve(backend, events, &store, tz, detected, startup, false)).await
             }
         };
         store.close().await.context("closing the database")?;
@@ -237,7 +230,7 @@ async fn serve_demo(
     match allowlist {
         Some(list) => {
             let (backend, events) = guard::guard(backend, events, list);
-            serve(backend, events, store, tz, detected, startup, false).await
+            serve(backend, events, store, tz, detected, startup, true).await
         }
         None => serve(backend, events, store, tz, detected, startup, false).await,
     }
@@ -251,10 +244,10 @@ async fn serve<B: Backend + 'static>(
     tz: jiff::tz::TimeZone,
     detected: app::state::Detected,
     startup: config::Startup,
-    unguarded: bool,
+    guarded: bool,
 ) -> anyhow::Result<()> {
     let mut directory = app::load_directory(&backend, store).await?;
-    directory.unguarded = unguarded;
+    directory.guarded = guarded;
     app::run(
         backend,
         events,

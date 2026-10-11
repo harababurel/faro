@@ -72,7 +72,7 @@ const MESSAGE_HINTS: Hints = &[
 /// terminal).
 const BELL_OFF: &str = "bell off";
 /// Shown after the connection status without an allowlist (D67).
-const UNGUARDED: &str = "no allowlist";
+const GUARDED: &str = "allowlist";
 /// Shown after the connection status in `faro demo` (D87).
 const DEMO: &str = "demo";
 /// Popups and the palette have fixed keys (D43).
@@ -151,9 +151,9 @@ pub fn render(
         left.push(Span::styled(" · ", theme.muted()));
         left.push(Span::styled(DEMO, theme.muted()));
     }
-    if state.guard == crate::app::state::Guard::Off {
+    if state.guard == crate::app::state::Guard::On {
         left.push(Span::styled(" · ", theme.muted()));
-        left.push(Span::styled(UNGUARDED, theme.muted()));
+        left.push(Span::styled(GUARDED, theme.muted()));
     }
     if !state.config.notifications.bell {
         // Do not disturb (D53): say so while it lasts.

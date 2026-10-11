@@ -45,8 +45,8 @@ pub struct Directory {
     pub groups: Vec<Group>,
     /// Names the user gave people (D65), from the store.
     pub nicknames: HashMap<ServiceId, String>,
-    /// A real account with no allowlist guard (D67).
-    pub unguarded: bool,
+    /// Running behind the allowlist guard (`--allowlist`, D62, D95).
+    pub guarded: bool,
     pub capabilities: faro_core::backend::Capabilities,
 }
 
@@ -91,7 +91,7 @@ pub async fn load_directory<B: Backend>(backend: &B, store: &Store) -> anyhow::R
         contacts,
         groups,
         nicknames,
-        unguarded: false,
+        guarded: false,
         capabilities: backend.capabilities(),
     })
 }
@@ -102,8 +102,8 @@ fn initial_state(directory: Directory, detected: state::Detected, startup: &mut 
     let mut state = State::new(directory.me, directory.contacts, directory.groups)
         .with_nicknames(directory.nicknames);
     state.capabilities = directory.capabilities;
-    if directory.unguarded {
-        state.guard = state::Guard::Off;
+    if directory.guarded {
+        state.guard = state::Guard::On;
     }
     state.profile = startup.profile;
     state.attachments_dir.clone_from(&startup.attachments_dir);

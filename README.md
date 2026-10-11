@@ -2,7 +2,7 @@
 
 A terminal client for [Signal](https://signal.org), built for people who live in tmux.
 
-> **Status: pre-release.** The interface can be tried with **`faro demo`** (fake contacts and messages, no account needed). The real Signal backend (via [presage](https://github.com/whisperfish/presage)) is being tested: it runs either with an allowlist of who faro may talk to, or with `--no-allowlist`. See the [plan](docs/PLAN.md) for progress.
+> **Status: pre-release.** The interface can be tried with **`faro demo`** (fake contacts and messages, no account needed). The real Signal backend (via [presage](https://github.com/whisperfish/presage)) works and is in daily use; for testing it can be limited to an allowlist of who faro may talk to. See the [plan](docs/PLAN.md) for progress.
 
 faro is an unofficial, independent project. It is not affiliated with, endorsed by, or supported by Signal Messenger LLC or the Signal Technology Foundation.
 
@@ -72,13 +72,13 @@ cargo run --release -- demo
 
 `faro demo` runs faro against a fake account: the new temp at a paper company's Scranton branch, with scripted coworkers, groups, photos and voice notes. No Signal account is involved. Its data lives in its own directory under the system temp dir (`$TMPDIR` or `/tmp`, as `faro-demo-<uid>`), kept until the system clears it; `--fresh` starts over. The demo never reads or writes your real data directory (it ignores `--data-dir` and `FARO_DATA_DIR`), but it does use your real config file, so a theme you pick in the demo stays picked.
 
-With a real account (while testing):
+With a real account:
 
 ```sh
 faro link                                  # shows a QR code: scan it in Signal › Settings › Linked devices
-faro ids --username alice.42               # prints the IDs for an allowlist file
-faro --allowlist ~/faro-allowlist.toml     # faro only talks to the people and groups listed
-faro --no-allowlist                        # or: talk to everyone, like any Signal client
+faro                                       # talks to everyone, like any Signal client
+faro ids --username alice.42               # for testing: prints the IDs for an allowlist file
+faro --allowlist ~/faro-allowlist.toml     # for testing: faro only talks to the people and groups listed
 ```
 
 | Flag | Environment | What |
@@ -86,8 +86,8 @@ faro --no-allowlist                        # or: talk to everyone, like any Sign
 | `--data-dir DIR` | `FARO_DATA_DIR` | Database, logs and Signal keys. Default `~/.local/share/faro`. Never used by `faro demo` |
 | `--config FILE` | `FARO_CONFIG` | Config file. Default `~/.config/faro/config.toml` |
 | `--emoji auto\|full\|compatible` | `FARO_EMOJI` | How to draw emoji (see [mosh](#mosh)); overrides the config |
-| `--allowlist FILE` | `FARO_ALLOWLIST` | Talk only to the people and groups in FILE; drop everything else |
-| `--no-allowlist` | | Talk to everyone (your own account); one of the two is required with a real account |
+| `--allowlist FILE` | `FARO_ALLOWLIST` | For testing: talk only to the people and groups in FILE; drop everything else |
+| `--no-allowlist` | | Does nothing now (talking to everyone is the default); still accepted |
 | `faro demo` | | Run with a fake account and scripted activity, in its own data directory (see [Try it](#try-it)) |
 | `faro demo --seed N` | | Another seed, another order of scripted scenes (default 0) |
 | `faro demo --activity MS` | | Mean time between demo events (default 4000; small values flood the UI) |

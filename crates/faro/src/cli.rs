@@ -47,9 +47,8 @@ pub struct Cli {
     #[arg(long, env = "FARO_ALLOWLIST", global = true, value_name = "FILE")]
     pub allowlist: Option<PathBuf>,
 
-    /// Run the Signal backend without an allowlist: faro talks to everyone,
-    /// like any Signal client (D67). For your own account; never implied,
-    /// so it has to be typed each time (no environment variable).
+    /// Does nothing now: without --allowlist faro talks to everyone, like
+    /// any Signal client (D95). Still accepted so older commands work.
     #[arg(long, global = true, conflicts_with = "allowlist")]
     pub no_allowlist: bool,
 }
@@ -116,8 +115,6 @@ impl Invocation {
                 "`faro demo` never uses --data-dir: its data stays apart from yours. \
                  Use `faro demo --dir DIR` for another demo directory",
             )
-        } else if self.cli.no_allowlist {
-            Some("`faro demo` talks to no one, so --no-allowlist means nothing there")
         } else {
             None
         }
@@ -302,7 +299,7 @@ mod tests {
     }
 
     #[test]
-    fn demo_refuses_a_typed_data_dir_and_no_allowlist() {
+    fn demo_refuses_a_typed_data_dir() {
         let ok = Invocation::try_parse_from(["faro", "demo", "--fresh"]).unwrap();
         assert!(!ok.data_dir_typed, "FARO_DATA_DIR, if set, isn't typed");
         assert_eq!(ok.demo_conflict(), None);
@@ -314,18 +311,13 @@ mod tests {
             assert!(typed.data_dir_typed, "{args:?}");
             assert!(typed.demo_conflict().unwrap().contains("--dir"), "{args:?}");
         }
+        // `--no-allowlist` does nothing anywhere now (D95), the demo included.
         for args in [
             &["faro", "demo", "--no-allowlist"][..],
             &["faro", "--no-allowlist", "demo"],
         ] {
-            let unguarded = Invocation::try_parse_from(args).unwrap();
-            assert!(
-                unguarded
-                    .demo_conflict()
-                    .unwrap()
-                    .contains("--no-allowlist"),
-                "{args:?}"
-            );
+            let old = Invocation::try_parse_from(args).unwrap();
+            assert_eq!(old.demo_conflict(), None, "{args:?}");
         }
     }
 
@@ -384,7 +376,7 @@ mod tests {
     }
 
     #[test]
-    fn no_allowlist_is_explicit_and_excludes_an_allowlist() {
+    fn no_allowlist_is_still_accepted_but_excludes_an_allowlist() {
         assert!(!Cli::try_parse_from(["faro"]).unwrap().no_allowlist);
         assert!(
             Cli::try_parse_from(["faro", "--no-allowlist"])

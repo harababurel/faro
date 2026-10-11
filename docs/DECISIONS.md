@@ -883,7 +883,7 @@ Refines the DESIGN.md §5.1 sketch:
 - **Test:** the `ui::tests::about_popup` snapshot (version masked).
 - **Amended (2026-10-10, owner's requests):** the links are shown in full (`https://getfaro.dev`, `https://github.com/harababurel/faro`) so terminals make them clickable, and the config file faro loaded (`State::config_path`, the default or `--config`) is shown above the data folder, the two labels padded so the paths line up.
 
-### D95. The allowlist guard becomes optional for v0.1 — Accepted (owner, 2026-10-11; not done yet, M8)
+### D95. The allowlist guard becomes optional for v0.1 — Accepted (owner, 2026-10-11; done the same day, M8 task 5)
 
 - **Why:** the guard (D62) is a safeguard for testing on a real account. It does nothing for real users, and making them type `--no-allowlist` every time (D67) was only a stop-gap. D62 already said the requirement would be lifted for the release.
 - **Decision (to do before tagging v0.1, M8 task 5):**
@@ -893,6 +893,7 @@ Refines the DESIGN.md §5.1 sketch:
   - the footer's muted `no allowlist` marker goes (unguarded becomes the normal case); a guarded run could show `allowlist` instead.
 - **Not affected:** the in-app allowlist mode (D41, `conversations.allowlist`), which only decides which chats the main list shows.
 - **Test account:** keeps running with `--allowlist` as before; its data dir stays separate.
+- **As built:** `main.rs` no longer refuses to start; `serve(…, guarded)` and `Directory::guarded` replace `unguarded`; `state::Guard` defaults to `Off` and is `On` behind `--allowlist` (the demo with `--allowlist` too), where the footer shows a muted `allowlist` (`ui/footer.rs::GUARDED`) instead of the old `no allowlist`. `--no-allowlist` stays in `--help` as "does nothing now", still conflicts with `--allowlist`, and is no longer refused by `faro demo`. README updated. Tests: `ui::tests::running_behind_an_allowlist_shows_in_the_footer`, `cli::tests::no_allowlist_is_still_accepted_but_excludes_an_allowlist`.
 
 ### D96. Sidebar markers for groups, muted and mentions-only chats — Accepted (owner, 2026-10-11; done the same day, M8 task 6)
 
