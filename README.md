@@ -204,6 +204,7 @@ The last three must pass before every commit; CI runs them on Linux and macOS.
 - [Decision log](docs/DECISIONS.md): what was decided and why
 - [Manual tests](docs/MANUAL_TESTS.md): checks that need a real terminal
 - [Background](docs/BACKGROUND.md): motivation, research, naming
+- [Website](docs/WEBSITE.md): design and plan for getfaro.dev
 - [AGENTS.md](AGENTS.md): guide for coding agents working on this repo
 
 ## License

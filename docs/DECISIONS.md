@@ -979,3 +979,18 @@ Refines the DESIGN.md §5.1 sketch:
   - **Picking your own:** the picker opens on your current reaction and underlines it, comparing without U+FE0F. Choosing it again removes it under the name it was sent with (D73).
   - **Message info:** one `Reaction:` row per reaction (`🔥 Alice`, `👍 You`), the same emoji together in the order each first appeared, yours first within its emoji. Reactions have no timestamps in the store, so none are shown.
   - Tests: `quick_reactions_prefer_recent_ones`, `reactions_toggle_and_are_undone_on_failure` (updated), `reaction_search_scrolls_past_the_visible_rows`, the Message info test, and the `reaction_picker` snapshot.
+
+### D105. getfaro.dev: a static landing page with the real faro demo running in the browser — Accepted (owner, 2026-10-11; details Judgement)
+
+- **Why:** faro needs a website, and the best way to show a terminal program to someone who hasn't installed it is to let them use it. `faro demo` (D87, D88) already has everything a visitor needs: fake contacts, scripted scenes, no account, nothing sent.
+- **Decision (owner):** a single static page at getfaro.dev, built around a terminal panel that runs `faro demo` compiled to WebAssembly, entirely in the browser. The full design and plan are in [WEBSITE.md](WEBSITE.md); its §8 lists the individual decisions:
+  - **The demo:** preloads and starts by itself on capable desktops, unfocused until clicked. Phones and slow connections get a poster rendered from the real app, and so does anyone with JavaScript off. It uses a fixed seed, no outages, and starts fresh on every visit.
+  - **Hosting:** a self-managed server behind nginx, building on the server, with an atomic symlink switch.
+  - **Analytics:** self-hosted Plausible Community Edition, served from the site's own origin. No cookies, no third-party requests. The site has its own privacy policy and terms.
+  - **Code:** one repo and workspace. `crates/faro` is to be split into `faro-app` (shared state, reducer, UI) and `faro` (the native binary), plus a new `faro-web`.
+- **Judgement (to settle in the plan's Phase 0):** the renderer. A throwaway prototype of each, a custom Canvas 2D renderer (which draws block, octant and Powerline glyphs itself) and Ratzilla's WebGL2 backend, judged on fidelity first; keep one. Also the webfont.
+- **Rejected:**
+  - **xterm.js:** its own width tables would bring back the emoji misalignment fixed in D47/D55.
+  - **WASI in a browser terminal:** crossterm has no WASI support, and it would need SharedArrayBuffer headers.
+  - **A server running `faro demo` for each visitor:** hosting cost and a sandboxing burden, since the demo still touches real files (D87).
+  - **Third-party hosting and a hosted analytics service.**

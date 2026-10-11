@@ -338,6 +338,42 @@ Start after Wave 2 is merged to `origin/main`. Run **Tracks 3A and 3B in paralle
 **Acceptance (M12)**
 - All 11 features pass unit, reducer, and snapshot tests, `tools/frames` replay stays at 0 divergent frames, and `docs/MANUAL_TESTS.md` includes an `## M12` hands-on section.
 
+## M13: website, getfaro.dev (D105)
+
+Design, copy, server runbook and full task lists: [WEBSITE.md](WEBSITE.md) (§7 is the plan, §8 the decisions). In short:
+
+1. **Phase 0: spikes and server setup.**
+   - Build the mock backend for `wasm32`.
+   - Prototype both renderers (custom Canvas 2D and Ratzilla WebGL2) and keep one.
+   - Choose the webfont.
+   - Set up DNS, nginx and TLS, and self-hosted Plausible, then deploy a placeholder page.
+2. **Phase 1: static landing page.**
+   - The page, copy, privacy and terms pages, and analytics.
+   - The site generator, plus a poster, phone frames and OG image rendered from the real app.
+   - A CI site job, and deploying to the server. Shippable on its own.
+3. **Phase 2: faro builds for the web.**
+   - Target-neutral seams (`term_event`, `clock`, runtime shim).
+   - The `faro-app` / `faro` / `faro-web` split with an architecture test.
+   - `store/mem.rs` with the store tests run on both backends.
+   - A CI wasm build.
+4. **Phase 3: the web shell and renderer.**
+   - The event loop, renderer and web router (clipboard, links, Web Audio).
+   - Web keybindings, the web emoji mode and half-block images.
+5. **Phase 4: the demo on the page.**
+   - Preload and autostart, with the focus model (Esc or a click leaves the panel).
+   - Theme chips, restart, fullscreen.
+   - Demo analytics events, the phone fallback, headless browser tests, MANUAL_TESTS entries.
+6. **Phase 5: launch polish.**
+   - Check every install command and statement on the page.
+   - 404, sitemap and security headers.
+   - The AGPL source link for the deployed build.
+   - Update the README.
+
+**Acceptance (M13)**
+- getfaro.dev loads in ≤ 200 KB, reads without JavaScript and works on phones.
+- On a laptop, the real demo runs in the panel without a click, and can be used and left with the keyboard in current Chrome, Firefox and Safari.
+- Native faro behaves exactly as before.
+
 ## Later (backlog: do not lose)
 
 - `faro daemon` + attachable TUI
@@ -355,6 +391,7 @@ Start after Wave 2 is merged to `origin/main`. Run **Tracks 3A and 3B in paralle
 
 ## Progress
 
+- 2026-10-11: website planned (M13, D105): design, copy, privacy/terms drafts, server runbook and phased plan in [WEBSITE.md](WEBSITE.md). Nothing built yet.
 - 2026-10-11: **M7 accepted.** The owner ran the M7 checks on the test account (smithers): guard, linking, `faro ids`, messages/replies/reactions/edits/deletions both ways, typing, receipts, read syncs both ways, mentions, names, nicknames, catch-up and history all pass; the personal account on the Mac mini (`--no-allowlist`, contacts) has been in daily use without problems. Deferred: Wi-Fi off (on the Mac mini). Remaining clipboard checks pass too (late answer, too large, over mosh); two kitty windows deferred. Next: M8 (D96 sidebar markers, D95 optional guard, terminal matrix, release).
 - 2026-10-10: owner checked clipboard paste by hand (9 of 13 items in MANUAL_TESTS "Clipboard images" pass; too large, two kitty windows, late answer and over mosh left) and About (D94, now with full links and the config file). Terminal.app → SSH showed emoji misalignment, noted for the M8 matrix.
 - 2026-10-09: clipboard image paste done (D89–D91, D93; owner's hands-on checks in MANUAL_TESTS "Clipboard images"). Phase 0 spike (branch `spike/clipboard-osc5522`) settled how to read terminal replies (D90). `faro-core::clipboard` is the protocol. `Ctrl+V` stages the image (never sends it) and `Ctrl+O` shows it, asking every kitty attached to tmux. Pasted files are cleaned up. Also: a startup race that could wipe early messages from the list (D92), and an About popup (D94). End-to-end check: `tools/clipboard/e2e.py`.
@@ -378,3 +415,4 @@ Start after Wave 2 is merged to `origin/main`. Run **Tracks 3A and 3B in paralle
 | M10 Voice notes + transcription (v0.2) | ✅ Done (2026-10-08; owner's hands-on checks pending) | D80–D82. Task 1: `AttachmentRef::{voice_note, duration_secs, waveform, transcript, transcript_source}` + `RemoteTranscription` (migration `0007_voice_notes.sql`), presage `VoiceMessage` flag mapping (`flags & 1 != 0`), `faro-core::audio` pure-Rust RIFF/WAVE PCM/float duration & 16-bar RMS waveform (`▁▂▃▄▅▆▇█`) with `ffmpeg`/`ffprobe` fallback, mock synthesized 8 kHz WAV voice notes, `▶ duration waveform · size` row in both layouts. Task 2: external audio player (`app/player.rs`, `[voice] player`, `x`/`v` play/stop, `■ elapsed / total` progress with `accent` played waveform bars, 1 s `PlaybackTick`, SSH/mosh guard). Task 3: opt-in Whisper transcription (`[voice] transcribe = "off"\|"local"\|"remote"`, `t` in messages, menu/palette *Transcribe*, auto-transcribe up to `transcribe_max_secs`), local CLI (`whisper-cli`/`whisper-cpp`/`whisper` or `{file}` wrapper) and remote OpenAI-compatible `/audio/transcriptions` via `curl --config -` (API key from env or OS keychain, rejected from `config.toml`), `Popup::ConfirmRemoteTranscription` (`voice.remote_consent` in `app_state`) and per-conversation `RemoteTranscription::Allowed`, persisted `❝ <text> [local\|remote]` under the voice note and in `readable_body`. |
 | M11 History transfer on link (v0.2) | 📋 Proposed (D74) | Outline in this file; needs presage to expose the link-time key (PR #430). |
 | M12 UX, messaging, search & polish (v0.2) | ✅ Done (2026-10-09; owner's hands-on checks pending) | D83. Executed in 3 sequential waves of parallel subagent tracks: **Wave 1** (`1A`: edit own messages `e`, delete for everyone `D` with `Popup::ConfirmDelete`, send `@mentions` with inline `@` autocomplete and `body_ranges`; `1B`: per-recipient delivery/read receipts `0008_receipts.sql`, `DeliveryStatus::Read` `✓✓` in `accent`, `Popup::MessageInfo` `i`, `Store::search_messages` & `messages_around`; `1C`: `Ctrl+P` `←`/`→` in-place setting value cycling & staying inside `Ctrl+P` on setting/theme selection + OSC 99/777 desktop notifications with privacy levels and tmux passthrough), **Wave 2** (`2A`: full-text message & transcript search `/` & `Ctrl+F` with context loading + `u` jump to unread marker; `2B`: `[messages] density` & `timestamps` settings with live preview; `2C`: `:shortcode:` emoji autocomplete + searchable reaction picker `ui/shortcodes.rs`), **Wave 3** (`3A`: forward message `f` via `Level::ForwardTo`; `3B`: shared links & downloaded media in `Alt+I` info panel + `Level::ChatLinks`). |
+| M13 Website: getfaro.dev | 📋 Planned (D105) | Static page plus `faro demo` running in the browser (WebAssembly), self-hosted with nginx and self-hosted Plausible. Design and plan in [WEBSITE.md](WEBSITE.md). |
