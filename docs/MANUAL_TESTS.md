@@ -208,7 +208,7 @@ Switch with the palette (`Ctrl+P` › Themes) or `theme = "…"` in the config; 
 
 - [x] Contacts (D68), personal account: a minute after starting, `Ctrl+P` › Chats lists your Signal contacts (no restart needed; an iPhone answers only once Signal is opened on it); the log says "asked the phone for its contacts" and "contacts synced from the phone".
 - [x] `--no-allowlist` (D67), on your own account: faro starts, the footer says `no allowlist`, and every chat shows up as messages arrive. Without either flag faro refuses and names both.
-- [ ] No guard by default (D95): plain `faro` (no flags) starts on your own account, talks to everyone, and the footer shows no allowlist marker; `faro --no-allowlist` still works the same. On the test account, `--allowlist` adds a muted `allowlist` to the footer and the guard still drops others.
+- [x] No guard by default (D95): plain `faro` (no flags) starts on your own account, talks to everyone, and the footer shows no allowlist marker; `faro --no-allowlist` still works the same. On the test account, `--allowlist` adds a muted `allowlist` to the footer and the guard still drops others.
 
 Use a separate data dir for the test account, e.g. `--data-dir ~/.local/share/faro-test`.
 
@@ -345,7 +345,7 @@ In kitty, with an image copied on the machine you type on (e.g. *Copy Image* in 
 
 ## Sidebar markers (D96)
 
-- [ ] In `faro demo`: groups show `#` before the name (sidebar and `Ctrl+P` › Chats; people have no mark in either). Set a group to mentions only (`@` in the sidebar): an `@` appears at the row's right edge. Mute a chat (`Space` › Mute): `⊘` there instead. With unread messages the count comes first (`3 ⊘`). Markers stay visible on the open chat's row and line up in one column. Unmute / notify all: the marker goes.
+- [x] In `faro demo`: groups show `#` before the name (sidebar and `Ctrl+P` › Chats; people have no mark in either). Set a group to mentions only (`@` in the sidebar): an `@` appears at the row's right edge. Mute a chat (`Space` › Mute): `⊘` there instead. With unread messages the count comes first (`3 ⊘`). Markers stay visible on the open chat's row and line up in one column. Unmute / notify all: the marker goes.
 
 ## About (D94)
 
