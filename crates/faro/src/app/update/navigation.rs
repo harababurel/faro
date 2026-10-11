@@ -189,9 +189,7 @@ pub fn on_shortcode_key(state: &mut State, key: KeyEvent) -> Option<Vec<Effect>>
         (KeyCode::Char(':'), KeyModifiers::NONE | KeyModifiers::SHIFT) => {
             let open = state.open.as_mut()?;
             let (colon_pos, query) = open.active_shortcode_token()?;
-            let &(_, emoji) = crate::ui::shortcodes::SHORTCODES
-                .iter()
-                .find(|&&(code, _)| code.eq_ignore_ascii_case(query))?;
+            let emoji = crate::ui::shortcodes::exact(query)?;
             let cursor = open.input.cursor();
             open.input.replace_range(colon_pos..cursor, emoji);
             open.shortcode_selected = 0;

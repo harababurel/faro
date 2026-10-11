@@ -370,6 +370,11 @@ In kitty (directly and inside tmux), `faro demo`, `Ctrl+P` › Settings › Bubb
 
 - [ ] In a chat, send `see https://github.com/harababurel/faro/blob/main/docs/DECISIONS.md` and a few words around it: the link sits whole on its own line (never broken at `/`), in both bubble and IRC layouts; clicking it in kitty opens the whole URL. A link longer than a normal bubble makes that bubble wider (up to the pane width); a link wider than the whole pane is still split (expected; open it from `Enter` › open link).
 
+## Every emoji in `:` search (D103)
+
+- [ ] In the input, `:cool`: 😎 first, 🆒 among the results; `:coo` also offers the cook 🧑‍🍳, the cookie 🍪 and the Cook Islands flag; `:thumbsup` and `:+1` still give 👍. `:cookie:` (closing colon) turns into 🍪, `:smiling_face_with_sunglasses:` into 😎. In the reaction picker (`+`, then type), the same searches work.
+- [ ] Results look right in kitty directly and inside tmux: no boxes or misaligned rows for anything offered (try `:flag`, `:family`, `:keycap`, `:face`).
+
 ## Version line (D97)
 
 - [x] After `git pull && cargo build`: `faro --version` prints `faro 0.1.0-dev (<hash> <date>)` matching `git log -1 --format='%h %cd' --date=short`; the logo screen (no chat open) shows `v0.1.0-dev (<hash> <date>)` under the tagline ("unofficial Signal client for the terminal"); About shows the same after `faro`. With an uncommitted edit to a tracked file and a rebuild, the hash gets a `+`.

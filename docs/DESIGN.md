@@ -495,7 +495,7 @@ Task-level breakdown and progress tracking: [PLAN.md](PLAN.md).
 - **Density, timestamps & shared links/media (M12, done, D83):** `[messages] density` (`comfortable`/`compact`) and `timestamps` (`absolute`/`relative`/`off`) with live preview; recent links & downloaded files in the `Alt+I` info panel and palette (`Links & files in this chat…`)
 - **Attachments and inline images (M9, done, D75–D79):** receive, open or save (SSH-aware), send; thumbnails in the message pane via kitty graphics / sixel / iTerm2 / half-block fallback (`ratatui-image`), with tmux passthrough
 - **Voice notes (M10, done, D80–D82):** playback through an external player; opt-in transcription of incoming voice notes with a local Whisper model or a remote OpenAI-compatible endpoint (consent required for remote)
-- **Emoji picker & shortcodes (M12, done, D83):** inline `:shortcode:` autocomplete in input and searchable reaction picker (`r`); emoji width fallback (M4.5, done, D47/D55)
+- **Emoji picker & shortcodes (M12, done, D83):** inline `:shortcode:` autocomplete in input and searchable reaction picker (`r`); emoji width fallback (M4.5, done, D47/D55). **Since D103:** every emoji up to Emoji 16.0 (1,906, no skin-tone variants) with CLDR's English keywords, generated into `ui/shortcodes/table.rs` by `tools/emoji/gen_table.py`; each emoji's code is its CLDR name in `_`-joined ASCII; the everyday aliases (`:thumbsup:`, `:+1:`) stay and rank first.
 - Release binaries, Homebrew tap, AUR, `.deb`, Nix flake
 
 ### Later (backlog, do not forget)
