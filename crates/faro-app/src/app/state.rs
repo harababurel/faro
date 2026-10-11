@@ -353,6 +353,10 @@ pub enum EmojiMode {
     /// Emoji whose width depends on the terminal are drawn in a simpler form
     /// with the same width everywhere (for mosh and other old-style terminals).
     Compatible,
+    /// As they are, with none of the terminal workarounds: for renderers that
+    /// draw each cell themselves at faro's width (the web demo, D118). What
+    /// `Full` becomes when [`EmojiSetting::exact`] is set.
+    Exact,
 }
 
 /// What the terminal checks found at startup (D47, D58, D78).
@@ -402,6 +406,10 @@ pub enum GraphicsSupport {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "four independent facts: following mosh, chosen on the command line, mosh seen, the renderer draws cells"
+)]
 pub struct EmojiSetting {
     pub mode: EmojiMode,
     /// Follow mosh detection (`auto`); otherwise `mode` is fixed.
@@ -413,6 +421,20 @@ pub struct EmojiSetting {
     /// When the terminal was last checked (for mosh and for who draws block
     /// glyphs).
     pub checked_at: Option<Instant>,
+    /// The renderer draws every cell itself, at faro's width (the web demo):
+    /// emoji in full need no terminal workarounds (D118).
+    pub exact: bool,
+}
+
+impl EmojiSetting {
+    /// The mode that draws emoji in full here.
+    pub const fn full(&self) -> EmojiMode {
+        if self.exact {
+            EmojiMode::Exact
+        } else {
+            EmojiMode::Full
+        }
+    }
 }
 
 /// A small modal over the message area.

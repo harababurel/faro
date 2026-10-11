@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use faro_app::app::commands;
 use faro_app::app::event::{AppEvent, Command, Effect};
-use faro_app::app::state::{BlockGlyphs, GraphicsSupport, State};
+use faro_app::app::state::{BlockGlyphs, EmojiMode, EmojiSetting, GraphicsSupport, State};
 use faro_app::app::storage;
 use faro_app::app::update::{self, affects_view};
 use faro_app::theme::ColorDepth;
@@ -68,6 +68,14 @@ impl Session {
         state.env.glyphs = BlockGlyphs::Native;
         state.env.graphics = GraphicsSupport::HalfblocksOnly;
         state.env.colors = ColorDepth::Truecolor;
+        // The renderer draws each cell at faro's width: no terminal to work
+        // around (D118). `auto` still follows the config like the terminal.
+        state.env.emoji = EmojiSetting {
+            mode: EmojiMode::Exact,
+            auto: true,
+            exact: true,
+            ..EmojiSetting::default()
+        };
 
         let blobs = Blobs::default();
         let (results_tx, results) = mpsc::unbounded_channel();
@@ -283,6 +291,11 @@ mod tests {
             state.conversations.len()
         );
         assert!(state.open.is_none(), "nothing opens by itself (D60)");
+        assert_eq!(
+            state.env.emoji.mode,
+            EmojiMode::Exact,
+            "after the terminal check"
+        );
 
         key(&mut session, KeyCode::Enter);
         pump(&mut session, &mut inbox, Duration::from_millis(100)).await;

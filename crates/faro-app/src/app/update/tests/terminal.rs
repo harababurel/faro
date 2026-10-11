@@ -28,6 +28,7 @@ fn auto(mode: EmojiMode) -> EmojiSetting {
         checked_at: None,
         from_cli: false,
         mosh: false,
+        exact: false,
     }
 }
 
@@ -64,6 +65,7 @@ fn a_chosen_mode_is_kept() {
         checked_at: None,
         from_cli: true,
         mosh: false,
+        exact: false,
     };
     state.config.messages.bubble_style = BubbleStyle::Bar;
     state.config.media.inline_images = InlineImages::Off;

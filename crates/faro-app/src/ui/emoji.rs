@@ -88,7 +88,7 @@ pub fn display(text: &str) -> Cow<'_, str> {
     let mode = mode();
     let mut previous: Option<&str> = None;
     let clean = text.graphemes(true).all(|g| {
-        let ok = !needs_rewrite(g, mode) && !previous.is_some_and(|p| joins(p, g));
+        let ok = !needs_rewrite(g, mode) && !previous.is_some_and(|p| tmux_joins(mode, p, g));
         previous = Some(g);
         ok
     });
@@ -105,7 +105,7 @@ pub fn display(text: &str) -> Cow<'_, str> {
             Cow::Borrowed(g)
         };
         for part in drawn.graphemes(true) {
-            if joins(&last, part) {
+            if tmux_joins(mode, &last, part) {
                 out.push(' ');
             }
             out.push_str(part);
@@ -149,7 +149,9 @@ pub fn finish(buffer: &mut Buffer) -> usize {
             replaced += 1;
         }
     }
-    replaced += separate_joining_cells(buffer);
+    if mode != EmojiMode::Exact {
+        replaced += separate_joining_cells(buffer);
+    }
     repair_cut_wide(buffer);
     pin_wide_cells(buffer);
     #[cfg(test)]
@@ -161,11 +163,14 @@ pub fn finish(buffer: &mut Buffer) -> usize {
 fn needs_rewrite(g: &str, mode: EmojiMode) -> bool {
     lone_indicator(g).is_some()
         || loose_decoration(g)
-        || unjoined_skin_tone(g)
         || match mode {
-            EmojiMode::Full => missing_presentation(g),
+            // Emoji presentation is asked for explicitly in both: a browser
+            // draws ✌ as a wide colour emoji whatever its width says.
+            EmojiMode::Exact => missing_presentation(g),
+            EmojiMode::Full => unjoined_skin_tone(g) || missing_presentation(g),
             EmojiMode::Compatible => {
-                !width_agrees(g)
+                unjoined_skin_tone(g)
+                    || !width_agrees(g)
                     || is_joined(g)
                     || flag_letters(g).is_some()
                     || g.chars().any(is_tmux_wide)
@@ -346,6 +351,11 @@ fn joins(left: &str, right: &str) -> bool {
     left.chars().next().is_some_and(is_indicator) && right.chars().next().is_some_and(is_indicator)
 }
 
+/// [`joins`], where a terminal is in the way (not in [`EmojiMode::Exact`]).
+fn tmux_joins(mode: EmojiMode, left: &str, right: &str) -> bool {
+    mode != EmojiMode::Exact && joins(left, right)
+}
+
 /// Joiners and modifiers that make a grapheme's width terminal-dependent:
 /// variation selector 16, zero-width joiner, keycap, skin tones, tags.
 fn is_decoration(c: char) -> bool {
@@ -365,6 +375,15 @@ fn rewrite(g: &str, mode: EmojiMode) -> String {
     {
         return letters;
     }
+    if mode == EmojiMode::Exact {
+        // Only loose joiners or modifiers at the ends, or a missing VS16.
+        let trimmed = g
+            .trim_start_matches(is_decoration)
+            .trim_end_matches('\u{200D}');
+        if !trimmed.is_empty() && !loose_decoration(trimmed) {
+            return with_presentation(trimmed);
+        }
+    }
     if mode == EmojiMode::Full {
         // Only skin tones tmux won't join, loose joiners or modifiers at the
         // ends, or a missing VS16: fix just those.
@@ -381,7 +400,7 @@ fn rewrite(g: &str, mode: EmojiMode) -> String {
         .filter(|c| !is_decoration(*c))
         .map(|c| match mode {
             EmojiMode::Compatible => compatible_char(c),
-            EmojiMode::Full => Cow::Owned(c.to_string()),
+            EmojiMode::Full | EmojiMode::Exact => Cow::Owned(c.to_string()),
         })
         .collect();
     let safe: String = stripped
@@ -397,7 +416,7 @@ fn rewrite(g: &str, mode: EmojiMode) -> String {
         .collect();
     if safe.is_empty() {
         "\u{FFFD}".to_owned()
-    } else if mode == EmojiMode::Full {
+    } else if mode != EmojiMode::Compatible {
         with_presentation(&safe)
     } else {
         safe
@@ -538,6 +557,18 @@ mod tests {
         assert_eq!(display(text), text);
         assert_eq!(display("a 🇩 b"), "a D b");
         assert!(matches!(display("plain ascii"), Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn exact_mode_keeps_what_tmux_would_break() {
+        set_mode(EmojiMode::Exact);
+        // Two flags in a row and a skin tone tmux doesn't join: as they are.
+        let text = "🇩🇪🇷🇴 🫶🏽 ❤️";
+        assert_eq!(display(text), text);
+        assert_eq!(display("✌"), "✌\u{FE0F}", "emoji presentation");
+        assert_eq!(display("a 🇩 b"), "a D b", "half a flag is still a letter");
+        set_mode(EmojiMode::Full);
+        assert_ne!(display(text), text, "the terminal workarounds");
     }
 
     #[test]

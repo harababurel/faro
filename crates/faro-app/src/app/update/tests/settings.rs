@@ -134,6 +134,7 @@ fn the_emoji_setting_follows_the_file_unless_chosen_on_the_command_line() {
         checked_at: None,
         from_cli: false,
         mosh: false,
+        exact: false,
     };
     reload(&mut state, "[ui]\nemoji = \"compatible\"\n");
     assert_eq!(state.env.emoji.mode, EmojiMode::Compatible);

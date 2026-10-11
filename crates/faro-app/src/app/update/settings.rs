@@ -164,7 +164,7 @@ fn apply_emoji(state: &mut State) -> Vec<Effect> {
             state.env.emoji.checked_at = None;
             return check_terminal(state);
         }
-        EmojiChoice::Full => EmojiMode::Full,
+        EmojiChoice::Full => state.env.emoji.full(),
         EmojiChoice::Compatible => EmojiMode::Compatible,
     };
     let emoji = &mut state.env.emoji;

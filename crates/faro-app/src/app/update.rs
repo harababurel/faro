@@ -789,7 +789,7 @@ fn terminal_checked(state: &mut State, terminal: Terminal) -> Vec<Effect> {
     let mode = if mosh {
         EmojiMode::Compatible
     } else {
-        EmojiMode::Full
+        emoji.full()
     };
     if !emoji.auto || emoji.mode == mode {
         return vec![];
