@@ -1,15 +1,17 @@
 mod app;
 mod cli;
 mod config;
-#[cfg(test)]
-mod fixtures;
 mod frames;
 mod logging;
 mod signal;
-mod theme;
 mod tui;
-mod ui;
-mod version;
+// M13 Phase 0 spike (throwaway): frames for the web renderer prototypes.
+#[cfg(test)]
+mod web_spike;
+
+#[cfg(test)]
+use faro_app::fixtures;
+use faro_app::{theme, ui, version};
 
 use anyhow::Context as _;
 use faro_core::backend::{Backend, BackendEvents};

@@ -1,0 +1,34 @@
+---
+source: crates/faro-app/src/ui/tests.rs
+expression: "snapshot(&draw(&with_palette(\":\"), 100, 30))"
+---
+╭ Conversations ─────────────╮╭ Climbing 🧗 ───────────────────────────────────────────────────────╮
+│ ▾ Pinned                   ││                                                                    │
+│     Bob                    ││                                                                    │
+│ ▾ Recent                   ││                                                                    │
+│   # Climbi╭ Settings ────────────────────────────────────────────────────────────────╮           │
+│ ●   Alice │ ›                                                 ←/→ cycle · enter list │           │
+│           │──────────────────────────────────────────────────────────────────────────│────────── │
+│           │ Appearance                                                               │           │
+│           │▌  Colours ›                                    auto (truecolor detected) │           │
+│           │   Emoji ›                                                           auto │           │
+│           │   Reduce motion                                                      off │────────── │
+│           │ Messages                                                                 │hursday?   │
+│           │   Message layout ›                                                 * IRC │ss         │
+│           │   Timestamps ›                                                * absolute │           │
+│           │ Bubbles                                                                  │           │
+│           │   Bubble style                                       bubbles layout only │           │
+│           │   Bubble padding                                     bubbles layout only │           │
+│           │   Match bubble widths                                bubbles layout only │────────── │
+│           │   Message density                                    bubbles layout only │ast week   │
+│           │ Notifications                                                            │bring your │
+│           ╰──────────────────────────────────────────────────────────────────────────╯for your   │
+│                            ││                  fingers.                                          │
+│                            ││ 17:54        You On my way ✓                                       │
+│                            ││ 17:55   Alice 🌸 Running 10 min late 🙈                            │
+│                            ││                                                                    │
+│                            ││╭──────────────────────────────────────────────────────────────────╮│
+│                            │││ Message Climbing 🧗…                                             ││
+│                            ││╰──────────────────────────────────────────────────────────────────╯│
+╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯
+ ● connected · 1 unread           ↑↓ move · ←→ cycle · enter flip/open · ctrl+r default · esc close

@@ -1,0 +1,38 @@
+---
+source: crates/faro-app/src/ui/tests.rs
+expression: "snapshot(&draw(&mixed(bubbles_state()), 100, 34))"
+---
+╭ Conversations ─────────────╮╭ Climbing 🧗 ───────────────────────────────────────────────────────╮
+│ ▾ Pinned                   ││ ┃▎ Alice 🌸: Anyone up for the wall on Thursda… ▌                  │
+│     Bob                    ││ ┃Count me in, I'll bring the spare harness      ▌                  │
+│ ▾ Recent                   ││ ┃                                         17:20 ▌                  │
+│   # Climbing 🧗 …          ││ 🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🯯                  │
+│ ●   Alice 🌸             1 ││                                                                    │
+│                            ││ ┃and chalk  edited 17:22                                          │
+│                            ││                                                                    │
+│                            ││  Carol Bartholomew-Smythe                                          │
+│                            ││ ┃This message was deleted  17:40                                  │
+│                            ││                                                                    │
+│                            ││  Carol Bartholomew-Smythe                                          │
+│                            ││ ▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂🯭                                │
+│                            ││ ┃Route map from last time         ▌                                │
+│                            ││ ┃📎 route-map.jpg · 2.3 MB  17:50 ▌                                │
+│                            ││ 🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🯯                                │
+│                            ││ ────────────────────────── new messages ────────────────────────── │
+│                            ││ ▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂🯭                    │
+│                            ││ ┃Also: the new overhang section opened last   ▌                    │
+│                            ││ ┃week and apparently the grades are soft, so  ▌                    │
+│                            ││ ┃bring your project shoes 🧗‍♀️🧗‍♂️ and maybe some ▌                    │
+│                            ││ ┃tape for your fingers.                 17:51 ▌                    │
+│                            ││ 🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🮂🯯                    │
+│                            ││                                                                    │
+│                            ││                                               On my way  17:54 ✓┃ │
+│                            ││                                                                    │
+│                            ││  Alice 🌸                                                          │
+│                            ││ ┃Running 10 min late 🙈  17:55                                    │
+│                            ││ Alice 🌸 is typing…                                                │
+│                            ││╭──────────────────────────────────────────────────────────────────╮│
+│                            │││ See you there                                                    ││
+│                            ││╰──────────────────────────────────────────────────────────────────╯│
+╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯
+ ● connected · 1 unread    enter send · alt+j/k conversations · esc close · tab focus · pgup scroll

@@ -22,18 +22,11 @@ use crate::ui::{self, View};
 pub mod clipboard;
 pub mod commands;
 mod effects;
-pub mod event;
-pub mod files;
-pub mod image_cache;
 pub mod images;
-pub mod input;
-pub mod keymap;
-pub mod palette;
-pub mod state;
 pub mod system;
-pub mod term_event;
-mod timeline;
-pub mod update;
+
+// The shared app (state, reducer, key map, palette), as if it were here.
+pub use faro_app::app::{event, files, image_cache, keymap, state, term_event, update};
 
 use event::{AppEvent, Effect};
 use state::State;

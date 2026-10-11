@@ -66,3 +66,7 @@ jobs:
 
       - name: Clippy (faro-core, wasm32)
         run: cargo clippy -p faro-core --target wasm32-unknown-unknown --no-default-features --locked -- -D warnings
+
+      # The shared app: everything but the terminal binary (M13).
+      - name: Clippy (faro-app, wasm32)
+        run: cargo clippy -p faro-app --target wasm32-unknown-unknown --locked -- -D warnings

@@ -1,0 +1,16 @@
+---
+source: crates/faro-app/src/ui/tests.rs
+expression: "snapshot(&draw(&logo_state(), 60, 12))"
+---
+╭──────────────────────────────────────────────────────────╮
+│                                                          │
+│                                                          │
+│                           faro                           │
+│                                                          │
+│                 alt+j/k  choose a chat                   │
+│                  ctrl+p  command palette                 │
+│                       ?  keybindings                     │
+│                                                          │
+│                                                          │
+╰──────────────────────────────────────────────────────────╯
+ ◌ connecting… · 3 unread                        enter send

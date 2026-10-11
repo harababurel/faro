@@ -1,0 +1,30 @@
+---
+source: crates/faro-app/src/ui/tests.rs
+expression: "snapshot(&draw(&with_palette(\"\"), 100, 26))"
+---
+╭ Conversations ─────────────╮╭ Climbing 🧗 ───────────────────────────────────────────────────────╮
+│ ▾ Pinned                   ││                                                                    │
+│     Bob                    ││ ─────────────────────────── Yesterday ──────────────────────────── │
+│ ▾ Recent                   ││ 16:30   Alice 🌸 Anyone up for the wall on Thursday?               │
+│   # Climbi╭ Command palette ─────────────────────────────────────────────────────────╮           │
+│ ●   Alice │ ›                                @ chats  : settings  > commands  ? keys │           │
+│           │──────────────────────────────────────────────────────────────────────────│────────── │
+│           │▌  Chats ›                                                              @ │hursday?   │
+│           │   Themes ›                                                     faro-dark │ss         │
+│           │   Settings ›                                                           : │           │
+│           │   Commands ›                                                           > │           │
+│           │   Keys ›                                                               ? │           │
+│           │   Search ›                                                             / │           │
+│           ╰──────────────────────────────────────────────────────────────────────────╯────────── │
+│                            ││ 17:51            Also: the new overhang section opened last week   │
+│                            ││                  and apparently the grades are soft, so bring your │
+│                            ││                  project shoes 🧗‍♀️🧗‍♂️ and maybe some tape for your   │
+│                            ││                  fingers.                                          │
+│                            ││ 17:54        You On my way ✓                                       │
+│                            ││ 17:55   Alice 🌸 Running 10 min late 🙈                            │
+│                            ││                                                                    │
+│                            ││╭──────────────────────────────────────────────────────────────────╮│
+│                            │││ Message Climbing 🧗…                                             ││
+│                            ││╰──────────────────────────────────────────────────────────────────╯│
+╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯
+ ● connected · 1 unread      ↑↓ choose · enter open · esc close · @ chats · : settings · > commands

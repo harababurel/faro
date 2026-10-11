@@ -1199,19 +1199,17 @@ version = "0.1.0-dev"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
- "bitflags 2.13.2",
  "clap",
  "crossterm",
+ "faro-app",
  "faro-core",
  "faro-presage",
  "futures-util",
  "gethostname",
  "image",
- "insta",
  "jiff",
  "mio",
  "notify",
- "nucleo-matcher",
  "qrcode",
  "ratatui",
  "ratatui-image",
@@ -1221,6 +1219,22 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "unicode-width",
+ "uuid",
+]
+
+[[package]]
+name = "faro-app"
+version = "0.1.0-dev"
+dependencies = [
+ "bitflags 2.13.2",
+ "faro-core",
+ "insta",
+ "jiff",
+ "nucleo-matcher",
+ "ratatui",
+ "tokio",
+ "tracing",
  "unicode-segmentation",
  "unicode-width",
  "uuid",
@@ -2155,10 +2169,12 @@ dependencies = [
  "jiff-core",
  "jiff-static",
  "jiff-tzdb-platform",
+ "js-sys",
  "log",
  "portable-atomic",
  "portable-atomic-util",
  "serde_core",
+ "wasm-bindgen",
  "windows-link",
 ]
 

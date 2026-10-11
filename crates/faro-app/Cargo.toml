@@ -1,0 +1,37 @@
+[package]
+name = "faro-app"
+description = "faro's app: state, reducer, key map, palette, themes and rendering, shared by the terminal and the web demo"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# The test fixtures (`fixtures`), for the terminal binary's tests.
+test-support = []
+
+# No terminal, file system, processes or SQLite here: this crate also builds
+# for the browser (M13). `tests/architecture.rs` keeps it that way.
+[dependencies]
+bitflags = "2.13.2"
+faro-core.workspace = true
+jiff = "0.2.38"
+nucleo-matcher = "0.3.1"
+ratatui = { version = "0.30.2", default-features = false, features = ["layout-cache", "underline-color"] }
+tracing = "0.1.44"
+unicode-segmentation = "1.13.3"
+unicode-width = "0.2.2"
+uuid = "1.27.0"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# `Timestamp::now` from the browser's clock.
+jiff = { version = "0.2.38", features = ["js"] }
+
+[dev-dependencies]
+insta = "1.49.0"
+tokio = { version = "1.53.2", features = ["rt", "macros", "time", "test-util"] }

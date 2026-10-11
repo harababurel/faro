@@ -1,0 +1,30 @@
+---
+source: crates/faro-app/src/ui/tests.rs
+expression: "snapshot(&draw(&with_palette(\"?\"), 100, 26))"
+---
+╭ Conversations ─────────────╮╭ Climbing 🧗 ───────────────────────────────────────────────────────╮
+│ ▾ Pinned                   ││                                                                    │
+│     Bob                    ││ ─────────────────────────── Yesterday ──────────────────────────── │
+│ ▾ Recent                   ││ 16:30   Alice 🌸 Anyone up for the wall on Thursday?               │
+│   # Climbi╭ Keys ────────────────────────────────────────────────────────────────────╮           │
+│ ●   Alice │ ›                                                                 ← back │           │
+│           │──────────────────────────────────────────────────────────────────────────│────────── │
+│           │▌  Everywhere › Command palette                                    ctrl+p │hursday?   │
+│           │   Everywhere › Keybindings                                            f1 │ss         │
+│           │   Everywhere › Quit                                               ctrl+q │           │
+│           │   Everywhere › Redraw the screen                                  ctrl+l │           │
+│           │   Everywhere › Quit (press twice)                                 ctrl+c │           │
+│           │   Everywhere › Back, dismiss                                         esc │           │
+│           │   Everywhere › Do not disturb (bell off or on)                     alt+n │────────── │
+│           │   Everywhere › Paste an image from the clipboard                  ctrl+v │ast week   │
+│           │   Everywhere › Show the image about to be sent                    ctrl+o │bring your │
+│           │   Everywhere › Previous conversation                        alt+k, alt+↑ │for your   │
+│           │   Everywhere › Next conversation                            alt+j, alt+↓ │           │
+│           ╰──────────────────────────────────────────────────────────────────────────╯           │
+│                            ││ 17:55   Alice 🌸 Running 10 min late 🙈                            │
+│                            ││                                                                    │
+│                            ││╭──────────────────────────────────────────────────────────────────╮│
+│                            │││ Message Climbing 🧗…                                             ││
+│                            ││╰──────────────────────────────────────────────────────────────────╯│
+╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯
+ ● connected · 1 unread                                 ↑↓ move · enter choose · ← back · esc close

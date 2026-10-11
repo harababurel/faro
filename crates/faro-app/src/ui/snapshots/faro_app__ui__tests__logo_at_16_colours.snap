@@ -1,0 +1,28 @@
+---
+source: crates/faro-app/src/ui/tests.rs
+expression: snapshot(&buffer)
+---
+╭ Conversations ─────────────╮╭────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ▾ Pinned                   ││                                                                                                            │
+│     Bob                    ││                                                                                                            │
+│ ▾ Recent                   ││                                                                                                            │
+│ ● # Climbing 🧗          2 ││                                                                                                            │
+│ ●   Alice 🌸             1 ││                              ▄█▄                                                                           │
+│                            ││                              ███                                                                           │
+│                            ││                             ▀▀▀▀▀                                                                          │
+│                            ││                              ███      faro                                                                 │
+│                            ││                              ███      unofficial Signal client for the terminal                            │
+│                            ││                             █████     v1.2.3 (abc1234 2026-01-01)                                          │
+│                            ││                             █████                                                                          │
+│                            ││                           ▄▄▄▄▄▄▄▄▄                                                                        │
+│                            ││                                                                                                            │
+│                            ││                                       alt+j/k  choose a chat                                               │
+│                            ││                                         enter  open it, or click one                                       │
+│                            ││                                        ctrl+p  command palette                                             │
+│                            ││                                             ?  keybindings                                                 │
+│                            ││                                                                                                            │
+│                            ││                                                                                                            │
+│                            ││                                                                                                            │
+│                            ││                                                                                                            │
+╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ ◌ connecting… · 3 unread         ↑↓ choose · enter open · space actions · p pin · m mute · h hide · a archive · A archive list · tab focus

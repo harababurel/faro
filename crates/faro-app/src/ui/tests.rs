@@ -1,0 +1,1856 @@
+//! Snapshot tests (DESIGN.md §15): the fixture state rendered at several sizes.
+//! Snapshots show text only; a few colour checks follow.
+//! Update with `INSTA_UPDATE=always cargo test` (or `cargo insta review`), then
+//! read the diff.
+
+use faro_core::backend::BackendEvent;
+use faro_core::domain::TypingState;
+use jiff::tz::TimeZone;
+use ratatui::Terminal;
+use ratatui::backend::TestBackend;
+use ratatui::buffer::Buffer;
+
+use super::{View, render};
+use crate::app::event::AppEvent;
+use crate::app::state::{MessageLayout, State};
+use crate::app::update::update;
+use crate::fixtures::{self, ALICE, ME, NOW_MS, climbing, loaded_state};
+use crate::theme::Theme;
+
+fn draw(state: &State, width: u16, height: u16) -> Buffer {
+    draw_with(state, width, height, &Theme::default())
+}
+
+fn draw_with(state: &State, width: u16, height: u16, theme: &Theme) -> Buffer {
+    let images = fixtures::Undecoded::for_state(state);
+    draw_with_images(state, width, height, theme, &images).0
+}
+
+fn draw_with_images(
+    state: &State,
+    width: u16,
+    height: u16,
+    theme: &Theme,
+    images: &dyn crate::app::image_cache::ImageCache,
+) -> (Buffer, crate::app::state::Geometry) {
+    let tz = TimeZone::UTC;
+    let now = jiff::Timestamp::from_millisecond(i64::try_from(NOW_MS).unwrap()).unwrap();
+    let view = View {
+        theme,
+        tz: &tz,
+        now,
+        logo_time: None,
+        images,
+    };
+    let mut geometry = crate::app::state::Geometry::default();
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal
+        .draw(|frame| {
+            geometry = render(frame, state, &view);
+        })
+        .unwrap();
+    (terminal.backend().buffer().clone(), geometry)
+}
+
+fn snapshot(buffer: &Buffer) -> String {
+    super::text::grid(buffer)
+}
+
+fn typing_state() -> State {
+    let mut state = loaded_state();
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::Typing {
+            conversation: climbing(),
+            sender: ALICE,
+            state: TypingState::Started,
+        }),
+    );
+    for c in "See you there".chars() {
+        update(
+            &mut state,
+            AppEvent::Terminal(crate::app::term_event::Event::Key(
+                crate::app::term_event::KeyEvent::from(crate::app::term_event::KeyCode::Char(c)),
+            )),
+        );
+    }
+    state
+}
+
+#[test]
+fn wide_with_info_sidebar() {
+    let mut state = typing_state();
+    state.panels.right = true;
+    insta::assert_snapshot!(snapshot(&draw(&state, 120, 32)));
+}
+
+#[test]
+fn normal() {
+    insta::assert_snapshot!(snapshot(&draw(&typing_state(), 100, 30)));
+}
+
+#[test]
+fn narrow_hides_sidebars() {
+    insta::assert_snapshot!(snapshot(&draw(&typing_state(), 60, 24)));
+}
+
+#[test]
+fn loading() {
+    let state = State::new(ME, fixtures::contacts(), fixtures::groups());
+    insta::assert_snapshot!(snapshot(&draw(&state, 80, 12)));
+}
+
+#[test]
+fn colours_carry_meaning() {
+    let theme = Theme::default();
+    let buffer = draw(&typing_state(), 100, 30);
+    let find = |needle: &str| {
+        let text = snapshot(&buffer);
+        let (row, line) = text
+            .lines()
+            .enumerate()
+            .find(|(_, l)| l.contains(needle))
+            .unwrap_or_else(|| panic!("{needle:?} not on screen"));
+        let col = line
+            .find(needle)
+            .map(|byte| unicode_width::UnicodeWidthStr::width(&line[..byte]));
+        (
+            u16::try_from(col.unwrap()).unwrap(),
+            u16::try_from(row).unwrap(),
+        )
+    };
+    // Connection status in the success colour.
+    let (x, y) = find("● connected");
+    assert_eq!(buffer[(x, y)].fg, theme.success);
+    // The unread marker rule in the unread colour.
+    let (x, y) = find("new messages");
+    assert_eq!(buffer[(x, y)].fg, theme.unread);
+    // The input box has the panel background.
+    let (x, y) = find("See you there");
+    assert_eq!(buffer[(x, y)].bg, theme.background_panel);
+}
+
+/// Every screen worth checking colours on: the main view with the info
+/// panel and a selected message, the palette, and a popup, in both layouts.
+fn screens() -> Vec<State> {
+    use crate::app::term_event::KeyCode::{Enter, Esc, Up};
+    let mut screens = Vec::new();
+    for layout in [MessageLayout::Irc, MessageLayout::Bubbles] {
+        let mut state = typing_state();
+        state.layout = layout;
+        state.panels.right = true;
+        screens.push(state);
+        let mut selected = loaded_state();
+        selected.layout = layout;
+        keys(&mut selected, &[Up]);
+        screens.push(selected);
+        let mut menu = loaded_state();
+        menu.layout = layout;
+        keys(&mut menu, &[Up, Enter]);
+        screens.push(menu);
+        let mut palette = loaded_state();
+        palette.layout = layout;
+        keys(&mut palette, &[Esc]);
+        update(
+            &mut palette,
+            AppEvent::Terminal(crate::app::term_event::Event::Key(
+                crate::app::term_event::KeyEvent::new(
+                    crate::app::term_event::KeyCode::Char('p'),
+                    crate::app::term_event::KeyModifiers::CONTROL,
+                ),
+            )),
+        );
+        assert!(palette.palette.is_some());
+        screens.push(palette);
+    }
+    screens
+}
+
+#[test]
+fn the_colour_fallbacks_draw_only_colours_the_terminal_has() {
+    use crate::theme::{ColorDepth, UserThemes};
+    use ratatui::style::Color;
+    let screens = screens();
+    for theme in Theme::all(&UserThemes::default()) {
+        let name = &theme.name;
+        let indexed = theme.clone().for_depth(ColorDepth::Indexed256);
+        for state in &screens {
+            let buffer = draw_with(state, 100, 30, &indexed);
+            for cell in &buffer.content {
+                for colour in [cell.fg, cell.bg] {
+                    assert!(!matches!(colour, Color::Rgb(..)), "{name}: {colour:?}");
+                }
+            }
+        }
+    }
+    // Every theme is the system theme in 16 colours.
+    let system = Theme::default().for_depth(ColorDepth::Ansi16);
+    for state in &screens {
+        let buffer = draw_with(state, 100, 30, &system);
+        for cell in &buffer.content {
+            for colour in [cell.fg, cell.bg] {
+                assert!(
+                    !matches!(colour, Color::Rgb(..) | Color::Indexed(_)),
+                    "16 colours: {colour:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn the_system_theme_selects_in_reverse_video() {
+    use ratatui::style::Modifier;
+    let system = Theme::system();
+    let state = typing_state();
+    let buffer = draw_with(&state, 100, 30, &system);
+    let text = snapshot(&buffer);
+    // The open conversation's row in the sidebar.
+    let title = state.conversation_title(state.open.as_ref().unwrap().id);
+    let row = text
+        .lines()
+        .position(|l| {
+            l.chars()
+                .take(24)
+                .collect::<String>()
+                .contains(title.as_str())
+        })
+        .unwrap();
+    let reversed = (0..20)
+        .filter(|x| {
+            buffer[(*x, u16::try_from(row).unwrap())]
+                .modifier
+                .contains(Modifier::REVERSED)
+        })
+        .count();
+    assert!(
+        reversed >= 10,
+        "{reversed} reversed cells in the selected row"
+    );
+    // Muted text is dim, not a colour.
+    assert!(
+        buffer
+            .content
+            .iter()
+            .any(|c| c.modifier.contains(Modifier::DIM))
+    );
+}
+
+#[test]
+fn tiny_terminals_never_panic() {
+    let mut state = typing_state();
+    for (right, layout) in [
+        (false, MessageLayout::Irc),
+        (true, MessageLayout::Irc),
+        (false, MessageLayout::Bubbles),
+        (true, MessageLayout::Bubbles),
+    ] {
+        state.panels.right = right;
+        state.layout = layout;
+        for width in 0..=40 {
+            for height in 0..=12 {
+                draw(&state, width, height);
+            }
+        }
+    }
+    let empty = State::new(ME, fixtures::contacts(), fixtures::groups());
+    for width in 0..=20 {
+        for height in 0..=6 {
+            draw(&empty, width, height);
+        }
+    }
+}
+
+// --- Scrolling (M4 task 1) ---
+
+use crate::app::state::{Anchor, Focus};
+
+fn window_text(state: &State, height: usize) -> (Vec<String>, super::messages::Window) {
+    let theme = Theme::default();
+    let tz = TimeZone::UTC;
+    let now = jiff::Timestamp::from_millisecond(i64::try_from(NOW_MS).unwrap()).unwrap();
+    let images = fixtures::Undecoded::for_state(state);
+    let view = View {
+        theme: &theme,
+        tz: &tz,
+        now,
+        logo_time: None,
+        images: &images,
+    };
+    let open = state.open.as_ref().unwrap();
+    let window = super::messages::window(state, open, &view, 60, height);
+    let text = window.lines.iter().map(ToString::to_string).collect();
+    (text, window)
+}
+
+fn scrolled_state(offset: isize) -> State {
+    let mut state = loaded_state();
+    let open = state.open.as_mut().unwrap();
+    open.scroll = Some(Anchor {
+        message: fixtures::climbing_history().last().unwrap().reference(),
+        offset,
+    });
+    state
+}
+
+#[test]
+fn a_scrolled_view_stays_put_when_messages_arrive() {
+    let mut state = scrolled_state(4);
+    let (before, window) = window_text(&state, 6);
+    assert!(window.scroll.is_some());
+    let news = fixtures::text(climbing(), ALICE, NOW_MS, "Parking is full");
+    update(&mut state, AppEvent::Backend(BackendEvent::Message(news)));
+    let (after, _) = window_text(&state, 6);
+    assert_eq!(before, after);
+}
+
+#[test]
+fn scrolling_is_clamped_to_the_loaded_history() {
+    // Far past the top: the first row is the first loaded line.
+    let (lines, window) = window_text(&scrolled_state(isize::MAX), 6);
+    assert!(window.at_top);
+    assert_eq!(lines.len(), 6);
+    assert!(lines.first().unwrap().contains("Yesterday"));
+    // Past the bottom: back to following the newest message.
+    let (_, window) = window_text(&scrolled_state(-50), 6);
+    assert_eq!(window.scroll, None);
+    // The anchor is normalised to the message on the bottom row.
+    let (_, window) = window_text(&scrolled_state(1), 6);
+    let anchor = window.scroll.unwrap();
+    assert_ne!(
+        Some(anchor.message),
+        fixtures::climbing_history()
+            .last()
+            .map(faro_core::domain::Message::reference)
+    );
+    assert!(anchor.offset >= 0);
+}
+
+#[test]
+fn scrolled_up_with_messages_focus() {
+    let mut state = scrolled_state(6);
+    state.focus = Focus::Messages;
+    state.open.as_mut().unwrap().unseen = 2;
+    insta::assert_snapshot!(snapshot(&draw(&state, 100, 18)));
+}
+
+fn keys(state: &mut State, keys: &[crate::app::term_event::KeyCode]) {
+    for key in keys {
+        update(
+            state,
+            AppEvent::Terminal(crate::app::term_event::Event::Key(
+                crate::app::term_event::KeyEvent::from(*key),
+            )),
+        );
+    }
+}
+
+use crate::app::term_event::KeyCode::{Char, Down, Enter, Up};
+
+#[test]
+fn message_menu_over_a_selected_message() {
+    let mut state = loaded_state();
+    keys(&mut state, &[Up, Char('k'), Enter]);
+    insta::assert_snapshot!(snapshot(&draw(&state, 100, 20)));
+}
+
+#[test]
+fn reaction_picker() {
+    let mut state = loaded_state();
+    keys(&mut state, &[Up, Char('+'), Char('l')]);
+    insta::assert_snapshot!(snapshot(&draw(&state, 100, 20)));
+}
+
+#[test]
+fn reply_bar_above_the_input() {
+    let mut state = loaded_state();
+    keys(&mut state, &[Up, Char('r'), Char('o'), Char('k')]);
+    insta::assert_snapshot!(snapshot(&draw(&state, 100, 20)));
+}
+
+#[test]
+fn the_selected_message_is_tinted_only_while_the_pane_has_focus() {
+    let mut state = loaded_state();
+    keys(&mut state, &[Up]);
+    let theme = Theme::default();
+    let buffer = draw(&state, 100, 20);
+    let tinted = |buffer: &Buffer| {
+        buffer
+            .content
+            .iter()
+            .filter(|c| c.bg == theme.background_element)
+            .count()
+    };
+    let bars = |buffer: &Buffer| buffer.content.iter().filter(|c| c.symbol() == "▌").count();
+    // The newest message is one line: one tinted row, one bar.
+    assert!(tinted(&buffer) >= 60);
+    assert_eq!(bars(&buffer), 1);
+    keys(&mut state, &[crate::app::term_event::KeyCode::Esc]);
+    let buffer = draw(&state, 100, 20);
+    assert_eq!(bars(&buffer), 0);
+}
+
+#[test]
+fn selecting_an_old_message_scrolls_to_it() {
+    let mut state = loaded_state();
+    keys(&mut state, &[Up, Char('g')]);
+    let (lines, window) = window_text(&state, 6);
+    assert!(window.at_top);
+    assert!(lines.iter().any(|l| l.contains("Anyone up for the wall")));
+    let first = fixtures::climbing_history().first().unwrap().reference();
+    assert!(window.rows.contains(&Some(first)));
+    // Back to the newest: following again.
+    keys(&mut state, &[Char('G')]);
+    let (_, window) = window_text(&state, 6);
+    assert_eq!(window.scroll, None);
+}
+
+// --- Curation (M4 task 5, D41) ---
+
+fn sidebar_keys(state: &mut State, list: &[crate::app::term_event::KeyCode]) {
+    state.focus = Focus::Conversations;
+    keys(state, list);
+}
+
+#[test]
+fn conversation_menu_beside_the_sidebar() {
+    let mut state = loaded_state();
+    sidebar_keys(&mut state, &[Char(' ')]);
+    insta::assert_snapshot!(snapshot(&draw(&state, 100, 20)));
+}
+
+#[test]
+fn archive_row_and_a_muted_conversation() {
+    let mut state = loaded_state();
+    // Archive Climbing (Alice opens), then mute Alice until unmuted.
+    sidebar_keys(&mut state, &[Char('a'), Char('m'), Char('5')]);
+    state.panels.right = true;
+    state.notice = None;
+    insta::assert_snapshot!(snapshot(&draw(&state, 120, 16)));
+}
+
+#[test]
+fn archive_view() {
+    let mut state = loaded_state();
+    sidebar_keys(&mut state, &[Char('a'), Char('h'), Char('A')]);
+    state.notice = None;
+    insta::assert_snapshot!(snapshot(&draw(&state, 100, 14)));
+}
+
+#[test]
+fn allowlist_mode_shows_in_the_title() {
+    let mut state = loaded_state();
+    sidebar_keys(&mut state, &[Char('l'), Char('L')]);
+    let text = snapshot(&draw(&state, 100, 14));
+    assert!(text.contains("Conversations · allowlist"), "{text}");
+    assert!(text.contains("▸ Archive (1)"), "{text}");
+}
+
+/// D96: `#` before groups, and at the right edge (after any unread count)
+/// `⊘` for muted and `@` for mentions only.
+#[test]
+fn sidebar_markers_for_groups_muted_and_mentions_only() {
+    use faro_core::domain::ConversationId;
+    use faro_core::store::{ConversationState, NotifyLevel};
+
+    let mut state = loaded_state();
+    for summary in &mut state.conversations {
+        match summary.id {
+            ConversationId::Group(_) => summary.state.notify = NotifyLevel::Mentions,
+            ConversationId::Direct(_) if summary.unread > 0 => {
+                summary.state.muted_until = Some(ConversationState::MUTED_FOREVER);
+            }
+            ConversationId::Direct(_) => {}
+        }
+    }
+    let text = snapshot(&draw(&state, 100, 14));
+    // Only the sidebar's columns (its right border included).
+    let row = |name: &str| {
+        text.lines()
+            .map(|line| line.chars().take(30).collect::<String>())
+            .find(|line| line.contains(name))
+            .unwrap_or_default()
+    };
+    assert!(row("Climbing").contains("# Climbing"), "{text}");
+    assert!(row("Climbing").contains("@ │"), "{text}");
+    assert!(row("Alice").contains("1 ⊘ │"), "{text}");
+    assert!(!row("Bob").contains('#'), "{text}");
+    assert!(!row("Bob").contains('⊘'), "{text}");
+}
+
+fn with_palette(query: &str) -> State {
+    use crate::app::term_event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    let mut state = loaded_state();
+    let press = |state: &mut State, code, modifiers| {
+        update(
+            state,
+            AppEvent::Terminal(Event::Key(KeyEvent::new(code, modifiers))),
+        );
+    };
+    press(&mut state, KeyCode::Char('p'), KeyModifiers::CONTROL);
+    for c in query.chars() {
+        press(&mut state, KeyCode::Char(c), KeyModifiers::NONE);
+    }
+    state
+}
+
+#[test]
+fn palette_with_nothing_typed() {
+    insta::assert_snapshot!(snapshot(&draw(&with_palette(""), 100, 26)));
+}
+
+#[test]
+fn palette_searching() {
+    insta::assert_snapshot!(snapshot(&draw(&with_palette(">mute"), 100, 20)));
+}
+
+#[test]
+fn palette_keybindings() {
+    insta::assert_snapshot!(snapshot(&draw(&with_palette("?"), 100, 26)));
+}
+
+#[test]
+fn palette_settings_level() {
+    // Every setting under its section's header, current values on the right.
+    insta::assert_snapshot!(snapshot(&draw(&with_palette(":"), 100, 30)));
+}
+
+#[test]
+fn palette_image_protocols_and_live_note() {
+    use crate::app::term_event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    use faro_core::config::InlineImages;
+    let mut state = with_palette(":Inline images");
+    state.env.colors = crate::theme::ColorDepth::Truecolor;
+    state.env.graphics = crate::app::state::GraphicsSupport::HalfblocksOnly;
+    update(
+        &mut state,
+        AppEvent::Terminal(Event::Key(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        ))),
+    );
+    insta::assert_snapshot!(snapshot(&draw(&state, 100, 30)));
+    // Reloads and terminal checks change the rendered note without reopening.
+    state.config.media.inline_images = InlineImages::Kitty;
+    let rendered = snapshot(&draw(&state, 100, 30));
+    assert!(rendered.contains("Forced kitty:"));
+    assert!(!rendered.contains("mixed or detached"));
+}
+
+#[test]
+fn palette_settings_filtered() {
+    // Only the sections with a match keep their header.
+    insta::assert_snapshot!(snapshot(&draw(&with_palette(":notif"), 100, 20)));
+}
+
+#[test]
+fn palette_themes_at_256_colours() {
+    use crate::app::term_event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    let mut state = with_palette("themes");
+    state.env.colors = crate::theme::ColorDepth::Indexed256;
+    update(
+        &mut state,
+        AppEvent::Terminal(Event::Key(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        ))),
+    );
+    // The note sits between the rule and the list.
+    let buffer = draw(&state, 100, 20);
+    insta::assert_snapshot!(snapshot(&buffer));
+}
+
+#[test]
+fn palette_themes() {
+    use crate::app::term_event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    let mut state = with_palette("themes");
+    for code in [KeyCode::Enter, KeyCode::Up] {
+        update(
+            &mut state,
+            AppEvent::Terminal(Event::Key(KeyEvent::new(code, KeyModifiers::NONE))),
+        );
+    }
+    // Up from the first theme wraps to the last one: previewed.
+    assert_eq!(state.theme_name(), "zenburn-light");
+    insta::assert_snapshot!(snapshot(&draw(&state, 100, 20)));
+}
+
+#[test]
+fn palette_chats() {
+    insta::assert_snapshot!(snapshot(&draw(&with_palette("@"), 100, 20)));
+}
+
+#[test]
+fn palette_reports_its_rows_for_the_mouse() {
+    let state = with_palette("");
+    let theme = Theme::default();
+    let tz = TimeZone::UTC;
+    let now = jiff::Timestamp::from_millisecond(i64::try_from(NOW_MS).unwrap()).unwrap();
+    let images = fixtures::Undecoded::halfblocks();
+    let view = View {
+        theme: &theme,
+        tz: &tz,
+        now,
+        logo_time: None,
+        images: &images,
+    };
+    let mut terminal = Terminal::new(TestBackend::new(100, 26)).unwrap();
+    let mut geometry = None;
+    terminal
+        .draw(|frame| {
+            geometry = render(frame, &state, &view).palette;
+        })
+        .unwrap();
+    let geometry = geometry.unwrap();
+    assert!(geometry.area.contains(ratatui::layout::Position::new(
+        geometry.list.x,
+        geometry.list.y
+    )));
+    assert_eq!(geometry.offset, 0);
+    assert!(geometry.list.height >= 3);
+}
+
+#[test]
+fn do_not_disturb_shows_in_the_footer() {
+    let theme = Theme::default();
+    let mut state = loaded_state();
+    let text = snapshot(&draw(&state, 100, 14));
+    assert!(!text.contains("bell off"), "{text}");
+    state.config.notifications.bell = false;
+    let buffer = draw(&state, 100, 14);
+    let text = snapshot(&buffer);
+    let footer = text.lines().last().unwrap();
+    assert!(
+        footer.starts_with(" ● connected · bell off · 1 unread"),
+        "{footer}"
+    );
+    let x = u16::try_from(unicode_width::UnicodeWidthStr::width(
+        &footer[..footer.find("bell off").unwrap()],
+    ))
+    .unwrap();
+    assert_eq!(buffer[(x, 13)].fg, theme.warning);
+}
+
+#[test]
+fn running_behind_an_allowlist_shows_in_the_footer() {
+    let mut state = loaded_state();
+    let text = snapshot(&draw(&state, 100, 14));
+    assert!(
+        !text.lines().last().unwrap().contains("allowlist"),
+        "{text}"
+    );
+    state.guard = crate::app::state::Guard::On;
+    let text = snapshot(&draw(&state, 100, 14));
+    let footer = text.lines().last().unwrap();
+    assert!(
+        footer.starts_with(" ● connected · allowlist · 1 unread"),
+        "{footer}"
+    );
+}
+
+#[test]
+fn the_demo_shows_in_the_footer() {
+    let mut state = loaded_state();
+    let text = snapshot(&draw(&state, 100, 14));
+    assert!(!text.lines().last().unwrap().contains("demo"), "{text}");
+    state.profile = faro_core::store::Profile::Demo;
+    let text = snapshot(&draw(&state, 100, 14));
+    let footer = text.lines().last().unwrap();
+    assert!(
+        footer.starts_with(" ● connected · demo · 1 unread"),
+        "{footer}"
+    );
+}
+
+// --- Bubbles layout (M4 task 9, D45) ---
+
+fn bubbles_state() -> State {
+    let mut state = typing_state();
+    state.layout = MessageLayout::Bubbles;
+    state
+}
+
+#[test]
+fn bubbles_in_a_group() {
+    insta::assert_snapshot!(snapshot(&draw(&bubbles_state(), 100, 34)));
+}
+
+#[test]
+fn bubbles_narrow() {
+    insta::assert_snapshot!(snapshot(&draw(&bubbles_state(), 60, 24)));
+}
+
+#[test]
+fn bubbles_have_their_own_backgrounds_and_sides() {
+    let theme = Theme::default();
+    let buffer = draw(&bubbles_state(), 100, 34);
+    let text = snapshot(&buffer);
+    let find = |needle: &str| {
+        let (row, line) = text
+            .lines()
+            .enumerate()
+            .find(|(_, l)| l.contains(needle))
+            .unwrap_or_else(|| panic!("{needle:?} not on screen"));
+        let byte = line.find(needle).unwrap();
+        let col = unicode_width::UnicodeWidthStr::width(&line[..byte]);
+        (u16::try_from(col).unwrap(), u16::try_from(row).unwrap())
+    };
+    // Own message: own colour, on the right.
+    let (own_x, own_y) = find("On my way");
+    assert_eq!(buffer[(own_x, own_y)].bg, theme.bubble_own);
+    // Others' messages: the other colour, on the left.
+    let (x, y) = find("Running 10 min late");
+    assert_eq!(buffer[(x, y)].bg, theme.bubble_other);
+    assert!(own_x > x + 20, "own bubble on the right ({own_x} vs {x})");
+}
+
+// --- Bubble styles (D58) ---
+
+fn styled(mut state: State, style: faro_core::config::BubbleStyle) -> State {
+    state.config.messages.bubble_style = style;
+    state
+}
+
+fn rounded(state: State) -> State {
+    styled(state, faro_core::config::BubbleStyle::Rounded)
+}
+
+fn bar(state: State) -> State {
+    styled(state, faro_core::config::BubbleStyle::Bar)
+}
+
+fn mixed(state: State) -> State {
+    styled(state, faro_core::config::BubbleStyle::Mixed)
+}
+
+#[test]
+fn bubbles_rounded() {
+    insta::assert_snapshot!(snapshot(&draw(&rounded(bubbles_state()), 100, 34)));
+}
+
+#[test]
+fn bubbles_rounded_narrow() {
+    insta::assert_snapshot!(snapshot(&draw(&rounded(bubbles_state()), 60, 24)));
+}
+
+#[test]
+fn bubbles_rounded_very_narrow() {
+    insta::assert_snapshot!(snapshot(&draw(&rounded(bubbles_state()), 32, 18)));
+}
+
+#[test]
+fn bubbles_mixed() {
+    insta::assert_snapshot!(snapshot(&draw(&mixed(bubbles_state()), 100, 34)));
+}
+
+#[test]
+fn bubbles_mixed_narrow() {
+    insta::assert_snapshot!(snapshot(&draw(&mixed(bubbles_state()), 60, 24)));
+}
+
+#[test]
+fn bubbles_bar_very_narrow() {
+    insta::assert_snapshot!(snapshot(&draw(&bar(bubbles_state()), 32, 18)));
+}
+
+/// The cell where `needle` starts on screen.
+fn find(buffer: &Buffer, needle: &str) -> (u16, u16) {
+    let text = snapshot(buffer);
+    let (row, line) = text
+        .lines()
+        .enumerate()
+        .find(|(_, l)| l.contains(needle))
+        .unwrap_or_else(|| panic!("{needle:?} not on screen"));
+    let byte = line.find(needle).unwrap();
+    let col = unicode_width::UnicodeWidthStr::width(&line[..byte]);
+    (u16::try_from(col).unwrap(), u16::try_from(row).unwrap())
+}
+
+/// The first cell on row `y` from `x` on whose symbol is `symbol`.
+fn next(buffer: &Buffer, x: u16, y: u16, symbol: &str) -> u16 {
+    (x..buffer.area.right())
+        .find(|&cx| buffer[(cx, y)].symbol() == symbol)
+        .unwrap_or_else(|| panic!("no {symbol:?} on row {y} after {x}"))
+}
+
+#[test]
+fn auto_is_rounded_only_where_the_terminal_draws_the_glyphs() {
+    let auto = bubbles_state();
+    assert_eq!(
+        snapshot(&draw(&auto, 100, 34)),
+        snapshot(&draw(&bar(bubbles_state()), 100, 34))
+    );
+    let mut kitty = bubbles_state();
+    kitty.env.glyphs = crate::app::state::BlockGlyphs::Native;
+    assert_eq!(
+        snapshot(&draw(&kitty, 100, 34)),
+        snapshot(&draw(&rounded(bubbles_state()), 100, 34))
+    );
+}
+
+#[test]
+fn one_line_rounded_bubbles_have_half_circle_caps_in_their_colour() {
+    let theme = Theme::default();
+    let buffer = draw(&rounded(bubbles_state()), 100, 34);
+    let (x, y) = find(&buffer, "On my way");
+    let pane = buffer[(x, y - 1)].bg;
+    let left = &buffer[(x - 1, y)];
+    assert_eq!(left.symbol(), "\u{E0B6}");
+    assert_eq!((left.fg, left.bg), (theme.bubble_own, pane));
+    let right = next(&buffer, x, y, "\u{E0B4}");
+    assert_eq!(buffer[(right, y)].fg, theme.bubble_own);
+    assert_eq!(buffer[(right, y)].bg, pane);
+    assert_eq!(buffer[(right - 1, y)].bg, theme.bubble_own);
+    // No edge rows around a one-line bubble.
+    for row in [y - 1, y + 1] {
+        assert!(
+            (0..buffer.area.width).all(|cx| !super::bubbles::is_edge(buffer[(cx, row)].symbol())),
+            "edge on row {row}"
+        );
+    }
+    let (ox, oy) = find(&buffer, "Running 10 min late");
+    assert_eq!(buffer[(ox - 1, oy)].fg, theme.bubble_other);
+}
+
+#[test]
+fn taller_rounded_bubbles_have_quarter_circle_corners_and_thin_edges() {
+    let theme = Theme::default();
+    let buffer = draw(&rounded(bubbles_state()), 60, 24);
+    let (left, top) = find(&buffer, "\u{1FBEE}");
+    let right = next(&buffer, left, top, "\u{1FBED}");
+    let bottom = (top + 2..buffer.area.height)
+        .find(|&y| buffer[(left, y)].symbol() == "\u{1FBEC}")
+        .expect("bottom edge");
+    assert_eq!(buffer[(right, bottom)].symbol(), "\u{1FBEF}");
+    let colour = buffer[(left + 1, top + 1)].bg;
+    assert!(colour == theme.bubble_own || colour == theme.bubble_other);
+    for x in left..=right {
+        for y in [top, bottom] {
+            let cell = &buffer[(x, y)];
+            assert_eq!(cell.fg, colour, "({x}, {y})");
+            assert_ne!(cell.bg, colour, "({x}, {y})");
+        }
+        if x > left && x < right {
+            assert_eq!(buffer[(x, top)].symbol(), "▂");
+            assert_eq!(buffer[(x, bottom)].symbol(), "\u{1FB82}");
+        }
+    }
+    // Half-cell sides on the text rows, the fill between them.
+    for y in top + 1..bottom {
+        assert_eq!(buffer[(left, y)].symbol(), "▐", "row {y}");
+        assert_eq!(buffer[(right, y)].symbol(), "▌", "row {y}");
+        assert_eq!(buffer[(left + 1, y)].bg, colour);
+        assert_eq!(buffer[(right - 1, y)].bg, colour);
+    }
+}
+
+#[test]
+fn bars_go_on_the_outer_side_in_the_senders_colour() {
+    let theme = Theme::default();
+    let state = bar(bubbles_state());
+    let buffer = draw(&state, 100, 34);
+    let (x, y) = find(&buffer, "On my way");
+    let right = next(&buffer, x, y, super::bubbles::BAR);
+    assert_eq!(buffer[(right, y)].fg, theme.primary);
+    assert_eq!(buffer[(right, y)].bg, theme.bubble_own);
+    assert_eq!(buffer[(x - 1, y)].symbol(), " ");
+    assert_eq!(buffer[(x - 1, y)].bg, theme.bubble_own);
+    let (ox, oy) = find(&buffer, "Running 10 min late");
+    let cell = &buffer[(ox - 1, oy)];
+    assert_eq!(cell.symbol(), super::bubbles::BAR);
+    assert_eq!(cell.bg, theme.bubble_other);
+    let open = state.open.as_ref().unwrap();
+    let sender = open
+        .messages
+        .iter()
+        .find(|m| {
+            m.body
+                .as_ref()
+                .is_some_and(|b| b.expose().contains("Running 10 min late"))
+        })
+        .unwrap()
+        .sender;
+    assert_eq!(Some(cell.fg), theme.sender(sender).fg);
+    // No rounded glyphs.
+    let text = snapshot(&buffer);
+    assert!(
+        !text
+            .chars()
+            .any(|c| super::bubbles::is_edge(c.encode_utf8(&mut [0; 4]))),
+        "{text}"
+    );
+}
+
+#[test]
+fn mixed_bubbles_have_the_bar_outside_and_round_inside() {
+    let theme = Theme::default();
+    let buffer = draw(&mixed(bubbles_state()), 100, 34);
+    // One line, own: a cap on the left (inner), the bar on the right.
+    let (x, y) = find(&buffer, "On my way");
+    let pane = buffer[(x, y - 1)].bg;
+    let cap = &buffer[(x - 1, y)];
+    assert_eq!(cap.symbol(), "\u{E0B6}");
+    assert_eq!((cap.fg, cap.bg), (theme.bubble_own, pane));
+    let right = next(&buffer, x, y, super::bubbles::BAR);
+    assert_eq!(buffer[(right, y)].fg, theme.primary);
+    assert_eq!(buffer[(right, y)].bg, theme.bubble_own);
+    // Others: the bar on the left (outer).
+    let (ox, oy) = find(&buffer, "Running 10 min late");
+    let bar = &buffer[(ox - 1, oy)];
+    assert_eq!(bar.symbol(), super::bubbles::BAR);
+    assert_eq!(bar.bg, theme.bubble_other);
+}
+
+#[test]
+fn taller_mixed_bubbles_have_a_square_corner_on_the_bars_side() {
+    let buffer = draw(&mixed(bubbles_state()), 60, 24);
+    let text = snapshot(&buffer);
+    let mut seen = 0;
+    for y in 0..buffer.area.height {
+        let row: Vec<&str> = (0..buffer.area.width)
+            .map(|x| buffer[(x, y)].symbol())
+            .collect();
+        for (fill, rounded) in [
+            ("▂", ["\u{1FBEE}", "\u{1FBED}"]),
+            ("\u{1FB82}", ["\u{1FBEC}", "\u{1FBEF}"]),
+        ] {
+            let edge = |s: &&str| *s == fill || rounded.contains(s);
+            let (Some(start), Some(end)) = (row.iter().position(edge), row.iter().rposition(edge))
+            else {
+                continue;
+            };
+            let ends = [row[start], row[end]];
+            // Exactly one end is rounded, the other is the fill (square).
+            let rounded_ends = ends.iter().filter(|s| rounded.contains(s)).count();
+            assert_eq!(rounded_ends, 1, "row {y}: {ends:?}\n{text}");
+            assert!(ends.contains(&fill), "row {y}: {ends:?}\n{text}");
+            seen += 1;
+        }
+    }
+    assert!(seen >= 2, "{text}");
+}
+
+#[test]
+fn a_blank_line_separates_bubbles_in_both_styles() {
+    for state in [
+        rounded(bubbles_state()),
+        bar(bubbles_state()),
+        mixed(bubbles_state()),
+    ] {
+        let text = snapshot(&draw(&state, 100, 34));
+        let lines: Vec<&str> = text.lines().collect();
+        let (y, _) = lines
+            .iter()
+            .enumerate()
+            .find(|(_, l)| l.contains("On my way"))
+            .unwrap();
+        assert_eq!(lines[y - 1].trim_matches(['│', ' ']), "", "{text}");
+    }
+}
+
+#[test]
+fn a_selected_bubble_is_a_clean_tinted_block_in_both_styles() {
+    let theme = Theme::default();
+    for style in [rounded, bar, mixed] {
+        let mut state = style(loaded_state());
+        state.layout = MessageLayout::Bubbles;
+        keys(&mut state, &[Up]);
+        let buffer = draw(&state, 100, 34);
+        let selected: Vec<u16> = (0..buffer.area.height)
+            .filter(|&y| (0..buffer.area.width).any(|x| buffer[(x, y)].symbol() == "▌"))
+            .collect();
+        assert_ne!(selected, [] as [u16; 0]);
+        for y in selected {
+            for x in 0..buffer.area.width {
+                let cell = &buffer[(x, y)];
+                let marker = cell.symbol() == "▌" && cell.fg == theme.primary;
+                if cell.bg == theme.background_element && !marker {
+                    assert!(
+                        !super::bubbles::is_edge(cell.symbol()),
+                        "edge left at ({x}, {y})"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn the_system_theme_always_draws_bars() {
+    for state in [
+        rounded(bubbles_state()),
+        bar(bubbles_state()),
+        mixed(bubbles_state()),
+    ] {
+        let buffer = draw_with(&state, 100, 34, &Theme::system());
+        let text = snapshot(&buffer);
+        assert!(
+            !text
+                .chars()
+                .any(|c| super::bubbles::is_edge(c.encode_utf8(&mut [0; 4]))),
+            "{text}"
+        );
+        assert!(text.contains(super::bubbles::BAR), "{text}");
+    }
+}
+
+// --- Compact runs, padding and matched widths (D98) ---
+
+fn compact(mut state: State) -> State {
+    state.config.messages.density = faro_core::config::MessageDensity::Compact;
+    state
+}
+
+/// The column just past the last cell of row `y` filled with `colour`.
+fn fill_end(buffer: &Buffer, y: u16, colour: ratatui::style::Color) -> u16 {
+    (0..buffer.area.width)
+        .rfind(|&x| buffer[(x, y)].bg == colour)
+        .map_or(0, |x| x + 1)
+}
+
+#[test]
+fn bubbles_rounded_compact() {
+    insta::assert_snapshot!(snapshot(&draw(&compact(rounded(bubbles_state())), 100, 34)));
+}
+
+#[test]
+fn compact_rounded_runs_join_on_their_aligned_side() {
+    let theme = Theme::default();
+    let buffer = draw(&compact(rounded(bubbles_state())), 100, 34);
+    // Bob's reply and his follow-up touch: no edge row or blank between.
+    let (x, y) = find(&buffer, "and chalk");
+    assert_eq!(
+        buffer[(x, y - 1)].bg,
+        theme.bubble_other,
+        "the reply's last row"
+    );
+    let side = x - 2;
+    assert_eq!(buffer[(side, y)].symbol(), "▐");
+    assert_eq!(buffer[(side, y - 1)].symbol(), "▐", "one edge down the run");
+    // Different senders keep a blank line between them.
+    let text = snapshot(&buffer);
+    let lines: Vec<&str> = text.lines().collect();
+    let mine = lines.iter().position(|l| l.contains("On my way")).unwrap();
+    assert_eq!(lines[mine + 1].trim_matches(['│', ' ']), "", "{text}");
+}
+
+#[test]
+fn bubble_padding_adds_a_cell_inside_rounded_sides() {
+    for (padding, gap) in [(true, 2), (false, 1)] {
+        let mut state = rounded(bubbles_state());
+        state.config.messages.bubble_padding = padding;
+        let buffer = draw(&state, 100, 34);
+        let (x, y) = find(&buffer, "Count me in");
+        let side = (0..x).rfind(|&cx| buffer[(cx, y)].symbol() == "▐").unwrap();
+        assert_eq!(x - side, gap, "padding {padding}");
+    }
+}
+
+#[test]
+fn match_widths_lines_up_close_bubbles_in_a_run() {
+    let theme = Theme::default();
+    for (matching, same) in [(true, true), (false, false)] {
+        let mut state = compact(rounded(bubbles_state()));
+        state.config.messages.match_widths = matching;
+        let minute = 60_000;
+        state.open.as_mut().unwrap().messages = vec![
+            fixtures::text(climbing(), ALICE, NOW_MS - 3 * minute, "sounds good"),
+            fixtures::text(climbing(), ALICE, NOW_MS - 2 * minute, "sounds great"),
+            fixtures::text(climbing(), ALICE, NOW_MS - minute, "sounds good!"),
+        ];
+        let buffer = draw(&state, 100, 34);
+        let ends: Vec<u16> = ["sounds good ", "sounds great", "sounds good!"]
+            .iter()
+            .map(|t| fill_end(&buffer, find(&buffer, t).1, theme.bubble_other))
+            .collect();
+        assert_eq!(
+            ends.iter().all(|e| *e == ends[0]),
+            same,
+            "match_widths {matching}: {ends:?}\n{}",
+            snapshot(&buffer)
+        );
+    }
+}
+
+#[test]
+fn match_widths_fills_the_dent_of_a_short_bubble_between_wider_ones() {
+    let theme = Theme::default();
+    let texts = [
+        "a message thirty-two cells long.",
+        "nineteen cells long",
+        "and this one is forty-one cells long, ok.",
+    ];
+    assert_eq!(texts.map(str::len), [32, 19, 41]);
+    for (matching, filled) in [(true, true), (false, false)] {
+        let mut state = compact(rounded(bubbles_state()));
+        state.config.messages.match_widths = matching;
+        let minute = 60_000;
+        state.open.as_mut().unwrap().messages = (0..3u64)
+            .zip(texts)
+            .map(|(i, t)| fixtures::text(climbing(), ALICE, NOW_MS - (3 - i) * minute, t))
+            .collect();
+        let buffer = draw(&state, 120, 34);
+        let ends: Vec<u16> = texts
+            .iter()
+            .map(|t| fill_end(&buffer, find(&buffer, t).1, theme.bubble_other))
+            .collect();
+        assert_eq!(
+            ends[1] == ends[0],
+            filled,
+            "{ends:?}\n{}",
+            snapshot(&buffer)
+        );
+        assert!(ends[2] > ends[0], "{ends:?}");
+    }
+}
+
+#[test]
+fn a_link_longer_than_a_bubble_widens_it_instead_of_being_split() {
+    let url = "https://example.org/a/rather/long/path/that/would/not/fit/in/a/bubble?q=1";
+    for state in [rounded(bubbles_state()), bar(bubbles_state())] {
+        let mut state = state;
+        let minute = 60_000;
+        state.open.as_mut().unwrap().messages = vec![
+            fixtures::text(
+                climbing(),
+                ALICE,
+                NOW_MS - 2 * minute,
+                &format!("look: {url}."),
+            ),
+            fixtures::text(climbing(), ME, NOW_MS - minute, &format!("{url} nice")),
+        ];
+        let buffer = draw(&state, 120, 34);
+        let text = snapshot(&buffer);
+        assert_eq!(
+            text.lines().filter(|l| l.contains(url)).count(),
+            2,
+            "each link on one row\n{text}"
+        );
+    }
+}
+
+// --- Emoji every terminal measures alike (M4.5, D47) ---
+
+fn compatible(mut state: State) -> State {
+    state.env.emoji.mode = crate::app::state::EmojiMode::Compatible;
+    state
+}
+
+/// Every drawn cell is one every terminal agrees on, and all text went through
+/// `text::sanitize` (no stand-ins were needed).
+fn assert_drawable(state: &State, width: u16, height: u16) {
+    let buffer = draw(state, width, height);
+    assert_eq!(super::emoji::last_stand_ins(), 0, "text skipped sanitize");
+    for (i, cell) in buffer.content.iter().enumerate() {
+        assert!(
+            super::emoji::drawable(cell.symbol()),
+            "cell {i} draws {:?}",
+            cell.symbol()
+        );
+    }
+}
+
+#[test]
+fn compatible_mode_draws_only_what_every_terminal_measures_alike() {
+    // The fixtures have ❤️ reactions and joined climbers (🧗‍♀️🧗‍♂️).
+    for (width, height) in [(100, 34), (60, 24)] {
+        assert_drawable(&compatible(typing_state()), width, height);
+        assert_drawable(&compatible(bubbles_state()), width, height);
+        assert_drawable(&compatible(rounded(bubbles_state())), width, height);
+        assert_drawable(&compatible(mixed(bubbles_state())), width, height);
+    }
+    let mut menu = loaded_state();
+    keys(&mut menu, &[Up, Char('k'), Enter]);
+    assert_drawable(&compatible(menu), 100, 20);
+    let mut picker = loaded_state();
+    keys(&mut picker, &[Up, Char('+'), Char('l')]);
+    assert_drawable(&compatible(picker), 100, 20);
+    assert_drawable(&compatible(with_palette("")), 100, 26);
+    assert_drawable(&compatible(with_palette("@climb")), 100, 26);
+    assert_drawable(&compatible(with_palette(">")), 100, 26);
+}
+
+#[test]
+fn compatible_mode_covers_the_input_too() {
+    // The input isn't sanitised (its cursor follows the raw text), so the
+    // frame gets stand-ins of the same width instead.
+    let mut state = compatible(loaded_state());
+    for c in "hi 👨‍👩‍👧‍👦 1️⃣ 👍🏽".chars() {
+        keys(&mut state, &[Char(c)]);
+    }
+    let buffer = draw(&state, 100, 20);
+    assert!(super::emoji::last_stand_ins() >= 3);
+    assert!(
+        buffer
+            .content
+            .iter()
+            .all(|c| super::emoji::drawable(c.symbol()))
+    );
+    assert!(snapshot(&buffer).contains("hi 👨 1  👍"));
+}
+
+#[test]
+fn full_mode_keeps_emoji_as_they_are() {
+    let buffer = draw(&typing_state(), 100, 34);
+    assert!(snapshot(&buffer).contains("🧗‍♀️"));
+}
+
+// --- The logo screen (D61) ---
+
+/// After startup: conversations loaded, nothing open (D60).
+fn logo_state() -> State {
+    let mut state = State::new(ME, fixtures::contacts(), fixtures::groups());
+    update(
+        &mut state,
+        AppEvent::Loaded {
+            conversations: fixtures::summaries(),
+            last_open: Some(climbing()),
+            recent_reactions: Vec::new(),
+        },
+    );
+    state
+}
+
+/// Draw with the logo `logo_time` seconds in (`None`: still), returning the
+/// geometry too.
+fn draw_logo(
+    state: &State,
+    size: (u16, u16),
+    theme: &Theme,
+    logo_time: Option<f64>,
+) -> (Buffer, crate::app::state::Geometry) {
+    let tz = TimeZone::UTC;
+    let now = jiff::Timestamp::from_millisecond(i64::try_from(NOW_MS).unwrap()).unwrap();
+    let images = fixtures::Undecoded::halfblocks();
+    let view = View {
+        theme,
+        tz: &tz,
+        now,
+        logo_time,
+        images: &images,
+    };
+    let mut terminal = Terminal::new(TestBackend::new(size.0, size.1)).unwrap();
+    let mut geometry = crate::app::state::Geometry::default();
+    terminal
+        .draw(|frame| geometry = render(frame, state, &view))
+        .unwrap();
+    (terminal.backend().buffer().clone(), geometry)
+}
+
+#[test]
+fn logo_full() {
+    insta::assert_snapshot!(snapshot(&draw(&logo_state(), 140, 24)));
+}
+
+#[test]
+fn logo_stacked() {
+    insta::assert_snapshot!(snapshot(&draw(&logo_state(), 100, 32)));
+}
+
+#[test]
+fn logo_small() {
+    insta::assert_snapshot!(snapshot(&draw(&logo_state(), 100, 20)));
+}
+
+#[test]
+fn logo_word_only() {
+    insta::assert_snapshot!(snapshot(&draw(&logo_state(), 60, 12)));
+}
+
+#[test]
+fn logo_at_16_colours() {
+    let mut state = logo_state();
+    state.config.ui.colors = faro_core::config::ColorChoice::Colors16;
+    let theme = Theme::default().for_depth(crate::theme::ColorDepth::Ansi16);
+    let buffer = draw_with(&state, 140, 24, &theme);
+    insta::assert_snapshot!(snapshot(&buffer));
+    // The small lighthouse in the theme's (the terminal's) colours.
+    let cells: Vec<_> = buffer.content().iter().collect();
+    assert!(
+        cells
+            .iter()
+            .any(|c| c.symbol() == "█" && c.fg == theme.error)
+    );
+    assert!(
+        cells
+            .iter()
+            .all(|c| !matches!(c.fg, ratatui::style::Color::Rgb(..)))
+    );
+}
+
+#[test]
+fn logo_in_the_demo() {
+    let mut state = logo_state();
+    state.profile = faro_core::store::Profile::Demo;
+    let text = snapshot(&draw(&state, 140, 24));
+    assert!(
+        text.contains("demo · fake contacts, nothing is sent"),
+        "{text}"
+    );
+    insta::assert_snapshot!(text);
+}
+
+#[test]
+fn logo_with_no_conversations() {
+    let mut state = State::new(ME, fixtures::contacts(), fixtures::groups());
+    update(
+        &mut state,
+        AppEvent::Loaded {
+            conversations: vec![],
+            last_open: None,
+            recent_reactions: Vec::new(),
+        },
+    );
+    insta::assert_snapshot!(snapshot(&draw(&state, 120, 26)));
+}
+
+#[test]
+fn the_logo_s_colours_follow_the_terminal() {
+    use crate::theme::ColorDepth;
+    use ratatui::style::Color;
+    let state = logo_state();
+    // Truecolor: the logo's own red stripes.
+    let (buffer, _) = draw_logo(&state, (140, 24), &Theme::default(), None);
+    assert!(
+        buffer
+            .content()
+            .iter()
+            .any(|c| c.fg == Color::Rgb(210, 60, 60))
+    );
+    // 256 colours: nothing but indexed colours anywhere.
+    let mut state = logo_state();
+    state.config.ui.colors = faro_core::config::ColorChoice::Colors256;
+    let theme = Theme::default().for_depth(ColorDepth::Indexed256);
+    let (buffer, _) = draw_logo(&state, (140, 24), &theme, None);
+    assert!(
+        buffer
+            .content()
+            .iter()
+            .all(|c| !matches!(c.fg, Color::Rgb(..)) && !matches!(c.bg, Color::Rgb(..)))
+    );
+    assert!(buffer.content().iter().any(|c| c.symbol() == "▀"));
+}
+
+#[test]
+fn only_the_big_logo_asks_for_more_frames() {
+    let state = logo_state();
+    let theme = Theme::default();
+    let moving = |size, time| draw_logo(&state, size, &theme, time).1.logo_animated;
+    assert!(moving((140, 24), Some(1.0)));
+    assert!(moving((100, 32), Some(1.0)));
+    assert!(!moving((140, 24), None), "still");
+    assert!(!moving((100, 20), Some(1.0)), "the small one never moves");
+    // Different moments, different pictures; the same moment, the same.
+    let at = |time| snapshot(&draw_logo(&state, (140, 24), &theme, time).0);
+    assert_ne!(at(Some(1.0)), at(Some(2.0)));
+    assert_eq!(at(Some(1.0)), at(Some(1.0)));
+    assert_eq!(at(None), at(Some(super::logo::STILL)));
+}
+
+/// Climbing with a new message from Alice that mentions Bob and us (D72).
+fn mentions_state(layout: MessageLayout) -> State {
+    let mut state = loaded_state();
+    state.layout = layout;
+    let mut message = fixtures::text(
+        climbing(),
+        ALICE,
+        NOW_MS + 1,
+        "\u{FFFC} \u{FFFC} the wall is free, coming?",
+    );
+    let at = |who, start| faro_core::domain::Mention {
+        who,
+        start,
+        len: '\u{FFFC}'.len_utf8(),
+    };
+    message.mentions = vec![at(fixtures::BOB, 0), at(ME, 4)];
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::Message(message)),
+    );
+    state
+}
+
+#[test]
+fn mentions_in_irc() {
+    let state = mentions_state(MessageLayout::Irc);
+    insta::assert_snapshot!(snapshot(&draw(&state, 100, 20)));
+}
+
+#[test]
+fn mentions_in_bubbles() {
+    let state = mentions_state(MessageLayout::Bubbles);
+    insta::assert_snapshot!(snapshot(&draw(&state, 100, 20)));
+}
+
+#[test]
+fn mentions_are_names_in_the_accent_colour_and_ours_stand_out() {
+    use ratatui::style::Modifier;
+    let theme = Theme::default();
+    for layout in [MessageLayout::Irc, MessageLayout::Bubbles] {
+        let state = mentions_state(layout);
+        let buffer = draw(&state, 100, 20);
+        let text = snapshot(&buffer);
+        assert!(!text.contains('\u{FFFC}'), "no placeholder left");
+        let find = |needle: &str| {
+            let (row, line) = text
+                .lines()
+                .enumerate()
+                .find(|(_, l)| l.contains(needle))
+                .unwrap_or_else(|| panic!("{needle:?} not on screen"));
+            let col = line
+                .find(needle)
+                .map(|byte| unicode_width::UnicodeWidthStr::width(&line[..byte]));
+            let cell = (
+                u16::try_from(col.unwrap()).unwrap(),
+                u16::try_from(row).unwrap(),
+            );
+            buffer[cell].clone()
+        };
+        let bob = find(&state.mention_name(fixtures::BOB));
+        assert_eq!(bob.fg, theme.accent, "{layout:?}");
+        assert!(bob.modifier.contains(Modifier::BOLD));
+        assert!(!bob.modifier.contains(Modifier::REVERSED));
+        let us = find("@You");
+        assert_eq!(us.fg, theme.accent, "{layout:?}");
+        assert!(us.modifier.contains(Modifier::REVERSED));
+        assert!(!find("the wall").modifier.contains(Modifier::BOLD));
+    }
+}
+
+// --- Inline images and image viewer (M9, D78–D79) ---
+
+#[test]
+fn image_viewer_popup_draws_over_the_screen() {
+    use std::path::PathBuf;
+
+    use faro_core::domain::AttachmentStatus;
+
+    use crate::app::state::Popup;
+
+    let mut state = loaded_state();
+    let path = PathBuf::from("/tmp/wall.jpg");
+    let target = {
+        let msg = state
+            .open
+            .as_mut()
+            .unwrap()
+            .messages
+            .iter_mut()
+            .find(|m| !m.attachments.is_empty())
+            .unwrap();
+        let att = &mut msg.attachments[0];
+        att.width = Some(800);
+        att.height = Some(600);
+        att.status = AttachmentStatus::Downloaded(path.clone());
+        msg.reference()
+    };
+    state.popup = Some(Popup::ImageViewer { target, index: 0 });
+    let images = fixtures::Undecoded::for_state(&state);
+    let (buffer, geometry) = draw_with_images(&state, 100, 30, &Theme::default(), &images);
+    let text = snapshot(&buffer);
+    assert!(text.contains("wall.jpg"), "{text}");
+    assert!(text.contains("800×600"), "{text}");
+    // Both the message pane and the popup request their respective box sizes.
+    assert!(geometry.images_wanted.iter().any(|k| k.path == path));
+}
+
+#[test]
+fn staged_attachment_bar_renders_above_the_input() {
+    use crate::app::state::StagedAttachment;
+    use std::path::PathBuf;
+
+    let mut state = loaded_state();
+    state.open.as_mut().unwrap().staged_attachment = Some(StagedAttachment {
+        path: PathBuf::from("/tmp/report.pdf"),
+        name: "report.pdf".into(),
+        content_type: "application/pdf".into(),
+        size: 2048,
+        width: None,
+        height: None,
+    });
+    let text = snapshot(&draw(&state, 100, 24));
+    assert!(text.contains("📎 report.pdf · 2.0 KB"), "{text}");
+    assert!(text.contains("esc remove"), "{text}");
+    assert_drawable(&compatible(state), 100, 24);
+}
+
+/// D91: a pasted image shows its size in pixels and the key that shows it.
+#[test]
+fn staged_image_bar_shows_dimensions_and_the_view_key() {
+    use crate::app::state::{Popup, StagedAttachment};
+    use std::path::PathBuf;
+
+    let mut state = loaded_state();
+    state.open.as_mut().unwrap().staged_attachment = Some(StagedAttachment {
+        path: PathBuf::from("/tmp/clipboard-20261009-142233.png"),
+        name: "clipboard-20261009-142233.png".into(),
+        content_type: "image/png".into(),
+        size: 285_083,
+        width: Some(600),
+        height: Some(313),
+    });
+    let text = snapshot(&draw(&state, 100, 24));
+    assert!(text.contains("📎 clipboard-"), "{text}");
+    assert!(text.contains("· 600×313 · 278.4 KB"), "{text}");
+    assert!(text.contains("ctrl+o view"), "{text}");
+    insta::assert_snapshot!(text);
+    state.popup = Some(Popup::StagedImage);
+    let text = snapshot(&draw(&state, 100, 24));
+    assert!(text.contains("Not sent yet"), "{text}");
+    assert_drawable(&compatible(state), 100, 24);
+}
+
+/// D94: the About popup, from the palette's commands.
+#[test]
+fn about_popup() {
+    use crate::app::state::Popup;
+
+    let mut state = loaded_state();
+    state.popup = Some(Popup::About);
+    state.config_path = std::path::PathBuf::from("/home/me/.config/faro/config.toml");
+    state.attachments_dir = std::path::PathBuf::from("/home/me/.local/share/faro/attachments");
+    let text = snapshot(&draw(&state, 100, 24));
+    assert!(
+        text.contains(&format!("faro {}", crate::version::shown())),
+        "{text}"
+    );
+    assert!(text.contains("https://getfaro.dev"), "{text}");
+    assert!(
+        text.contains("Config: /home/me/.config/faro/config.toml"),
+        "{text}"
+    );
+    assert!(
+        text.contains("Data:   /home/me/.local/share/faro"),
+        "{text}"
+    );
+    assert!(text.contains("not affiliated with Signal"), "{text}");
+    insta::assert_snapshot!(text);
+    assert_drawable(&compatible(state), 100, 24);
+}
+
+#[test]
+fn voice_note_renders_waveform_progress_and_transcript() {
+    use crate::app::state::PlayingVoiceNote;
+    use faro_core::domain::{AttachmentRef, AttachmentStatus, TranscriptSource};
+    use std::path::PathBuf;
+
+    let mut state = loaded_state();
+    let mut msg = fixtures::text(climbing(), ALICE, NOW_MS + 5, "");
+    msg.body = None;
+    msg.attachments = vec![AttachmentRef {
+        size: Some(32_044),
+        status: AttachmentStatus::Downloaded(PathBuf::from("/tmp/voice.wav")),
+        voice_note: true,
+        duration_secs: Some(14),
+        waveform: Some(vec![0, 1, 2, 3, 4, 5, 6, 7, 7, 6, 5, 4, 3, 2, 1, 0]),
+        transcript: Some("Meet at the crag at nine.".into()),
+        transcript_source: Some(TranscriptSource::Local),
+        ..AttachmentRef::remote("att-vn", "audio/wav")
+    }];
+    let target = msg.reference();
+    update(&mut state, AppEvent::Backend(BackendEvent::Message(msg)));
+
+    let idle = snapshot(&draw(&state, 100, 24));
+    assert!(idle.contains("▶ 0:14 ▁▂▃▄▅▆▇██▇▆▅▄▃▂▁ · 31.3 KB"), "{idle}");
+    assert!(
+        idle.contains("❝ Meet at the crag at nine. [local]"),
+        "{idle}"
+    );
+
+    state.playing = Some(PlayingVoiceNote {
+        conversation: climbing(),
+        message: target,
+        index: 0,
+        started_at: faro_core::rt::Instant::now(),
+        elapsed_secs: 7,
+        duration_secs: Some(14),
+    });
+    let playing = snapshot(&draw(&state, 100, 24));
+    assert!(
+        playing.contains("■ 0:07 / 0:14 ▁▂▃▄▅▆▇██▇▆▅▄▃▂▁ · playing"),
+        "{playing}"
+    );
+    assert_drawable(&compatible(state), 100, 24);
+}
+
+#[test]
+fn read_receipt_marker_uses_accent_colour_and_message_info_popup_renders() {
+    use crate::app::state::Popup;
+    use faro_core::domain::{DeliveryStatus, Timestamp};
+    use faro_core::store::RecipientReceipt;
+
+    let mut state = loaded_state();
+    let theme = Theme::default();
+    let buffer = draw_with(&state, 100, 30, &theme);
+    let text = snapshot(&buffer);
+    let (row, line) = text
+        .lines()
+        .enumerate()
+        .find(|(_, l)| l.contains("Yes! 7pm at the usual place") && l.contains("✓✓"))
+        .expect("outgoing read message with ✓✓ on screen");
+    let col = line
+        .find("✓✓")
+        .map(|byte| unicode_width::UnicodeWidthStr::width(&line[..byte]))
+        .unwrap();
+    assert_eq!(
+        buffer[(u16::try_from(col).unwrap(), u16::try_from(row).unwrap())].fg,
+        theme.accent
+    );
+
+    let target = fixtures::climbing_history().get(1).unwrap().reference();
+    let reacted = state
+        .open
+        .as_mut()
+        .and_then(|o| o.messages.iter_mut().find(|m| m.reference() == target))
+        .unwrap();
+    reacted.reactions = ["🔥", "👍", "🔥"]
+        .into_iter()
+        .zip([ALICE, ME, fixtures::BOB])
+        .map(|(emoji, sender)| faro_core::domain::Reaction {
+            sender,
+            emoji: emoji.to_owned(),
+        })
+        .collect();
+    state.popup = Some(Popup::MessageInfo {
+        target,
+        receipts: vec![
+            RecipientReceipt {
+                recipient: ALICE,
+                status: DeliveryStatus::Read,
+                updated_at: Timestamp::from_millis(NOW_MS - 30_000),
+            },
+            RecipientReceipt {
+                recipient: fixtures::BOB,
+                status: DeliveryStatus::Delivered,
+                updated_at: Timestamp::from_millis(NOW_MS - 45_000),
+            },
+        ],
+    });
+    let popup_text = snapshot(&draw(&state, 100, 30));
+    assert!(popup_text.contains("Message info"), "{popup_text}");
+    assert!(popup_text.contains("From: You"), "{popup_text}");
+    assert!(popup_text.contains("Status: Read ✓✓"), "{popup_text}");
+    assert!(popup_text.contains("Read by:"), "{popup_text}");
+    assert!(popup_text.contains("Alice"), "{popup_text}");
+    assert!(popup_text.contains("Delivered to:"), "{popup_text}");
+    assert!(popup_text.contains("Bob"), "{popup_text}");
+    // Who reacted with what, the same emoji together.
+    let reactions: Vec<&str> = popup_text
+        .lines()
+        .filter_map(|l| l.split("Reaction: ").nth(1))
+        .map(|r| r.split('│').next().unwrap_or_default().trim_end())
+        .collect();
+    assert_eq!(
+        reactions,
+        ["🔥 Alice 🌸", "🔥 Bob", "👍 You"],
+        "{popup_text}"
+    );
+    assert_drawable(&compatible(state), 100, 30);
+}
+
+#[test]
+fn compact_density_omits_blank_separator_between_bubbles() {
+    use faro_core::config::MessageDensity;
+
+    let mut comfortable = loaded_state();
+    comfortable.layout = MessageLayout::Bubbles;
+    comfortable.config.messages.density = MessageDensity::Comfortable;
+    let spacious_grid = snapshot(&draw(&comfortable, 100, 30));
+    let spacious_first = spacious_grid
+        .lines()
+        .position(|l| l.contains("Count me in"))
+        .expect("penultimate message in comfortable layout");
+    let spacious_second = spacious_grid
+        .lines()
+        .position(|l| l.contains("and chalk"))
+        .expect("last message in comfortable layout");
+
+    let mut compact = loaded_state();
+    compact.layout = MessageLayout::Bubbles;
+    compact.config.messages.density = MessageDensity::Compact;
+    let tight_grid = snapshot(&draw(&compact, 100, 30));
+    let tight_first = tight_grid
+        .lines()
+        .position(|l| l.contains("Count me in"))
+        .expect("penultimate message in compact layout");
+    let tight_second = tight_grid
+        .lines()
+        .position(|l| l.contains("and chalk"))
+        .expect("last message in compact layout");
+
+    assert!(
+        tight_second - tight_first < spacious_second - spacious_first,
+        "compact bubbles should have fewer rows between consecutive messages \
+         (compact gap: {}, comfortable gap: {})",
+        tight_second - tight_first,
+        spacious_second - spacious_first
+    );
+}
+
+#[test]
+fn timestamp_formats_render_relative_and_off_with_selected_fallback() {
+    use crate::app::state::{Focus, Selection};
+    use faro_core::config::TimestampFormat;
+
+    // 1. Relative timestamps in IRC and Bubbles layouts.
+    // NOW_MS is 2026-10-07T18:00:00Z; the last two messages in climbing_history are at
+    // 17:54 (6m ago) and 17:55 (5m ago).
+    let mut state = loaded_state();
+    state.config.messages.timestamps = TimestampFormat::Relative;
+    let irc_relative = snapshot(&draw(&state, 100, 30));
+    assert!(irc_relative.contains("6m"), "{irc_relative}");
+    assert!(irc_relative.contains("5m"), "{irc_relative}");
+    assert!(!irc_relative.contains("17:54"), "{irc_relative}");
+    assert!(!irc_relative.contains("17:55"), "{irc_relative}");
+
+    state.layout = MessageLayout::Bubbles;
+    let bubbles_relative = snapshot(&draw(&state, 100, 30));
+    assert!(bubbles_relative.contains("6m"), "{bubbles_relative}");
+    assert!(bubbles_relative.contains("5m"), "{bubbles_relative}");
+    assert!(!bubbles_relative.contains("17:54"), "{bubbles_relative}");
+    assert!(!bubbles_relative.contains("17:55"), "{bubbles_relative}");
+
+    // 2. TimestampFormat::Off hides timestamps on unselected messages.
+    state.layout = MessageLayout::Irc;
+    state.config.messages.timestamps = TimestampFormat::Off;
+    let irc_hidden = snapshot(&draw(&state, 100, 30));
+    assert!(!irc_hidden.contains("17:54"), "{irc_hidden}");
+    assert!(!irc_hidden.contains("17:55"), "{irc_hidden}");
+
+    state.layout = MessageLayout::Bubbles;
+    let bubbles_hidden = snapshot(&draw(&state, 100, 30));
+    assert!(!bubbles_hidden.contains("17:54"), "{bubbles_hidden}");
+    assert!(!bubbles_hidden.contains("17:55"), "{bubbles_hidden}");
+
+    // 3. Selecting a message while focused on Focus::Messages shows HH:MM for that message only.
+    let last_msg = fixtures::climbing_history().last().unwrap().reference();
+    state.focus = Focus::Messages;
+    if let Some(open) = state.open.as_mut() {
+        open.selected = Some(Selection {
+            message: last_msg,
+            reveal: false,
+        });
+    }
+    state.layout = MessageLayout::Irc;
+    let irc_highlighted = snapshot(&draw(&state, 100, 30));
+    assert!(
+        irc_highlighted.contains("17:55"),
+        "selected message in IRC should show HH:MM: {irc_highlighted}"
+    );
+    assert!(
+        !irc_highlighted.contains("17:54"),
+        "unselected message in IRC should still hide timestamp: {irc_highlighted}"
+    );
+
+    state.layout = MessageLayout::Bubbles;
+    let bubbles_highlighted = snapshot(&draw(&state, 100, 30));
+    assert!(
+        bubbles_highlighted.contains("17:55"),
+        "selected message in Bubbles should show HH:MM: {bubbles_highlighted}"
+    );
+    assert!(
+        !bubbles_highlighted.contains("17:54"),
+        "unselected message in Bubbles should still hide timestamp: {bubbles_highlighted}"
+    );
+}
+
+#[test]
+fn shortcode_autocomplete_and_reaction_search_render_and_are_drawable() {
+    let mut state = loaded_state();
+    for c in ":thu".chars() {
+        keys(&mut state, &[Char(c)]);
+    }
+    let text = snapshot(&draw(&state, 100, 24));
+    assert!(text.contains(":emoji:"), "{text}");
+    assert!(text.contains(":thumbsup:"), "{text}");
+    assert_drawable(&compatible(state), 100, 24);
+
+    let mut react_state = loaded_state();
+    keys(
+        &mut react_state,
+        &[
+            Up,
+            Char('+'),
+            Char('/'),
+            Char('f'),
+            Char('i'),
+            Char('r'),
+            Char('e'),
+        ],
+    );
+    let react_text = snapshot(&draw(&react_state, 100, 24));
+    assert!(react_text.contains(":fire"), "{react_text}");
+    assert!(react_text.contains(":fire:"), "{react_text}");
+    assert!(react_text.contains("🔥"), "{react_text}");
+    assert_drawable(&compatible(react_state), 100, 24);
+}
+
+/// More matches than rows (D104): the list scrolls with the selection and
+/// a counter shows where it is.
+#[test]
+fn reaction_search_scrolls_past_the_visible_rows() {
+    use crate::ui::shortcodes::{REACT_SEARCH_LIMIT, REACT_SEARCH_ROWS, search_shortcodes};
+    let matches = search_shortcodes("face", REACT_SEARCH_LIMIT);
+    assert!(matches.len() > REACT_SEARCH_ROWS + 2, "{}", matches.len());
+    let mut state = loaded_state();
+    keys(&mut state, &[Up, Char('+'), Char('/')]);
+    for c in "face".chars() {
+        keys(&mut state, &[Char(c)]);
+    }
+    let rows_of = |text: &str| {
+        matches
+            .iter()
+            .filter(|(code, _)| text.contains(&format!(" :{code}:")))
+            .count()
+    };
+    let text = snapshot(&draw(&state, 100, 30));
+    assert_eq!(rows_of(&text), REACT_SEARCH_ROWS, "{text}");
+    assert!(text.contains(&format!("1/{}", matches.len())), "{text}");
+
+    let steps = REACT_SEARCH_ROWS + 2;
+    for _ in 0..steps {
+        keys(&mut state, &[Down]);
+    }
+    let text = snapshot(&draw(&state, 100, 30));
+    let (code, _) = matches[steps];
+    let chosen = text
+        .lines()
+        .find(|l| l.contains(" › "))
+        .expect("the selection is on screen");
+    assert!(chosen.contains(&format!(":{code}:")), "{text}");
+    assert!(!text.contains(&format!(":{}:", matches[0].0)), "{text}");
+    assert!(
+        text.contains(&format!("{}/{}", steps + 1, matches.len())),
+        "{text}"
+    );
+    assert_drawable(&compatible(state), 100, 30);
+}
+
+#[test]
+fn info_sidebar_renders_files_and_links() {
+    use faro_core::domain::{AttachmentRef, AttachmentStatus};
+    use std::path::PathBuf;
+
+    let mut state = loaded_state();
+    state.panels.right = true;
+    let mut msg = fixtures::text(
+        climbing(),
+        ALICE,
+        NOW_MS + 10,
+        "Read https://signal.org/docs before Thursday",
+    );
+    msg.attachments = vec![AttachmentRef {
+        file_name: Some("map.pdf".into()),
+        size: Some(512_000),
+        status: AttachmentStatus::Downloaded(PathBuf::from("/tmp/map.pdf")),
+        ..AttachmentRef::remote("att-map", "application/pdf")
+    }];
+    update(&mut state, AppEvent::Backend(BackendEvent::Message(msg)));
+
+    let text = snapshot(&draw(&state, 140, 36));
+    assert!(text.contains("Files & media"), "{text}");
+    assert!(text.contains("map.pdf · 500.0 KB"), "{text}");
+    assert!(text.contains("Links"), "{text}");
+    assert!(text.contains("https://signal.org/docs"), "{text}");
+    assert_drawable(&compatible(state), 140, 36);
+}

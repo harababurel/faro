@@ -1,7 +1,8 @@
 //! A hidden debugging aid for terminal glitches (D55): with
 //! `FARO_DEBUG_FRAMES=<file>` set, the text of every frame faro draws is
 //! appended to that file, so a recording of faro's output can be replayed
-//! frame by frame and compared with what faro meant to draw.
+//! frame by frame and compared with what faro meant to draw. Frames are
+//! written as `faro_app::ui::text::grid` prints them.
 //!
 //! Each frame is a header line `@@ frame N WxH` followed by H rows, one line
 //! per row, a wide character written once (as `tmux capture-pane -p` shows
@@ -16,7 +17,6 @@ use ratatui::buffer::Buffer;
 use tokio::io::AsyncWriteExt as _;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use unicode_width::UnicodeWidthStr as _;
 
 /// The environment variable that turns the frame log on.
 pub const ENV: &str = "FARO_DEBUG_FRAMES";
@@ -43,7 +43,7 @@ impl FrameLog {
         self.count += 1;
         let area = buffer.area;
         let mut text = format!("@@ frame {} {}x{}\n", self.count, area.width, area.height);
-        text.push_str(&grid(buffer));
+        text.push_str(&faro_app::ui::text::grid(buffer));
         // The writer only stops when the log is dropped or failed (logged).
         let _ = self.frames.send(text);
     }
@@ -73,41 +73,12 @@ async fn write(path: PathBuf, mut frames: mpsc::UnboundedReceiver<String>) {
     }
 }
 
-/// A buffer's text: one line per row, a wide character once (its hidden
-/// cells aren't printed).
-pub fn grid(buffer: &Buffer) -> String {
-    let width = usize::from(buffer.area.width).max(1);
-    let mut out = String::new();
-    for row in buffer.content.chunks(width) {
-        let mut skip = 0;
-        for cell in row {
-            if skip > 0 {
-                skip -= 1;
-                continue;
-            }
-            let symbol = cell.symbol();
-            skip = symbol.width().saturating_sub(1);
-            out.push_str(symbol);
-        }
-        out.push('\n');
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use ratatui::layout::Rect;
     use ratatui::style::Style;
 
     use super::*;
-
-    #[test]
-    fn grid_prints_wide_characters_once() {
-        let mut buffer = Buffer::empty(Rect::new(0, 0, 6, 2));
-        buffer.set_string(0, 0, "a🇩🇪b", Style::new());
-        buffer.set_string(0, 1, "日本", Style::new());
-        assert_eq!(grid(&buffer), "a🇩🇪b  \n日本  \n");
-    }
 
     #[test]
     #[expect(

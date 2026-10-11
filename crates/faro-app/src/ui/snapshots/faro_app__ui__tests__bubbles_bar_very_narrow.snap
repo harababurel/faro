@@ -1,0 +1,22 @@
+---
+source: crates/faro-app/src/ui/tests.rs
+expression: "snapshot(&draw(&bar(bubbles_state()), 32, 18))"
+---
+╭ Climbing 🧗 ─────────────────╮
+│ ┃bring your project          │
+│ ┃shoes 🧗‍♀️🧗‍♂️ and              │
+│ ┃maybe some tape for         │
+│ ┃your fingers.               │
+│ ┃              17:51         │
+│                              │
+│          On my way  17:54 ✓┃ │
+│                              │
+│  Alice 🌸                    │
+│ ┃Running 10 min late         │
+│ ┃🙈            17:55         │
+│ Alice 🌸 is typing…          │
+│╭────────────────────────────╮│
+││ See you there              ││
+│╰────────────────────────────╯│
+╰──────────────────────────────╯
+ ● connected · 1 unread

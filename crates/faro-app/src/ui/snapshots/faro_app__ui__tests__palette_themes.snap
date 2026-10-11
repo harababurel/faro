@@ -1,0 +1,24 @@
+---
+source: crates/faro-app/src/ui/tests.rs
+expression: "snapshot(&draw(&state, 100, 20))"
+---
+╭ Conversations ─────────────╮╭ Climbing 🧗 ───────────────────────────────────────────────────────╮
+│ ▾ Pinned                   ││ 17:20        Bob ▎ Alice 🌸: Anyone up for the wall on Thursday?   │
+│     Bob                    ││                  Count me in, I'll bring the spare harness         │
+│ ▾ Recent  ╭ Themes ──────────────────────────────────────────────────────────────────╮           │
+│   # Climbi│ ›                                                                 ← back │           │
+│ ●   Alice │──────────────────────────────────────────────────────────────────────────│           │
+│           │ ○ rosepine-light                                                OpenCode │           │
+│           │ ○ solarized-light                                               OpenCode │────────── │
+│           │ ○ synthwave84-light                                             OpenCode │ast week   │
+│           │ ○ tokyonight-light                                              OpenCode │bring your │
+│           │ ○ vercel-light                                                  OpenCode │for your   │
+│           │ ○ vesper-light                                                  OpenCode │           │
+│           │▌○ zenburn-light                                                 OpenCode │           │
+│           ╰──────────────────────────────────────────────────────────────────────────╯           │
+│                            ││                                                                    │
+│                            ││╭──────────────────────────────────────────────────────────────────╮│
+│                            │││ Message Climbing 🧗…                                             ││
+│                            ││╰──────────────────────────────────────────────────────────────────╯│
+╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯
+ ● connected · 1 unread                             ↑↓ preview · enter use it · ← back · esc cancel

@@ -1,0 +1,24 @@
+---
+source: crates/faro-app/src/ui/tests.rs
+expression: "snapshot(&draw(&state, 100, 20))"
+---
+╭ Conversations ─────────────╮╭ Climbing 🧗 ───────────────────────────────────────────────────────╮
+│ ▾ Pinned                   ││ 17:20        Bob ▎ Alice 🌸: Anyone up for the wall on Thursday?   │
+│     Bob                    ││                  Count me in, I'll bring the spare harness         │
+│ ▾ Recent                   ││ 17:22            and chalk (edited)                                │
+│   # Climbing 🧗            ││ 17:40 Carol Bar… This message was deleted                          │
+│ ╭ Conversation ─────────────────╮50 Carol Bar… Route map from last time                          │
+│ │ › Pin                        p│              📎 route-map.jpg · 2.3 MB                         │
+│ │   Mute…                      m│─────────────────────── new messages ────────────────────────── │
+│ │   Notify for mentions only   @│51            Also: the new overhang section opened last week   │
+│ │   Hide                       h│              and apparently the grades are soft, so bring your │
+│ │   Archive                    a│              project shoes 🧗‍♀️🧗‍♂️ and maybe some tape for your   │
+│ │   Add to allowlist           l│              fingers.                                          │
+│ │   Turn allowlist mode on     L│54        You On my way ✓                                       │
+│ ╰───────────────────────────────╯55   Alice 🌸 Running 10 min late 🙈                            │
+│                            ││                                                                    │
+│                            ││╭──────────────────────────────────────────────────────────────────╮│
+│                            │││ Message Climbing 🧗…                                             ││
+│                            ││╰──────────────────────────────────────────────────────────────────╯│
+╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯
+ ● connected · 1 unread                                         ↑↓ choose · enter do it · esc close

@@ -446,4 +446,124 @@ mod tests {
         assert!(images.get(&make_key(1)).is_none(), "oldest entry evicted");
         assert!(images.get(&make_key(99)).is_some(), "new entry inserted");
     }
+
+    /// Draw `state` at 100×30 with the real image cache.
+    fn draw(
+        state: &State,
+        theme: &crate::theme::Theme,
+        images: &Images,
+    ) -> (ratatui::buffer::Buffer, crate::app::state::Geometry) {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+
+        let tz = jiff::tz::TimeZone::UTC;
+        let now_ms = i64::try_from(crate::fixtures::NOW_MS).unwrap();
+        let view = crate::ui::View {
+            theme,
+            tz: &tz,
+            now: jiff::Timestamp::from_millisecond(now_ms).unwrap(),
+            logo_time: None,
+            images,
+        };
+        let mut geometry = crate::app::state::Geometry::default();
+        let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        terminal
+            .draw(|frame| geometry = crate::ui::render(frame, state, &view))
+            .unwrap();
+        (terminal.backend().buffer().clone(), geometry)
+    }
+
+    // Moved from the ui tests (M9, D78–D79): it needs ratatui-image.
+    #[test]
+    fn inline_images_show_a_placeholder_then_draw_halfblocks_and_map_to_256_colours() {
+        use faro_core::domain::AttachmentStatus;
+        use ratatui::style::Color;
+        use ratatui_image::Resize;
+
+        use crate::theme::{ColorDepth, Theme};
+
+        let path = PathBuf::from("/tmp/wall.jpg");
+        let mut state = crate::fixtures::loaded_state();
+        let att = state
+            .open
+            .as_mut()
+            .unwrap()
+            .messages
+            .iter_mut()
+            .find_map(|m| m.attachments.first_mut())
+            .unwrap();
+        att.width = Some(400);
+        att.height = Some(200);
+        att.status = AttachmentStatus::Downloaded(path.clone());
+
+        let mut images = Images::halfblocks();
+        images.prepare_frame(&state);
+        let (buffer, geometry) = draw(&state, &Theme::default(), &images);
+        let text = faro_app::ui::text::grid(&buffer);
+        assert!(text.contains("loading image…"), "{text}");
+        assert_eq!(geometry.images_wanted.len(), 1);
+        let key = geometry.images_wanted[0].clone();
+        assert_eq!(key.path, path);
+        assert_eq!(
+            key.protocol,
+            crate::app::image_cache::ImageProtocol::Halfblocks
+        );
+
+        let dyn_img =
+            image::DynamicImage::ImageRgba8(image::RgbaImage::from_fn(400, 200, |_, y| {
+                if (y / 10).is_multiple_of(2) {
+                    image::Rgba([200, 60, 40, 255])
+                } else {
+                    image::Rgba([40, 120, 200, 255])
+                }
+            }));
+        let sliced = SlicedProtocol::new_with_resize(
+            &Picker::halfblocks(),
+            dyn_img,
+            Size::new(key.width, key.height),
+            Resize::Fit(None),
+        )
+        .unwrap();
+        images.insert(DecodedImage {
+            key,
+            generation: 0,
+            protocol: Some(sliced),
+        });
+
+        let (buffer, geometry) = draw(&state, &Theme::default(), &images);
+        let text = faro_app::ui::text::grid(&buffer);
+        assert!(!text.contains("loading image…"), "{text}");
+        assert_eq!(
+            geometry.images_wanted,
+            [] as [crate::app::image_cache::ImageKey; 0]
+        );
+        assert!(
+            buffer
+                .content()
+                .iter()
+                .any(|c| (c.symbol() == "▀" || c.symbol() == "▄")
+                    && matches!(c.fg, Color::Rgb(..))
+                    && matches!(c.bg, Color::Rgb(..))),
+            "expected truecolor halfblocks:\n{text}"
+        );
+
+        // 256-colour mode maps halfblock RGB cells to indexed colours.
+        state.config.ui.colors = faro_core::config::ColorChoice::Colors256;
+        images.prepare_frame(&state);
+        let theme_256 = Theme::default().for_depth(ColorDepth::Indexed256);
+        let (buffer_256, _) = draw(&state, &theme_256, &images);
+        assert!(
+            buffer_256
+                .content()
+                .iter()
+                .all(|c| !matches!(c.fg, Color::Rgb(..)) && !matches!(c.bg, Color::Rgb(..))),
+            "expected no RGB cells in 256-colour mode"
+        );
+        assert!(
+            buffer_256
+                .content()
+                .iter()
+                .any(|c| c.symbol() == "▀" || c.symbol() == "▄")
+        );
+    }
 }

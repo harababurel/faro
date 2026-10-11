@@ -1,0 +1,24 @@
+---
+source: crates/faro-app/src/ui/tests.rs
+expression: "snapshot(&draw(&with_palette(\">mute\"), 100, 20))"
+---
+╭ Conversations ─────────────╮╭ Climbing 🧗 ───────────────────────────────────────────────────────╮
+│ ▾ Pinned                   ││ 17:20        Bob ▎ Alice 🌸: Anyone up for the wall on Thursday?   │
+│     Bob                    ││                  Count me in, I'll bring the spare harness         │
+│ ▾ Recent  ╭ Commands ────────────────────────────────────────────────────────────────╮           │
+│   # Climbi│ › mute                                                                   │           │
+│ ●   Alice │──────────────────────────────────────────────────────────────────────────│           │
+│           │▌  Climbing 🧗 › Mute for 1 hour                                          │           │
+│           │   Climbing 🧗 › Mute for 8 hours                                         │────────── │
+│           │   Climbing 🧗 › Mute for 1 day                                           │ast week   │
+│           │   Climbing 🧗 › Mute for 1 week                                          │bring your │
+│           │   Climbing 🧗 › Mute until unmuted                                       │for your   │
+│           ╰──────────────────────────────────────────────────────────────────────────╯           │
+│                            ││ 17:54        You On my way ✓                                       │
+│                            ││ 17:55   Alice 🌸 Running 10 min late 🙈                            │
+│                            ││                                                                    │
+│                            ││╭──────────────────────────────────────────────────────────────────╮│
+│                            │││ Message Climbing 🧗…                                             ││
+│                            ││╰──────────────────────────────────────────────────────────────────╯│
+╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯
+ ● connected · 1 unread                                 ↑↓ move · enter choose · ← back · esc close

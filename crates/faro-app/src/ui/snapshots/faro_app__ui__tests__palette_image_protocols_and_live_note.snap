@@ -1,0 +1,34 @@
+---
+source: crates/faro-app/src/ui/tests.rs
+expression: "snapshot(&draw(&state, 100, 30))"
+---
+╭ Conversations ─────────────╮╭ Climbing 🧗 ───────────────────────────────────────────────────────╮
+│ ▾ Pinned                   ││                                                                    │
+│     Bob                    ││                                                                    │
+│ ▾ Recent                   ││                                                                    │
+│   # Climbi╭ Settings › Inline images ────────────────────────────────────────────────╮           │
+│ ●   Alice │ ›                                                                 ← back │           │
+│           │──────────────────────────────────────────────────────────────────────────│────────── │
+│           │ Auto: halfblocks — mixed or detached tmux clients.                       │           │
+│           │▌● auto                                                                   │           │
+│           │ ○ kitty                                                                  │           │
+│           │ ○ sixel                                                                  │────────── │
+│           │ ○ iterm2                                                                 │hursday?   │
+│           │ ○ halfblocks                                                             │ss         │
+│           │ ○ off                                                                    │           │
+│           ╰──────────────────────────────────────────────────────────────────────────╯           │
+│                            ││ 17:50 Carol Bar… Route map from last time                          │
+│                            ││                  📎 route-map.jpg · 2.3 MB                         │
+│                            ││ ────────────────────────── new messages ────────────────────────── │
+│                            ││ 17:51            Also: the new overhang section opened last week   │
+│                            ││                  and apparently the grades are soft, so bring your │
+│                            ││                  project shoes 🧗‍♀️🧗‍♂️ and maybe some tape for your   │
+│                            ││                  fingers.                                          │
+│                            ││ 17:54        You On my way ✓                                       │
+│                            ││ 17:55   Alice 🌸 Running 10 min late 🙈                            │
+│                            ││                                                                    │
+│                            ││╭──────────────────────────────────────────────────────────────────╮│
+│                            │││ Message Climbing 🧗…                                             ││
+│                            ││╰──────────────────────────────────────────────────────────────────╯│
+╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯
+ ● connected · 1 unread                                 ↑↓ move · enter choose · ← back · esc close

@@ -1,0 +1,24 @@
+---
+source: crates/faro-app/src/ui/tests.rs
+expression: snapshot(&buffer)
+---
+╭ Conversations ─────────────╮╭ Climbing 🧗 ───────────────────────────────────────────────────────╮
+│ ▾ Pinned                   ││ 17:20        Bob ▎ Alice 🌸: Anyone up for the wall on Thursday?   │
+│     Bob                    ││                  Count me in, I'll bring the spare harness         │
+│ ▾ Recent  ╭ Themes ──────────────────────────────────────────────────────────────────╮           │
+│   # Climbi│ ›                                                                 ← back │           │
+│ ●   Alice │──────────────────────────────────────────────────────────────────────────│           │
+│           │ 256 colours: themes are approximated (truecolor: Settings › Colours)     │           │
+│           │▌● faro-dark                                                              │────────── │
+│           │ ○ faro-dusk                                                              │ast week   │
+│           │ ○ faro-light                                                             │bring your │
+│           │ ○ system                                                                 │for your   │
+│           │ ○ aura                                                          OpenCode │           │
+│           │ ○ ayu                                                           OpenCode │           │
+│           ╰──────────────────────────────────────────────────────────────────────────╯           │
+│                            ││                                                                    │
+│                            ││╭──────────────────────────────────────────────────────────────────╮│
+│                            │││ Message Climbing 🧗…                                             ││
+│                            ││╰──────────────────────────────────────────────────────────────────╯│
+╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯
+ ● connected · 1 unread                             ↑↓ preview · enter use it · ← back · esc cancel

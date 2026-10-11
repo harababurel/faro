@@ -1,6 +1,11 @@
 [workspace]
 resolver = "3"
-members = ["crates/faro", "crates/faro-core", "crates/faro-presage"]
+members = [
+    "crates/faro",
+    "crates/faro-app",
+    "crates/faro-core",
+    "crates/faro-presage",
+]
 
 [workspace.package]
 version = "0.1.0-dev"
@@ -11,7 +16,10 @@ repository = "https://github.com/harababurel/faro"
 publish = false
 
 [workspace.dependencies]
-faro-core = { path = "crates/faro-core" }
+faro-app = { path = "crates/faro-app" }
+# Without SQLite unless a crate asks for it (`features = ["sqlite"]`): the
+# web demo uses the in-memory store (M13).
+faro-core = { path = "crates/faro-core", default-features = false }
 faro-presage = { path = "crates/faro-presage" }
 
 [workspace.lints.rust]

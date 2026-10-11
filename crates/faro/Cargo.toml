@@ -13,10 +13,10 @@ workspace = true
 
 [dependencies]
 anyhow = "1.0.104"
-bitflags = "2.13.2"
 crossterm = { version = "0.29.0", features = ["event-stream", "osc52"] }
 clap = { version = "4.6.7", features = ["derive", "env"] }
-faro-core.workspace = true
+faro-app.workspace = true
+faro-core = { workspace = true, features = ["sqlite"] }
 faro-presage.workspace = true
 gethostname = "1.0"
 futures-util = "0.3.34"
@@ -31,17 +31,15 @@ tracing = "0.1.44"
 tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 rustix = { version = "1.1.5", default-features = false, features = ["std", "termios"] }
-unicode-segmentation = "1.13.3"
 unicode-width = "0.2.2"
-nucleo-matcher = "0.3.1"
 notify = "8.2.0"
 qrcode = { version = "0.14", default-features = false }
 # v4: kitty's per-run clipboard password and request ids (D91).
 uuid = { version = "1.27.0", features = ["v4"] }
 
 [dev-dependencies]
+faro-app = { workspace = true, features = ["test-support"] }
 base64 = "0.22.1"
-insta = "1.49.0"
 tempfile = "3.27.0"
 tokio = { version = "1.53.2", features = ["rt", "macros", "time", "test-util"] }
 uuid = "1.27.0"

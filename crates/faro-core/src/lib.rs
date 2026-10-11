@@ -6,6 +6,7 @@ pub mod backend;
 pub mod clipboard;
 pub mod config;
 pub mod domain;
+pub mod file_names;
 pub mod guard;
 pub mod mock;
 #[cfg(not(target_arch = "wasm32"))]

@@ -1,0 +1,24 @@
+---
+source: crates/faro-app/src/ui/tests.rs
+expression: "snapshot(&draw(&with_palette(\":notif\"), 100, 20))"
+---
+╭ Conversations ─────────────╮╭ Climbing 🧗 ───────────────────────────────────────────────────────╮
+│ ▾ Pinned                   ││ 17:20        Bob ▎ Alice 🌸: Anyone up for the wall on Thursday?   │
+│     Bob                    ││                  Count me in, I'll bring the spare harness         │
+│ ▾ Recent  ╭ Settings ────────────────────────────────────────────────────────────────╮           │
+│   # Climbi│ › notif                                                                  │           │
+│ ●   Alice │──────────────────────────────────────────────────────────────────────────│           │
+│           │ Notifications                                                            │           │
+│           │▌  Bell                                                                on │────────── │
+│           │   Unread count in the window title                                    on │ast week   │
+│           │   Desktop notifications ›                                           auto │bring your │
+│           │   Notification privacy ›                                          sender │for your   │
+│           ╰──────────────────────────────────────────────────────────────────────────╯           │
+│                            ││ 17:54        You On my way ✓                                       │
+│                            ││ 17:55   Alice 🌸 Running 10 min late 🙈                            │
+│                            ││                                                                    │
+│                            ││╭──────────────────────────────────────────────────────────────────╮│
+│                            │││ Message Climbing 🧗…                                             ││
+│                            ││╰──────────────────────────────────────────────────────────────────╯│
+╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯
+ ● connected · 1 unread           ↑↓ move · ←→ cycle · enter flip/open · ctrl+r default · esc close
