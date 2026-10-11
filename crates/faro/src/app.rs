@@ -226,7 +226,7 @@ pub async fn run<B: Backend + 'static>(
         };
         for event in events {
             paste.resume(&mut input, &event);
-            dirty |= affects_view(&event);
+            dirty |= update::affects_view(&event);
             handle(event, &mut state, &router);
         }
     }
@@ -494,51 +494,6 @@ fn logo_time(since: &mut Option<Instant>, state: &State) -> Option<f64> {
     }
     let start = *since.get_or_insert_with(Instant::now);
     Some(ui::logo::STILL + start.elapsed().as_secs_f64())
-}
-
-/// Whether an event can change what's on screen; the rest don't cost a frame.
-fn affects_view(event: &AppEvent) -> bool {
-    match event {
-        AppEvent::Terminal(Event::Mouse(mouse)) => update::mouse_affects_view(*mouse),
-        AppEvent::Drawn(_) => false,
-        // Focus changes can clear unread counts (D42).
-        AppEvent::Terminal(
-            Event::Key(_)
-            | Event::Paste(_)
-            | Event::Resize(..)
-            | Event::FocusGained
-            | Event::FocusLost,
-        )
-        | AppEvent::Backend(_)
-        | AppEvent::Loaded { .. }
-        | AppEvent::MessagesLoaded { .. }
-        | AppEvent::OlderLoaded { .. }
-        | AppEvent::MessagesAroundLoaded { .. }
-        | AppEvent::SearchResults { .. }
-        | AppEvent::MessageReceiptsLoaded { .. }
-        | AppEvent::SendResult { .. }
-        | AppEvent::ReactResult { .. }
-        | AppEvent::EditResult { .. }
-        | AppEvent::DeleteResult { .. }
-        | AppEvent::Fetched { .. }
-        | AppEvent::SavedToDownloads(_)
-        | AppEvent::FilesListed { .. }
-        | AppEvent::FileStaged(_)
-        | AppEvent::PasteChecked { .. }
-        | AppEvent::ClipboardImage { .. }
-        | AppEvent::ClipboardDrained
-        | AppEvent::PlaybackFinished { .. }
-        | AppEvent::Transcribed { .. }
-        | AppEvent::OpenFailed(_)
-        | AppEvent::TerminalChecked { .. }
-        | AppEvent::ConfigRead(_)
-        | AppEvent::ThemesRead(_)
-        | AppEvent::SettingNotSaved(_)
-        | AppEvent::StoreFailed(_)
-        | AppEvent::UnreadCleared(_)
-        | AppEvent::Tick
-        | AppEvent::Shutdown => true,
-    }
 }
 
 #[cfg(test)]

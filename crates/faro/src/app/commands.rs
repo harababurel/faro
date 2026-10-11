@@ -19,6 +19,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use super::event::{AppEvent, Command};
+use faro_app::app::commands as shared;
 
 /// Abort spawned download tasks when the main command task is aborted.
 #[derive(Default)]
@@ -476,85 +477,43 @@ async fn resolve_transcribe_api_key() -> Result<String, String> {
     )
 }
 
+/// Run one command through the shared code (D113), after copying outgoing
+/// attachments into `attachments/`, where the backend reads them.
 async fn execute<B: Backend>(
     backend: &B,
     me: ServiceId,
     attachments_dir: &Path,
     command: Command,
 ) -> Option<AppEvent> {
-    let event = match command {
+    let command = match command {
         Command::Send {
             conversation,
             mut message,
         } => {
             let sent_at = message.sent_at;
-            let copy_result =
-                copy_outgoing_attachments(me, attachments_dir, sent_at, &mut message).await;
-            let result = match copy_result {
-                Ok(()) => backend.send(conversation, message).await,
-                Err(error) => Err(error),
-            };
-            if let Err(error) = &result {
+            if let Err(error) =
+                copy_outgoing_attachments(me, attachments_dir, sent_at, &mut message).await
+            {
                 tracing::warn!(%error, %conversation, "sending failed");
+                return Some(AppEvent::SendResult {
+                    sent_at,
+                    result: Err(error),
+                });
             }
-            AppEvent::SendResult { sent_at, result }
-        }
-        Command::React {
-            conversation,
-            target,
-            change,
-            previous,
-        } => {
-            let result = backend.react(conversation, target, change).await;
-            if let Err(error) = &result {
-                tracing::warn!(%error, %conversation, "reacting failed");
-            }
-            AppEvent::ReactResult {
+            Command::Send {
                 conversation,
-                target,
-                previous,
-                result,
+                message,
             }
         }
-        Command::Edit {
-            conversation,
-            target,
-            edit,
-        } => {
-            let result = backend.edit(conversation, target, edit).await;
-            if let Err(error) = &result {
-                tracing::warn!(%error, %conversation, "editing message failed");
-            }
-            AppEvent::EditResult(result)
-        }
-        Command::DeleteForEveryone {
-            conversation,
-            target,
-        } => {
-            let result = backend.delete_for_everyone(conversation, target).await;
-            if let Err(error) = &result {
-                tracing::warn!(%error, %conversation, "deleting message failed");
-            }
-            AppEvent::DeleteResult(result)
-        }
-        Command::Fetch { .. } | Command::Transcribe { .. } => return None,
-        Command::MarkRead(messages) => {
-            if let Err(error) = backend.mark_read(&messages).await {
-                tracing::warn!(%error, count = messages.len(), "sending read receipts failed");
-            }
-            return None;
-        }
-        Command::Typing {
-            conversation,
-            state,
-        } => {
-            if let Err(error) = backend.send_typing(conversation, state).await {
-                tracing::debug!(%error, %conversation, "sending a typing indicator failed");
-            }
-            return None;
-        }
+        other @ (Command::React { .. }
+        | Command::Edit { .. }
+        | Command::DeleteForEveryone { .. }
+        | Command::Fetch { .. }
+        | Command::Transcribe { .. }
+        | Command::MarkRead(_)
+        | Command::Typing { .. }) => other,
     };
-    Some(event)
+    shared::execute(backend, command).await
 }
 
 async fn copy_outgoing_attachments(

@@ -196,10 +196,23 @@ impl Painter {
         })
     }
 
-    /// Theme defaults for `Color::Reset`.
-    pub fn set_defaults(&mut self, fg: Color, bg: Color) {
-        self.fg = rgb(fg, self.fg);
-        self.bg = rgb(bg, self.bg);
+    /// Theme defaults for `Color::Reset`; whether they changed (every row
+    /// must then be painted again).
+    pub fn set_defaults(&mut self, fg: Color, bg: Color) -> bool {
+        let (fg, bg) = (rgb(fg, self.fg), rgb(bg, self.bg));
+        let changed = (fg, bg) != (self.fg, self.bg);
+        self.fg = fg;
+        self.bg = bg;
+        changed
+    }
+
+    /// The device pixel ratio the font was measured at.
+    pub const fn ratio(&self) -> f64 {
+        self.dpr
+    }
+
+    pub const fn canvas(&self) -> &HtmlCanvasElement {
+        &self.canvas
     }
 
     /// Size the canvas for a `columns × rows` grid (clears it).

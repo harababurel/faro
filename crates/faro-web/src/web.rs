@@ -1,29 +1,29 @@
 //! What the page calls (wasm-bindgen).
 
-use faro_app::app::image_cache::NoImages;
-use faro_app::app::state::State;
-use faro_app::theme::Theme;
-use faro_app::ui::{self, View};
-use ratatui::Terminal;
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use faro_core::rt;
+use tokio::sync::mpsc;
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 
-use crate::backend::CanvasBackend;
-use crate::demo::first_state;
+use crate::dom::Listeners;
+use crate::live::{self, Shell};
 use crate::paint::Painter;
+use crate::session::{Session, visitor_mock};
 
-/// The demo running in a canvas.
+/// The demo running in a canvas. Dropping it (`demo.free()`) stops it.
 #[wasm_bindgen]
 pub struct Demo {
-    terminal: Terminal<CanvasBackend>,
-    painter: Painter,
-    state: State,
-    theme: Theme,
+    shell: Rc<RefCell<Shell>>,
+    listeners: Option<Listeners>,
+    task: rt::Task,
 }
 
 /// Start the demo in `canvas`: a `columns × rows` grid in `font` at `size`
-/// CSS pixels (the font must be loaded first). `0` for either: as many as fit
-/// the canvas's parent.
+/// CSS pixels (the font must be loaded first). `0` for either: as many as
+/// fit the canvas's parent, following its size.
 #[wasm_bindgen]
 pub async fn start(
     canvas: HtmlCanvasElement,
@@ -32,65 +32,58 @@ pub async fn start(
     columns: u16,
     rows: u16,
 ) -> Result<Demo, JsValue> {
-    let state = first_state()
+    let (session, inbox) = Session::start(&visitor_mock())
         .await
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
-    let mut painter = Painter::new(canvas, &font, size)?;
-    let theme = Theme::default();
-    painter.set_defaults(theme.text, theme.background);
-    let (columns, rows) = if columns == 0 || rows == 0 {
-        let parent = painter.parent_size();
-        painter.grid_for(parent.0, parent.1)
-    } else {
-        (columns, rows)
-    };
-    painter.resize(columns, rows);
-    let mut backend = CanvasBackend::new(columns, rows);
-    backend.set_cell_size(painter.cell_size());
-    let Ok(terminal) = Terminal::new(backend);
-    let mut demo = Demo {
-        terminal,
-        painter,
-        state,
-        theme,
-    };
-    demo.draw();
-    Ok(demo)
+    let painter = Painter::new(canvas.clone(), &font, size)?;
+    let fixed = (columns > 0 && rows > 0).then_some((columns, rows));
+    let mut shell = Shell::new(session, painter, font, size, fixed);
+    let focused = canvas
+        .owner_document()
+        .and_then(|d| d.active_element())
+        .is_some_and(|a| a == **canvas);
+    if !focused {
+        shell.unfocus();
+    }
+    let shell = Rc::new(RefCell::new(shell));
+    let (page, page_rx) = mpsc::unbounded_channel();
+    let listeners = Listeners::attach(&canvas, &page)?;
+    let task = rt::spawn(live::run(Rc::clone(&shell), page_rx, inbox));
+    shell.borrow_mut().draw();
+    Ok(Demo {
+        shell,
+        listeners: Some(listeners),
+        task,
+    })
 }
 
 #[wasm_bindgen]
 impl Demo {
-    /// Draw what changed; returns the milliseconds it took.
-    pub fn draw(&mut self) -> f64 {
+    /// Draw now; returns the milliseconds it took.
+    pub fn draw(&self) -> f64 {
         let started = now_ms();
-        let tz = jiff::tz::TimeZone::UTC;
-        let view = View {
-            theme: &self.theme,
-            tz: &tz,
-            now: jiff::Timestamp::now(),
-            logo_time: None,
-            images: &NoImages,
-        };
-        let state = &self.state;
-        let Ok(_) = self.terminal.draw(|frame| {
-            ui::render(frame, state, &view);
-        });
-        let backend = self.terminal.backend_mut();
-        let rows = backend.take_dirty();
-        let cursor = backend.cursor();
-        self.painter.paint(backend.buffer(), &rows, cursor);
+        self.shell.borrow_mut().draw();
         now_ms() - started
     }
 
-    /// Repaint every row (for measuring); returns the milliseconds it took.
-    pub fn repaint(&mut self) -> f64 {
+    /// Paint every row again (to measure the renderer); returns the
+    /// milliseconds it took.
+    pub fn repaint(&self) -> f64 {
         let started = now_ms();
-        let backend = self.terminal.backend_mut();
-        backend.mark_all();
-        let rows = backend.take_dirty();
-        let cursor = backend.cursor();
-        self.painter.paint(backend.buffer(), &rows, cursor);
+        self.shell.borrow_mut().repaint();
         now_ms() - started
+    }
+
+    /// The screen as text, one line per row (for tests).
+    pub fn text(&self) -> String {
+        faro_app::ui::text::grid(self.shell.borrow().buffer())
+    }
+}
+
+impl Drop for Demo {
+    fn drop(&mut self) {
+        self.listeners = None;
+        self.task.abort();
     }
 }
 

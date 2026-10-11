@@ -40,6 +40,51 @@ pub use settings::configure;
 /// How many messages to load when a conversation opens.
 pub const PAGE: u32 = 200;
 
+/// Whether an event can change what's on screen; the rest don't cost a frame.
+pub fn affects_view(event: &AppEvent) -> bool {
+    match event {
+        AppEvent::Terminal(Event::Mouse(mouse)) => mouse_affects_view(*mouse),
+        AppEvent::Drawn(_) => false,
+        // Focus changes can clear unread counts (D42).
+        AppEvent::Terminal(
+            Event::Key(_)
+            | Event::Paste(_)
+            | Event::Resize(..)
+            | Event::FocusGained
+            | Event::FocusLost,
+        )
+        | AppEvent::Backend(_)
+        | AppEvent::Loaded { .. }
+        | AppEvent::MessagesLoaded { .. }
+        | AppEvent::OlderLoaded { .. }
+        | AppEvent::MessagesAroundLoaded { .. }
+        | AppEvent::SearchResults { .. }
+        | AppEvent::MessageReceiptsLoaded { .. }
+        | AppEvent::SendResult { .. }
+        | AppEvent::ReactResult { .. }
+        | AppEvent::EditResult { .. }
+        | AppEvent::DeleteResult { .. }
+        | AppEvent::Fetched { .. }
+        | AppEvent::SavedToDownloads(_)
+        | AppEvent::FilesListed { .. }
+        | AppEvent::FileStaged(_)
+        | AppEvent::PasteChecked { .. }
+        | AppEvent::ClipboardImage { .. }
+        | AppEvent::ClipboardDrained
+        | AppEvent::PlaybackFinished { .. }
+        | AppEvent::Transcribed { .. }
+        | AppEvent::OpenFailed(_)
+        | AppEvent::TerminalChecked { .. }
+        | AppEvent::ConfigRead(_)
+        | AppEvent::ThemesRead(_)
+        | AppEvent::SettingNotSaved(_)
+        | AppEvent::StoreFailed(_)
+        | AppEvent::UnreadCleared(_)
+        | AppEvent::Tick
+        | AppEvent::Shutdown => true,
+    }
+}
+
 pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
     match event {
         AppEvent::Terminal(event) => on_terminal(state, &event),

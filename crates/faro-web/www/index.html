@@ -3,7 +3,8 @@
      serve this folder (any static server) or open dist/demo.html from
      tools/bundle.py.
      ?cols=120&rows=34  a fixed grid (default: fill the window)
-     ?bench             repaint 60 times and report the frame time -->
+     ?bench             repaint 60 times and report the frame time
+     ?unfocused         start without the keys (as on the website) -->
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -28,6 +29,7 @@
   const canvas = document.getElementById("faro");
   const demo = await start(canvas, font, size, Number(q.get("cols") ?? 0), Number(q.get("rows") ?? 0));
   window.demo = demo;
+  if (!q.has("unfocused")) canvas.focus();
   const stats = document.getElementById("stats");
   if (q.has("bench")) {
     const times = [];
