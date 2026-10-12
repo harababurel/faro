@@ -171,7 +171,7 @@ The owner's main complaint after trying the prototype: misaligned borders and st
 4. README: install-from-source instructions, tmux recommended settings, screenshots.
 5. ✅ Make the allowlist guard optional (D95, done 2026-10-11): the Signal backend starts with no flag, `--allowlist` stays for testing, `--no-allowlist` becomes a no-op.
 6. ✅ Sidebar markers (D96, done 2026-10-11): `#` before group names (also in the palette, where direct chats lose their `@`), and on the right edge before the unread count `⊘` for muted and `@` for mentions only, in the muted colour.
-7. Bubble shapes (D98): quarter-circle corners on taller rounded bubbles, `[messages] bubble_padding`, compact runs that join on their aligned side, `[messages] match_widths`, a blank line between runs in compact.
+7. ✅ Bubble shapes (D98, done 2026-10-11; owner's hands-on checks pending): quarter-circle corners on taller rounded bubbles, `[messages] bubble_padding`, compact runs that join on their aligned side, `[messages] match_widths`, a blank line between runs in compact.
 8. Tag `v0.1.0`; build release binaries (manual or cargo-dist). Make the repo public first; then upload `faro-git` to the AUR, add `faro` and `faro-bin` PKGBUILDs and the Homebrew formula in `harababurel/tap` (D86).
 
 **Acceptance**
@@ -396,7 +396,7 @@ Design, copy, server runbook and full task lists: [WEBSITE.md](WEBSITE.md) (§7 
   - **Shared with the terminal app:** store effects and messaging commands now run through faro-app (D113).
   - **Size:** the wasm is 1.02 MB gzipped, under the 1.5 MB budget; CI checks it.
   - **Frame time:** 2.1 ms for a full frame on an Apple M1. Under software rendering, p95 reaches 8.3 ms (D119).
-  - **Next:** the owner's checks close Phase 3, then Phase 1 or Phase 4.
+  - **Next:** the owner's checks close Phase 3. Phase 1 can start now (it doesn't depend on Phase 3); Phase 4 needs both.
 - 2026-10-11: **M13 Phase 2 done** (D110–D112), ahead of Phase 1 (it needs neither Phase 1 nor the server). faro-core has the `rt` shim and a `sqlite` feature, with an in-memory store engine; every engine-agnostic store test passes on SQLite and in memory. The shared app is `crates/faro-app` (state, reducer, key map, palette, themes, rendering), with faro's own terminal event types, an `ImageCache` trait and an architecture test; `crates/faro` is the terminal binary on top of it. `crates/faro-web` is a stub that draws a real frame from the mock. CI builds and lints faro-core, faro-app and faro-web for wasm32. Native faro is unchanged: every snapshot passes with its old contents (renamed `faro_app__…`). Next: Phase 1 (waits on the owner's operator details for the legal pages and the open FAQ answers) or Phase 3.
 - 2026-10-11: M13 Phase 0, agent's part done: `MockBackend` and `Sim` build and run on wasm32 behind a throwaway `wasm-spike` feature, with the same events as natively (D108). Canvas 2D renderer kept over Ratzilla (D106), JetBrains Mono chosen (D107). Server files and runbook in `site/deploy/` (D109).
 - 2026-10-11: M13 Phase 0 server setup done by the owner, following `site/deploy/README.md`: DNS, Plausible CE (2FA on, registration closed, goals added), nginx and TLS for both hosts, log rotation, first deploy of the placeholder. End-to-end check passed (redirects, security headers, `/js/s.js`, `/api/event`, visits with the right countries in the dashboard). Phase 0 is complete; Phase 1 (static page) is next.
