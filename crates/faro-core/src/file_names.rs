@@ -36,14 +36,39 @@ pub fn sanitize_file_name(file_name: Option<&str>, content_type: &str) -> String
                 })
                 .collect::<String>()
         })
-        .map(|s| {
-            s.trim_start_matches(['.', '_'])
-                .chars()
-                .take(64)
-                .collect::<String>()
-        })
+        .map(|s| clamp_name(s.trim_start_matches(['.', '_'])))
         .filter(|s| !s.is_empty());
     cleaned.unwrap_or_else(|| format!("attachment.{}", extension_for(content_type)))
+}
+
+/// Longest attachment file name we keep.
+const MAX_NAME_LEN: usize = 64;
+
+/// Longest extension we keep when a name has to be shortened.
+const MAX_EXT_LEN: usize = 10;
+
+/// Shorten `name` to [`MAX_NAME_LEN`] characters, keeping a short extension so
+/// a long `report.pdf` doesn't end up as `report.p`. Names of at most
+/// [`MAX_NAME_LEN`] characters are returned as they are. `name` comes from
+/// [`sanitize_file_name`], so it is ASCII: its bytes are its characters.
+fn clamp_name(name: &str) -> String {
+    if name.len() <= MAX_NAME_LEN {
+        return name.to_owned();
+    }
+    let ext = match name.rfind('.') {
+        Some(dot) if dot > 0 => name.get(dot + 1..).unwrap_or_default(),
+        _ => "",
+    };
+    if ext.is_empty() || ext.len() > MAX_EXT_LEN {
+        return name.chars().take(MAX_NAME_LEN).collect();
+    }
+    let mut short = name
+        .chars()
+        .take(MAX_NAME_LEN - ext.len() - 1)
+        .collect::<String>();
+    short.push('.');
+    short.push_str(ext);
+    short
 }
 
 /// File extension (without leading dot) for a MIME type.

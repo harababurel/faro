@@ -670,6 +670,43 @@ mod tests {
     }
 
     #[test]
+    fn sanitize_file_name_keeps_the_extension_when_truncating() {
+        let long = format!("{}b.pdf", "a".repeat(100));
+        let safe = sanitize_file_name(Some(&long), "application/pdf");
+        assert_eq!(safe, format!("{}.pdf", "a".repeat(60)));
+        assert_eq!(safe.chars().count(), 64);
+        assert_eq!(Path::new(&safe).extension(), Some(OsStr::new("pdf")));
+    }
+
+    #[test]
+    fn sanitize_file_name_truncates_a_long_name_without_extension() {
+        let safe = sanitize_file_name(Some(&"b".repeat(100)), "application/octet-stream");
+        assert_eq!(safe, "b".repeat(64));
+        assert_eq!(safe.chars().count(), 64);
+    }
+
+    #[test]
+    fn sanitize_file_name_truncates_plainly_past_an_over_long_extension() {
+        let long = format!("report.{}", "x".repeat(70));
+        let safe = sanitize_file_name(Some(&long), "application/octet-stream");
+        assert_eq!(safe, format!("report.{}", "x".repeat(57)));
+        assert_eq!(safe.chars().count(), 64);
+    }
+
+    #[test]
+    fn sanitize_file_name_leaves_short_names_alone() {
+        assert_eq!(
+            sanitize_file_name(Some("quarterly report.pdf"), "application/pdf"),
+            "quarterly_report.pdf"
+        );
+        let exactly_64 = format!("{}.pdf", "c".repeat(60));
+        assert_eq!(
+            sanitize_file_name(Some(&exactly_64), "application/pdf"),
+            exactly_64
+        );
+    }
+
+    #[test]
     fn downloads_dir_and_collision_numbering() {
         assert_eq!(
             downloads_dir(Some(OsStr::new("/custom/dl")), Some(Path::new("/home/u"))).unwrap(),
