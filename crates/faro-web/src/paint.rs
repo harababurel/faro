@@ -6,103 +6,20 @@
 //! any device pixel ratio.
 
 use std::f64::consts::{FRAC_PI_2, TAU};
-use std::fmt::Write as _;
 
 use ratatui::buffer::{Buffer, Cell, CellDiffOption};
 use ratatui::layout::{Position, Size};
 use ratatui::style::{Color, Modifier};
-use unicode_width::UnicodeWidthStr as _;
 use wasm_bindgen::{JsCast as _, JsValue};
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement};
 
+use crate::color::{self, Rgb, cell_colors, cell_width};
 use crate::glyphs::{self, Corner, Line, Powerline, Shape, Symbol};
 
 /// Line height as a multiple of the font size (as the Phase 0 prototype).
 const LINE_HEIGHT: f64 = 1.2;
-/// How far `DIM` text fades towards its background.
-const DIM: f64 = 0.45;
 /// Fallback fonts for what the webfont lacks: emoji, then anything.
 const FALLBACK: &str = r#""Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", monospace"#;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Rgb(u8, u8, u8);
-
-impl Rgb {
-    fn blend(self, to: Self, t: f64) -> Self {
-        let mix = |a: u8, b: u8| {
-            let v = f64::from(a).mul_add(1.0 - t, f64::from(b) * t);
-            u8::try_from(clamp_u32(v, 255)).unwrap_or(u8::MAX)
-        };
-        Self(mix(self.0, to.0), mix(self.1, to.1), mix(self.2, to.2))
-    }
-
-    const fn key(self) -> u32 {
-        (self.0 as u32) << 16 | (self.1 as u32) << 8 | self.2 as u32
-    }
-}
-
-/// The 16 ANSI colours (xterm's defaults), for themes that use them (`system`).
-const ANSI: [Rgb; 16] = [
-    Rgb(0x00, 0x00, 0x00),
-    Rgb(0xcd, 0x00, 0x00),
-    Rgb(0x00, 0xcd, 0x00),
-    Rgb(0xcd, 0xcd, 0x00),
-    Rgb(0x00, 0x00, 0xee),
-    Rgb(0xcd, 0x00, 0xcd),
-    Rgb(0x00, 0xcd, 0xcd),
-    Rgb(0xe5, 0xe5, 0xe5),
-    Rgb(0x7f, 0x7f, 0x7f),
-    Rgb(0xff, 0x00, 0x00),
-    Rgb(0x00, 0xff, 0x00),
-    Rgb(0xff, 0xff, 0x00),
-    Rgb(0x5c, 0x5c, 0xff),
-    Rgb(0xff, 0x00, 0xff),
-    Rgb(0x00, 0xff, 0xff),
-    Rgb(0xff, 0xff, 0xff),
-];
-
-fn ansi(index: usize) -> Rgb {
-    ANSI.get(index).copied().unwrap_or(Rgb(0x80, 0x80, 0x80))
-}
-
-/// A cell colour as RGB; `Reset` is the theme's default.
-fn rgb(color: Color, default: Rgb) -> Rgb {
-    match color {
-        Color::Reset => default,
-        Color::Rgb(r, g, b) => Rgb(r, g, b),
-        Color::Indexed(i) => match faro_app::theme::indexed_rgb(i) {
-            Some((r, g, b)) => Rgb(r, g, b),
-            None => ansi(usize::from(i)),
-        },
-        Color::Black => ansi(0),
-        Color::Red => ansi(1),
-        Color::Green => ansi(2),
-        Color::Yellow => ansi(3),
-        Color::Blue => ansi(4),
-        Color::Magenta => ansi(5),
-        Color::Cyan => ansi(6),
-        Color::Gray => ansi(7),
-        Color::DarkGray => ansi(8),
-        Color::LightRed => ansi(9),
-        Color::LightGreen => ansi(10),
-        Color::LightYellow => ansi(11),
-        Color::LightBlue => ansi(12),
-        Color::LightMagenta => ansi(13),
-        Color::LightCyan => ansi(14),
-        Color::White => ansi(15),
-    }
-}
-
-/// How many cells a cell's symbol covers: faro's forced width, else Unicode's.
-pub fn cell_width(cell: &Cell) -> u16 {
-    let width = match cell.diff_option {
-        CellDiffOption::ForcedWidth(w) => usize::from(w.get()),
-        CellDiffOption::None | CellDiffOption::Skip | CellDiffOption::AlwaysUpdate => {
-            cell.symbol().width()
-        }
-    };
-    u16::try_from(width.max(1)).unwrap_or(1)
-}
 
 /// Cell metrics in device pixels.
 #[derive(Debug, Clone, Copy)]
@@ -126,6 +43,7 @@ pub struct Painter {
     /// What the context has now, to skip redundant state changes.
     fill: Option<u32>,
     font: Option<usize>,
+    /// Scratch buffer for `Rgb::write_hex`, so a colour change allocates once.
     css: String,
 }
 
@@ -199,7 +117,7 @@ impl Painter {
     /// Theme defaults for `Color::Reset`; whether they changed (every row
     /// must then be painted again).
     pub fn set_defaults(&mut self, fg: Color, bg: Color) -> bool {
-        let (fg, bg) = (rgb(fg, self.fg), rgb(bg, self.bg));
+        let (fg, bg) = (color::rgb(fg, self.fg), color::rgb(bg, self.bg));
         let changed = (fg, bg) != (self.fg, self.bg);
         self.fg = fg;
         self.bg = bg;
@@ -253,7 +171,7 @@ impl Painter {
                 break;
             };
             let span = cell_width(cell).min(width - x);
-            let (fg, bg) = self.colors(cell);
+            let (fg, bg) = cell_colors(cell, self.fg, self.bg);
             let bg = if cursor == Some(x) { fg } else { bg };
             match run {
                 Some((_, colour)) if colour == bg => {}
@@ -275,7 +193,7 @@ impl Painter {
                 break;
             };
             let span = cell_width(cell).min(width - x);
-            let (fg, bg) = self.colors(cell);
+            let (fg, bg) = cell_colors(cell, self.fg, self.bg);
             let fg = if cursor == Some(x) { bg } else { fg };
             self.glyph(cell, f64::from(x) * w, top, span, fg);
             x += span;
@@ -284,18 +202,6 @@ impl Painter {
         // `restore` brings back the fill and font from before `save`.
         self.fill = None;
         self.font = None;
-    }
-
-    /// A cell's foreground and background after `REVERSED` and `DIM`.
-    fn colors(&self, cell: &Cell) -> (Rgb, Rgb) {
-        let (mut fg, mut bg) = (rgb(cell.fg, self.fg), rgb(cell.bg, self.bg));
-        if cell.modifier.contains(Modifier::REVERSED) {
-            std::mem::swap(&mut fg, &mut bg);
-        }
-        if cell.modifier.contains(Modifier::DIM) {
-            fg = fg.blend(bg, DIM);
-        }
-        (fg, bg)
     }
 
     fn fill_cells(&mut self, from: u16, to: u16, top: f64, colour: Rgb) {
@@ -309,12 +215,7 @@ impl Painter {
         if self.fill == Some(colour.key()) {
             return;
         }
-        self.css.clear();
-        let _ = write!(
-            self.css,
-            "#{:02x}{:02x}{:02x}",
-            colour.0, colour.1, colour.2
-        );
+        colour.write_hex(&mut self.css);
         self.ctx.set_fill_style_str(&self.css);
         self.ctx.set_stroke_style_str(&self.css);
         self.fill = Some(colour.key());
@@ -632,7 +533,7 @@ const fn corner_point(corner: Corner, x0: f64, y0: f64, w: f64, h: f64) -> (f64,
 }
 
 fn round_u16(v: f64) -> u16 {
-    u16::try_from(clamp_u32(v, u32::from(u16::MAX))).unwrap_or(u16::MAX)
+    u16::try_from(color::clamp_u32(v, u32::from(u16::MAX))).unwrap_or(u16::MAX)
 }
 
 fn floor_u16(v: f64) -> u16 {
@@ -640,22 +541,5 @@ fn floor_u16(v: f64) -> u16 {
 }
 
 fn to_u32(v: f64) -> u32 {
-    clamp_u32(v, u32::MAX)
-}
-
-/// `v` rounded and clamped to `0..=max` (NaN is 0).
-#[expect(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "clamped to 0..=max first"
-)]
-fn clamp_u32(v: f64, max: u32) -> u32 {
-    let v = v.round();
-    if v.is_nan() || v <= 0.0 {
-        0
-    } else if v >= f64::from(max) {
-        max
-    } else {
-        v as u32
-    }
+    color::clamp_u32(v, u32::MAX)
 }

@@ -4,6 +4,8 @@
 //! - [`backend`]: a ratatui backend that keeps the cells and the rows that
 //!   changed;
 //! - [`glyphs`]: block, octant, box-drawing and other glyphs as shapes;
+//! - [`color`]: cell colours as RGB and cell widths, free of canvas types;
+//! - [`svg`]: a buffer as an SVG document (the poster and OG image, §6.4);
 //! - [`blobs`], [`images`]: attachments in memory, images as half-blocks;
 //! - `paint`: paints rows onto the canvas;
 //! - [`demo`]: a still first frame (tests, the poster);
@@ -20,6 +22,7 @@
 
 pub mod backend;
 pub mod blobs;
+pub mod color;
 pub mod demo;
 #[cfg(target_arch = "wasm32")]
 mod dom;
@@ -35,6 +38,7 @@ mod media;
 mod paint;
 mod router;
 pub mod session;
+pub mod svg;
 #[cfg(target_arch = "wasm32")]
 mod web;
 

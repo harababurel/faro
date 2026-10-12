@@ -1176,3 +1176,10 @@ Refines the DESIGN.md §5.1 sketch:
 - **Install:** only "From source" (clone + `cargo build --release`, as in the README) until binaries exist (D86); no tab ARIA with one method, `site.js` wires tabs once there are several. The hero CTA says "See it here" until the live demo (Phase 4).
 - **Theme choice:** a tiny blocking `theme.js` in `<head>` applies the remembered choice before first paint. The legal pages load it too (amends §3.10's "no JavaScript": no analytics, only this).
 - **Analytics opt-out:** Plausible CE's tracker only reads `localStorage.plausible_ignore`, so `js/init.js` turns `?plausible_ignore=true|false` into that flag before the tracker loads, and strips the parameter.
+
+### D121. The buffer → SVG exporter — Judgement (M13 Phase 1, chunk 3, 2026-10-13)
+
+- **Where:** `faro_web::svg::buffer_to_svg(&Buffer, &SvgOptions)`, native-buildable, beside the canvas renderer. The colour rules (`Reset`, indexed, named, reverse, dim) and cell widths moved out of the wasm-only `paint.rs` into `faro_web::color`, which both use.
+- **Geometry is mirrored, not shared:** `paint.rs` mixes the glyph fractions with canvas calls, and refactoring a wasm-only renderer that native tests can't see was too risky for an unattended change. `svg.rs` uses the same `glyphs::shape` lookup and the same fractions; a comment at its top says the two change together.
+- **Output:** a backdrop rect, merged background runs, one `<text>` per row with `<tspan>`s placed at their exact cell column (real text: selectable and read by screen readers), shapes as rects/paths in `<g>` per colour. A 120×34 demo frame is 65 KB, 8.7 KB gzipped (§6.6 budget: 80 KB).
+- **Fonts:** the SVG names the page's font family; the browser draws it with the JetBrains Mono webfont. Rasterisers without that font (rsvg, resvg) fall back to another face, so the OG image needs a TTF passed explicitly (chunk 4).
