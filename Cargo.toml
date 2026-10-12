@@ -5,6 +5,7 @@ members = [
     "crates/faro-app",
     "crates/faro-core",
     "crates/faro-presage",
+    "crates/faro-site",
     "crates/faro-web",
 ]
 

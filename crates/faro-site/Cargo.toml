@@ -1,0 +1,20 @@
+[package]
+name = "faro-site"
+description = "getfaro.dev site generator (M13): fills site/template from faro's own code and content-hashes the assets"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+# The server builds this with rustup alone (WEBSITE.md §6.8): nothing here
+# may pull in faro-presage, crossterm, tokio, notify or anything that needs
+# protoc/cmake/libsignal.
+[dependencies]
+faro-app.workspace = true
+faro-core.workspace = true
+sha2 = "0.11"

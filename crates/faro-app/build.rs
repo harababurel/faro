@@ -19,6 +19,12 @@ fn main() {
         (Some(commit), date) => (Some(commit), date),
         (None, _) => from_git(),
     };
+    // The date on its own too, for code that wants `YYYY-MM-DD` alone
+    // (the site generator's `{{date}}`, M13).
+    println!(
+        "cargo:rustc-env=FARO_BUILD_DATE={}",
+        date.clone().unwrap_or_default()
+    );
     let line = match (commit, date) {
         (Some(commit), Some(date)) => format!("{version} ({commit} {date})"),
         (Some(commit), None) => format!("{version} ({commit})"),

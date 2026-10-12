@@ -5,6 +5,11 @@
 /// prints it after the name.
 pub const LINE: &str = env!("FARO_VERSION");
 
+/// The commit date on its own (`2026-10-11`), empty when the build had no
+/// git and `FARO_BUILD_DATE` wasn't set. The site generator fills its
+/// `{{date}}` from this (M13).
+pub const BUILD_DATE: &str = env!("FARO_BUILD_DATE");
+
 /// What the UI draws: [`LINE`], fixed in tests so snapshots don't change
 /// with every commit.
 pub const fn shown() -> &'static str {
