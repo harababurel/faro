@@ -394,6 +394,37 @@ In kitty (directly and inside tmux), `faro demo`, `Ctrl+P` › Settings › Bubb
 
 - [x] `Ctrl+P` › Commands › *About faro*: a centred box with the small lighthouse in the theme's colours, the version, https://getfaro.dev and the repository as full, clickable links, the licence, credits, then your config file and data folder with the paths lined up; `Esc` closes it. In a narrow window (about 60 columns) the lighthouse is left out and the text is cut cleanly.
 
+## Web demo (M13 Phase 3, D113–D119)
+
+**Setup:**
+1. Build the demo: `crates/faro-web/build.sh`. It needs `cargo install wasm-bindgen-cli --version <the Cargo.lock version> --locked`; the script prints the exact command if it's missing.
+2. Serve the folder: `python3 -m http.server -d crates/faro-web/www 8000`.
+3. Open `http://localhost:8000/` in each browser. On a remote machine, forward the port with `ssh -L 8000:localhost:8000`.
+
+**Results:** for each row, write ✓, ✗ (add a note below) or – (not applicable) in the Chrome, Firefox and Safari columns.
+
+| Check (what to look for) | Chrome | Firefox | Safari |
+|---|---|---|---|
+| **First frame:** the chat list and the animated lighthouse; JetBrains Mono text; sidebar and pane borders straight and joined; footer says `connected · demo` | | | |
+| **Glyphs:** open a chat (bubbles are rounded by default here; try every Bubble style in `Ctrl+P` › Settings): corners and edges smooth, no gaps or seams between rows; the logo's beam and stars are dots; `↳ ✎ ❝` look like the rest of the text | | | |
+| **Emoji:** flags (🇩🇪🇷🇴 side by side), ZWJ families, skin tones (🫶🏽), ❤️ and ✌️ in the demo chats: each in colour, centred in its cells, nothing overlapping the next character, rows stay aligned | | | |
+| **Keys:** `Alt+J/K` switch chats (on macOS Option+J/K too), `Tab` cycles focus and never leaves the canvas, `Ctrl+P` opens the palette, `Esc` closes it, readline keys in the input (`Ctrl+A/E/K/U`, `Alt+B/F`), `Alt+Backspace` deletes a word | | | |
+| **Browser chords stay the browser's:** `Ctrl+R`/`Cmd+R` reloads, `Ctrl+W`/`Cmd+W` closes the tab (faro doesn't offer it in hints), `Cmd`/`Ctrl` `+`/`-`/`0` zoom, `F12` opens the developer tools | | | |
+| **Paste:** `Ctrl+V`/`Cmd+V` with multi-line text in the clipboard: it lands in the input as one draft with its newlines; nothing is sent | | | |
+| **Sending:** type a message, `Enter`: it shows as sent, later read; cast members reply, react and type over time | | | |
+| **Mouse:** click a chat, a message, the input; wheel scrolls messages and the list (trackpad scrolling smooth, not too fast); right-click opens faro's menu, not the browser's; while the canvas isn't focused, the wheel scrolls the page instead | | | |
+| **Resize and zoom:** resize the window and zoom with `Cmd`/`Ctrl` `+`/`-`: the grid refits the window, text stays sharp, nothing is left over from the old size | | | |
+| **Copy and links:** select a message, `y`, paste elsewhere: the text arrives. Open a link (`Enter` › open link): a new tab with the page. On an attachment, *Copy path*: a "Not in the web demo" notice | | | |
+| **Images:** in a chat with photos or stickers they show as half-block pictures; `v` opens the viewer; drawing is right after scrolling | | | |
+| **Voice notes:** `x` on a voice note plays it with sound, the progress and waveform move, `x` again stops; `t` shows a transcript marked `[demo]` | | | |
+| **Not in the browser:** `Ctrl+P` › *Send a file…* and *Save to Downloads* on an attachment show "Not in the web demo: try it in your terminal" and leave nothing open | | | |
+| **Bell and title:** with the chat list focused and a background chat getting messages, the panel's border flashes; the tab title shows `faro (N)` | | | |
+| **Focus:** click outside the canvas (or add `?unfocused` to the URL): incoming messages stay unread until you click back in | | | |
+| **Quit:** `Ctrl+Q`: "faro exited · ↺ start again"; clicking it starts a fresh demo with working keys | | | |
+| **Speed:** `?bench` in the URL (or `await bench()` in the console): `frame avg` under 4 ms on a mid-range laptop; flooding (`Alt+J/K` quickly through busy chats) never stutters | | | |
+
+Notes (browser, version, OS, what went wrong):
+
 ## M8: terminal matrix (D50; run after M7 against the real backend, and once now with the demo)
 
 Columns: **direct** = faro straight in kitty; **tmux** = kitty → tmux (with the README's tmux settings); **SSH** = kitty → ssh → tmux on the other machine; **mosh** = kitty → mosh → tmux. Mark each cell ✓, ✗ (add a note below) or – (not applicable). Also try one other terminal per OS (WezTerm/Ghostty/Alacritty/foot on Linux, iTerm2 and Terminal.app on macOS) for the rows marked †.

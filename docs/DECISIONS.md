@@ -1073,4 +1073,98 @@ Refines the DESIGN.md §5.1 sketch:
 
 - **Why:** Phase 2 is done when `cargo build -p faro-web --target wasm32-unknown-unknown` passes in CI (§7); the shell is Phase 3.
 - **Decision:** `faro_web::first_frame(width, height)` builds a frame the way the demo will: `MockBackend` (seed 42, no outages or errors, no live activity), its backlog applied to `Store::memory()`, `State` loaded through the real reducer, the newest chat opened with Enter, rendered by `ui::render` with `NoImages` into a ratatui `TestBackend`. It waits for the backlog with `rt::sleep` polls (the mock sends it in one go after `Connected`), so it runs on either target. A native test checks the frame (the chat list, an open chat with its messages, connected). CI builds and lints it for wasm32.
-- **For Phase 3:** it's a plain library for now, under the workspace lints. The wasm-bindgen module (a `cdylib`), its own lint table (§6.5: wasm-bindgen generates `unsafe` code), which chat opens first, the browser time zone and the poster match (§6.4) all come with the shell.
+- **For Phase 3:** it's a plain library for now, under the workspace lints. The wasm-bindgen module (a `cdylib`), its own lint table (§6.5: wasm-bindgen generates `unsafe` code), which chat opens first, the browser time zone and the poster match (§6.4) all come with the shell. *(Phase 3, D114: the `cdylib` and the time zone are done; no lint table of its own was needed; nothing opens first, as in the terminal (D60); the poster match waits for the poster.)*
+
+### D113. Store effects and messaging commands run through shared code — Judgement (M13 Phase 3, 2026-10-11)
+
+- **Why:** the web demo needs the terminal app's store worker and backend command task. Two copies would drift, as the two store engines would without their shared tests (D110).
+- **Decision:**
+  - **`faro_app::app::storage::execute(&Store, Effect) -> Option<AppEvent>`** does every store effect: loads, search, receipts, writes, and the `app_state` keys `ui.last_open_conversation` and `ui.recent_reactions`. A failure is logged and returned as `AppEvent::StoreFailed`; a non-store effect is dropped with an error in the log. Moved unchanged from `crates/faro/src/app/effects.rs`.
+  - **`faro_app::app::commands::execute(&B: Backend, Command) -> Option<AppEvent>`** does send, react, edit, delete for everyone, read receipts and typing. `Fetch` and `Transcribe` return `None`: each platform does those itself (files and processes natively, memory in the browser, D117). The binary copies outgoing attachments into `attachments/` first, then calls it.
+  - **`update::affects_view`** (whether an event costs a frame) moved out of the binary's `app.rs`, so both loops redraw on the same events.
+  - **Not shared:** the worker loops themselves (about ten lines each: receive, execute, send the result). The binary runs them on tokio, the web demo with `rt::spawn`, and faro-app stays free of tokio (D111's architecture test).
+
+### D114. The web shell: a session, one event loop, listeners that only post — Judgement (M13 Phase 3, 2026-10-11)
+
+- **Why:** WEBSITE.md §6.2: the browser's version of `app::run`, drawing on `requestAnimationFrame` and only when something changed.
+- **Decision:**
+  - **`session.rs`, the parts without the page:** `Session::start` wires the mock as visitors get it (`visitor_mock()`: seed 42, default activity, no outages or errors, D-b), `Store::memory()`, `State` with `Profile::Demo`, the browser's environment (native block glyphs, half-block images, truecolour, `EmojiMode::Exact` (D118)), the store worker and command task (D113), and the demo config (D116). Then it asks for the chat list. Nothing opens by itself: the visitor starts on the logo screen, as in the terminal (D60). Nothing here touches the DOM, so the whole pipeline is tested natively: open a chat and send, copy and the files notice, voice notes.
+  - **`live.rs`, the loop:** one `select!` over page input, backend events, worker results, the next animation frame (requested only when dirty), the reducer's `next_deadline()` (`Tick`) and the logo timer. The timer runs only while the last frame drew the logo moving, the same rule as `app::logo_frame` (D61). `ui::render` draws into `CanvasBackend`, which remembers the rows that changed, and the painter repaints only those (D106). The parent's size comes from a `ResizeObserver`: the grid is refitted, the font measured again if the device pixel ratio changed, and ratatui's last frame forgotten. faro's window title becomes `document.title` (the page's own when faro has none). The last 256 frame times are kept (`Timings`, D119).
+  - **`dom.rs`, the listeners:** they read the event, send `live::Input` down a channel, and never borrow the state. A `focus()` call made from Rust makes the browser dispatch events at once, which would find the state borrowed. The one exception is the keydown chord check (D116), which uses `try_borrow` and gives faro the key if the state is busy. **Every listener is non-passive:** a passive listener's `preventDefault` is ignored, so Tab would move the page's focus and the wheel would scroll the page. The wheel is faro's only while the canvas has the focus. Paste is heard on the document and taken when the canvas is the active element. The context menu is suppressed, and the canvas gets `tabindex="0"`.
+  - **`input.rs`, pure DOM-to-faro mapping (tested natively):** `key` names, `Shift+Tab` as `BackTab`, F1–F24. Alt chords, and Ctrl chords whose character isn't ASCII, are read from `code` as on a US layout, because macOS turns Option+letter into another character (`Option+J` is `∆`). Mouse buttons, drags and the cell under a point. Wheel deltas become scroll steps (50 CSS pixels per step; line and page modes scaled).
+  - **`web.rs`, what the page calls:** `start(canvas, font, size, columns, rows)`, where `0` means fill the parent, returns a `Demo`; `free()` stops it. Measuring and test hooks: `draw`, `frame`, `repaint`, `inspect`, `timings`, `text`. The canvas fires `faro-bell` and `faro-exit`.
+  - **wasm32-only:** `dom`, `live`, `media`, `paint` and `web`. They need the page, and their tasks aren't `Send`, which `rt::spawn` requires natively.
+  - **Lints:** faro-web stays under the workspace lints. wasm-bindgen's generated glue doesn't trip `forbid(unsafe_code)`, so the separate lint table planned in WEBSITE.md §6.5 and D112 wasn't needed.
+  - **Time zone:** the visitor's UTC offset when the demo starts (`getTimezoneOffset`), fixed for the visit. jiff's time zone database would add hundreds of kilobytes to a demo with made-up dates.
+  - **No logging in the browser yet:** faro-web installs no `tracing` subscriber, so `tracing` calls go nowhere. §6.2 planned the console in debug builds.
+
+### D115. Effects in the browser go to the page, or become a notice — Judgement (M13 Phase 3, 2026-10-11)
+
+- **Why:** WEBSITE.md §4.8: what a browser can't do must say so plainly and never leave the UI waiting.
+- **Decision:** `router.rs` (`Router::dispatch`):
+  - Store effects go to the store worker and `Effect::Backend` to the command task.
+  - `CheckTerminal` is answered at once with `BROWSER`: no mosh, block glyphs drawn natively, half-block images, not kitty.
+  - `SaveSetting` and `DesktopNotify` are dropped: settings last for the visit (D-c).
+  - `Copy` uses `navigator.clipboard.writeText`; if the browser refuses, a notice says so. Copying a demo attachment's path gets the notice instead, because the path means nothing outside the demo.
+  - `OpenUrl` opens only `http(s)` links, in a new tab with `noopener,noreferrer`; anything else is `OpenFailed`.
+  - `Bell` fires `faro-bell` on the canvas, and the page decides how it looks (the test page flashes the panel's border).
+  - `CheckPaste` keeps a pasted path as text.
+  - `PlayAudio` and `StopAudio` go to Web Audio (D117).
+  - `OpenFile`, `SaveToDownloads`, `ListFiles`, `StageFile` and `ReadClipboardImage` answer `AppEvent::Unavailable` with "Not in the web demo: try it in your terminal".
+- **`AppEvent::Unavailable(String)`** (new in faro-app): a warning notice that also closes the file picker (`Level::AttachFile`) and clears a pending clipboard read (`State::pasting`), so nothing waits for an answer that won't come. The terminal app never sends it.
+- **A `Page` trait** (`copy`, `open`, `bell`, `play`, `stop`) stands between the router and the DOM (`dom::CanvasPage`), so the router is tested natively with a fake page.
+
+### D116. The demo's settings and keys, and quitting it — Judgement (M13 Phase 3, 2026-10-11)
+
+- **Why:** WEBSITE.md §4.3: the browser keeps some chords, and faro must not bind or advertise them.
+- **Decision:**
+  - **`demo.toml`**, compiled into the module (`include_str!`) and read by faro's own config parser (a test checks it has no problems):
+    - `[voice] transcribe = "local"`, which here means the canned transcripts (D117);
+    - `ctrl+w` unbound in the input, since it closes the tab (Alt+Backspace and Ctrl+Backspace still delete a word);
+    - `ctrl+v` unbound globally: the browser's paste event brings the text, and clipboard images are a terminal feature (D91).
+
+    Bindings that go to `none` also drop out of the hints.
+  - **Settings last for the visit (D-c):** `SaveSetting` is dropped (D115), and nothing goes to `localStorage`.
+  - **Who gets a key:**
+    - The browser always keeps some chords (`input::route`): Cmd/Win shortcuts, F5/F11/F12, Shift+Insert, Ctrl+V, Ctrl+Shift+I/J/C/R, the zoom keys, and Ctrl+W/T/N/Tab.
+    - Keys without Ctrl or Alt are faro's while the canvas has the focus.
+    - Any other Ctrl or Alt chord is faro's only if faro does something with it right now: the palette, a popup, or the focused pane's bindings (`keys::takes`). Otherwise reload, history and the like keep working.
+  - **Quitting (`Ctrl+Q`):** the loop draws the last frame, stops, and fires `faro-exit`. The page frees the demo and offers to start a fresh one (§4.5). The test page is `crates/faro-web/www/index.html`.
+
+### D117. Attachments, images, voice notes and transcripts in memory — Judgement (M13 Phase 3, 2026-10-11)
+
+- **Why:** the demo's cast sends photos, stickers and voice notes, and the browser has no file system, processes or speech recognition (WEBSITE.md §4.8).
+- **Decision:**
+  - **`Blobs`:** a downloaded attachment's bytes stay in memory under a made-up path (`/faro-demo/<sender>-<sent at>-<index>`), given to the app as `AttachmentStatus::Downloaded(path)`, so the shared code treats it like a file. The command task does `Fetch` itself: the mock's bytes, and a voice note's duration and waveform from `audio::inspect_wav`.
+  - **Images:** half-blocks, with the browser doing the decoding and scaling (`createImageBitmap` at high resize quality, drawn to a scratch canvas, read back with `getImageData`). That keeps image codecs out of the wasm module; §6.2 planned the `image` crate. `images::Images` implements `ImageCache` (32 images kept, oldest dropped first; 256-colour mapping as natively). Decodes come back to the loop as `live::Input::Decoded`.
+  - **Voice notes:** Web Audio (`media::Audio`), one at a time. A generation counter makes sure a note still decoding never starts after a stop or a newer play. The `AudioContext` is resumed on play, for browsers that suspend it until the visitor interacts.
+  - **Transcripts:** `TranscriptSource::Demo` (drawn `[demo]`), with a canned text for each mock voice note (Michael's and Andy's). There's no speech recognition and nothing is sent anywhere. It's in faro-core's domain and the store codec, but SQLite's `CHECK` constraint (`0007_voice_notes.sql`) doesn't allow `demo`. Only the memory store sees it, since the terminal app never produces it.
+
+### D118. `EmojiMode::Exact` for renderers that draw each cell — Judgement (M13 Phase 3, 2026-10-11)
+
+- **Why:** full emoji mode works around tmux (D55): it splits flags that touch, drops skin tones on bases tmux can't join, and keeps joining cells apart. The canvas draws each grapheme in exactly the cells faro gave it, so those workarounds would only damage the text.
+- **Decision:**
+  - **The mode:** `EmojiMode::Exact`, chosen when `EmojiSetting::exact` is set (the renderer draws cells itself). `EmojiSetting::full()` returns `Exact` there, so `auto` and `[ui] emoji = "full"` both arrive at it. `compatible` stays compatible.
+  - **What Exact keeps:** VS16 added where it's missing (a browser draws ✌ as a wide colour emoji whatever its width says), half flags as letters, loose joiners trimmed, the cut-wide repair and the pinned wide cells.
+  - **What Exact drops:** the tmux joining rules (`tmux_joins`, `separate_joining_cells`) and the skin-tone rewrite.
+  - **Tests:** `exact_mode_keeps_what_tmux_would_break`. The terminal app sets `exact: false`, so its behaviour and snapshots are unchanged.
+- **Differs from §6.2's "only the cut-wide repair":** the presentation and half-flag fixes are about the text itself, not the terminal, so they stay.
+
+### D119. The web demo's size and speed, and how they're checked — Judgement (M13 Phase 3, 2026-10-11; size re-measured 2026-10-12)
+
+- **Size**, measured on a release build of `9c7db9d` without `wasm-opt`:
+  - `faro_web_bg.wasm` is 2,869,008 bytes: **1,018,339 gzipped** (`-9`) and about 746 KB with brotli `-q 11`. The budget is 1.5 MB compressed (§6.6), so it passes.
+  - In Phase 3 testing, `wasm-opt -Oz` made the gzipped file slightly *larger*. `build.sh` still runs it when it's installed; CI doesn't install it, so the budget is checked without it.
+- **CI:** the wasm32 job builds the module with `build.sh`, using wasm-bindgen-cli at the `Cargo.lock` version (`taiki-e/install-action`), and fails above 1,572,864 bytes gzipped. It hasn't been seen green yet: GitHub refused to start the jobs over billing.
+- **Frame time** (budget: under 4 ms, §6.6), 1280×760 at device pixel ratio 2, on the logo screen:
+  - **Debian, headless Chrome, software rendering:** live frames p50 2.7 ms, p95 8.3 ms; a whole frame from scratch 4.5–7.9 ms.
+  - **Apple M1, headless Chrome** (`shot.mjs …?bench`, 2026-10-12): a whole frame from scratch averaged 2.14 ms (p95 2.3, max 2.7); repainting every row averaged 1.4 ms (p95 1.7).
+  - **Result:** within the budget with a GPU. Under software rendering it holds at p50 but not at p95.
+  - **While idle,** nothing is drawn: frames are requested only when dirty, and the logo timer runs only while the logo moves.
+- **Deferred:**
+  - **Batching text runs in the painter:** it draws one `fillText` per cell today. Batching would let JetBrains Mono's ligatures join characters across cells.
+  - **Measuring live frames on a mid-range laptop** in each browser: that's part of the owner's checks (MANUAL_TESTS "Web demo").
+- **How to measure:**
+  - Build: `crates/faro-web/build.sh`, then `python3 crates/faro-web/tools/bundle.py` writes `www/dist/demo.html`.
+  - Headless: `CHROME=<browser> node crates/faro-web/tools/shot.mjs '<url>?bench' out.png` prints `window.bench()` (`repaint` and `frame`).
+  - Live frames: `demo.timings()` gives the last 256 frames' p50, p95 and max, split into render and paint.

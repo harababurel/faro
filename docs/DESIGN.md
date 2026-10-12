@@ -81,8 +81,8 @@ crates/
   faro-app/        # library: state, reducer, key map, palette, themes, rendering (shared with the web, D111)
   faro-core/       # domain types, Backend trait, events, store (SQLite or memory), config, theme files
   faro-presage/    # Backend impl on presage (heavy deps isolated here; added in M7)
-  faro-web/        # the web demo (M13): a stub until Phase 3
-.github/workflows/ci.yml   # fmt, clippy, test on Linux + macOS; wasm32 builds of faro-core, faro-app, faro-web
+  faro-web/        # the web demo (M13): the mock + memory store + faro-app in a <canvas> (wasm-bindgen cdylib, Canvas 2D renderer; D106, D113–D119)
+.github/workflows/ci.yml   # fmt, clippy, test on Linux + macOS; wasm32 lints of faro-core, faro-app, faro-web; the demo's wasm built and held to 1.5 MB gzipped
 Cargo.toml         # workspace metadata and shared lints (D25, D27, D28)
 clippy.toml        # banned blocking calls, test relaxations (D28)
 rust-toolchain.toml        # pinned Rust version
@@ -100,6 +100,18 @@ AGENTS.md          # onboarding for coding agents
 A **mock backend** lives in `faro-core` (`src/mock.rs`, `src/mock/`) and is always compiled in; users meet it as **`faro demo`** (D87), and tests use it directly. The demo runs in its own data directory (`<temp>/faro-demo-<uid>`, `--dir`, `--fresh`), never the real one: layered guards (a `.faro-demo` marker, ownership and symlink checks, no overlap with the real data dir or `FARO_DATA_DIR`, and a `profile` marker in each database checked by both demo and real runs) keep demo and real data apart. It shares only the config file. The cast is an affectionate parody of *The Office* (D88): you are the unnamed new temp at the Scranton branch, and coworkers, a Japanese supplier, a client in Cairo and Kelly's mom talk in written scenes (`mock/cast.rs`, `mock/scenes.rs`, attachments in `mock/assets.rs`), chosen so every UI stress case (very long names, a nameless contact, ZWJ emoji and skin tones, flags, right-to-left text, CJK, Devanagari, combining marks, multi-line and long messages, links, photos, stickers, voice notes, edits, deletes, replies, mentions, many quiet conversations) still appears; tests enforce that coverage. A backlog of whole scenes arrives on connect, then seeded live activity continues scenes and adds replies, reactions, edits, deletes, sync messages, outages and errors. With a fixed seed and tokio's paused clock its event sequence is deterministic (D31). `faro demo --seed` picks the scene order, `--activity <ms>` its pace, and `--no-faults` turns off scripted outages and errors (for flood tests, D35).
 
 Inside `crates/faro-app` (D111): `app/` (state, reducer, key map, palette, input, in-memory timeline, `AppEvent`/`Effect`, faro's own terminal event types, the `ImageCache` trait), `theme.rs` + `theme/`, and `ui.rs` + `ui/` (pure rendering from `State`) (D35). It builds for wasm32 and must stay free of the terminal, the file system, processes and SQLite; `tests/architecture.rs` checks its manifest. Inside `crates/faro`: `app.rs` (event loop; it re-exports faro-app's modules under `app::`), `app/` (effects worker, backend command task, clipboard, system, the ratatui-image cache), `tui.rs` + `tui/` (terminal setup and restore, crossterm events converted to faro's), config file I/O, CLI. `faro-core`'s `rt` gives the store, the mock and the guard their clock and tasks on either target, and its store serves the same requests from SQLite (the `sqlite` feature, on by default for the binary) or from memory (D110).
+
+Inside `crates/faro-web` (M13, WEBSITE.md §6.2):
+- **`session.rs`:** the mock, `Store::memory()`, `State` and the two workers. They share their store and command code with the binary (D113), and the whole pipeline is tested natively.
+- **`live.rs`:** the event loop. It draws on `requestAnimationFrame`, and only when something changed.
+- **`dom.rs` and `input.rs`:** DOM listeners that only post events, and a pure mapping from DOM events to faro's terminal events.
+- **`router.rs`:** effects go to the page (clipboard, links, bell, Web Audio) or become a "not in the web demo" notice (D115).
+- **`keys.rs` + `demo.toml`:** the demo's settings, and which chords stay the browser's (D116).
+- **`blobs.rs`, `images.rs`, `media.rs`:** attachments in memory, half-block images decoded by the browser, and Web Audio (D117).
+- **`backend.rs`, `paint.rs`, `glyphs.rs`:** the Canvas 2D renderer (D106).
+- **`web.rs`:** the wasm-bindgen API.
+
+The demo draws emoji with `EmojiMode::Exact` (D118).
 
 ## 5. Backend interface
 

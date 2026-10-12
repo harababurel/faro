@@ -440,6 +440,14 @@ What it replaces:
 | `tui.rs`, `tui/backend.rs`, tmux and mosh workarounds | Not used. A web emoji mode keeps only the "cut wide character" repair, not the tmux-specific rewrites |
 | `logging.rs` file logs | Browser console in debug builds, nothing in release |
 
+**As built (Phase 3, D113–D118):** the shell is `crates/faro-web`. It differs from the table above in these ways:
+- **`term_event`:** faro's own types on both targets (D111).
+- **Store effects and messaging commands:** run by shared code in faro-app (D113).
+- **Images:** decoded and scaled by the browser (`createImageBitmap`), not the `image` crate (D117).
+- **Settings:** last for the visit only; nothing goes to `localStorage` (D116).
+- **Emoji:** the new `Exact` mode keeps a little more than the cut-wide repair (D118).
+- **Logging:** none yet; no `tracing` subscriber is installed (D114).
+
 ### 6.3 Rendering
 
 - faro already draws through ratatui's `Backend` trait, so the web needs a backend that paints cells onto a `<canvas>`.
@@ -488,7 +496,7 @@ These follow the existing rules: lints, no blocking calls, decisions recorded, q
    - jiff with the browser time zone on wasm.
 4. **`faro-web`:**
    - the shell, renderer, web router, Web Audio and the embedded demo config with web keybindings;
-   - a lint table of its own, because `wasm-bindgen` generates `unsafe` code;
+   - ~~a lint table of its own, because `wasm-bindgen` generates `unsafe` code~~: not needed. wasm-bindgen's glue doesn't trip `forbid(unsafe_code)`, so faro-web stays under the workspace lints (D114);
    - D28's no-panic and no-print rules still apply to faro-web's own code.
 5. **CI:**
    - a `wasm32` build job;
@@ -800,6 +808,16 @@ Each phase ends with something usable. Estimates assume one developer working se
 - the M4/M12 hands-on checklist items that make sense in a browser pass;
 - frame time is < 4 ms;
 - wasm is ≤ 1.5 MB compressed.
+
+**Code done (2026-10-11), as built in D113–D119; closed by the owner's browser checks** (MANUAL_TESTS "Web demo", in Chrome, Firefox and Safari).
+- **Size:** the wasm is 1.02 MB gzipped and about 746 KB with brotli. CI fails the build above 1.5 MB gzipped.
+- **Frame time:** a whole frame from scratch averages 2.1 ms on an Apple M1 in headless Chrome. Under software rendering in headless Chrome on Debian, live frames are 2.7 ms at p50 and 8.3 ms at p95, so the < 4 ms target holds with a GPU but not at p95 without one (D119).
+
+Differences from the list above:
+- **Phase 4 items already in place:** the quit → restart overlay is on the test page (`crates/faro-web/www/index.html`). The bell flash is the page's job, via a `faro-bell` event.
+- **Not done:** a console logger.
+- **Deferred:** batching text runs in the painter (D119).
+- **Not used in CI:** `wasm-opt -Oz`, which made the gzipped module slightly larger. `build.sh` still runs it when it's installed.
 
 ### Phase 4: the demo on the page (4–6 days)
 
