@@ -15,10 +15,16 @@ workspace = true
 # may pull in faro-presage, crossterm, notify or anything that needs
 # protoc/cmake/libsignal. tokio is already in the tree through faro-core
 # (its runtime shim); the poster build uses that same runtime, nothing more.
+# resvg (the OG image rasteriser, §6.4) is pure Rust with no system-font
+# feature: the generator loads only the fonts bundled under fonts/.
 [dependencies]
 faro-app.workspace = true
 faro-core.workspace = true
 faro-web.workspace = true
 ratatui = { version = "0.30.2", default-features = false, features = ["std", "layout-cache", "underline-color"] }
+resvg = { version = "0.48.1", default-features = false, features = ["text"] }
+# Only for the OG image's glyph coverage check (scene.rs); already in the
+# tree through resvg → usvg, so it costs no extra compilation.
+skrifa = "0.44"
 sha2 = "0.11"
 tokio = { version = "1.53.2", default-features = false, features = ["rt", "time"] }

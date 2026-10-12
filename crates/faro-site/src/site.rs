@@ -19,16 +19,8 @@ use crate::release;
 use crate::scene;
 use crate::themes;
 
-/// The OG image URL when `generated/og.png` doesn't exist yet (§5.4): the
-/// meta tag must never be empty, and chunk 4b will put a real `og.png` at
-/// that path.
-const OG_FALLBACK_URL: &str = "https://getfaro.dev/og.png";
-
 /// Font extensions: these get content-hashed names like CSS and JS do.
 const FONT_EXTS: [&str; 4] = ["woff", "woff2", "ttf", "otf"];
-
-/// The OG image as `(url to put in the meta tag, file to copy if any)`.
-type Og = (String, Option<(String, Vec<u8>)>);
 
 /// What happens to a template file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -50,10 +42,9 @@ pub fn generate(template: &Path, out: &Path) -> Result<(), String> {
     walk(template, "", &mut found)?;
     let contents: BTreeMap<String, Vec<u8>> = found.into_iter().collect();
 
-    let generated = template.join("..").join("generated");
-    let (og_url, og_copy) = og_image(&generated)?;
-    let posters = scene::render()?;
-    let values = values(&posters, og_url)?;
+    let art = scene::render()?;
+    let og_name = assets::hashed_name("og.png", &assets::hash_prefix(&art.og_png));
+    let values = values(&art.posters, format!("https://getfaro.dev/{og_name}"))?;
 
     // Hashed assets, in dependency order: fonts (content unchanged), then
     // CSS (hashed after its font URLs are rewritten), then JS.
@@ -126,9 +117,7 @@ pub fn generate(template: &Path, out: &Path) -> Result<(), String> {
             written.insert(rel.clone(), bytes.clone());
         }
     }
-    if let Some((name, bytes)) = og_copy {
-        written.insert(name, bytes);
-    }
+    written.insert(og_name, art.og_png);
 
     for (rel, bytes) in &written {
         let path = out.join(rel);
@@ -166,17 +155,6 @@ fn fill(rel: &str, text: &str, values: &Values, syntax: Syntax) -> Result<String
         let list: Vec<String> = problems.iter().map(ToString::to_string).collect();
         format!("{rel}: {}", list.join("; "))
     })
-}
-
-/// The OG image: hashed and copied when `generated/og.png` exists, plain
-/// URL and no copy otherwise (§5.4).
-fn og_image(generated: &Path) -> Result<Og, String> {
-    if let Some(bytes) = read_optional(&generated.join("og.png"))? {
-        let name = assets::hashed_name("og.png", &assets::hash_prefix(&bytes));
-        Ok((format!("https://getfaro.dev/{name}"), Some((name, bytes))))
-    } else {
-        Ok((OG_FALLBACK_URL.to_owned(), None))
-    }
 }
 
 /// Copy `dir` and everything under it into `files` as `(site-relative
@@ -260,14 +238,6 @@ fn utf8(rel: &str, bytes: &[u8]) -> Result<String, String> {
     std::str::from_utf8(bytes)
         .map(str::to_owned)
         .map_err(|_| format!("{rel} is not valid UTF-8"))
-}
-
-fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, String> {
-    match fs::read(path) {
-        Ok(bytes) => Ok(Some(bytes)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(io_err("read", path, &error)),
-    }
 }
 
 fn io_err(action: &str, path: &Path, error: &std::io::Error) -> String {
@@ -355,9 +325,8 @@ mod tests {
             .expect("index.html");
         assert!(index.contains(&format!("v{}", env!("CARGO_PKG_VERSION"))));
         assert!(index.contains("<kbd>Ctrl+P</kbd>"));
-        // The poster is rendered by the generator itself (chunk 4a): both
-        // schemes inline. The OG image still falls back until chunk 4b
-        // writes `site/generated/og.png`.
+        // The poster and the OG image are rendered by the generator itself
+        // (chunk 4a/4b): both schemes inline, the PNG hashed like any asset.
         assert!(
             index.contains(r#"class="poster-dark""#),
             "the dark poster is inline"
@@ -370,9 +339,12 @@ mod tests {
             index.contains("Scranton Branch"),
             "the poster shows the branch chat"
         );
-        if !template.join("../generated/og.png").exists() {
-            assert!(index.contains(OG_FALLBACK_URL));
-        }
+        let og = names
+            .iter()
+            .find(|name| name.starts_with("og.") && has_ext(name, "png"))
+            .expect("the hashed OG image");
+        assert!(!names.contains(&"og.png"));
+        assert!(index.contains(&format!("https://getfaro.dev/{og}")));
 
         // Hashed names replaced the plain ones, and the page points at them.
         assert!(!names.contains(&"style.css"));
