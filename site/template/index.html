@@ -8,9 +8,11 @@
                   the row shape is shown in the comment next to the table
     {{themes}}    theme chip buttons for the demo panel (§4.5); the row is
                   hidden until the live demo exists (Phase 4)
-    {{poster}}    the poster as inline SVG markup (a real faro frame rendered
-                  at build time, §6.4): selectable text, readable by screen
-                  readers, follows the page theme; inserted inside .frame
+    {{poster}}    the poster as two inline SVGs of the same real faro frame
+                  (rendered by the generator at build time, §6.4): one in a
+                  .poster-dark wrapper, one in .poster-light; the CSS shows
+                  only the one matching the page's scheme. Real text:
+                  selectable, readable by screen readers, crisp at any zoom.
     {{og_image}}  absolute URL of the 1200x630 OG PNG (§5.4)
 
   Asset references (style.css, theme.js, site.js, js/init.js, fonts/) stay
@@ -102,10 +104,12 @@
     <h2 id="demo-title" class="sr-only">faro on screen</h2>
     <figure class="panel">
       <div class="frame">
-        <!-- {{poster}}: inline <svg> with a <title> describing the frame, e.g.
-             "faro running in a terminal: the conversation list on the left,
-             the Scranton Branch group chat open on the right, an input box
-             below, and a footer reading connected · demo · unread". -->
+        <!-- {{poster}}: two inline <svg>s of one frame, wrapped in
+             .poster-dark and .poster-light; each carries a <title>
+             describing the frame: "faro running in a terminal: the
+             conversation list on the left, the Scranton Branch group chat
+             open on the right, an input box below, and a footer reading
+             connected · demo · unread". Only one is shown (style.css). -->
 {{poster}}
       </div>
       <figcaption>
@@ -308,7 +312,7 @@ cargo build --release          <span class="cmt"># binary: target/release/faro</
        required for the WebAssembly demo once it ships (WEBSITE.md §3.9). -->
   <p>faro is an independent project, not affiliated with, endorsed by, or supported by Signal Messenger LLC or the Signal Technology Foundation.</p>
   <p>The demo&rsquo;s cast is an affectionate parody of characters from NBC&rsquo;s <em>The Office</em>; faro is not affiliated with NBCUniversal.</p>
-  <p>No cookies. Visitor numbers come from cookieless analytics on our own server (<a href="/privacy">Privacy</a>). This page is one HTML file, one stylesheet and a little JavaScript: under 60 KB of HTML, CSS and JavaScript uncompressed, and it makes no third-party requests.</p>
+  <p>No cookies. Visitor numbers come from cookieless analytics on our own server (<a href="/privacy">Privacy</a>). This page is one HTML file, one stylesheet and a little JavaScript — the inline posters included, under 40 KB compressed — and it makes no third-party requests.</p>
 </footer>
 
 <script defer src="site.js"></script>

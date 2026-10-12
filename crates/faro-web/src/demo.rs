@@ -11,7 +11,7 @@ use faro_app::app::update::update;
 use faro_app::theme::Theme;
 use faro_app::ui::{self, View};
 use faro_core::backend::{Backend as _, BackendEvent, BackendEvents};
-use faro_core::domain::ConnectionState;
+use faro_core::domain::{ConnectionState, ConversationId};
 use faro_core::mock::{DETERMINISTIC_EPOCH, MockBackend, MockConfig};
 use faro_core::rt;
 use faro_core::store::Store;
@@ -40,12 +40,27 @@ pub async fn first_frame(width: u16, height: u16) -> Result<Buffer, Error> {
 /// loaded and the newest chat open. (Which chat the real demo opens is still
 /// to be decided.)
 pub async fn first_state() -> Result<State, Error> {
-    let (backend, events) = MockBackend::new(&MockConfig {
+    let (mut state, store) = stored_state(&MockConfig {
         activity: None,
         disconnects: false,
         errors: false,
         ..MockConfig::deterministic(SEED)
-    });
+    })
+    .await?;
+    // Open the newest chat, as a visitor pressing Enter would.
+    if let Some(newest) = state.highlighted() {
+        open(&mut state, &store, newest).await?;
+    }
+    store.close().await?;
+    Ok(state)
+}
+
+/// The same with `mock`, and nothing open: the store stays open so the
+/// caller can open a conversation of its own the way the app does (the site
+/// poster, §6.4). Keep the mock deterministic (`MockConfig::deterministic`,
+/// no activity) if the frame has to repeat.
+pub async fn stored_state(mock: &MockConfig) -> Result<(State, Store), Error> {
+    let (backend, events) = MockBackend::new(mock);
     let me = backend.whoami().await?.service_id;
     let contacts = backend.contacts().await?;
     let groups = backend.groups().await?;
@@ -71,20 +86,26 @@ pub async fn first_state() -> Result<State, Error> {
         &mut state,
         AppEvent::Backend(BackendEvent::Connection(ConnectionState::Connected)),
     );
-    // Open the newest chat, as a visitor pressing Enter would.
-    if let Some(newest) = state.highlighted() {
-        let enter = Event::Key(KeyEvent::from(KeyCode::Enter));
-        update(&mut state, AppEvent::Terminal(enter));
-        update(
-            &mut state,
-            AppEvent::MessagesLoaded {
-                conversation: newest,
-                messages: store.messages(newest, None, 200).await?,
-            },
-        );
-    }
-    store.close().await?;
-    Ok(state)
+    Ok((state, store))
+}
+
+/// Open `conversation` and load its history from `store`, as a visitor
+/// pressing Enter on it in the chat list would.
+pub async fn open(
+    state: &mut State,
+    store: &Store,
+    conversation: ConversationId,
+) -> Result<(), Error> {
+    let enter = Event::Key(KeyEvent::from(KeyCode::Enter));
+    update(state, AppEvent::Terminal(enter));
+    update(
+        state,
+        AppEvent::MessagesLoaded {
+            conversation,
+            messages: store.messages(conversation, None, 200).await?,
+        },
+    );
+    Ok(())
 }
 
 /// Everything the mock delivers on connecting: it says `Connected`, then
@@ -112,8 +133,14 @@ async fn backlog(mut events: BackendEvents) -> Vec<BackendEvent> {
     backlog
 }
 
-fn draw(state: &State, width: u16, height: u16) -> Buffer {
-    let theme = Theme::default();
+/// Draw `state` into a `width × height` buffer: the theme its config names
+/// (resolved the way the app loop resolves it), the deterministic clock and
+/// the still logo frame, so the picture is byte-identical across runs and
+/// days. The first frame and the site poster both come through here.
+pub fn draw(state: &State, width: u16, height: u16) -> Buffer {
+    let theme = Theme::find(state.theme_name(), &state.user_themes)
+        .cloned()
+        .unwrap_or_default();
     let tz = jiff::tz::TimeZone::UTC;
     let now = i64::try_from(DETERMINISTIC_EPOCH.as_millis())
         .ok()

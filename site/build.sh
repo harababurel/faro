@@ -2,11 +2,12 @@
 # Build getfaro.dev into <out dir> (called by site/deploy/update.sh).
 #
 # M13 Phase 1: `faro-site` fills site/template from faro's own code —
-# version, date, key table, theme chips, and the poster / OG image from
-# site/generated/ when it exists — and content-hashes the asset names
-# (WEBSITE.md §6.1). Text files get precompressed .gz twins for nginx's
-# gzip_static, and .br twins when brotli is installed (nginx serves those
-# only once it has the brotli module; see site/deploy/README.md).
+# version, date, key table, theme chips, the poster (rendered by the
+# generator itself, §6.4) and the OG image from site/generated/ when it
+# exists — and content-hashes the asset names (WEBSITE.md §6.1). Text files
+# get precompressed .gz twins for nginx's gzip_static, and .br twins when
+# brotli is installed (nginx serves those only once it has the brotli
+# module; see site/deploy/README.md).
 set -euo pipefail
 
 out=${1:?usage: site/build.sh <out dir>}

@@ -1284,7 +1284,10 @@ version = "0.1.0-dev"
 dependencies = [
  "faro-app",
  "faro-core",
+ "faro-web",
+ "ratatui",
  "sha2 0.11.0",
+ "tokio",
 ]
 
 [[package]]

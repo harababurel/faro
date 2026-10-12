@@ -10,8 +10,8 @@
 mod assets;
 mod keys;
 mod placeholders;
-mod poster;
 mod release;
+mod scene;
 mod site;
 mod themes;
 

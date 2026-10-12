@@ -15,12 +15,12 @@ use faro_app::app::keymap::Keymap;
 use crate::assets;
 use crate::keys;
 use crate::placeholders::{self, Problem, Syntax, Values};
-use crate::poster;
 use crate::release;
+use crate::scene;
 use crate::themes;
 
 /// The OG image URL when `generated/og.png` doesn't exist yet (§5.4): the
-/// meta tag must never be empty, and chunk 4 will put a real `og.png` at
+/// meta tag must never be empty, and chunk 4b will put a real `og.png` at
 /// that path.
 const OG_FALLBACK_URL: &str = "https://getfaro.dev/og.png";
 
@@ -52,8 +52,8 @@ pub fn generate(template: &Path, out: &Path) -> Result<(), String> {
 
     let generated = template.join("..").join("generated");
     let (og_url, og_copy) = og_image(&generated)?;
-    let poster = poster_text(&generated)?;
-    let values = values(poster, og_url)?;
+    let posters = scene::render()?;
+    let values = values(&posters, og_url)?;
 
     // Hashed assets, in dependency order: fonts (content unchanged), then
     // CSS (hashed after its font URLs are rewritten), then JS.
@@ -141,8 +141,14 @@ pub fn generate(template: &Path, out: &Path) -> Result<(), String> {
 }
 
 /// Every value the template's placeholders can name.
-fn values(poster: String, og_url: String) -> Result<Values, String> {
+fn values(posters: &scene::Posters, og_url: String) -> Result<Values, String> {
     let keymap = Keymap::default();
+    // Both posters inline, each in a wrapper the CSS shows or hides per the
+    // page's scheme (style.css `.poster-dark` / `.poster-light`, §3.2).
+    let poster = format!(
+        "<div class=\"poster-dark\">{}</div><div class=\"poster-light\">{}</div>",
+        posters.dark, posters.light
+    );
     let entries: [(&'static str, String); 6] = [
         ("version", release::version()),
         ("date", release::date()?),
@@ -160,16 +166,6 @@ fn fill(rel: &str, text: &str, values: &Values, syntax: Syntax) -> Result<String
         let list: Vec<String> = problems.iter().map(ToString::to_string).collect();
         format!("{rel}: {}", list.join("; "))
     })
-}
-
-/// The poster: chunk 3's `generated/poster.svg` when it exists, the
-/// built-in fallback otherwise.
-fn poster_text(generated: &Path) -> Result<String, String> {
-    if let Some(bytes) = read_optional(&generated.join("poster.svg"))? {
-        utf8("generated/poster.svg", &bytes)
-    } else {
-        Ok(poster::FALLBACK.to_owned())
-    }
 }
 
 /// The OG image: hashed and copied when `generated/og.png` exists, plain
@@ -359,11 +355,21 @@ mod tests {
             .expect("index.html");
         assert!(index.contains(&format!("v{}", env!("CARGO_PKG_VERSION"))));
         assert!(index.contains("<kbd>Ctrl+P</kbd>"));
-        // The poster and the OG image fall back until chunk 3/4 writes
-        // `site/generated/`; then the real ones must show up instead.
-        if !template.join("../generated/poster.svg").exists() {
-            assert!(index.contains("poster coming soon"));
-        }
+        // The poster is rendered by the generator itself (chunk 4a): both
+        // schemes inline. The OG image still falls back until chunk 4b
+        // writes `site/generated/og.png`.
+        assert!(
+            index.contains(r#"class="poster-dark""#),
+            "the dark poster is inline"
+        );
+        assert!(
+            index.contains(r#"class="poster-light""#),
+            "the light poster is inline"
+        );
+        assert!(
+            index.contains("Scranton Branch"),
+            "the poster shows the branch chat"
+        );
         if !template.join("../generated/og.png").exists() {
             assert!(index.contains(OG_FALLBACK_URL));
         }

@@ -23,6 +23,7 @@ faro-app = { path = "crates/faro-app" }
 # web demo uses the in-memory store (M13).
 faro-core = { path = "crates/faro-core", default-features = false }
 faro-presage = { path = "crates/faro-presage" }
+faro-web = { path = "crates/faro-web" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

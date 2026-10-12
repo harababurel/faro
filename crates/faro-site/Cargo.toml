@@ -12,9 +12,13 @@ publish.workspace = true
 workspace = true
 
 # The server builds this with rustup alone (WEBSITE.md §6.8): nothing here
-# may pull in faro-presage, crossterm, tokio, notify or anything that needs
-# protoc/cmake/libsignal.
+# may pull in faro-presage, crossterm, notify or anything that needs
+# protoc/cmake/libsignal. tokio is already in the tree through faro-core
+# (its runtime shim); the poster build uses that same runtime, nothing more.
 [dependencies]
 faro-app.workspace = true
 faro-core.workspace = true
+faro-web.workspace = true
+ratatui = { version = "0.30.2", default-features = false, features = ["std", "layout-cache", "underline-color"] }
 sha2 = "0.11"
+tokio = { version = "1.53.2", default-features = false, features = ["rt", "time"] }

@@ -125,8 +125,23 @@ section { margin: 3rem 0; }
 .panel-section { max-width: 75rem; }
 .panel { margin: 0; }
 .panel .frame { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
-/* {{poster}} is inline SVG (§3.2): real text, follows the page theme. */
+/* {{poster}} is two inline SVGs of one frame (§3.2, §6.4): the same frame
+   in faro-dark and faro-light. Only the one matching the page's scheme
+   shows — the same base / prefers-color-scheme / data-theme pattern as the
+   theme toggle above. display:none also takes the hidden poster out of the
+   accessibility tree, so screen readers hear exactly one poster; no aria
+   attributes needed. */
 .panel .frame svg { display: block; width: 100%; height: auto; }
+.poster-dark { display: block; }
+.poster-light { display: none; }
+@media (prefers-color-scheme: light) {
+  .poster-dark { display: none; }
+  .poster-light { display: block; }
+}
+[data-theme="dark"] .poster-dark { display: block; }
+[data-theme="dark"] .poster-light { display: none; }
+[data-theme="light"] .poster-dark { display: none; }
+[data-theme="light"] .poster-light { display: block; }
 .panel figcaption { padding-top: .6rem; }
 .hints, .safety { font-size: .9rem; margin: 0 0 .4rem; }
 .humor { font-style: italic; }
