@@ -1,0 +1,92 @@
+<!doctype html>
+<!--
+  Privacy policy for getfaro.dev (WEBSITE.md §5.5). The generator fills {{date}}.
+  The legal placeholders stay visible exactly as written until the owner fills
+  them in: {operator}, {contact}, {country}, {law}.
+  No JavaScript and no analytics script on this page (WEBSITE.md §3.10).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy · faro</title>
+<meta name="description" content="How getfaro.dev processes personal data: server logs, self-hosted cookieless analytics, no cookies.">
+<link rel="stylesheet" href="style.css">
+<script src="theme.js"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="site-head">
+  <nav aria-label="Main">
+    <a class="brand" href="/"><span class="wordmark">faro</span></a>
+    <ul class="head-links">
+      <li><a href="/">Home</a></li>
+      <li><a href="/terms">Terms</a></li>
+    </ul>
+  </nav>
+</header>
+
+<main id="main" class="legal">
+  <h1>Privacy Policy</h1>
+  <p class="updated">Last updated: {{date}}</p>
+
+  <p>This policy explains how getfaro.dev processes personal data. It covers this website only. The faro application has no telemetry; see <a href="/#trust">How it works</a>.</p>
+
+  <h2>Controller</h2>
+  <!-- TODO(owner): fill in the operator details before publishing (WEBSITE.md §5.5, §8). -->
+  <p><code>{operator}</code> (<code>{contact}</code>), <code>{country}</code>.</p>
+
+  <h2>Data we process</h2>
+  <ul>
+    <li><strong>Server logs:</strong> IP address, date and time, requested URL, referrer and browser user agent, written by the web server for every request.</li>
+    <li><strong>Aggregate visit statistics:</strong> see Analytics.</li>
+  </ul>
+  <p>We don&rsquo;t have accounts, forms or newsletters, and we collect nothing else.</p>
+
+  <h2>The demo</h2>
+  <p>The demo on the home page runs entirely in your browser, with made-up contacts. Nothing you type in it is sent to us or anyone else, and it doesn&rsquo;t connect to Signal.</p>
+
+  <h2>Purposes and legal basis</h2>
+  <p>We process server logs to operate and secure the site and to fix problems. We process visit statistics to understand how many people visit and which parts of the page they use. Both are based on our legitimate interests under the data protection law that applies to the operator (<code>{law}</code>) and, where applicable, Art. 6(1)(f) GDPR.</p>
+
+  <h2>Cookies and local storage</h2>
+  <p>We use no cookies. Your browser&rsquo;s local storage keeps your light/dark choice and, if you opt out of analytics, that choice. Neither is sent to us.</p>
+
+  <h2>Analytics</h2>
+  <p>We use Plausible Analytics (Community Edition), which we host ourselves on the same server as this site. No third party receives your data.</p>
+  <ul>
+    <li>Plausible uses no cookies and stores no IP addresses or persistent identifiers.</li>
+    <li>To count unique visitors, it combines your IP address and user agent with a random value that changes every day and is then deleted, and it keeps only the resulting hash for that day.</li>
+    <li>Your IP address is used once to look up your country, and is not stored.</li>
+    <li><strong>To opt out</strong>, use the &ldquo;Don&rsquo;t count my visits&rdquo; link in the footer of the home page. It sets a flag in your browser&rsquo;s local storage; the link then reads &ldquo;Count my visits again&rdquo; and removes the flag. While the flag is set, no pageviews or events are recorded from this browser.</li>
+  </ul>
+
+  <h2>Processors and transfers</h2>
+  <p>None. The site and its analytics run on privately operated infrastructure in <code>{country}</code>, and no data is transferred abroad.</p>
+
+  <h2>Retention</h2>
+  <p>Server logs are kept for up to 30 days. Aggregate statistics contain no personal data and are kept for as long as they are useful.</p>
+
+  <h2>Your rights</h2>
+  <p>Subject to applicable data protection law, you may request access to, correction or deletion of, restriction of, or object to the processing of your personal data. Contact <code>{contact}</code>. You may also complain to your competent data protection authority.</p>
+
+  <h2>Security</h2>
+  <p>The site is served only over HTTPS. Access to the server and its logs is restricted.</p>
+
+  <h2>Changes</h2>
+  <p>We may update this policy when the site or legal requirements change. The current version is published on this page.</p>
+
+  <p class="small">This is a draft written for what this site actually does; it is not legal advice. The operator checks every statement against the deployed setup before publishing.</p>
+</main>
+
+<footer class="site-foot">
+  <ul class="foot-links">
+    <li><a href="/">Home</a></li>
+    <li><a href="/terms">Terms</a></li>
+    <li><a href="https://github.com/harababurel/faro">Source</a></li>
+  </ul>
+  <p>faro is an independent project, not affiliated with, endorsed by, or supported by Signal Messenger LLC or the Signal Technology Foundation.</p>
+</footer>
+</body>
+</html>

@@ -1,0 +1,231 @@
+/* getfaro.dev (WEBSITE.md §5): colours from faro's own faro-dark / faro-light
+   themes (§5.1), JetBrains Mono + system UI sans (§5.2). Dark is the default;
+   the page follows prefers-color-scheme, and the toggle overrides it with a
+   data-theme attribute on <html> (theme.js applies the stored choice).
+   light-dark() resolves per the used scheme. Muted grey is for labels only,
+   never sentences (§5.1). */
+
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url("fonts/JetBrainsMono-Regular.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 700; font-display: swap; src: url("fonts/JetBrainsMono-Bold.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-style: italic; font-weight: 400; font-display: swap; src: url("fonts/JetBrainsMono-Italic.woff2") format("woff2"); }
+
+:root {
+  color-scheme: dark light;
+  --bg: light-dark(#101216, #f7f4ee);
+  --panel: light-dark(#1a1d23, #efebe3);
+  --fg: light-dark(#e6e6e6, #24272e);
+  --muted: light-dark(#7c838f, #656a73); /* labels only, never body copy (§5.1) */
+  --accent: light-dark(#f5b94a, #9a5c06); /* the one accent (§5.1) */
+  --border: light-dark(#3a3f4a, #c9c3b6);
+  --logo-red: light-dark(#e86b6b, #b8352a);
+  --logo-lamp: light-dark(#f5a742, #9c4f08);
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+[data-theme="dark"] { color-scheme: dark; }
+[data-theme="light"] { color-scheme: light; }
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 17px/1.6 var(--sans);
+}
+@media (min-width: 640px) { body { font-size: 18px; } }
+
+p { margin: 0 0 1rem; max-width: 70ch; }
+a { color: var(--accent); }
+strong { font-weight: 700; }
+em { font-style: italic; }
+code, pre, kbd, .wordmark, h1, h2, h3, .tab, .btn, .facts, .hints { font-family: var(--mono); }
+code { background: var(--panel); padding: .1em .35em; border-radius: 4px; font-size: .92em; }
+pre { margin: 0; font-size: .9rem; line-height: 1.55; overflow-x: auto; }
+kbd {
+  border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px;
+  padding: 0 .35em; font-size: .85em; background: var(--panel);
+}
+
+h1 { font-size: clamp(2.5rem, 7vw, 3.5rem); line-height: 1.1; margin: 0 0 1rem; }
+h2 { font-size: 1.5rem; margin: 0 0 1rem; }
+h3 { font-size: 1.05rem; margin: 0 0 .3rem; }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.skip {
+  position: absolute; left: -100%;
+  background: var(--panel); color: var(--fg); padding: .5rem 1rem; z-index: 10;
+}
+.skip:focus { left: .5rem; top: .5rem; }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+
+/* Controls that need JavaScript stay hidden until site.js adds html.js. */
+.js-only { display: none; }
+html.js .js-only { display: inline-flex; align-items: center; gap: .3em; }
+
+/* ---- header ------------------------------------------------------------- */
+.site-head nav {
+  display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+  max-width: 75rem; margin: 0 auto; padding: .6rem 1.25rem;
+}
+/* Sticky and thin on desktop only (§3); phones keep it in flow. */
+@media (min-width: 641px) {
+  .site-head {
+    position: sticky; top: 0; z-index: 5;
+    background: var(--bg); border-bottom: 1px solid var(--border);
+  }
+  .site-head nav { padding: .35rem 1.25rem; }
+}
+.brand { display: inline-flex; align-items: center; gap: .5rem; text-decoration: none; color: var(--fg); }
+.logo { display: block; }
+.wordmark { font-weight: 700; font-size: 1.15rem; }
+.head-links { display: flex; gap: 1rem; list-style: none; margin: 0 0 0 auto; padding: 0; flex-wrap: wrap; }
+.head-links a { color: var(--fg); text-decoration: none; }
+.head-links a:hover { color: var(--accent); text-decoration: underline; }
+#theme-toggle {
+  background: none; border: 1px solid var(--border); border-radius: 6px;
+  color: var(--fg); padding: .25rem .5rem; cursor: pointer;
+}
+#theme-toggle:hover { border-color: var(--accent); color: var(--accent); }
+/* Sun in the dark scheme (click: go light), moon in the light one. The
+   webfont subset (D107) has no ☀/☾, hence the inline SVG icons. */
+#theme-toggle svg { display: block; }
+#theme-toggle .icon-moon { display: none; }
+@media (prefers-color-scheme: light) {
+  #theme-toggle .icon-sun { display: none; }
+  #theme-toggle .icon-moon { display: block; }
+}
+[data-theme="dark"] #theme-toggle .icon-sun { display: block; }
+[data-theme="dark"] #theme-toggle .icon-moon { display: none; }
+[data-theme="light"] #theme-toggle .icon-sun { display: none; }
+[data-theme="light"] #theme-toggle .icon-moon { display: block; }
+
+main { max-width: 46rem; margin: 0 auto; padding: 0 1.25rem; }
+section { margin: 3rem 0; }
+
+/* ---- hero --------------------------------------------------------------- */
+.hero { margin-top: 3.5rem; }
+.subline { font-size: 1.2rem; max-width: 60ch; }
+.cta { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.btn {
+  display: inline-flex; align-items: center; gap: .4em; text-decoration: none;
+  background: var(--accent); color: var(--bg); font-weight: 700;
+  border: 1px solid var(--accent); border-radius: 6px; padding: .5rem .9rem;
+}
+.btn:hover { filter: brightness(1.08); }
+.hero-install { flex: 1 1 22rem; min-width: 0; }
+.facts { color: var(--muted); font-size: .85rem; }
+
+/* ---- the terminal panel (§3.2, §4.7) ------------------------------------ */
+.panel-section { max-width: 75rem; }
+.panel { margin: 0; }
+.panel .frame { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+/* {{poster}} is inline SVG (§3.2): real text, follows the page theme. */
+.panel .frame svg { display: block; width: 100%; height: auto; }
+.panel figcaption { padding-top: .6rem; }
+.hints, .safety { font-size: .9rem; margin: 0 0 .4rem; }
+.humor { font-style: italic; }
+.poster-note { font-size: .85rem; margin: 0; }
+.panel-tools { display: flex; gap: .5rem; flex-wrap: wrap; margin: 0 0 .4rem; }
+.panel-tools[hidden] { display: none; } /* the class rule would beat the UA's [hidden] */
+.chips { display: inline-flex; gap: .4rem; flex-wrap: wrap; }
+.chips button, .panel-tools > button {
+  font-family: var(--mono); font-size: .8rem; color: var(--fg);
+  background: var(--panel); border: 1px solid var(--border); border-radius: 999px;
+  padding: .2rem .7rem; cursor: pointer;
+}
+.chips button:hover, .panel-tools > button:hover { border-color: var(--accent); color: var(--accent); }
+.phone-note { display: none; font-size: .9rem; margin: .4rem 0 0; }
+
+@media (max-width: 640px) {
+  /* §4.7: the poster SVG stays full width; the honest note replaces the demo. */
+  .phone-note { display: block; }
+}
+
+/* ---- why faro (§3.3) ----------------------------------------------------- */
+.why-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.4rem 2rem; }
+.why-grid > div > p { margin: 0; }
+@media (max-width: 640px) { .why-grid { grid-template-columns: 1fr; } }
+
+/* ---- install (§3.4) ------------------------------------------------------ */
+.tabs { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: .8rem; }
+.tab {
+  background: none; border: 1px solid var(--border); border-radius: 6px 6px 0 0;
+  color: var(--fg); padding: .35rem .8rem; cursor: pointer; font-size: .9rem;
+}
+.tab[aria-selected="true"] { border-color: var(--accent); color: var(--accent); }
+/* The copy button sits in the flow beside the text, never over it; long
+   commands scroll horizontally inside the block. */
+.codeblock {
+  display: flex; align-items: center; gap: .75rem;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 6px; padding: .8rem 1rem; margin: 0 0 1rem;
+}
+.codeblock > pre, .codeblock > code { flex: 1 1 auto; min-width: 0; overflow-x: auto; }
+.codeblock > code { white-space: pre; }
+/* #7c838f on #1a1d23 is only 4.3:1, so code comments use the full text colour. */
+.codeblock .cmt { color: var(--fg); }
+.copy {
+  flex: none;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+  color: var(--fg); font-family: var(--mono); font-size: .75rem;
+  padding: .2rem .5rem; cursor: pointer;
+}
+.copy:hover { border-color: var(--accent); color: var(--accent); }
+.prereq { border-collapse: collapse; margin: 0 0 1rem; }
+.prereq th, .prereq td { border: 1px solid var(--border); padding: .35rem .7rem; text-align: left; }
+.prereq th { font-family: var(--mono); font-size: .85rem; }
+.platforms { font-size: .9rem; }
+
+/* ---- trust (§3.5) --------------------------------------------------------- */
+.diagram { margin: 0 0 1.5rem; }
+.diagram svg { width: 100%; height: auto; max-width: 42rem; }
+.diagram .box rect { fill: var(--panel); stroke: var(--border); }
+.diagram text { font-family: var(--mono); font-size: 14px; fill: var(--fg); }
+.diagram .sub { font-size: 12px; fill: var(--muted); }
+.diagram .wire { stroke: var(--border); fill: none; stroke-width: 1.5; }
+.statements { list-style: none; margin: 0; padding: 0; }
+.statements li { margin: 0 0 1rem; max-width: 70ch; }
+
+/* ---- limits -------------------------------------------------------------- */
+.limits ul { margin: 0; padding-left: 1.2rem; }
+.limits li { margin: 0 0 .5rem; max-width: 70ch; }
+
+/* ---- keys (§3.7) ---------------------------------------------------------- */
+.keytable { border-collapse: collapse; margin: 0 0 1rem; width: 100%; }
+.keytable th, .keytable td { border: 1px solid var(--border); padding: .35rem .7rem; text-align: left; vertical-align: top; }
+.keytable thead th { font-family: var(--mono); font-size: .85rem; }
+.keytable th[scope="row"] { white-space: nowrap; font-weight: 400; }
+
+/* ---- FAQ (§3.8) ------------------------------------------------------------ */
+.faq details { border-bottom: 1px solid var(--border); padding: .5rem 0; }
+.faq summary { font-weight: 700; cursor: pointer; }
+.faq summary:hover { color: var(--accent); }
+.faq details p { margin: .6rem 0 .4rem; }
+
+/* ---- footer ------------------------------------------------------------ */
+.site-foot {
+  max-width: 75rem; margin: 3rem auto 0; padding: 1.5rem 1.25rem 2.5rem;
+  border-top: 1px solid var(--border); font-size: .9rem;
+}
+.foot-links { display: flex; gap: 1rem; flex-wrap: wrap; list-style: none; margin: 0 0 1rem; padding: 0; }
+.site-foot p { max-width: 80ch; margin: 0 0 .5rem; }
+.site-foot a { color: var(--accent); }
+.opt-out-note { font-size: .9rem; }
+
+/* ---- legal pages (§3.10) -------------------------------------------------- */
+.legal h1 { font-size: 2rem; }
+.legal h2 { font-size: 1.15rem; margin-top: 2rem; }
+.updated { color: var(--muted); font-size: .9rem; }
+.small { font-size: .85rem; color: var(--muted); }
+
+/* ---- motion --------------------------------------------------------------- */
+a, button, .tab, .copy { transition: color .12s, border-color .12s; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+}

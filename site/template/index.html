@@ -1,0 +1,316 @@
+<!doctype html>
+<!--
+  getfaro.dev landing page template (WEBSITE.md §3). The site generator fills:
+
+    {{version}}   release version, shown in the hero facts line
+    {{date}}      release date (also used on /privacy and /terms)
+    {{keys}}      key table rows, generated from keymap/defaults.rs (§3.7);
+                  the row shape is shown in the comment next to the table
+    {{themes}}    theme chip buttons for the demo panel (§4.5); the row is
+                  hidden until the live demo exists (Phase 4)
+    {{poster}}    the poster as inline SVG markup (a real faro frame rendered
+                  at build time, §6.4): selectable text, readable by screen
+                  readers, follows the page theme; inserted inside .frame
+    {{og_image}}  absolute URL of the 1200x630 OG PNG (§5.4)
+
+  Asset references (style.css, theme.js, site.js, js/init.js, fonts/) stay
+  plain; the generator replaces them with content-hashed names.
+  TODO(generator): favicon (the small lighthouse) and the exported logo
+  SVGs (§5.4).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>faro · Signal, in your terminal</title>
+<meta name="description" content="faro is an unofficial, open-source Signal client for the terminal. Keyboard-driven, made for tmux and SSH, AGPL-3.0.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="faro">
+<meta property="og:title" content="faro · Signal, in your terminal">
+<meta property="og:description" content="An unofficial, open-source Signal client for people who live in tmux and SSH.">
+<meta property="og:url" content="https://getfaro.dev/">
+<meta property="og:image" content="{{og_image}}">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="style.css">
+<script src="theme.js"></script>
+<!-- Plausible (self-hosted, same origin, no cookies). The init normally inline in
+     Plausible's snippet lives in /js/init.js, so the CSP needs no 'unsafe-inline'.
+     /js/init.js also handles the footer's analytics opt-out link (§6.9). -->
+<script defer src="/js/init.js"></script>
+<script defer src="/js/s.js"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="site-head">
+  <nav aria-label="Main">
+    <a class="brand" href="/">
+      <!-- The small lighthouse from ui/logo/art.rs (SMALL), as SVG cells.
+           TODO(generator): replace with the exported logo SVG (§5.4). -->
+      <svg class="logo" viewBox="0 0 9 8" width="27" height="24" aria-hidden="true" focusable="false">
+        <rect x="3" y=".5" width="3" height=".5" fill="var(--logo-red)"/>
+        <rect x="4" y="0" width="1" height="1" fill="var(--logo-red)"/>
+        <rect x="3" y="1" width="3" height="1" fill="var(--logo-lamp)"/>
+        <rect x="2" y="2" width="5" height=".5" fill="var(--border)"/>
+        <rect x="3" y="3" width="3" height="1" fill="var(--logo-red)"/>
+        <rect x="3" y="4" width="3" height="1" fill="currentColor"/>
+        <rect x="2" y="5" width="5" height="1" fill="var(--logo-red)"/>
+        <rect x="2" y="6" width="5" height="1" fill="currentColor"/>
+        <rect x="0" y="7" width="9" height="1" fill="var(--border)"/>
+      </svg>
+      <span class="wordmark">faro</span>
+    </a>
+    <ul class="head-links">
+      <li><a href="#install">Install</a></li>
+      <li><a href="https://github.com/harababurel/faro#readme">Docs</a></li>
+      <li><a href="https://github.com/harababurel/faro">Source</a></li>
+      <li><a href="https://github.com/harababurel/faro/releases">Changelog</a></li>
+    </ul>
+    <button id="theme-toggle" class="js-only" type="button">
+      <!-- Sun shows in the dark scheme (click: go light), moon in the light one.
+           Drawn as SVG: the webfont subset (D107) has no ☀/☾/◐. -->
+      <svg class="icon-sun" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+        <circle cx="8" cy="8" r="3.2" fill="currentColor"/>
+        <g stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+          <path d="M8 1.2v2M8 12.8v2M1.2 8h2M12.8 8h2M3.2 3.2l1.4 1.4M11.4 11.4l1.4 1.4M12.8 3.2l-1.4 1.4M4.6 11.4l-1.4 1.4"/>
+        </g>
+      </svg>
+      <svg class="icon-moon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+        <path d="M13.2 9.8A6.6 6.6 0 1 1 6.2 2.8a6.6 6.6 0 0 0 7 7z" fill="currentColor"/>
+      </svg>
+      <span class="sr-only">Switch theme</span>
+    </button>
+  </nav>
+</header>
+
+<main id="main">
+
+  <section class="hero" aria-labelledby="hero-title">
+    <h1 id="hero-title">Signal, in your terminal.</h1>
+    <p class="subline">faro is an unofficial, open-source Signal client for people who live in tmux and SSH. It&rsquo;s keyboard-driven, it looks good, and it never freezes.</p>
+    <p class="cta">
+      <a class="btn primary" href="#demo">▶ See it here, no install</a>
+      <span class="codeblock hero-install">
+        <code>git clone https://github.com/harababurel/faro</code>
+        <button class="copy js-only" type="button" data-method="cargo">Copy<span class="sr-only"> the install command</span></button>
+      </span>
+    </p>
+    <p class="facts">Unofficial · not affiliated with Signal · AGPL-3.0 · v{{version}} ({{date}})</p>
+  </section>
+
+  <section class="panel-section" id="demo" aria-labelledby="demo-title">
+    <h2 id="demo-title" class="sr-only">faro on screen</h2>
+    <figure class="panel">
+      <div class="frame">
+        <!-- {{poster}}: inline <svg> with a <title> describing the frame, e.g.
+             "faro running in a terminal: the conversation list on the left,
+             the Scranton Branch group chat open on the right, an input box
+             below, and a footer reading connected · demo · unread". -->
+{{poster}}
+      </div>
+      <figcaption>
+        <p class="hints"><kbd>Ctrl+P</kbd> palette · <kbd>Alt+J/K</kbd> chats · <kbd>↑</kbd> pick a message · <kbd>+</kbd> react · <kbd>Enter</kbd> send</p>
+        <!-- Demo controls (WEBSITE.md §4.5): live in Phase 4, hidden until then.
+             {{themes}} becomes chip buttons: faro-dark, faro-dusk, faro-light,
+             catppuccin, nord, gruvbox, tokyonight, and "all…". -->
+        <p class="panel-tools" hidden>
+          <span class="chips">{{themes}}</span>
+          <button type="button" data-tool="fullscreen">⛶<span class="sr-only">Fullscreen</span></button>
+          <button type="button" data-tool="restart">↺<span class="sr-only">Restart the demo</span></button>
+        </p>
+        <p class="safety">Fake coworkers, scripted scenes. Nothing leaves your browser. <span class="humor">Dwight will reply. He always replies.</span></p>
+        <p class="poster-note">A real frame of <code>faro demo</code>, rendered from the app at build time. The live demo lands here in an update.</p>
+        <p class="phone-note">faro is a keyboard app. Open this page on a computer to try the live demo.</p>
+      </figcaption>
+    </figure>
+  </section>
+
+  <section class="why" aria-labelledby="why-title">
+    <h2 id="why-title">Why faro</h2>
+    <div class="why-grid">
+      <div>
+        <h3>Never freezes</h3>
+        <p>Network, decryption and storage run off the UI thread, so typing stays instant while messages flood in.</p>
+      </div>
+      <div>
+        <h3>Everything is one keystroke away</h3>
+        <p><kbd>Ctrl+P</kbd> opens one palette for chats, settings, themes, commands and search, and shows the key for each.</p>
+      </div>
+      <div>
+        <h3>Made for SSH and tmux</h3>
+        <p>Copy over SSH (OSC 52), unread count in the tmux title, read receipts that know whether you&rsquo;re looking, emoji that line up even through mosh.</p>
+      </div>
+      <div>
+        <h3>A chat list you control</h3>
+        <p>Pin, mute (with durations), hide, archive, or show only an allowlist.</p>
+      </div>
+      <div>
+        <h3>Looks the part</h3>
+        <p>Bubbles or IRC layout, 35+ themes with live preview, inline images (kitty, sixel, iTerm2 or half-blocks), voice notes with waveforms.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="install" id="install" aria-labelledby="install-title">
+    <h2 id="install-title">Install</h2>
+    <!-- Only methods that work today (D86): one plain panel. When more ship,
+         the generator adds a tablist and one panel per method (Homebrew ·
+         Arch (AUR) · Debian/Ubuntu (.deb) · Nix · Binaries):
+           <div class="tabs" role="tablist" aria-label="Install method">
+             <button class="tab" role="tab" type="button" id="tab-<method>" aria-controls="install-<method>" aria-selected="true">Name</button>
+           </div>
+         each panel keeping id="install-<method>". site.js drives any tablist
+         generically: it hides inactive panels, moves focus with ←/→ and gives
+         the panels tabindex="0". -->
+    <div class="install-panel" id="install-source">
+      <div class="codeblock">
+        <pre>git clone https://github.com/harababurel/faro
+cd faro
+cargo build --release          <span class="cmt"># binary: target/release/faro</span></pre>
+        <button class="copy js-only" type="button" data-method="cargo">Copy<span class="sr-only"> the build commands</span></button>
+      </div>
+      <p>You need Rust via <a href="https://rustup.rs">rustup</a>; the exact toolchain is pinned in the repo and rustup installs it on the first build. Building also needs the protobuf compiler and a C toolchain for libsignal and SQLCipher:</p>
+      <table class="prereq">
+        <caption class="sr-only">Build prerequisites per operating system</caption>
+        <thead><tr><th>OS</th><th>Packages</th></tr></thead>
+        <tbody>
+          <tr><td>Arch</td><td><code>sudo pacman -S protobuf cmake clang pkgconf openssl</code></td></tr>
+          <tr><td>Debian/Ubuntu</td><td><code>sudo apt install protobuf-compiler cmake clang pkg-config libssl-dev</code></td></tr>
+          <tr><td>macOS</td><td><code>brew install protobuf cmake</code></td></tr>
+        </tbody>
+      </table>
+      <p>Then try it before linking anything:</p>
+      <div class="codeblock">
+        <pre>./target/release/faro demo   <span class="cmt"># try it with fake contacts first</span>
+./target/release/faro link   <span class="cmt"># then link it: scan the QR code in Signal › Settings › Linked devices</span>
+./target/release/faro</pre>
+      </div>
+      <p class="platforms">Linux and macOS, x86_64 and arm64. Windows isn&rsquo;t supported.</p>
+    </div>
+  </section>
+
+  <section class="trust" id="trust" aria-labelledby="trust-title">
+    <h2 id="trust-title">How it works, and what to trust</h2>
+    <figure class="diagram">
+      <svg viewBox="0 0 660 250" role="img" aria-label="Diagram: your phone, the primary device, links to faro. faro talks to Signal servers through presage and libsignal, over an end-to-end encrypted connection. Message history and keys are stored in a folder on your own machine, readable only by you.">
+        <g class="box"><rect x="16" y="14" width="230" height="46" rx="8"/><text x="32" y="33">your phone</text><text class="sub" x="32" y="51">primary device</text></g>
+        <g class="box"><rect x="414" y="14" width="230" height="46" rx="8"/><text x="430" y="33">Signal servers</text><text class="sub" x="430" y="51">end-to-end encrypted</text></g>
+        <g class="box"><rect x="16" y="112" width="360" height="46" rx="8"/><text x="32" y="131">faro ── presage ── libsignal</text><text class="sub" x="32" y="149">faro implements no cryptography</text></g>
+        <g class="box"><rect x="16" y="196" width="360" height="46" rx="8"/><text x="32" y="215">~/.local/share/faro</text><text class="sub" x="32" y="233">history &amp; keys · readable only by you</text></g>
+        <path class="wire" d="M131 60 V106" marker-end="url(#arr)"/>
+        <text class="sub" x="139" y="90">links</text>
+        <path class="wire" d="M376 135 H529 V66" marker-end="url(#arr)"/>
+        <path class="wire" d="M196 158 V190" marker-end="url(#arr)"/>
+        <defs><marker id="arr" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L6 3 L0 6 z" fill="var(--border)"/></marker></defs>
+      </svg>
+    </figure>
+    <ul class="statements">
+      <li><strong>It&rsquo;s a linked device, like Signal Desktop.</strong> Your phone stays your primary device. faro links with a QR code (<code>faro link</code>).</li>
+      <li><strong>faro doesn&rsquo;t implement any cryptography.</strong> It talks to Signal through <a href="https://github.com/whisperfish/presage">presage</a>, which builds on libsignal, Signal&rsquo;s own protocol library.</li>
+      <li><strong>Your data stays on your machine.</strong> Keys and history are in <code>~/.local/share/faro</code>, readable only by you (<code>0600</code>). They are <strong>not encrypted at rest yet</strong>; that&rsquo;s planned.</li>
+      <li><strong>No telemetry.</strong> faro talks only to Signal&rsquo;s servers. The one exception is remote voice transcription, which is off by default and asks first. Logs never contain message text or phone numbers.</li>
+      <li><strong>Open source, AGPL-3.0.</strong> Read exactly what it does: <a href="https://github.com/harababurel/faro">the source</a>.</li>
+    </ul>
+  </section>
+
+  <section class="limits" aria-labelledby="limits-title">
+    <h2 id="limits-title">What it doesn&rsquo;t do (yet)</h2>
+    <ul>
+      <li>No voice or video calls, no stories.</li>
+      <li>It can&rsquo;t be your only device: you need Signal on a phone.</li>
+      <li>No Windows.</li>
+      <li>History from before linking isn&rsquo;t transferred yet.</li>
+      <li>Data isn&rsquo;t encrypted at rest yet.</li>
+      <li>It&rsquo;s unofficial: Signal doesn&rsquo;t support it, and a Signal server change can break it until faro catches up.</li>
+    </ul>
+  </section>
+
+  <section class="keys" aria-labelledby="keys-title">
+    <h2 id="keys-title">A few keys</h2>
+    <!-- {{keys}} is replaced with rows generated from keymap/defaults.rs, shaped like:
+      <tr><th scope="row"><kbd>Ctrl+P</kbd></th><td>Command palette: chats, settings, themes, commands, search</td></tr>
+      <tr><th scope="row"><kbd>Alt+J</kbd> / <kbd>Alt+K</kbd></th><td>Next / previous conversation</td></tr>
+      <tr><th scope="row"><kbd>+</kbd></th><td>React to the selected message</td></tr>
+      <tr><th scope="row"><kbd>Ctrl+Q</kbd></th><td>Quit (or <kbd>Ctrl+C</kbd> twice)</td></tr>
+    -->
+    <table class="keytable">
+      <caption class="sr-only">Some default keys in faro</caption>
+      <thead><tr><th scope="col">Key</th><th scope="col">What</th></tr></thead>
+      <tbody>
+{{keys}}
+      </tbody>
+    </table>
+    <p><a href="https://github.com/harababurel/faro#keys">All keys and what they do</a> &mdash; and every key can be rebound in the config file.</p>
+  </section>
+
+  <section class="faq" aria-labelledby="faq-title">
+    <h2 id="faq-title">FAQ</h2>
+    <details>
+      <summary>Is this an official Signal app?</summary>
+      <p>No. faro is an independent, open-source project. It isn&rsquo;t affiliated with or supported by Signal.</p>
+    </details>
+    <details>
+      <summary>Do I still need my phone?</summary>
+      <p>Yes. faro links to your account as a secondary device, like Signal Desktop. Your phone stays the primary device.</p>
+    </details>
+    <details>
+      <summary>Is it safe?</summary>
+      <p>faro doesn&rsquo;t do its own cryptography. It uses presage, which builds on libsignal, Signal&rsquo;s own library. Messages are end-to-end encrypted exactly as in other Signal clients. Your history and keys stay on your machine, readable only by you. They&rsquo;re not encrypted at rest yet. The code is AGPL: read it.</p>
+    </details>
+    <details>
+      <summary>Can Signal block me for using it?</summary>
+      <!-- TODO(owner): wording to be confirmed before launch (WEBSITE.md §5.3, D-k). Draft:
+           faro uses the same linked-device mechanism as Signal Desktop. It's unofficial,
+           so Signal doesn't support it, and a change on their side can break it until
+           faro is updated. -->
+      <p>faro uses the same linked-device mechanism as Signal Desktop. It&rsquo;s unofficial, so Signal doesn&rsquo;t support it, and a change on their side can break it until faro is updated.</p>
+    </details>
+    <details>
+      <summary>Which terminals work?</summary>
+      <p>Any modern one. Best in kitty, Ghostty, WezTerm, iTerm2, foot and Alacritty, inside tmux or not, over SSH or mosh. Rounded bubbles need a font or terminal with Unicode 16 block glyphs; otherwise faro draws bars.</p>
+    </details>
+    <details>
+      <summary>Does it support calls / stories / Windows?</summary>
+      <p>Not today &mdash; see <a href="#limits-title">what it doesn&rsquo;t do (yet)</a>.</p>
+    </details>
+    <details>
+      <summary>Can I change the keys and colours?</summary>
+      <p>Yes. Every key can be rebound in <code>~/.config/faro/config.toml</code>. 35+ themes are built in, and you can drop in your own (OpenCode&rsquo;s theme format).</p>
+    </details>
+    <details>
+      <summary>Who are the people in the demo?</summary>
+      <p>Made-up coworkers at a paper company: an affectionate parody. They&rsquo;re fake, and nothing you type in the demo leaves your browser.</p>
+    </details>
+    <details>
+      <summary>Is the demo really faro?</summary>
+      <p>Yes. It&rsquo;s the same Rust code compiled to WebAssembly, with a fake backend instead of Signal.</p>
+    </details>
+    <details>
+      <summary>Does this site track me?</summary>
+      <p>No cookies and no third-party scripts. We count visits with Plausible, which runs on our own server, stores no personal data and uses no cookies. Details in the <a href="/privacy">privacy policy</a>.</p>
+    </details>
+  </section>
+
+</main>
+
+<footer class="site-foot">
+  <ul class="foot-links">
+    <li><a href="https://github.com/harababurel/faro">Source</a></li>
+    <li><a href="https://github.com/harababurel/faro/blob/main/LICENSE">Licence (AGPL-3.0)</a></li>
+    <li><a href="https://github.com/harababurel/faro/releases">Releases &amp; changelog</a></li>
+    <li><a href="https://github.com/harababurel/faro/issues">Contact</a></li>
+    <li><a href="/privacy">Privacy</a></li>
+    <li><a href="/terms">Terms</a></li>
+    <li><a id="opt-out" href="/?plausible_ignore=true">Don&rsquo;t count my visits</a></li>
+  </ul>
+  <p id="opt-out-note" class="opt-out-note" hidden>Analytics off in this browser.</p>
+  <!-- TODO(generator, Phase 5): link the source of the exact demo build (commit hash),
+       required for the WebAssembly demo once it ships (WEBSITE.md §3.9). -->
+  <p>faro is an independent project, not affiliated with, endorsed by, or supported by Signal Messenger LLC or the Signal Technology Foundation.</p>
+  <p>The demo&rsquo;s cast is an affectionate parody of characters from NBC&rsquo;s <em>The Office</em>; faro is not affiliated with NBCUniversal.</p>
+  <p>No cookies. Visitor numbers come from cookieless analytics on our own server (<a href="/privacy">Privacy</a>). This page is one HTML file, one stylesheet and a little JavaScript: under 60 KB of HTML, CSS and JavaScript uncompressed, and it makes no third-party requests.</p>
+</footer>
+
+<script defer src="site.js"></script>
+</body>
+</html>

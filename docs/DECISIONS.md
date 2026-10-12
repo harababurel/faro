@@ -1168,3 +1168,11 @@ Refines the DESIGN.md §5.1 sketch:
   - Build: `crates/faro-web/build.sh`, then `python3 crates/faro-web/tools/bundle.py` writes `www/dist/demo.html`.
   - Headless: `CHROME=<browser> node crates/faro-web/tools/shot.mjs '<url>?bench' out.png` prints `window.bench()` (`repaint` and `frame`).
   - Live frames: `demo.timings()` gives the last 256 frames' p50, p95 and max, split into render and paint.
+
+### D120. The static page's template — Judgement (M13 Phase 1, chunk 1, 2026-10-12)
+
+- **Where:** `site/template/` (`index.html`, `privacy.html`, `terms.html`, `style.css`, `site.js`, `theme.js`, `js/init.js`, `fonts/`). Hand-written; the generator (next chunk) fills `{{version}}`, `{{date}}`, `{{keys}}`, `{{themes}}`, `{{poster}}`, `{{og_image}}` and hashes asset names. `site/build.sh` still ships the placeholder until then.
+- **Poster inline:** `{{poster}}` is inline SVG markup, not an `<img>`, so its text is selectable, read by screen readers and follows the page's light/dark colours (§3.2, §6.7).
+- **Install:** only "From source" (clone + `cargo build --release`, as in the README) until binaries exist (D86); no tab ARIA with one method, `site.js` wires tabs once there are several. The hero CTA says "See it here" until the live demo (Phase 4).
+- **Theme choice:** a tiny blocking `theme.js` in `<head>` applies the remembered choice before first paint. The legal pages load it too (amends §3.10's "no JavaScript": no analytics, only this).
+- **Analytics opt-out:** Plausible CE's tracker only reads `localStorage.plausible_ignore`, so `js/init.js` turns `?plausible_ignore=true|false` into that flag before the tracker loads, and strips the parameter.

@@ -85,7 +85,8 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 - **Where to pick up (2026-10-12).** Two tracks are open; both are partly waiting on the owner. Ask the owner which one to take; if they have no preference, take M13 Phase 1.
   - **M13 (website):**
     - Phase 3 is closed by the owner's browser checks (MANUAL_TESTS "Web demo").
-    - **Agents can do now: Phase 1, the static page** (WEBSITE.md §7: template, CSS, site generator, the buffer → SVG exporter sharing `faro-web/src/glyphs.rs`, poster and OG image, CI site job). What needs the owner: the operator details in the legal pages (`{operator}`, `{contact}`, `{country}`, §5.5) and the open FAQ answers (D-k). Leave those as placeholders and ask.
+    - **Phase 1 in progress** (owner's choice, 2026-10-12), in chunks: 1 template + CSS + JS ✅ (D120, `site/template/`), 2 site generator + `site/build.sh`, 3 buffer → SVG exporter, 4 poster + OG image, 5 CI site job. Mechanical parts go to the `qwen` subagent, reviews to `qwen-review`; the owner's Anthropic quota is limited, so keep chunks small.
+    - Phase 1 scope: **the static page** (WEBSITE.md §7: template, CSS, site generator, the buffer → SVG exporter sharing `faro-web/src/glyphs.rs`, poster and OG image, CI site job). What needs the owner: the operator details in the legal pages (`{operator}`, `{contact}`, `{country}`, §5.5) and the open FAQ answers (D-k). Leave those as placeholders and ask.
     - Phase 4 (the demo on the page) needs Phase 1 and Phase 3 first.
     - Small Phase 3 follow-ups, if wanted: a console `tracing` subscriber in debug builds (D114), batching text runs in the painter (D119).
   - **M8 (v0.1):**

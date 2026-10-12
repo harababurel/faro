@@ -447,3 +447,16 @@ Columns: **direct** = faro straight in kitty; **tmux** = kitty → tmux (with th
 Notes (terminal, versions, what went wrong):
 
 - 2026-10-10, Terminal.app → SSH (seen while checking clipboard paste): emoji glitches and misalignment in faro. The fish prompt's Nerd Font symbols don't render there either, so the font/terminal setup is the first suspect; look at it properly in the matrix run.
+
+## Website: static page (M13 Phase 1)
+
+The template is `site/template/` (WEBSITE.md §7 Phase 1). Until the site generator exists, preview it by opening `index.html` with `{{poster}}` replaced by any faro-frame SVG and `{{keys}}` by a few `<tr>` rows (a scratch copy, not the template itself). Check in Chrome, Firefox and Safari.
+
+- [ ] **Without JavaScript** (browser setting or devtools): everything is readable; the install section shows its one command block with no tabs; the theme toggle and Copy buttons are gone; the FAQ opens and closes; the poster SVG shows with its text selectable.
+- [ ] **Phone layout (~390 px wide):** the poster stays readable (its text not scaled below legibility), the note "faro is a keyboard app. Open this page on a computer…" sits under it, the nav wraps without overlapping, and the install commands scroll sideways inside their blocks instead of stretching the page.
+- [ ] **Light/dark:** the page follows the OS scheme; the toggle (sun/moon icon, top right) switches it, the icon flips, and after a reload the chosen theme is applied without a flash of the other theme. The choice survives visiting `/privacy` and `/terms`; nothing is sent to the server.
+- [ ] **Copy buttons:** Copy on the hero command and on the build block copies the exact commands (comments included), the button reads "Copied ✓" for two seconds and back to "Copy"; an `Install copied` event with `method: cargo` shows up in the Plausible dashboard. The button never covers command text; long lines scroll.
+- [ ] **Analytics opt-out:** "Don't count my visits" in the footer lands on the home page with the parameter stripped from the URL, the footer then says "Analytics off in this browser." and the link reads "Count my visits again"; reloads and further clicks record **no** pageview or events in the dashboard (check after a minute). "Count my visits again" restores counting. The privacy page's wording matches this behaviour.
+- [ ] **Keyboard-only:** `Tab` walks skip link → nav → toggle → links → buttons → FAQ → footer; every focused element shows the amber ring; the skip link jumps to the content; FAQ items open with `Enter`; no focus trap anywhere.
+- [ ] **Reduced motion** (OS setting): hover/focus colour changes are instant, no transitions; with the setting off, the transitions are short and don't move layout.
+
