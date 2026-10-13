@@ -916,13 +916,13 @@ then runs loader regression checks, harness unit tests and real-wasm browser
 coverage. Local runs pass 101 assertions across 22 scenarios in about 42 seconds;
 700 native tests, 54 loader checks, five harness unit tests and site/no-JS budgets
 pass. Negative validation/timeout runs fail with reports and clean up resources.
-GitHub execution is still to be observed; no CI-green claim is made from local
-results. Phase 4 code is complete; real-browser/device checks remain deferred.
-**Next: Phase 5 launch polish**, without deployment or publication by agents.
+GitHub execution has since gone green (2026-10-13, after the repo went public).
+Phase 4 code is complete; real-browser/device checks remain deferred.
+Phase 5 follows, without deployment or publication by agents.
 
 ### Phase 5: launch polish (2–3 days)
 
-**Status (2026-10-13, D131):** 404, `robots.txt`, `sitemap.xml`, canonical and Twitter tags, the source-commit footer link and the README link are done (security headers existed already). Left for the owner: running the install commands on a clean machine, real screenshots in the README, the legal placeholders and FAQ approval, then deployment.
+**Status (2026-10-13, D131):** 404, `robots.txt`, `sitemap.xml`, canonical and Twitter tags, the source-commit footer link and the README link are done (security headers existed already). Left for the owner: running the `.deb` and build-from-source commands on a clean machine (Homebrew and AUR `faro-bin` installs worked, 2026-10-13), real screenshots in the README, then deployment. The legal details and FAQ answers were filled in on 2026-10-13.
 
 - Final copy review. Run every command on the page on a clean machine.
 - A 404 page, `robots.txt`, `sitemap.xml`, canonical URL, OG and Twitter card tags, the security headers.
