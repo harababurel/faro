@@ -5,6 +5,7 @@
 //!   changed;
 //! - [`glyphs`]: block, octant, box-drawing and other glyphs as shapes;
 //! - [`color`]: cell colours as RGB and cell widths, free of canvas types;
+//! - [`metrics`]: the cell shape both the painter and the poster use;
 //! - [`svg`]: a buffer as an SVG document (the poster and OG image, §6.4);
 //! - [`blobs`], [`images`]: attachments in memory, images as half-blocks;
 //! - `paint`: paints rows onto the canvas;
@@ -34,6 +35,7 @@ pub mod keys;
 mod live;
 #[cfg(target_arch = "wasm32")]
 mod media;
+pub mod metrics;
 #[cfg(target_arch = "wasm32")]
 mod paint;
 mod router;

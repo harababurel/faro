@@ -7,32 +7,20 @@ use std::rc::Rc;
 
 use faro_app::app::commands;
 use faro_app::app::event::{AppEvent, Command, Effect};
-use faro_app::app::state::{BlockGlyphs, EmojiMode, EmojiSetting, GraphicsSupport, State};
+use faro_app::app::state::State;
 use faro_app::app::storage;
+use faro_app::app::term_event::Event;
 use faro_app::app::update::{self, affects_view};
-use faro_app::theme::ColorDepth;
-use faro_core::backend::{Backend, BackendError, BackendEvents};
+use faro_core::backend::{Backend, BackendError, BackendEvent, BackendEvents};
 use faro_core::domain::{AttachmentRef, AttachmentStatus, MessageRef, TranscriptSource};
 use faro_core::mock::{MockBackend, MockConfig};
 use faro_core::rt;
-use faro_core::store::{Profile, Store};
+use faro_core::store::Store;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use crate::blobs::Blobs;
-use crate::demo::{Error, SEED};
-use crate::keys::demo_config;
+use crate::demo::{self, Error};
 use crate::router::{Page, Router};
-
-/// The mock as visitors get it (D-b): the demo's seed, today's dates, the
-/// default activity rate, no scripted outages or errors.
-pub fn visitor_mock() -> MockConfig {
-    MockConfig {
-        seed: SEED,
-        disconnects: false,
-        errors: false,
-        ..MockConfig::default()
-    }
-}
 
 /// The state and where its effects go.
 pub struct Session {
@@ -40,6 +28,18 @@ pub struct Session {
     pub router: Router,
     /// The attachments downloaded so far.
     pub blobs: Blobs,
+    /// Backlog messages still to come before the demo opens its first chat
+    /// (D122): the mock sends them in one burst, and the poster shows the
+    /// whole of them.
+    waiting_backlog: usize,
+    /// Whether the demo's opening chat has been opened (D122): once, as soon
+    /// as its backlog has arrived.
+    opened_start: bool,
+    /// Whether the visitor has taken the demo in hand before its opening chat
+    /// (D122): a key, click, wheel or paste of their own, a palette or popup
+    /// they opened, or a chat they opened. Then the opening keys are never
+    /// injected — they would drive whatever the visitor has open, not the list.
+    visitor_acted: bool,
     /// The workers; stopped when the session ends.
     tasks: Vec<rt::Task>,
 }
@@ -58,25 +58,13 @@ impl Session {
         let me = backend.whoami().await?.service_id;
         let contacts = backend.contacts().await?;
         let groups = backend.groups().await?;
+        let capabilities = backend.capabilities();
+        let waiting_backlog = backend.backlog_len();
         let store = Store::memory();
         store.upsert_contacts(contacts.clone()).await?;
         store.upsert_groups(groups.clone()).await?;
 
         let mut state = State::new(me, contacts, groups);
-        state.profile = Profile::Demo;
-        state.capabilities = backend.capabilities();
-        state.env.glyphs = BlockGlyphs::Native;
-        state.env.graphics = GraphicsSupport::HalfblocksOnly;
-        state.env.colors = ColorDepth::Truecolor;
-        // The renderer draws each cell at faro's width: no terminal to work
-        // around (D118). `auto` still follows the config like the terminal.
-        state.env.emoji = EmojiSetting {
-            mode: EmojiMode::Exact,
-            auto: true,
-            exact: true,
-            ..EmojiSetting::default()
-        };
-
         let blobs = Blobs::default();
         let (results_tx, results) = mpsc::unbounded_channel();
         let (effects, effect_queue) = mpsc::unbounded_channel();
@@ -97,14 +85,18 @@ impl Session {
             page,
             blobs: blobs.clone(),
         };
-        let (config, problems) = demo_config();
-        let configured = update::configure(&mut state, config, problems);
+        // The demo's profile, environment and settings (D114, D116, D118),
+        // shared with the site poster (`demo::configure_visitor`).
+        let configured = demo::configure_visitor(&mut state, capabilities);
         router.dispatch(configured, &state);
         router.dispatch(vec![Effect::LoadConversations], &state);
         let session = Self {
             state,
             router,
             blobs,
+            waiting_backlog,
+            opened_start: false,
+            visitor_acted: false,
             tasks,
         };
         let inbox = Inbox {
@@ -116,10 +108,49 @@ impl Session {
 
     /// One event through the reducer; whether it can change the picture.
     pub fn handle(&mut self, event: AppEvent) -> bool {
+        if matches!(
+            event,
+            AppEvent::Terminal(Event::Key(_) | Event::Mouse(_) | Event::Paste(_))
+        ) {
+            self.visitor_acted = true;
+        }
+        if matches!(event, AppEvent::Backend(BackendEvent::Message(_))) {
+            self.waiting_backlog = self.waiting_backlog.saturating_sub(1);
+        }
         let redraw = affects_view(&event);
         let effects = update::update(&mut self.state, event);
         self.router.dispatch(effects, &self.state);
-        redraw
+        self.open_start() || redraw
+    }
+
+    /// The demo opens the branch chat once its whole backlog has arrived, so
+    /// its first frame is the poster the page already shows (D122, WEBSITE.md
+    /// §3.2). Before that the chat isn't in the list at all, and the store
+    /// answers with an empty one, so this is tried after every event until
+    /// the backlog is in and it takes.
+    ///
+    /// It is skipped for good once the visitor has done anything of their own
+    /// (D122): the opening keys go through the reducer, so with a palette, a
+    /// popup or another chat already open they would move its cursor and run
+    /// its highlighted item.
+    fn open_start(&mut self) -> bool {
+        if self.opened_start || self.waiting_backlog > 0 || self.state.loading {
+            return false;
+        }
+        if self.visitor_acted
+            || self.state.open.is_some()
+            || self.state.palette.is_some()
+            || self.state.popup.is_some()
+        {
+            self.opened_start = true;
+            return false;
+        }
+        let Some((_, effects)) = demo::open_start(&mut self.state) else {
+            return false;
+        };
+        self.opened_start = true;
+        self.router.dispatch(effects, &self.state);
+        true
     }
 }
 
@@ -243,10 +274,13 @@ fn canned_transcript(blobs: &Blobs, path: &Path) -> Result<(String, TranscriptSo
 mod tests {
     use std::time::Duration;
 
-    use faro_app::app::term_event::{Event, KeyCode, KeyEvent};
+    use faro_app::app::palette::Level;
+    use faro_app::app::state::{EmojiMode, Focus};
+    use faro_app::app::term_event::{Event, KeyCode, KeyEvent, KeyModifiers};
     use faro_core::domain::{ConnectionState, Direction};
 
     use super::*;
+    use crate::demo::visitor_mock;
     use crate::router::NOT_HERE;
     use crate::router::tests::FakePage;
 
@@ -290,7 +324,13 @@ mod tests {
             "{}",
             state.conversations.len()
         );
-        assert!(state.open.is_none(), "nothing opens by itself (D60)");
+        // The demo opens the branch chat once its backlog is in, so its first
+        // frame is the poster the page already shows (D122).
+        let open = state.open.as_ref().expect("the branch chat opens");
+        assert_eq!(Some(open.id), demo::chat(state), "the branch chat");
+        assert!(!open.loading && !open.messages.is_empty(), "history loaded");
+        assert_eq!(state.focus, Focus::Conversations, "the list has the focus");
+        assert!(open.selected.is_none(), "nothing is selected (§4.2)");
         assert_eq!(
             state.env.emoji.mode,
             EmojiMode::Exact,
@@ -298,10 +338,6 @@ mod tests {
         );
 
         key(&mut session, KeyCode::Enter);
-        pump(&mut session, &mut inbox, Duration::from_millis(100)).await;
-        let open = session.state.open.as_ref().unwrap();
-        assert!(!open.loading && !open.messages.is_empty(), "history loaded");
-
         for c in "hello".chars() {
             key(&mut session, KeyCode::Char(c));
         }
@@ -357,6 +393,45 @@ mod tests {
         pump(&mut session, &mut inbox, Duration::from_millis(100)).await;
         let notice = session.state.notice.as_ref().unwrap();
         assert_eq!(notice.text, NOT_HERE);
+    }
+
+    #[tokio::test(start_paused = true)]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "#[tokio::test] expands to block_on; tests may block"
+    )]
+    async fn the_demo_never_opens_a_chat_over_the_visitor_s_own_start() {
+        let page = Rc::new(FakePage::default());
+        let shared: Rc<dyn Page> = page.clone();
+        let (mut session, mut inbox) = Session::start(&visitor_mock(), shared).await.unwrap();
+        assert!(
+            session.waiting_backlog > 0,
+            "the backlog is still to come: {} messages",
+            session.waiting_backlog
+        );
+
+        // The visitor opens the palette before the demo's opening chat.
+        let ctrl_p = Event::Key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
+        session.handle(AppEvent::Terminal(ctrl_p));
+        pump(&mut session, &mut inbox, Duration::from_secs(1)).await;
+
+        // The opening keys would have driven the palette instead of the list:
+        // Alt+Down its cursor, Enter the highlighted item. None of that
+        // happened, and no chat was opened.
+        let palette = session
+            .state
+            .palette
+            .as_ref()
+            .expect("the palette stays open");
+        assert_eq!(
+            palette.path.last(),
+            Some(&Level::Root),
+            "{:?}",
+            palette.path
+        );
+        assert_eq!(palette.selected, 0, "no item was chosen");
+        assert!(palette.input.text().is_empty(), "the query is untouched");
+        assert!(session.state.open.is_none(), "no chat was opened");
     }
 
     #[tokio::test(start_paused = true)]

@@ -9,6 +9,7 @@ still to fill in, §5.5) are reported but don't fail the run. Stdlib only.
 
 import gzip
 import html.parser
+import json
 import os
 import re
 import subprocess
@@ -254,6 +255,79 @@ def check_budget(pages):
 NO_JS_TEXT = ("Signal, in your terminal.", "cargo build --release", "FAQ")
 
 
+BUDGET_DEMO_WASM = 1536 * 1024  # D119: the wasm module's own gzipped budget
+
+
+def read_manifest(rel):
+    """One demo manifest as a dict, or None after failing."""
+    path = os.path.join(ROOT, *rel.split("/"))
+    if not os.path.isfile(path):
+        fail(f"{rel} is missing (site/build.sh writes it with the demo)")
+        return None
+    try:
+        data = json.loads(read(path))
+    except ValueError as error:
+        fail(f"{rel} is not valid JSON: {error}")
+        return None
+    if not isinstance(data, dict):
+        fail(f"{rel} is not a JSON object")
+        return None
+    return data
+
+
+def check_demo():
+    """The web demo's files (Phase 4, §6.8): both manifests parse — the page's
+    and the one nginx swaps in to stop preloading — and name hashed files that
+    exist, and the wasm stays inside its own budget. The landing page doesn't
+    load them yet, so they're outside the §6.6 first-load budget."""
+    if not os.path.isdir(os.path.join(ROOT, "demo")):
+        warn("demo/ is missing: this build has no web demo (SITE_NO_DEMO=1?)")
+        return
+    data = read_manifest("demo/manifest.json")
+    switch = read_manifest("demo/manifest.no-preload.json")
+    if data is None:
+        return
+    if data.get("preload") is not True:
+        fail("demo/manifest.json: preload should be true (the page preloads the demo)")
+    if switch is not None:
+        # nginx's emergency switch (§6.8): the commented location line points
+        # at this file, so it must exist and say no.
+        if switch.get("preload") is not False:
+            fail("demo/manifest.no-preload.json: preload should be false")
+        for key in ("js", "wasm", "bytes"):
+            if key in data and switch.get(key) != data[key]:
+                fail(f"demo/manifest.no-preload.json: {key} differs from manifest.json")
+    for key in ("js", "wasm"):
+        url = data.get(key)
+        if not isinstance(url, str) or not url.startswith("/demo/"):
+            fail(f"demo/manifest.json: {key} should be a /demo/ path, got {url!r}")
+            continue
+        if resolve(os.path.join(ROOT, url.lstrip("/"))) is None:
+            fail(f"demo/manifest.json: {key}=\"{url}\" doesn't resolve to a file in the site dir")
+    wasm = data.get("wasm")
+    found = resolve(os.path.join(ROOT, wasm.lstrip("/"))) if isinstance(wasm, str) else None
+    if found is None:
+        return
+    if not re.fullmatch(r"/demo/faro_web_bg\.[0-9a-f]{10}\.wasm", wasm):
+        fail(f"demo/manifest.json: {wasm} isn't a content-hashed faro_web_bg name")
+    size = wire_size(found)
+    print(f"  {'demo wasm (wire size, budget ' + str(BUDGET_DEMO_WASM) + ')':<48} {size:>8}")
+    if size > BUDGET_DEMO_WASM:
+        fail(f"the demo's wasm is {size} bytes gzipped, over the {BUDGET_DEMO_WASM} budget (D119)")
+    claimed = data.get("bytes")
+    # faro-site gzips with flate2, build.sh with gzip: same level, a few bytes
+    # apart. The page's progress line only needs to be close.
+    if isinstance(claimed, int) and abs(claimed - size) > size // 50:
+        warn(f"demo/manifest.json says {claimed} bytes, the .gz twin is {size} "
+             "(the page's progress line would be off)")
+    # The manifests are never precompressed: gzip_static would serve a stale
+    # twin after an edit on disk.
+    for rel in ("demo/manifest.json", "demo/manifest.no-preload.json"):
+        for twin in (".gz", ".br"):
+            if os.path.isfile(os.path.join(ROOT, rel + twin)):
+                fail(f"{rel}{twin}: the manifests must not be precompressed (§6.8)")
+
+
 def dump_dom(chrome, path, extra_flags):
     cmd = [
         chrome, "--headless=new", "--disable-gpu", "--no-sandbox", *extra_flags,
@@ -323,6 +397,7 @@ def main():
         elif ext == ".js":
             check_js(rel, text)
     check_budget(pages)
+    check_demo()
     check_no_js()
     if external:
         print("external <a> links (listed, not fetched):")

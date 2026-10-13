@@ -15,9 +15,8 @@ use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement};
 
 use crate::color::{self, Rgb, cell_colors, cell_width};
 use crate::glyphs::{self, Corner, Line, Powerline, Shape, Symbol};
+use crate::metrics;
 
-/// Line height as a multiple of the font size (as the Phase 0 prototype).
-const LINE_HEIGHT: f64 = 1.2;
 /// Fallback fonts for what the webfont lacks: emoji, then anything.
 const FALLBACK: &str = r#""Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", monospace"#;
 
@@ -59,7 +58,10 @@ impl Painter {
             .ok_or_else(|| JsValue::from_str("no 2D canvas context"))?
             .dyn_into::<CanvasRenderingContext2d>()?;
         let dpr = web_sys::window().map_or(1.0, |w| w.device_pixel_ratio());
-        let px = (size * dpr).round();
+        // The same rounding the poster uses (`metrics::cell`); the advance
+        // comes from the loaded font rather than from `metrics::ADVANCE`.
+        let cell = metrics::cell(size, dpr);
+        let px = cell.font;
         let fonts = [
             format!(r#"{px}px "{family}", {FALLBACK}"#),
             format!(r#"bold {px}px "{family}", {FALLBACK}"#),
@@ -68,7 +70,7 @@ impl Painter {
         ];
         ctx.set_font(&format!(r#"{px}px "{family}""#));
         let m = ctx.measure_text("M")?;
-        let h = (px * LINE_HEIGHT).round();
+        let h = cell.height;
         let (ascent, descent) = (m.font_bounding_box_ascent(), m.font_bounding_box_descent());
         let metrics = Metrics {
             w: m.width().round().max(1.0),

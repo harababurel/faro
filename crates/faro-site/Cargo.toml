@@ -23,8 +23,17 @@ faro-core.workspace = true
 faro-web.workspace = true
 ratatui = { version = "0.30.2", default-features = false, features = ["std", "layout-cache", "underline-color"] }
 resvg = { version = "0.48.1", default-features = false, features = ["text"] }
+# The demo's gzipped wasm size for the manifest (demo.rs); already in the
+# tree through resvg → tiny-skia → png, so it costs no extra compilation,
+# and site/build.sh's `gzip -9` uses the same level.
+flate2 = "1.1"
 # Only for the OG image's glyph coverage check (scene.rs); already in the
 # tree through resvg → usvg, so it costs no extra compilation.
 skrifa = "0.44"
 sha2 = "0.11"
 tokio = { version = "1.53.2", default-features = false, features = ["rt", "time"] }
+
+[dev-dependencies]
+# Only the demo test reads its own manifest back (demo.rs); already in the
+# tree through faro-core.
+serde_json = "1.0.151"

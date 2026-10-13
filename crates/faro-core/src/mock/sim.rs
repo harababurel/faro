@@ -191,6 +191,10 @@ pub(super) struct Sim {
     running: Vec<Running>,
     /// Answers from reply pools (generic deletes only take back these).
     answers: VecDeque<MessageRef>,
+    /// How many messages [`Self::schedule_backlog`] put in the queue: the
+    /// driver sends them in one burst after connecting, so a client can tell
+    /// when the backlog has arrived.
+    backlog: usize,
     /// Index into [`KELLY_PROFILES`] of Kelly's current profile name.
     kelly_profile: usize,
 }
@@ -223,6 +227,7 @@ impl Sim {
             started: VecDeque::new(),
             running: Vec::new(),
             answers: VecDeque::new(),
+            backlog: 0,
             kelly_profile: 0,
         };
         sim.schedule(0, Item::Connection(ConnectionState::Connecting));
@@ -237,6 +242,11 @@ impl Sim {
 
     pub(super) fn world(&self) -> &World {
         &self.world
+    }
+
+    /// How many messages the backlog put in the queue.
+    pub(super) const fn backlog_len(&self) -> usize {
+        self.backlog
     }
 
     pub(super) fn wall_clock_at(&self, at: Millis) -> Timestamp {
@@ -526,6 +536,10 @@ impl Sim {
         }
         // Stable: a message's follow-ups never overtake it.
         events.sort_by_key(|(at, _)| *at);
+        self.backlog = events
+            .iter()
+            .filter(|(_, event)| matches!(event, BackendEvent::Message(_)))
+            .count();
         for (_, event) in events {
             self.emit(CONNECT_DELAY, event);
         }

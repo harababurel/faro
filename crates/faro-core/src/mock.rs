@@ -162,6 +162,15 @@ impl MockBackend {
             .schedule(|sim, now| sim.schedule_error(now, error));
     }
 
+    /// How many messages the backlog will deliver, in one burst right after
+    /// `Connected`. A client that wants to see the whole backlog before it
+    /// acts — the web demo opening its first chat, so its first frame is the
+    /// site poster (D122) — counts this many [`BackendEvent::Message`]s.
+    #[must_use]
+    pub fn backlog_len(&self) -> usize {
+        self.shared.sim().backlog_len()
+    }
+
     /// A round trip to the "server": fails if offline (before or after the
     /// simulated latency) or if `check` rejects the request.
     async fn request(&self, check: impl FnOnce(&Sim) -> Result<()>) -> Result<()> {

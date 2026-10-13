@@ -8,11 +8,12 @@ use tokio::sync::mpsc;
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 
+use crate::demo::visitor_mock;
 use crate::dom::{CanvasPage, Listeners};
 use crate::live::{self, Shell};
 use crate::media::Audio;
 use crate::paint::Painter;
-use crate::session::{Session, visitor_mock};
+use crate::session::Session;
 
 /// The demo running in a canvas. Dropping it (`demo.free()`) stops it. The
 /// canvas sends `faro-bell` events when faro rings and `faro-exit` when it

@@ -94,23 +94,36 @@ jobs:
   # The getfaro.dev static site (M13 Phase 1): build it the way the server
   # does, then run the site checks (WEBSITE.md §6.8): links, no third-party
   # requests, no cookies, no inline code, no leftover placeholders, the
-  # §6.6 size budget and the no-JS render. Deployment stays manual on the
-  # server (site/deploy/update.sh); there are no deploy steps and no secrets.
+  # §6.6 size budget, the demo's own wasm budget (D119) and the no-JS
+  # render. Deployment stays manual on the server (site/deploy/update.sh);
+  # there are no deploy steps and no secrets.
   site:
     name: site
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
-      # Installs the toolchain pinned in rust-toolchain.toml. faro-site needs
-      # nothing else: no protoc, no libsignal (§6.8).
+      # Installs the toolchain and the wasm32 target pinned in
+      # rust-toolchain.toml. faro-site needs nothing else: no protoc, no
+      # libsignal (§6.8); build.sh also builds the demo's wasm module.
       - name: Install Rust
         run: rustup toolchain install && rustc --version
 
       - uses: Swatinem/rust-cache@v2
 
+      # site/build.sh runs crates/faro-web/build.sh, which needs
+      # wasm-bindgen-cli at the wasm-bindgen crate's version.
+      - name: wasm-bindgen version (from Cargo.lock)
+        id: bindgen
+        run: echo "version=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/version = |"/, ""); print; exit }' Cargo.lock)" >> "$GITHUB_OUTPUT"
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ steps.bindgen.outputs.version }}
+
       # A fresh dir: build.sh refuses a non-empty one (stale hashed files).
       # brotli isn't on the runner: build.sh skips the .br twins, fine.
+      # wasm-opt (binaryen) isn't either: the size budget is checked without it.
       - name: Build the site
         run: site/build.sh "$RUNNER_TEMP/site"
 

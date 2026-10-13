@@ -112,15 +112,22 @@ git clone github-faro:harababurel/faro.git /srv/getfaro.dev/repo
 ls -l /srv/getfaro.dev/current                 # -> releases/<commit>
 ```
 
-Until Phase 1 the build is just the placeholder page (`site/build.sh`), so it needs only bash, git and gzip. When Phase 1 lands, the build will also need the Rust toolchain:
+The build is `site/build.sh`: it builds the page with `faro-site` and the web
+demo's wasm module with `crates/faro-web/build.sh`, so it needs bash, git,
+gzip **and** the Rust toolchain:
 
 ```sh
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
-# rust-toolchain.toml installs the pinned toolchain; the wasm32 target and tools:
-rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli --version 0.2.129 --locked
-sudo apt install binaryen
+# rust-toolchain.toml installs the pinned toolchain, with the wasm32 target:
+rustup target add wasm32-unknown-unknown   # already there; harmless
+cargo install wasm-bindgen-cli --version 0.2.129 --locked   # must match Cargo.lock's wasm-bindgen
+sudo apt install binaryen                 # optional: wasm-opt -Oz shrinks the module
+sudo apt install brotli                   # optional: .br twins (nginx needs the brotli module to use them)
 ```
+
+`crates/faro-web/build.sh` refuses to run if `wasm-bindgen --version` isn't the
+version in `Cargo.lock`, so re-run the `cargo install` line whenever that
+changes. To build only the page (no demo), run `SITE_NO_DEMO=1 site/build.sh`.
 
 ## 6. nginx and TLS for getfaro.dev
 

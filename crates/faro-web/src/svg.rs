@@ -1,7 +1,8 @@
 //! Buffer → SVG (WEBSITE.md §6.4): the poster and OG image the site embeds.
 //!
-//! **The geometry mirrors `paint.rs` cell for cell** — the same fractions for
-//! every [`glyphs::Shape`], the same run merging, the same line thickness. The
+//! **The geometry mirrors `paint.rs` cell for cell** — the same [`metrics`]
+//! rounding for the cell shape, the same fractions for every
+//! [`glyphs::Shape`], the same run merging, the same line thickness. The
 //! two must be changed together: a shape that moves in the Canvas painter has
 //! to move here too, or the poster drifts from what the live demo draws.
 
@@ -13,6 +14,7 @@ use ratatui::style::Modifier;
 
 use crate::color::{Rgb, cell_colors, cell_width};
 use crate::glyphs::{self, Corner, Line, Powerline, Shape, Symbol};
+use crate::metrics;
 
 /// The text baseline as a fraction of the cell height: what the Canvas painter
 /// measures for `JetBrains Mono` at its line height (≈ 0.96 × the font size).
@@ -24,6 +26,9 @@ const HAIRLINE: f32 = 1.0 / 18.0;
 const MIN_HAIRLINE: f32 = 0.1;
 
 /// How a buffer becomes a picture: cell size, font, theme defaults, name.
+/// The cell size and font size go together: [`metrics::cell`] gives the pair
+/// the live demo draws with, and [`metrics::letter_spacing`] keeps the text
+/// on the cell columns.
 #[derive(Debug, Clone)]
 pub struct SvgOptions {
     /// A cell's width in SVG user units.
@@ -58,6 +63,10 @@ struct Page<'a> {
     ch: f32,
     base: f32,
     line: f32,
+    /// `letter-spacing` for the text group, so a glyph ends where the next
+    /// cell column starts (`metrics::letter_spacing`); `None` when the cell
+    /// is exactly one advance wide.
+    spacing: Option<f32>,
     out: String,
     /// Scratch for colour attributes, so nothing allocates per element.
     css: String,
@@ -71,6 +80,7 @@ impl<'a> Page<'a> {
             ch: o.cell_height,
             base: o.cell_height * BASELINE,
             line: (o.cell_height * HAIRLINE).max(MIN_HAIRLINE),
+            spacing: metrics::letter_spacing(o.cell_width, o.font_size),
             out: String::new(),
             css: String::new(),
         }
@@ -208,8 +218,14 @@ impl<'a> Page<'a> {
         }
         let family = escaped(&self.o.font_family);
         let size = num(self.o.font_size);
+        let spacing = self.spacing.map_or(String::new(), |room| {
+            format!(r#" letter-spacing="{}""#, num(room))
+        });
         let body = self.out.split_off(first);
-        let _ = write!(self.out, r#"<g font-family="{family}" font-size="{size}">"#);
+        let _ = write!(
+            self.out,
+            r#"<g font-family="{family}" font-size="{size}"{spacing}>"#
+        );
         self.out.push_str(&body);
         self.out.push_str("</g>");
     }
@@ -838,6 +854,26 @@ mod tests {
             ),
             "{svg}"
         );
+    }
+
+    /// The cell shape and the text go together: a cell wider than the font's
+    /// advance gets the difference back as `letter-spacing`, so a run of
+    /// glyphs lands on cell columns instead of drifting (`metrics`).
+    #[test]
+    fn text_gets_letter_spacing_when_the_cell_is_wider_than_the_advance() {
+        let svg = buffer_to_svg(&row(&["ab"], Style::default()), &options());
+        assert!(
+            svg.contains(r#"<g font-family="JetBrains Mono" font-size="16" letter-spacing="0.4">"#),
+            "{svg}"
+        );
+        let mut o = options();
+        o.cell_width = 9.6;
+        let svg = buffer_to_svg(&row(&["ab"], Style::default()), &o);
+        assert!(
+            svg.contains(r#"<g font-family="JetBrains Mono" font-size="16">"#),
+            "{svg}"
+        );
+        assert!(!svg.contains("letter-spacing"), "{svg}");
     }
 
     #[test]

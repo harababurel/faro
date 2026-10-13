@@ -407,7 +407,7 @@ In kitty (directly and inside tmux), `faro demo`, `Ctrl+P` › Settings › Bubb
 
 | Check (what to look for) | Chrome | Firefox | Safari |
 |---|---|---|---|
-| **First frame:** the chat list and the animated lighthouse; JetBrains Mono text; sidebar and pane borders straight and joined; footer says `connected · demo` | | | |
+| **First frame:** Scranton Branch open (since D123; it used to be the chat list and the animated lighthouse), the same as the poster on getfaro.dev; JetBrains Mono text; sidebar and pane borders straight and joined; footer says `connected · demo` | | | |
 | **Glyphs:** open a chat (bubbles are rounded by default here; try every Bubble style in `Ctrl+P` › Settings): corners and edges smooth, no gaps or seams between rows; the logo's beam and stars are dots; `↳ ✎ ❝` look like the rest of the text | | | |
 | **Emoji:** flags (🇩🇪🇷🇴 side by side), ZWJ families, skin tones (🫶🏽), ❤️ and ✌️ in the demo chats: each in colour, centred in its cells, nothing overlapping the next character, rows stay aligned | | | |
 | **Keys:** `Alt+J/K` switch chats (on macOS Option+J/K too), `Tab` cycles focus and never leaves the canvas, `Ctrl+P` opens the palette, `Esc` closes it, readline keys in the input (`Ctrl+A/E/K/U`, `Alt+B/F`), `Alt+Backspace` deletes a word | | | |

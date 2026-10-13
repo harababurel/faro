@@ -1,62 +1,45 @@
 //! The poster and the OG image (WEBSITE.md §3.2, §5.4, §6.4): a real faro
-//! frame, built the way the web demo builds its first state — the mock's
-//! backlog in the memory store, through the real reducer — then opened onto
-//! the cast's liveliest group chat and exported as SVG in both faro themes,
-//! plus a 1200×630 PNG for social previews.
+//! frame, built from the web demo's own starting point — the mock's backlog
+//! in the memory store, through the real reducer, the branch chat open at the
+//! bottom — exported as SVG in both faro themes, plus a 1200×630 PNG for
+//! social previews.
 //!
 //! The frame is byte-identical across runs and days: the mock runs with
-//! [`MockConfig::deterministic`] and seed [`faro_web::demo::SEED`], and
-//! `demo::draw` pins the clock to `DETERMINISTIC_EPOCH` (so the relative
-//! timestamps are fixed), uses UTC and draws the still logo frame
-//! (`logo_time: None`). The PNG is deterministic too: resvg rasterises with
-//! only the fonts under `fonts/` loaded, never system fonts.
+//! [`faro_web::demo::poster_mock`] (seed, backlog and clock pinned) and
+//! `demo::draw` pins the clock to the same epoch (so the relative timestamps
+//! are fixed), uses UTC and draws the still logo frame (`logo_time: None`).
+//! The live demo starts from the same state, unfocused and with nothing
+//! selected, so the poster is its first frame (§3.2); the test
+//! `faro_web::demo::tests::the_poster_is_the_live_demo_start` keeps it so.
+//! The PNG is deterministic too: resvg rasterises with only the fonts under
+//! `fonts/` loaded, never system fonts.
 
 use std::fmt::Write as _;
 
-use faro_app::app::event::AppEvent;
-use faro_app::app::state::{BlockGlyphs, State};
-use faro_app::app::term_event::{Event, KeyCode, KeyEvent, KeyModifiers};
-use faro_app::app::update;
+use faro_app::app::state::State;
 use faro_app::theme::Theme;
 use faro_app::ui::logo::TAGLINE;
-use faro_core::domain::ConversationId;
-use faro_core::mock::MockConfig;
-use faro_core::store::Profile;
 use faro_web::color::{self, Rgb};
 use faro_web::demo;
 use faro_web::glyphs;
+use faro_web::metrics;
 use faro_web::svg::{self, SvgOptions};
 use ratatui::buffer::Buffer;
 use resvg::tiny_skia;
 use resvg::usvg::{self, fontdb};
 
-/// The chat the poster shows: the cast's biggest group, 15 members and the
-/// most scenes (`mock/cast.rs`), named in the template's alt-text comment.
-const CHAT: &str = "Scranton Branch";
-
 /// The poster grid: the demo's size (WEBSITE.md §4.4).
 const COLS: u16 = 120;
 const ROWS: u16 = 34;
 
-/// The poster's backlog: bigger than the demo's 60 on purpose. The mock
-/// plays whole scenes into the backlog and reshuffles when it runs out of
-/// them, and the branch group's scenes sit late in the deck — with 60
-/// messages (seed 42) the branch has no backlog at all. 400 covers all 30
-/// scenes (≈ 180 lines) at least once, so the branch's liveliness shows.
-const BACKLOG: usize = 400;
-
-/// Cell width in SVG user units: `JetBrains Mono`'s advance width is 0.6 em,
-/// so at a 16 px font a cell is 9.6 wide.
-const CELL_W: f32 = 9.6;
-/// Cell height: the web painter's line height, 1.2 × the font size
-/// (`paint.rs::LINE_HEIGHT`), so the poster's cells have exactly the shape
-/// the live demo lays out and the handover matches (§3.2). `svg.rs` puts
-/// the baseline at 0.8 of the cell height = 0.96 of the font size, which is
-/// what the canvas measures for this font. The SVG scales to the panel
-/// (`width: 100%`), so only these ratios matter.
-const CELL_H: f32 = 19.2;
-/// The poster's font size in the same user units.
+/// The poster's font size, and the device pixel ratio its cells are rounded
+/// for: the same rule the live demo's painter uses (`faro_web::metrics`), so
+/// when the live demo takes the poster's place the cells don't move (D122).
+/// At 16 px and dpr 1 that's a 10 × 19 cell; the SVG scales to the panel
+/// (`width: 100%`), so only these ratios matter, and `svg.rs` adds the
+/// `letter-spacing` that puts a 16 px glyph's advance on the 10 px column.
 const FONT_SIZE: f32 = 16.0;
+const DPR: f64 = 1.0;
 /// The page's own mono stack (`style.css`'s `--mono`), so the poster draws
 /// in the `JetBrains Mono` webfont like the rest of the page.
 const FONT_FAMILY: &str =
@@ -67,29 +50,63 @@ const TITLE: &str = "faro running in a terminal: the conversation list on the \
                      left, the Scranton Branch group chat open on the right, \
                      an input box below, and a footer reading connected · demo · unread";
 
+/// The poster's cell, in SVG user units: the live demo's cell shape at the
+/// poster's font size and device pixel ratio (`faro_web::metrics`), so the
+/// poster and the live panel agree (D122).
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "cell sizes are small; the SVG writer works in f32"
+)]
+fn cell() -> (f32, f32) {
+    let cell = metrics::cell(f64::from(FONT_SIZE), DPR);
+    (cell.width as f32, cell.height as f32)
+}
+
 /// The poster's size in user units, from the grid and cell metrics.
 fn poster_w() -> f32 {
-    f32::from(COLS) * CELL_W
+    f32::from(COLS) * cell().0
 }
 fn poster_h() -> f32 {
-    f32::from(ROWS) * CELL_H
+    f32::from(ROWS) * cell().1
 }
 
 /// The OG image canvas: the size social platforms show (§5.4).
 const OG_W: u32 = 1200;
 const OG_H: u32 = 630;
+/// The same sizes for the geometry below: 1200 and 630 are exact in f32.
+#[expect(clippy::cast_precision_loss, reason = "1200 and 630 are exact in f32")]
+const OG_W_F: f32 = OG_W as f32;
+#[expect(clippy::cast_precision_loss, reason = "1200 and 630 are exact in f32")]
+const OG_H_F: f32 = OG_H as f32;
 /// The wordmark and tagline sit on one line in the top band; the frame is
-/// centred below them, scaled to fit with a margin. 936 wide keeps the
-/// frame's height at 530.4, so the bottom margin is ≈ 20.
-const OG_FRAME_W: f32 = 936.0;
-const OG_FRAME_X: f32 = (1200.0 - OG_FRAME_W) / 2.0;
+/// centred below them and as large as the space left for it allows: it
+/// starts at `OG_FRAME_Y`, ends `OG_MARGIN` above the bottom, and keeps the
+/// poster's own aspect (`poster_w`/`poster_h` — 1200 × 646 at the poster's
+/// cell metrics, D122). So it's 530 tall and 984 wide, with ≈ 108 px of
+/// margin at the sides.
 const OG_FRAME_Y: f32 = 80.0;
+const OG_MARGIN: f32 = 20.0;
 const OG_WORDMARK_SIZE: f32 = 40.0;
 const OG_TAGLINE_SIZE: f32 = 18.0;
 const OG_TEXT_X: f32 = 40.0;
 const OG_TEXT_BASELINE: f32 = 58.0;
 /// The tagline starts after the 4-letter wordmark plus a gap.
 const OG_TAGLINE_X: f32 = OG_TEXT_X + 4.0 * 0.6 * OG_WORDMARK_SIZE + 40.0;
+
+/// The frame's width: the band's height (530) at the poster's aspect ratio,
+/// so the frame fills it exactly and the margins are `OG_MARGIN`.
+fn og_frame_w() -> f32 {
+    (OG_H_F - OG_FRAME_Y - OG_MARGIN) * poster_w() / poster_h()
+}
+/// The frame's height: `og_frame_w()` back at the poster's aspect — the
+/// band's height, by construction.
+fn og_frame_h() -> f32 {
+    og_frame_w() * poster_h() / poster_w()
+}
+/// The frame's left edge: centred in the canvas.
+fn og_frame_x() -> f32 {
+    (OG_W_F - og_frame_w()) / 2.0
+}
 
 /// The fonts resvg rasterises with — the web demo's own subsets (D107),
 /// decompiled for resvg (see `fonts/README.md`). Loading only these, and
@@ -128,55 +145,14 @@ pub fn render() -> Result<Art, String> {
     runtime.block_on(frame())
 }
 
-/// The state, opened onto the branch chat with the message pane focused,
-/// then rendered in both themes and rasterised for the OG image.
+/// The demo's own starting state — the branch chat open at the bottom, the
+/// list focused, nothing selected — rendered in both themes and rasterised
+/// for the OG image. Everything about it comes from `faro_web::demo`, which
+/// the live demo runs too (D122).
 async fn frame() -> Result<Art, String> {
-    let mock = MockConfig {
-        activity: None,
-        disconnects: false,
-        errors: false,
-        backlog: BACKLOG,
-        ..MockConfig::deterministic(demo::SEED)
-    };
-    let (mut state, store) = demo::stored_state(&mock)
+    let mut state = demo::first_state()
         .await
         .map_err(|error| format!("the demo's first state failed: {error}"))?;
-    // The poster is a frame of `faro demo`: the footer says so (D87), and
-    // the environment matches the live demo's (`session::Session::start`):
-    // native block glyphs, so `bubble_style = "auto"` gives the rounded
-    // bubbles the modern terminals show.
-    state.profile = Profile::Demo;
-    state.env.glyphs = BlockGlyphs::Native;
-
-    let target = branch(&state)?;
-    // Walk the list cursor onto it with Alt+Down (which saturates), as a
-    // visitor would, then open it with Enter.
-    let steps = state.visible_conversations().count();
-    for _ in 0..=steps {
-        if state.highlighted() == Some(target) {
-            break;
-        }
-        let alt_down = Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::ALT));
-        update::update(&mut state, AppEvent::Terminal(alt_down));
-    }
-    if state.highlighted() != Some(target) {
-        return Err(format!("the demo's chat list has no {CHAT} chat to open"));
-    }
-    demo::open(&mut state, &store, target)
-        .await
-        .map_err(|error| format!("opening the {CHAT} chat failed: {error}"))?;
-    // Tab: focus the message pane, so the poster shows the chat's bubbles
-    // and a selected message rather than a blinking input caret. (Before
-    // the first draw the Tab order is messages ↔ input.)
-    update::update(
-        &mut state,
-        AppEvent::Terminal(Event::Key(KeyEvent::from(KeyCode::Tab))),
-    );
-    store
-        .close()
-        .await
-        .map_err(|error| format!("the memory store failed to close: {error}"))?;
-
     let dark = poster(&mut state, "faro-dark", "dark")?;
     let light = poster(&mut state, "faro-light", "light")?;
     let og_png = og(&mut state)?;
@@ -184,21 +160,6 @@ async fn frame() -> Result<Art, String> {
         posters: Posters { dark, light },
         og_png,
     })
-}
-
-/// The branch group's conversation, by title prefix (the full title carries
-/// an emoji; "Scranton Business Park" doesn't match).
-fn branch(state: &State) -> Result<ConversationId, String> {
-    state
-        .visible_conversations()
-        .find(|summary| {
-            summary
-                .title
-                .as_deref()
-                .is_some_and(|title| title.starts_with(CHAT))
-        })
-        .map(|summary| summary.id)
-        .ok_or_else(|| format!("the demo's chat list has no {CHAT} chat"))
 }
 
 /// `state` as one theme's poster SVG: the theme set through the config the
@@ -217,9 +178,10 @@ fn poster(state: &mut State, name: &str, variant: &str) -> Result<String, String
 /// The SVG export options shared by both posters and the OG's frame.
 fn svg_options(theme: &Theme) -> SvgOptions {
     let (foreground, background) = theme_rgb(theme);
+    let (cell_width, cell_height) = cell();
     SvgOptions {
-        cell_width: CELL_W,
-        cell_height: CELL_H,
+        cell_width,
+        cell_height,
         font_family: FONT_FAMILY.to_owned(),
         font_size: FONT_SIZE,
         foreground,
@@ -284,9 +246,9 @@ fn og_svg(inner: &str, theme: &Theme) -> String {
         .unwrap_or(inner);
     let (foreground, background) = theme_rgb(theme);
     let muted = color::rgb(theme.text_muted, background);
-    let frame_w = num(OG_FRAME_W);
-    let frame_h = num(OG_FRAME_W * poster_h() / poster_w());
-    let frame_x = num(OG_FRAME_X);
+    let frame_w = num(og_frame_w());
+    let frame_h = num(og_frame_h());
+    let frame_x = num(og_frame_x());
     let frame_y = num(OG_FRAME_Y);
     let text_x = num(OG_TEXT_X);
     let baseline = num(OG_TEXT_BASELINE);
@@ -463,6 +425,28 @@ mod tests {
                 .expect("poster-light.svg can be written");
             std::fs::write(out.join("og.png"), &once.og_png).expect("og.png can be written");
         }
+    }
+
+    /// The OG frame fills the band under the wordmark: `OG_MARGIN` above the
+    /// bottom, centred, and a width that only makes sense at the poster's own
+    /// aspect (the old hard-coded 936 was tuned to 9.6 × 19.2 cells and left
+    /// 46 px of dead space once the cells became 10 × 19, D122).
+    #[test]
+    fn the_og_frame_fills_the_band_under_the_wordmark() {
+        let (w, h, x) = (og_frame_w(), og_frame_h(), og_frame_x());
+        let bottom = OG_H_F - (OG_FRAME_Y + h);
+        assert!(
+            (bottom - OG_MARGIN).abs() < 0.5,
+            "frame {w} x {h} at y {OG_FRAME_Y}: bottom margin {bottom}"
+        );
+        assert!(
+            (x * 2.0 + w - OG_W_F).abs() < 0.5,
+            "frame at x {x} is not centred"
+        );
+        assert!(
+            (900.0..OG_W_F - 2.0 * OG_MARGIN).contains(&w),
+            "frame width {w} doesn't fit the canvas"
+        );
     }
 
     /// The OG PNG: the right size and small enough for social platforms

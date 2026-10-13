@@ -13,6 +13,7 @@ use std::path::Path;
 use faro_app::app::keymap::Keymap;
 
 use crate::assets;
+use crate::demo;
 use crate::keys;
 use crate::placeholders::{self, Problem, Syntax, Values};
 use crate::release;
@@ -36,8 +37,10 @@ enum Kind {
 }
 
 /// Build the site: copy the template, fill the placeholders from faro's
-/// own code, and rename the assets to content-hashed names.
-pub fn generate(template: &Path, out: &Path) -> Result<(), String> {
+/// own code, and rename the assets to content-hashed names. With `pkg`,
+/// the web demo's built wasm module (the output of
+/// `crates/faro-web/build.sh`) goes into `<out>/demo/` as well.
+pub fn generate(template: &Path, out: &Path, pkg: Option<&Path>) -> Result<(), String> {
     let mut found: Vec<(String, Vec<u8>)> = Vec::new();
     walk(template, "", &mut found)?;
     let contents: BTreeMap<String, Vec<u8>> = found.into_iter().collect();
@@ -125,6 +128,9 @@ pub fn generate(template: &Path, out: &Path) -> Result<(), String> {
             fs::create_dir_all(dir).map_err(|error| io_err("create", dir, &error))?;
         }
         fs::write(&path, bytes).map_err(|error| io_err("write", &path, &error))?;
+    }
+    if let Some(pkg) = pkg {
+        demo::copy(pkg, out)?;
     }
     Ok(())
 }
@@ -268,7 +274,7 @@ mod tests {
         fs::write(dir.join("index.html"), "<p>hi</p>").expect("index.html");
         std::os::unix::fs::symlink(dir.join("index.html"), dir.join("link.html"))
             .expect("the symlink can be made");
-        let Err(problem) = generate(&dir, &dir.join("out")) else {
+        let Err(problem) = generate(&dir, &dir.join("out"), None) else {
             panic!("a symlink should stop the build");
         };
         assert!(problem.contains("symlink"), "{problem}");
@@ -281,7 +287,7 @@ mod tests {
         fs::write(dir.join("index.html"), "<link href=\"style.css\">").expect("index.html");
         fs::write(dir.join("style.css"), "@import \"other.css\";").expect("style.css");
         fs::write(dir.join("other.css"), "body { color: red; }").expect("other.css");
-        let Err(problem) = generate(&dir, &dir.join("out")) else {
+        let Err(problem) = generate(&dir, &dir.join("out"), None) else {
             panic!("a second style sheet should stop the build");
         };
         assert!(problem.contains("cross-stylesheet"), "{problem}");
@@ -293,11 +299,27 @@ mod tests {
         let dir = scratch("js-braces");
         fs::write(dir.join("index.html"), "<script src=\"app.js\"></script>").expect("index.html");
         fs::write(dir.join("app.js"), "const t = '{{version}}';").expect("app.js");
-        let Err(problem) = generate(&dir, &dir.join("out")) else {
+        let Err(problem) = generate(&dir, &dir.join("out"), None) else {
             panic!("braces in JS should stop the build");
         };
         assert!(problem.contains("JS files are copied"), "{problem}");
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// wasm-bindgen's output, in miniature: the loader's fallback wasm name
+    /// is the only thing `demo::copy` has to recognise.
+    fn fake_pkg(dir: &Path) {
+        fs::create_dir_all(dir).expect("the fake pkg dir");
+        fs::write(
+            dir.join("faro_web_bg.wasm"),
+            b"wasm bytes, quite long to compress",
+        )
+        .expect("wasm");
+        fs::write(
+            dir.join("faro_web.js"),
+            b"module_or_path = new URL('faro_web_bg.wasm', import.meta.url);",
+        )
+        .expect("js");
     }
 
     /// The real template, built end to end: the same thing `site/build.sh`
@@ -307,14 +329,21 @@ mod tests {
         let template = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../site/template");
         let out = std::env::temp_dir().join(format!("faro-site-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&out);
-        generate(&template, &out).expect("the real template builds");
+        let pkg = scratch("pkg");
+        fake_pkg(&pkg);
+        generate(&template, &out, Some(&pkg)).expect("the real template builds");
 
         let mut files: Vec<(String, Vec<u8>)> = Vec::new();
         walk(&out, "", &mut files).expect("the output can be read back");
         let names: Vec<&str> = files.iter().map(|(rel, _)| rel.as_str()).collect();
 
-        // Placeholders are gone everywhere, and the facts line is filled.
+        // Placeholders are gone from every text file, and the facts line is
+        // filled. (Binary files are skipped: a PNG's bytes can contain "{{".)
+        let text_exts = ["html", "css", "js", "svg", "json", "txt"];
         for (rel, bytes) in &files {
+            if !text_exts.iter().any(|ext| has_ext(rel, ext)) {
+                continue;
+            }
             let text = String::from_utf8_lossy(bytes);
             assert!(!text.contains("{{"), "{rel} still has a placeholder");
         }
@@ -377,7 +406,49 @@ mod tests {
         assert!(names.contains(&"fonts/OFL.txt"));
         assert!(names.contains(&"privacy.html"));
 
+        // The web demo ships beside the page (Phase 4).
+        the_demo_ships_beside_the_page(&names, &files, &index);
+
         let _ = fs::remove_dir_all(&out);
+        let _ = fs::remove_dir_all(&pkg);
+    }
+
+    /// The demo's files are in the build, hashed like any other asset, both
+    /// manifests are there, and the landing page doesn't reference any of it
+    /// yet (chunk 2 wires it up).
+    fn the_demo_ships_beside_the_page(names: &[&str], files: &[(String, Vec<u8>)], index: &str) {
+        let manifest = files
+            .iter()
+            .find(|(rel, _)| rel == "demo/manifest.json")
+            .map(|(_, bytes)| String::from_utf8_lossy(bytes).into_owned())
+            .expect("the demo manifest");
+        assert!(manifest.contains("\"preload\":true"), "{manifest}");
+        let no_preload = files
+            .iter()
+            .find(|(rel, _)| rel == "demo/manifest.no-preload.json")
+            .map(|(_, bytes)| String::from_utf8_lossy(bytes).into_owned())
+            .expect("the demo's no-preload manifest (nginx's emergency switch, §6.8)");
+        assert!(no_preload.contains("\"preload\":false"), "{no_preload}");
+        assert!(
+            names
+                .iter()
+                .any(|name| name.starts_with("demo/faro_web.") && has_ext(name, "js")),
+            "{names:?}"
+        );
+        assert!(
+            names
+                .iter()
+                .any(|name| name.starts_with("demo/faro_web_bg.") && has_ext(name, "wasm")),
+            "{names:?}"
+        );
+        assert!(
+            !names.contains(&"demo/faro_web.js"),
+            "the demo's plain names are gone"
+        );
+        assert!(
+            !index.contains("/demo/"),
+            "the landing page must not load the demo yet"
+        );
     }
 
     #[test]
