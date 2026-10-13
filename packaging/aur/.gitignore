@@ -1,5 +1,5 @@
 src/
 pkg/
-faro/
+faro-git/faro/
 *.pkg.tar.*
 *.log
