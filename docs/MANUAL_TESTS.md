@@ -398,7 +398,7 @@ In kitty (directly and inside tmux), `faro demo`, `Ctrl+P` › Settings › Bubb
 
 **Setup:**
 1. Build the demo: `crates/faro-web/build.sh`. It needs `cargo install wasm-bindgen-cli --version <the Cargo.lock version> --locked`; the script prints the exact command if it's missing.
-2. Serve the folder: `python3 -m http.server -d crates/faro-web/www 8000`.
+2. Serve the folder, from the repo root: `python3 -m http.server -d crates/faro-web/www 8000` (from anywhere else the path is wrong and every request gets a 404).
 3. Open `http://localhost:8000/` in each browser. On a remote machine, forward the port with `ssh -L 8000:localhost:8000`.
 
 **Results:** for each row, write ✓, ✗ (add a note below) or – (not applicable) in the Chrome, Firefox and Safari columns.
