@@ -2,7 +2,7 @@
 
 A terminal client for [Signal](https://signal.org), built for people who live in tmux.
 
-> **Status: pre-release.** The interface can be tried with **`faro demo`** (fake contacts and messages, no account needed). The real Signal backend (via [presage](https://github.com/whisperfish/presage)) works and is in daily use; for testing it can be limited to an allowlist of who faro may talk to. See the [plan](docs/PLAN.md) for progress.
+> **Status: v0.1.0, the first release.** Install it with Homebrew, from the AUR or as a `.deb` ([below](#install)). The interface can be tried with **`faro demo`** (fake contacts and messages, no account needed). The real Signal backend (via [presage](https://github.com/whisperfish/presage)) works and is in daily use; for testing it can be limited to an allowlist of who faro may talk to. See the [plan](docs/PLAN.md) for what's next.
 
 faro is an unofficial, independent project. It is not affiliated with, endorsed by, or supported by Signal Messenger LLC or the Signal Technology Foundation.
 
@@ -29,7 +29,30 @@ Website and live demo: https://getfaro.dev
 - Themes: `faro-dark`, `faro-dusk`, `faro-light`, `system` (your terminal's own 16 colours), OpenCode's 33 themes (dark and light), and your own theme files; previewed live as you move through them; automatic 256-colour fallback
 - Never blocks: the UI keeps up while messages flood in
 
-## Install from source
+## Install
+
+macOS / Linux (Homebrew):
+
+```sh
+brew install harababurel/tap/faro
+```
+
+Arch Linux (AUR), with any AUR helper; or `faro` to build the release from source, `faro-git` for the latest commit:
+
+```sh
+yay -S faro-bin
+```
+
+Debian / Ubuntu (`faro_arm64.deb` on ARM):
+
+```sh
+curl -LO https://github.com/harababurel/faro/releases/latest/download/faro_amd64.deb
+sudo apt install ./faro_amd64.deb
+```
+
+Prebuilt archives for macOS (Apple silicon, Intel) and Linux (x86_64, ARM64), with checksums, are on the [releases page](https://github.com/harababurel/faro/releases/latest).
+
+### From source
 
 You need Rust via [rustup](https://rustup.rs). The exact toolchain is pinned in `rust-toolchain.toml`; rustup installs it on the first build.
 
@@ -47,12 +70,11 @@ Building also needs the protobuf compiler and a C toolchain for libsignal and SQ
 | Debian/Ubuntu | `sudo apt install protobuf-compiler cmake clang pkg-config libssl-dev` |
 | macOS | `brew install protobuf cmake` |
 
-Release binaries and packages come later (see [DESIGN.md §13](docs/DESIGN.md)).
-
 ## Try it
 
 ```sh
-cargo run --release -- demo
+faro demo                     # installed
+cargo run --release -- demo   # from a checkout
 ```
 
 `faro demo` runs faro against a fake account: the new temp at a paper company's Scranton branch, with scripted coworkers, groups, photos and voice notes. No Signal account is involved. Its data lives in its own directory under the system temp dir (`$TMPDIR` or `/tmp`, as `faro-demo-<uid>`), kept until the system clears it; `--fresh` starts over. The demo never reads or writes your real data directory (it ignores `--data-dir` and `FARO_DATA_DIR`), but it does use your real config file, so a theme you pick in the demo stays picked.
