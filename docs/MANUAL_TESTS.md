@@ -467,6 +467,7 @@ The template is `site/template/` (WEBSITE.md §7 Phase 1). Preview the built pag
 - [ ] **Analytics opt-out:** "Don't count my visits" in the footer lands on the home page with the parameter stripped from the URL, the footer then says "Analytics off in this browser." and the link reads "Count my visits again"; reloads and further clicks record **no** pageview or events in the dashboard (check after a minute). "Count my visits again" restores counting. The privacy page's wording matches this behaviour.
 - [ ] **Keyboard-only:** `Tab` walks skip link → nav → toggle → links → buttons → FAQ → footer; every focused element shows the amber ring; the skip link jumps to the content; FAQ items open with `Enter`; no focus trap anywhere.
 - [ ] **Reduced motion** (OS setting): hover/focus colour changes are instant, no transitions; with the setting off, the transitions are short and don't move layout.
+- [ ] **One text column (2026-10-13):** on a wide window, the footer's links and text line up with the text sections above (hero, install, FAQ): same left and right edges, centred; only the header and the demo are wider. On Privacy, Terms and the 404 page the text and the footer share that same centred column. On a phone, all of them keep the same side margins.
 
 ## Website: preload and handover (M13 Phase 4, D124)
 
