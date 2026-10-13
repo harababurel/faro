@@ -43,7 +43,17 @@ impl Page for CanvasPage {
         let Some(window) = web_sys::window() else {
             return;
         };
-        let promise = window.navigator().clipboard().write_text(&text);
+        // Pages that aren't secure (plain http other than localhost) have no
+        // `navigator.clipboard`; calling it anyway throws and stops the demo.
+        let navigator = window.navigator();
+        let available = js_sys::Reflect::get(&navigator, &JsValue::from_str("clipboard"))
+            .is_ok_and(|clipboard| !clipboard.is_undefined());
+        if !available {
+            let text = "Couldn't copy: the browser only allows it on https pages".to_owned();
+            let _ = results.send(AppEvent::Unavailable(text));
+            return;
+        }
+        let promise = navigator.clipboard().write_text(&text);
         wasm_bindgen_futures::spawn_local(async move {
             if JsFuture::from(promise).await.is_err() {
                 let text = "Couldn't copy: the browser kept the clipboard closed".to_owned();

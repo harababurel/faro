@@ -403,6 +403,8 @@ In kitty (directly and inside tmux), `faro demo`, `Ctrl+P` › Settings › Bubb
 
 **Results:** for each row, write ✓, ✗ (add a note below) or – (not applicable) in the Chrome, Firefox and Safari columns.
 
+**2026-10-13, owner, Chrome on macOS:** every row passes except copy: `y` froze the demo until a reload. Cause: the page was served over plain `http://orion.local`, which has no `navigator.clipboard`, and calling it threw. Fixed: copying there shows a notice instead (re-check `y` over http and over https/localhost). The bell is now off in the demo (`demo.toml`), so it no longer flashes constantly. Speed: repaint avg 1.18 ms, frame avg 2.15 ms, p95 2.7 ms. Firefox and Safari not tested yet.
+
 | Check (what to look for) | Chrome | Firefox | Safari |
 |---|---|---|---|
 | **First frame:** the chat list and the animated lighthouse; JetBrains Mono text; sidebar and pane borders straight and joined; footer says `connected · demo` | | | |

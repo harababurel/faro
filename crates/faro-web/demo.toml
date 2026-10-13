@@ -7,6 +7,11 @@
 [voice]
 transcribe = "local"
 
+# The cast writes far more often than real contacts, so the bell (the
+# panel's flashing border) would go off constantly. Alt+N turns it on.
+[notifications]
+bell = false
+
 # Chords the browser keeps for itself, unbound so the hints don't offer
 # them. The other bindings work as in the terminal.
 [keybindings.input]
