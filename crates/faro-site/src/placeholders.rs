@@ -6,12 +6,14 @@ use std::fmt;
 /// The values the generator knows, by placeholder name.
 pub type Values = BTreeMap<&'static str, String>;
 
-/// Which comment syntax a file uses: HTML only has `<!-- -->`, CSS only
-/// has `/* */`.
+/// Which comment syntax a file uses: HTML and XML only have `<!-- -->`,
+/// CSS only has `/* */`. XML also escapes the values it fills: a sitemap
+/// is text, a value must not bring markup in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Syntax {
     Html,
     Css,
+    Xml,
 }
 
 /// What's wrong with the placeholders in a file.
@@ -51,7 +53,7 @@ impl fmt::Display for Problem {
 /// problems, so a template typo can't ship.
 pub fn fill(text: &str, values: &Values, syntax: Syntax) -> Result<String, Vec<Problem>> {
     let (open, close) = match syntax {
-        Syntax::Html => ("<!--", "-->"),
+        Syntax::Html | Syntax::Xml => ("<!--", "-->"),
         Syntax::Css => ("/*", "*/"),
     };
     let mut out = String::with_capacity(text.len());
@@ -59,16 +61,16 @@ pub fn fill(text: &str, values: &Values, syntax: Syntax) -> Result<String, Vec<P
     let mut rest = text;
     loop {
         let Some(pos) = rest.find(open) else {
-            fill_segment(rest, false, values, &mut out, &mut problems);
+            fill_segment(rest, false, values, syntax, &mut out, &mut problems);
             break;
         };
         let (before, opened) = rest.split_at(pos);
-        fill_segment(before, false, values, &mut out, &mut problems);
+        fill_segment(before, false, values, syntax, &mut out, &mut problems);
         out.push_str(open);
         let (_, inside_or_after) = opened.split_at(open.len());
         if let Some(end) = inside_or_after.find(close) {
             let (inside, closed) = inside_or_after.split_at(end);
-            fill_segment(inside, true, values, &mut out, &mut problems);
+            fill_segment(inside, true, values, syntax, &mut out, &mut problems);
             out.push_str(close);
             let (_, after) = closed.split_at(close.len());
             rest = after;
@@ -89,6 +91,7 @@ fn fill_segment(
     segment: &str,
     in_comment: bool,
     values: &Values,
+    syntax: Syntax,
     out: &mut String,
     problems: &mut Vec<Problem>,
 ) {
@@ -108,6 +111,8 @@ fn fill_segment(
                 // In a comment just drop the braces: the comment
                 // documents the placeholder, it doesn't want the value.
                 Some(_) if in_comment => out.push_str(name),
+                // XML is text: a filled value can't bring markup in.
+                Some(value) if syntax == Syntax::Xml => out.push_str(&escape(value)),
                 Some(value) => out.push_str(value),
                 None => {
                     problems.push(Problem::Unknown(name.to_owned()));
@@ -243,6 +248,23 @@ mod tests {
     fn values_are_inserted_as_they_come() {
         let filled = fill("{{big}}", &values(), Syntax::Html).unwrap();
         assert_eq!(filled, "<b>big</b>");
+    }
+
+    #[test]
+    fn xml_comments_work_like_html_ones() {
+        let filled = fill(
+            "<!-- {{name}} docs --><url>{{name}}</url>",
+            &values(),
+            Syntax::Xml,
+        )
+        .unwrap();
+        assert_eq!(filled, "<!-- name docs --><url>faro</url>");
+    }
+
+    #[test]
+    fn xml_values_are_escaped() {
+        let filled = fill("<loc>{{big}}</loc>", &values(), Syntax::Xml).unwrap();
+        assert_eq!(filled, "<loc>&lt;b&gt;big&lt;/b&gt;</loc>");
     }
 
     #[test]

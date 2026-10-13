@@ -550,3 +550,12 @@ available; local green runs do not mean the remote job ran.
 
 - [ ] **Failure diagnostics:** when a browser assertion fails in CI, the uploaded `browser-report` artifact has a readable report and relevant failure screenshots. Optional native fullscreen denial is labelled skipped, not passed.
 - [ ] **Real-device matrix:** run the existing focus/panel/gallery checks in real browsers when convenient; retain deferred status for emoji fonts, macOS Option keys, trackpads, high-DPI screens and phone/fullscreen permissions until actually checked.
+
+## Website: 404, robots, sitemap (M13 Phase 5)
+
+The nginx template gained `error_page 404 /404.html` with an `internal`
+location — apply the updated config on the server before checking the status
+codes (the owner deploys; `site/deploy/README.md`).
+
+- [ ] **404:** visit `https://getfaro.dev/nope` (and a missing URL at depth, e.g. `/a/b`): the styled page says "Page not found" with the normal header, footer and colours, and a link home that works; `curl -si https://getfaro.dev/nope | head -1` shows `404`. Requesting `/404.html` directly also gives 404 (the location is internal), and the page is not indexed (`robots` meta).
+- [ ] **robots and sitemap:** `https://getfaro.dev/robots.txt` loads as plain text and names the sitemap; `https://getfaro.dev/sitemap.xml` loads as XML with a filled `<lastmod>` date, and every `<loc>` opens a real page.

@@ -33,6 +33,9 @@ enum Kind {
     /// Under the `js/` path nginx proxies or serves under fixed names
     /// (`/js/s.js`, `/js/init.js`): never renamed.
     Fixed,
+    /// Filled like HTML but with escaped values, and kept under its plain
+    /// name: sitemaps are fetched at a fixed URL.
+    Xml,
     Copy,
 }
 
@@ -119,6 +122,16 @@ pub fn generate(template: &Path, out: &Path, pkg: Option<&Path>) -> Result<(), S
         let refs = assets::refs_for(dir_of(rel), &hashed);
         let rewritten = assets::rewrite(&text, &refs);
         let filled = fill(rel, &rewritten, &values, Syntax::Html)?;
+        written.insert(rel.clone(), filled.into_bytes());
+    }
+    for (rel, bytes) in &contents {
+        if kind(rel) != Kind::Xml {
+            continue;
+        }
+        // Sitemaps name pages, never hashed assets, so no reference
+        // rewriting — just the placeholders, with escaped values.
+        let text = utf8(rel, bytes)?;
+        let filled = fill(rel, &text, &values, Syntax::Xml)?;
         written.insert(rel.clone(), filled.into_bytes());
     }
     for (rel, bytes) in &contents {
@@ -227,6 +240,8 @@ fn kind(rel: &str) -> Kind {
         Kind::Js
     } else if ext == "html" {
         Kind::Html
+    } else if ext == "xml" {
+        Kind::Xml
     } else {
         Kind::Copy
     }
@@ -345,7 +360,7 @@ mod tests {
 
         // Placeholders are gone from every text file, and the facts line is
         // filled. (Binary files are skipped: a PNG's bytes can contain "{{".)
-        let text_exts = ["html", "css", "js", "svg", "json", "txt"];
+        let text_exts = ["html", "css", "js", "svg", "json", "txt", "xml"];
         for (rel, bytes) in &files {
             if !text_exts.iter().any(|ext| has_ext(rel, ext)) {
                 continue;
@@ -411,6 +426,35 @@ mod tests {
         assert!(names.contains(&"js/init.js"));
         assert!(names.contains(&"fonts/OFL.txt"));
         assert!(names.contains(&"privacy.html"));
+
+        // Phase 5: the 404 page, robots and the sitemap keep their plain
+        // names (crawlers and browsers fetch those URLs), and the sitemap's
+        // lastmod is filled.
+        assert!(names.contains(&"404.html"));
+        assert!(names.contains(&"robots.txt"));
+        assert!(names.contains(&"sitemap.xml"));
+        let sitemap = files
+            .iter()
+            .find(|(rel, _)| rel == "sitemap.xml")
+            .map(|(_, bytes)| String::from_utf8_lossy(bytes).into_owned())
+            .expect("sitemap.xml");
+        assert!(
+            sitemap.contains(&format!(
+                "<lastmod>{}</lastmod>",
+                release::date().expect("a date")
+            )),
+            "the sitemap's lastmod is the build date"
+        );
+        // The 404 page's absolute asset references are hashed like any others.
+        let page_404 = files
+            .iter()
+            .find(|(rel, _)| rel == "404.html")
+            .map(|(_, bytes)| String::from_utf8_lossy(bytes).into_owned())
+            .expect("404.html");
+        assert!(
+            page_404.contains(&format!("href=\"/{css}\"")),
+            "the 404 page points at the hashed style sheet"
+        );
 
         // The web demo ships beside the page (Phase 4).
         the_demo_ships_beside_the_page(&names, &files, &index);
@@ -508,7 +552,9 @@ mod tests {
         assert_eq!(kind("theme.js"), Kind::Js);
         assert_eq!(kind("js/init.js"), Kind::Fixed);
         assert_eq!(kind("index.html"), Kind::Html);
+        assert_eq!(kind("sitemap.xml"), Kind::Xml);
         assert_eq!(kind("fonts/x.woff2"), Kind::Font);
         assert_eq!(kind("fonts/OFL.txt"), Kind::Copy);
+        assert_eq!(kind("robots.txt"), Kind::Copy);
     }
 }

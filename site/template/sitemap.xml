@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- getfaro.dev sitemap (Phase 5). faro-site fills {{date}} with the build
+     date; add a <url> here whenever a new page ships. -->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<url><loc>https://getfaro.dev/</loc><lastmod>{{date}}</lastmod></url>
+<url><loc>https://getfaro.dev/privacy</loc><lastmod>{{date}}</lastmod></url>
+<url><loc>https://getfaro.dev/terms</loc><lastmod>{{date}}</lastmod></url>
+</urlset>

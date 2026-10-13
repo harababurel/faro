@@ -21,7 +21,7 @@ ROOT = None  # the built dir, absolute (set in main)
 # (site/deploy/nginx/getfaro.dev.conf).
 PROXIED = {"js/s.js", "api/event"}
 ORIGIN = "getfaro.dev"
-TEXT_EXTS = {".html", ".css", ".js", ".svg", ".txt", ".json"}
+TEXT_EXTS = {".html", ".css", ".js", ".svg", ".txt", ".json", ".xml"}
 OWNER_MARKS = ["{operator}", "{contact}", "{country}", "{law}", "TODO(owner)"]
 
 # The §6.6 budgets, in bytes.
@@ -344,6 +344,29 @@ def check_demo():
                 fail(f"{rel}{twin}: the manifests must not be precompressed (§6.8)")
 
 
+def check_seo():
+    """Phase 5 launch polish: the 404 page, robots.txt and sitemap.xml ship
+    under their plain names (crawlers fetch those URLs), and every <loc> in
+    the sitemap resolves to a built page per nginx's try_files. 404.html is
+    never linked, only served by error_page, so nothing here requires a
+    link to it."""
+    for name in ("404.html", "robots.txt", "sitemap.xml"):
+        if not os.path.isfile(os.path.join(ROOT, name)):
+            fail(f"{name} is missing (site/template must ship it under its plain name)")
+    path = os.path.join(ROOT, "sitemap.xml")
+    if not os.path.isfile(path):
+        return
+    locs = re.findall(r"<loc>([^<]+)</loc>", read(path))
+    if not locs:
+        fail("sitemap.xml: no <loc> entries")
+    for loc in locs:
+        what, found = target(loc, ROOT)
+        if what != "file":
+            fail(f"sitemap.xml: <loc>{loc}</loc> is not a same-origin URL")
+        elif found is None:
+            fail(f"sitemap.xml: <loc>{loc}</loc> doesn't resolve to a file in the site dir")
+
+
 def dump_dom(chrome, path, extra_flags):
     cmd = [
         chrome, "--headless=new", "--disable-gpu", "--no-sandbox", *extra_flags,
@@ -412,6 +435,7 @@ def main():
             check_css(rel, text)
         elif ext == ".js":
             check_js(rel, text)
+    check_seo()
     check_budget(pages)
     check_demo()
     check_no_js()
