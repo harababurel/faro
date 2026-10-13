@@ -267,6 +267,16 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 - Values UI/UX polish highly; inspirations are **OpenCode** and **btop**.
 - Runs faro inside **tmux**, often over **SSH**, in modern terminals like **kitty**; uses macOS (Mac mini host) and Linux (Arch, Debian).
 
+## Delegating to the local subagents
+
+The owner's Anthropic quota is limited; the `qwen` and `qwen-review` subagents run on a local model with no quota (owner's choice, 2026-10-12). Work this way:
+
+- **`qwen` writes the code.** Give it a self-contained prompt: which docs/sections to read (AGENTS.md rules and gotchas always), the exact task and files, acceptance criteria, the commands to verify with (`set -o pipefail`), "don't commit", and "report in under N lines".
+- **Keep tasks to one step.** Two empty runs on a large task (the SVG exporter) were fixed by splitting it: first a read-only analysis, then each edit as its own prompt in the same session. Follow-ups go to the same session (`sessionID`) so it keeps its context.
+- **`qwen-review` reviews each chunk** (in the background while you write docs). Ask for HIGH/MEDIUM only, max ~8 findings. Its findings are usually right, but confirm the important ones in the code before acting; send the fixes back to the `qwen` session that wrote the code.
+- **The main agent** plans the chunk, checks the results (diffs where small, renders with `rsvg-convert` or headless Chrome, reads screenshots), runs the full quality gate, writes DECISIONS/PLAN/AGENTS.md/MANUAL_TESTS, and commits and pushes. Read only the doc sections a chunk needs.
+- Headless Chrome for screenshots: `~/.cache/ms-playwright/chromium_headless_shell-1228/*/chrome-headless-shell` (`--screenshot`, or `CHROME=` for `crates/faro-web/tools/shot.mjs`).
+
 ## Development environment
 
 - Rust stable via rustup (version pinned in `rust-toolchain.toml`; rustup installs it automatically).

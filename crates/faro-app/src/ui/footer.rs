@@ -157,8 +157,9 @@ pub fn render(
         left.push(Span::styled(" · ", theme.muted()));
         left.push(Span::styled(GUARDED, theme.muted()));
     }
-    if !state.config.notifications.bell {
-        // Do not disturb (D53): say so while it lasts.
+    if !state.config.notifications.bell && !state.is_demo() {
+        // Do not disturb (D53): say so while it lasts. Not in the demo, where
+        // the bell is off by default and the marker would only puzzle visitors.
         left.push(Span::styled(" · ", theme.muted()));
         left.push(Span::styled(BELL_OFF, Style::new().fg(theme.warning)));
     }
