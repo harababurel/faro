@@ -163,9 +163,11 @@ fn values(posters: &scene::Posters, og_url: String) -> Result<Values, String> {
         "<div class=\"poster-dark\">{}</div><div class=\"poster-light\">{}</div>",
         posters.dark, posters.light
     );
-    let entries: [(&'static str, String); 6] = [
+    let entries: [(&'static str, String); 8] = [
         ("version", release::version()),
         ("date", release::date()?),
+        ("commit", release::commit()?),
+        ("source_url", release::source_url()?),
         ("keys", keys::table(&keymap)?),
         ("themes", themes::chips()),
         ("poster", poster),
@@ -427,34 +429,8 @@ mod tests {
         assert!(names.contains(&"fonts/OFL.txt"));
         assert!(names.contains(&"privacy.html"));
 
-        // Phase 5: the 404 page, robots and the sitemap keep their plain
-        // names (crawlers and browsers fetch those URLs), and the sitemap's
-        // lastmod is filled.
-        assert!(names.contains(&"404.html"));
-        assert!(names.contains(&"robots.txt"));
-        assert!(names.contains(&"sitemap.xml"));
-        let sitemap = files
-            .iter()
-            .find(|(rel, _)| rel == "sitemap.xml")
-            .map(|(_, bytes)| String::from_utf8_lossy(bytes).into_owned())
-            .expect("sitemap.xml");
-        assert!(
-            sitemap.contains(&format!(
-                "<lastmod>{}</lastmod>",
-                release::date().expect("a date")
-            )),
-            "the sitemap's lastmod is the build date"
-        );
-        // The 404 page's absolute asset references are hashed like any others.
-        let page_404 = files
-            .iter()
-            .find(|(rel, _)| rel == "404.html")
-            .map(|(_, bytes)| String::from_utf8_lossy(bytes).into_owned())
-            .expect("404.html");
-        assert!(
-            page_404.contains(&format!("href=\"/{css}\"")),
-            "the 404 page points at the hashed style sheet"
-        );
+        // Phase 5: the source link, the 404 page, robots and the sitemap.
+        the_phase_5_launch_polish(&names, &files, &index, css);
 
         // The web demo ships beside the page (Phase 4).
         the_demo_ships_beside_the_page(&names, &files, &index);
@@ -470,6 +446,54 @@ mod tests {
 
         let _ = fs::remove_dir_all(&out);
         let _ = fs::remove_dir_all(&pkg);
+    }
+
+    /// Phase 5 launch polish: the footer names the exact source this build
+    /// came from (§3.9) — the tree URL without the dirty marker, labelled
+    /// with the commit as shown — and the 404 page, robots and the sitemap
+    /// keep their plain names (crawlers and browsers fetch those URLs),
+    /// with the sitemap's lastmod filled and the 404 page's absolute asset
+    /// references hashed like any others.
+    fn the_phase_5_launch_polish(
+        names: &[&str],
+        files: &[(String, Vec<u8>)],
+        index: &str,
+        css: &str,
+    ) {
+        let commit = release::commit().expect("this checkout knows its commit");
+        assert!(
+            index.contains(&format!(
+                "github.com/harababurel/faro/tree/{}",
+                commit.trim_end_matches('+')
+            )),
+            "the footer links the build's source"
+        );
+        assert!(
+            index.contains(&format!(">faro {commit}</a>")),
+            "the link is labelled with the commit as shown"
+        );
+        assert!(names.contains(&"404.html"));
+        assert!(names.contains(&"robots.txt"));
+        assert!(names.contains(&"sitemap.xml"));
+        assert!(
+            text_of(files, "sitemap.xml").contains(&format!(
+                "<lastmod>{}</lastmod>",
+                release::date().expect("a date")
+            )),
+            "the sitemap's lastmod is the build date"
+        );
+        assert!(
+            text_of(files, "404.html").contains(&format!("href=\"/{css}\"")),
+            "the 404 page points at the hashed style sheet"
+        );
+    }
+
+    /// One built text file's contents.
+    fn text_of(files: &[(String, Vec<u8>)], rel: &str) -> String {
+        files.iter().find(|(file, _)| file == rel).map_or_else(
+            || panic!("{rel} is in the build"),
+            |(_, bytes)| String::from_utf8_lossy(bytes).into_owned(),
+        )
     }
 
     /// Every phone frame ships under a content-hashed name — never the

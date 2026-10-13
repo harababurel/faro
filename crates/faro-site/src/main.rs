@@ -3,7 +3,8 @@
 //! `faro-site <template dir> <out dir> [--demo <pkg dir>]` copies
 //! `<template dir>` to the output recursively, fills the `{{name}}`
 //! placeholders in the `.html` and `.css` files from faro's own code
-//! (version, date, key table, theme chips, poster, OG image), and rewrites
+//! (version, date, commit, source link, key table, theme chips, poster,
+//! OG image), and rewrites
 //! asset references to content-hashed names. With `--demo`, the output of
 //! `crates/faro-web/build.sh` is copied into `<out>/demo/` the same way
 //! (Phase 4). `site/build.sh` runs it; an unknown or unfilled placeholder,

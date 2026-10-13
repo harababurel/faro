@@ -10,6 +10,11 @@ pub const LINE: &str = env!("FARO_VERSION");
 /// `{{date}}` from this (M13).
 pub const BUILD_DATE: &str = env!("FARO_BUILD_DATE");
 
+/// The commit on its own (`8fe5755`, with `+` on a dirty tree), empty when
+/// the build had no git and `FARO_BUILD_COMMIT` wasn't set. The site
+/// generator fills its `{{commit}}` and `{{source_url}}` from this (§3.9).
+pub const BUILD_COMMIT: &str = env!("FARO_BUILD_COMMIT");
+
 /// What the UI draws: [`LINE`], fixed in tests so snapshots don't change
 /// with every commit.
 pub const fn shown() -> &'static str {

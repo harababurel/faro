@@ -28,6 +28,33 @@ pub fn date() -> Result<String, String> {
     Ok(civil_date(days))
 }
 
+/// The commit as `build.rs` knows it: `8fe5755`, with a trailing `+` when
+/// the tree was dirty. The site's source link needs it (§3.9), so a build
+/// without one is a problem.
+pub fn commit() -> Result<String, String> {
+    named_commit(faro_app::version::BUILD_COMMIT)
+}
+
+/// The GitHub tree URL for the exact build: GitHub doesn't know a dirty
+/// marker, so the URL carries the commit without its `+` (§3.9).
+pub fn source_url() -> Result<String, String> {
+    Ok(tree_url(&commit()?))
+}
+
+fn named_commit(commit: &str) -> Result<String, String> {
+    if commit.is_empty() {
+        return Err("no commit: build from a git checkout or set FARO_BUILD_COMMIT".to_owned());
+    }
+    Ok(commit.to_owned())
+}
+
+fn tree_url(commit: &str) -> String {
+    format!(
+        "https://github.com/harababurel/faro/tree/{}",
+        commit.trim_end_matches('+')
+    )
+}
+
 /// `YYYY-MM-DD` for days since the Unix epoch: the days-from-civil
 /// conversion (Howard Hinnant's algorithm), so one date doesn't need a
 /// calendar dependency. The epoch shift makes every division land on a
@@ -62,6 +89,27 @@ mod tests {
     #[test]
     fn version_is_the_plain_crate_version() {
         assert_eq!(version(), env!("CARGO_PKG_VERSION"));
+    }
+
+    #[test]
+    fn a_missing_commit_is_named() {
+        assert_eq!(
+            named_commit(""),
+            Err("no commit: build from a git checkout or set FARO_BUILD_COMMIT".to_owned())
+        );
+        assert_eq!(named_commit("c05a3bd+").as_deref(), Ok("c05a3bd+"));
+    }
+
+    #[test]
+    fn the_source_url_drops_the_dirty_marker() {
+        assert_eq!(
+            tree_url("c05a3bd"),
+            "https://github.com/harababurel/faro/tree/c05a3bd"
+        );
+        assert_eq!(
+            tree_url("c05a3bd+"),
+            "https://github.com/harababurel/faro/tree/c05a3bd"
+        );
     }
 
     #[test]

@@ -25,6 +25,13 @@ fn main() {
         "cargo:rustc-env=FARO_BUILD_DATE={}",
         date.clone().unwrap_or_default()
     );
+    // And the commit, for the site's source link (§3.9). `rustc-env` only
+    // reaches the crate being compiled, so it can share the name of the
+    // input variable `rerun-if-env-changed` watches.
+    println!(
+        "cargo:rustc-env=FARO_BUILD_COMMIT={}",
+        commit.clone().unwrap_or_default()
+    );
     let line = match (commit, date) {
         (Some(commit), Some(date)) => format!("{version} ({commit} {date})"),
         (Some(commit), None) => format!("{version} ({commit})"),
