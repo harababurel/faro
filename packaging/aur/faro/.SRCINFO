@@ -22,6 +22,6 @@ pkgbase = faro
 	options = !lto
 	options = !debug
 	source = faro-0.1.0.tar.gz::https://github.com/harababurel/faro/archive/refs/tags/v0.1.0.tar.gz
-	sha256sums = SKIP
+	sha256sums = 75de02e83d0f05cab877492e19400696142a4be7eb599a71ad51c511b8847d71
 
 pkgname = faro

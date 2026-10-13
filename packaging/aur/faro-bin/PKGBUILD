@@ -24,9 +24,8 @@ conflicts=("$_pkgname")
 options=('!strip' '!debug')
 source_x86_64=("$_pkgname-x86_64-unknown-linux-gnu-$pkgver.tar.xz::https://github.com/harababurel/faro/releases/download/v$pkgver/$_pkgname-x86_64-unknown-linux-gnu.tar.xz")
 source_aarch64=("$_pkgname-aarch64-unknown-linux-gnu-$pkgver.tar.xz::https://github.com/harababurel/faro/releases/download/v$pkgver/$_pkgname-aarch64-unknown-linux-gnu.tar.xz")
-# run updpkgsums after the v$pkgver release exists
-sha256sums_x86_64=('SKIP')
-sha256sums_aarch64=('SKIP')
+sha256sums_x86_64=('859de9004b739bc5c16a43268f50342eb738af0307b0e8ad9a7e5c331e5e42e3')
+sha256sums_aarch64=('97f8f6aaf3df05875c14410c30ea2ff100e92ee6429b5a06b65b4898f11c193d')
 
 package() {
   local _dir="$_pkgname-$CARCH-unknown-linux-gnu"
