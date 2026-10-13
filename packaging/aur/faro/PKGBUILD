@@ -50,7 +50,8 @@ check() {
   export CARGO_TARGET_DIR=target
   # Keep the build directory out of the binary (panic messages embed source paths).
   export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$srcdir=/"
-  cargo test --frozen --workspace
+  # faro-site (the website generator, not packaged) needs git for its source link.
+  cargo test --frozen --workspace --exclude faro-site
 }
 
 package() {
