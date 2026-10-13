@@ -137,10 +137,14 @@ async function themeChip(ctx, sc) {
   await ctx.page.waitFor("window.demo.theme()", (t) => t === target, {
     what: `chip applies theme ${target}`, timeout: 5000,
   });
-  ctx.assert(sc, "chip aria-pressed true after commit",
-    (await ctx.page.evaluate(
-      `document.querySelector('[data-theme="${target}"]').getAttribute("aria-pressed")`
-    )) === "true");
+  // The chip's aria-pressed is painted from the demo's settings event,
+  // one beat after theme() flips; give it a bounded beat before asserting.
+  const pressed = await ctx.page.waitFor(
+    `document.querySelector('[data-theme="${target}"]').getAttribute("aria-pressed")`,
+    (v) => v === "true",
+    { what: `chip ${target} marked pressed`, timeout: 2000 },
+  ).catch(() => null);
+  ctx.assert(sc, "chip aria-pressed true after commit", pressed === "true", String(pressed));
   const changed = ctx.count(await ctx.tracker(), "Theme changed");
   ctx.assert(sc, "Theme changed once with the committed name",
     changed.length === 1 && changed[0].props?.theme === target, JSON.stringify(changed));

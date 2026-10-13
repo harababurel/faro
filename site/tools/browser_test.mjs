@@ -56,7 +56,15 @@ const children = new Set(); // chrome procs we own, killed on any exit path
 let profileDir = null; // our scratch chrome profile, removed on any exit path
 const cleanup = () => {
   for (const child of children) { try { child.kill("SIGKILL"); } catch { /* gone */ } }
-  if (profileDir) rmSync(profileDir, { recursive: true, force: true }); // owned path only
+  // Full Chrome's child procs outlive the kill briefly and keep writing
+  // into the profile; retry, and never let cleanup itself fail the run:
+  // main's finally calls cleanup again once chrome has really exited,
+  // and process.on("exit") covers every other path. Owned path only.
+  if (profileDir) {
+    try {
+      rmSync(profileDir, { recursive: true, force: true, maxRetries: 25, retryDelay: 200 });
+    } catch { /* retried from the finally / exit hook */ }
+  }
 };
 const finish = (code, why) => {
   report.exit = code;
@@ -191,6 +199,11 @@ async function main() {
     attachProbe(mainCdp, state, main.origin);
     const corePage = new Page(mainCdp);
     await corePage.enable(POINTER_FINE_SHIM);
+    // Full Chrome (headless=new) shrinks --window-size to a smaller
+    // viewport (1440x900 → 780x437), which would flip the desktop core
+    // flow into gallery mode. Pin the desktop viewport explicitly;
+    // scenarios that set their own metrics override it per page.
+    await corePage.setViewport(1440, 900);
 
     watchdog = setTimeout(() => {
       report.timedOut = true;
@@ -227,6 +240,7 @@ async function main() {
         await page.enable(def.init ?? null);
         if (def.scriptsDisabled) await page.setScriptsDisabled(true);
         if (def.viewport) await page.setViewport(def.viewport.width, def.viewport.height, def.viewport);
+        else await page.setViewport(1440, 900); // same desktop baseline as the core page
         if (def.media) await page.setMedia(def.media);
         await runInto(def, makeCtx(page, server), sc);
         await page.clearStorage(server.origin);
@@ -283,8 +297,13 @@ async function main() {
     if (mainCdp) mainCdp.close();
     if (chromeProc && chromeProc.exitCode === null) {
       try { chromeProc.kill("SIGKILL"); } catch { /* already gone */ }
+      await new Promise((gone) => {
+        chromeProc.once("exit", gone);
+        setTimeout(gone, 3000).unref();
+      });
     }
     for (const server of servers) await server.close();
+    cleanup(); // chrome has exited by now: the profile delete can finish
   }
 }
 

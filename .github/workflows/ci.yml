@@ -101,7 +101,7 @@ jobs:
     name: site
     runs-on: ubuntu-latest
     # The Rust site build plus the headless browser suite (§6.8, 4.6):
-    # the suite itself budgets 100 s; 30 min is the job's safety margin.
+    # the suite itself budgets 180 s (GitHub runners are slower than local); 30 min is the job's safety margin.
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
@@ -164,7 +164,7 @@ jobs:
       # budget bounds it; the report and up to 8 screenshots land in
       # $RUNNER_TEMP/browser.
       - name: Browser suite (headless Chrome)
-        run: node site/tools/browser_test.mjs "$RUNNER_TEMP/site" --out "$RUNNER_TEMP/browser" --budget 100
+        run: node site/tools/browser_test.mjs "$RUNNER_TEMP/site" --out "$RUNNER_TEMP/browser" --budget 180
 
       # Only on failure: the harness writes nothing on green runs beyond
       # the report; warn (not fail) when the folder is absent.

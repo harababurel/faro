@@ -56,10 +56,28 @@ export async function assertGallery(ctx, sc, page) {
     "Math.round(document.querySelector('.phone-gallery figure').getBoundingClientRect().width)"
   );
   ctx.assert(sc, "figure is at least the 358px clamp", figure >= 358, `${figure}px`);
-  const overflow = await page.evaluate(
-    "document.documentElement.scrollWidth - document.documentElement.clientWidth"
-  );
-  ctx.assert(sc, "no horizontal page overflow", overflow <= 2, `${overflow}px`);
+  // On failure, name up to 3 elements past the right edge so CI reports
+  // the culprit instead of just the pixel count.
+  const overflow = await page.evaluate(`(() => {
+    const de = document.documentElement;
+    const over = de.scrollWidth - de.clientWidth;
+    if (over <= 2) return { over, bad: [] };
+    const limit = de.clientWidth;
+    const bad = [];
+    for (const el of document.querySelectorAll("body *")) {
+      const r = el.getBoundingClientRect();
+      if (r.right > limit + 0.5 && r.width > 0 && r.height > 0) {
+        const id = el.id ? "#" + el.id : "";
+        const cls = typeof el.className === "string" && el.className
+          ? "." + el.className.trim().split(/\\s+/)[0] : "";
+        bad.push(el.tagName.toLowerCase() + id + cls + " right=" + Math.round(r.right));
+        if (bad.length === 3) break;
+      }
+    }
+    return { over, bad };
+  })()`);
+  ctx.assert(sc, "no horizontal page overflow", overflow.over <= 2,
+    `${overflow.over}px${overflow.bad.length ? " — " + overflow.bad.join(", ") : ""}`);
   ctx.assert(sc, "no demo canvas",
     !(await page.evaluate("!!document.querySelector('canvas.demo-canvas')")));
 }
