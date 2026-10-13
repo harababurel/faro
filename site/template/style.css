@@ -289,7 +289,7 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
 .limits li { margin: 0 0 .5rem; max-width: 70ch; }
 
 .keytable { border-collapse: collapse; margin: 0 0 1rem; width: 100%; }
-.keytable th, .keytable td { border: 1px solid var(--border); padding: .35rem .7rem; text-align: left; vertical-align: top; }
+.keytable th, .keytable td { border: 1px solid var(--border); padding: .35rem .7rem; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
 .keytable thead th { font-family: var(--mono); font-size: .85rem; }
 .keytable th[scope="row"] { white-space: nowrap; font-weight: 400; }
 
