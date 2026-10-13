@@ -17,11 +17,13 @@ use crate::blobs::Blobs;
 pub const NOT_HERE: &str = "Not in the web demo: try it in your terminal";
 
 /// What the browser is, as far as faro's terminal checks go: no mosh, the
-/// renderer draws block glyphs itself, and images are half-blocks.
+/// renderer draws block glyphs itself, and images are pictures as in kitty
+/// (D135; `kitty` stays off: it means kitty's clipboard, which the page
+/// doesn't speak).
 pub const BROWSER: Terminal = Terminal {
     mosh: false,
     glyphs: BlockGlyphs::Native,
-    graphics: GraphicsSupport::HalfblocksOnly,
+    graphics: GraphicsSupport::Direct,
     kitty: false,
 };
 

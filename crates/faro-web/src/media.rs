@@ -1,5 +1,6 @@
 //! The browser's media (D117): voice notes through Web Audio, and images
-//! decoded and scaled by the browser for the half-block cache.
+//! decoded by the browser: as bitmaps for pictures (D135), or scaled for the
+//! half-block cache.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -117,6 +118,17 @@ fn start(
     scheduled.set_onended(Some(ended.as_ref().unchecked_ref()));
     scheduled.start()?;
     Ok((source, ended))
+}
+
+/// Decode `bytes` (JPEG, PNG, WebP…) into a bitmap at its own size, for the
+/// painter to draw as a picture, scaled to its box (D135). `None` if the
+/// browser can't.
+pub async fn bitmap(bytes: Arc<[u8]>) -> Option<ImageBitmap> {
+    let window = web_sys::window()?;
+    let parts = js_sys::Array::of1(&js_sys::Uint8Array::from(&bytes[..]));
+    let blob = web_sys::Blob::new_with_u8_array_sequence(&parts).ok()?;
+    let promise = window.create_image_bitmap_with_blob(&blob).ok()?;
+    JsFuture::from(promise).await.ok()?.dyn_into().ok()
 }
 
 /// Decode `bytes` (JPEG, PNG, WebP…) and scale it to `width` × `height`

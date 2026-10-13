@@ -13,6 +13,7 @@ use faro_app::app::update::{self, PAGE, update};
 use faro_app::theme::{ColorDepth, Theme};
 use faro_app::ui::{self, View};
 use faro_core::backend::{Backend as _, BackendEvent, BackendEvents, Capabilities};
+use faro_core::config::InlineImages;
 use faro_core::domain::{ConnectionState, ConversationId};
 use faro_core::mock::{DETERMINISTIC_EPOCH, MockBackend, MockConfig, MockEpoch};
 use faro_core::rt;
@@ -147,7 +148,10 @@ pub fn configure_visitor(state: &mut State, capabilities: Capabilities) -> Vec<E
     // unfocused picture the live demo settles on.
     state.env.focused = false;
     state.env.glyphs = BlockGlyphs::Native;
-    state.env.graphics = GraphicsSupport::HalfblocksOnly;
+    // Images are pictures, drawn the way faro draws them in kitty (D135);
+    // Settings › Inline images › halfblocks shows what other terminals get.
+    state.env.graphics = GraphicsSupport::Direct;
+    state.env.image_protocol = Some(InlineImages::Kitty);
     state.env.colors = ColorDepth::Truecolor;
     // The renderer draws each cell at faro's width: no terminal to work
     // around (D118). `auto` still follows the config like the terminal.

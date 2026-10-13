@@ -11,10 +11,11 @@ use ratatui::buffer::{Buffer, Cell, CellDiffOption};
 use ratatui::layout::{Position, Size};
 use ratatui::style::{Color, Modifier};
 use wasm_bindgen::{JsCast as _, JsValue};
-use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement};
+use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, ImageBitmap};
 
 use crate::color::{self, Rgb, cell_colors, cell_width};
 use crate::glyphs::{self, Corner, Line, Powerline, Shape, Symbol};
+use crate::images::Placement;
 use crate::metrics;
 
 /// Fallback fonts for what the webfont lacks: emoji, then anything.
@@ -202,6 +203,44 @@ impl Painter {
         }
         self.ctx.restore();
         // `restore` brings back the fill and font from before `save`.
+        self.fill = None;
+        self.font = None;
+    }
+
+    /// Draw `bitmap` stretched over `placement`'s box, as faro's kitty
+    /// images fill theirs (D135), but only on the shown part of `rows` (the
+    /// rows just painted; the others still have it from before).
+    pub fn picture(&mut self, bitmap: &ImageBitmap, placement: &Placement, rows: &[u16]) {
+        let Metrics { w, h, .. } = self.metrics;
+        let shown = placement.rows();
+        let (left, width) = (
+            f64::from(placement.visible.x) * w,
+            f64::from(placement.visible.width) * w,
+        );
+        // web-sys has no setter for it; the default ("low") blurs photos.
+        let _ = js_sys::Reflect::set(
+            &self.ctx,
+            &JsValue::from_str("imageSmoothingQuality"),
+            &JsValue::from_str("high"),
+        );
+        for &row in rows.iter().filter(|row| shown.contains(row)) {
+            self.ctx.save();
+            self.ctx.begin_path();
+            self.ctx.rect(left, f64::from(row) * h, width, h);
+            self.ctx.clip();
+            let drawn = self.ctx.draw_image_with_image_bitmap_and_dw_and_dh(
+                bitmap,
+                f64::from(placement.x) * w,
+                f64::from(placement.y) * h,
+                f64::from(placement.width) * w,
+                f64::from(placement.height) * h,
+            );
+            self.ctx.restore();
+            if drawn.is_err() {
+                tracing::debug!("drawing a picture failed");
+                break;
+            }
+        }
         self.fill = None;
         self.font = None;
     }

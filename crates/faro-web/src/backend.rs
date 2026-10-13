@@ -67,6 +67,13 @@ impl CanvasBackend {
         self.dirty.fill(true);
     }
 
+    /// Repaint `rows` next time (a picture moved over them, D135).
+    pub fn mark_rows(&mut self, rows: std::ops::Range<u16>) {
+        for row in rows {
+            self.mark(row);
+        }
+    }
+
     fn mark(&mut self, row: u16) {
         if let Some(dirty) = self.dirty.get_mut(usize::from(row)) {
             *dirty = true;

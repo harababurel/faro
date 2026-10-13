@@ -196,7 +196,7 @@ The real `faro demo`:
 - the Scranton cast and its scripted scenes;
 - replies to whatever the visitor sends, from the existing reply pools;
 - reactions, edits, deletes, mentions, typing indicators and receipts;
-- half-block images and voice notes (played with Web Audio);
+- images drawn as faro draws them in kitty (half-blocks in Settings, D135) and voice notes (played with Web Audio);
 - the palette, settings and themes.
 
 It runs entirely in the browser tab. Nothing is sent over the network after the files load.
@@ -462,7 +462,7 @@ What it replaces:
 | sqlx/SQLite `Store` | `store/mem.rs`: serves the same `Request` enum from memory; the existing store tests run against both backends |
 | `Router` effects (`open`, `osascript`, ffmpeg, curl…) | Web router (§4.8) |
 | Config file and `notify` watcher | An embedded TOML (demo defaults plus web keybindings), parsed by the existing parser; edits go to the session or `localStorage` |
-| ratatui-image | Half-block images from the `image` crate's decoders (identical to faro's half-block mode) |
+| ratatui-image | Pictures decoded by the browser and drawn over their cells as kitty does (D135); half-blocks from the same pixels when chosen in Settings |
 | `tui.rs`, `tui/backend.rs`, tmux and mosh workarounds | Not used. A web emoji mode keeps only the "cut wide character" repair, not the tmux-specific rewrites |
 | `logging.rs` file logs | Browser console in debug builds, nothing in release |
 
@@ -842,7 +842,7 @@ Each phase ends with something usable. Estimates assume one developer working se
 - The canvas renderer (or Ratzilla, per D-d), with glyphs drawn as shapes, emoji widths and DPR handling.
 - The web router: clipboard, links, Web Audio voice notes, canned transcripts, notices for the unsupported features, title, bell flash.
 - Embedded demo config with web keybindings, Alt read from `code`, quit → restart overlay.
-- Web emoji mode and half-block images.
+- Web emoji mode and half-block images (pictures since D135).
 
 **Done when:** in a local test page:
 - the full demo is usable with keyboard and mouse;

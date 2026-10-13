@@ -5,10 +5,11 @@
 //! only when something on screen changed.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use faro_app::app::event::AppEvent;
-use faro_app::app::image_cache::ImageKey;
+use faro_app::app::image_cache::{ImageKey, ImageProtocol};
 use faro_app::app::state::{Geometry, State};
 use faro_app::app::term_event::{Event, MouseEvent, MouseEventKind};
 use faro_app::theme::{Theme, Themes};
@@ -18,9 +19,10 @@ use ratatui::Terminal;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
+use web_sys::ImageBitmap;
 
 use crate::backend::CanvasBackend;
-use crate::images::{Halfblocks, Images};
+use crate::images::{Decoded, Halfblocks, Images, Placement};
 use crate::input::{self, Held, Wheel};
 use crate::media;
 use crate::metrics;
@@ -51,13 +53,21 @@ pub enum Input {
     /// The canvas's parent changed size.
     Resized,
     /// An image was decoded for the cache (`None`: it couldn't be).
-    Decoded(ImageKey, Option<Halfblocks>),
+    Decoded(ImageKey, Option<Fetched>),
     /// A `Demo` API changed something while the loop was parked idle:
     /// wake it so it notices the dirty picture. Setting `dirty` alone
     /// can't — `run` blocks in `select!` and only asks for an animation
     /// frame at the top of each turn. This arm must never queue another
     /// `Redraw`, or the loop would spin.
     Redraw,
+}
+
+/// A decoded image, as the browser hands it back.
+#[derive(Debug)]
+pub enum Fetched {
+    Halfblocks(Halfblocks),
+    /// For a picture (D135).
+    Bitmap(ImageBitmap),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -97,6 +107,11 @@ pub struct Shell {
     title: Option<String>,
     wheel: Wheel,
     images: Images,
+    /// The pictures' bitmaps, by the id [`Images`] knows them by (D135).
+    bitmaps: HashMap<u64, ImageBitmap>,
+    next_bitmap: u64,
+    /// Where the last frame put its pictures.
+    placed: Vec<Placement>,
     /// How long recent frames took.
     pub timings: Timings,
     /// Where decoded images go (the loop's page input).
@@ -136,6 +151,9 @@ impl Shell {
             title: None,
             wheel: Wheel::default(),
             images: Images::default(),
+            bitmaps: HashMap::new(),
+            next_bitmap: 0,
+            placed: Vec::new(),
             timings: Timings::default(),
             page: None,
             pointer: None,
@@ -308,10 +326,7 @@ impl Shell {
                 }
             }
             Input::Resized => self.resized(),
-            Input::Decoded(key, image) => {
-                self.images.insert(key, image);
-                self.dirty = true;
-            }
+            Input::Decoded(key, image) => self.decoded(key, image),
             // A `Demo` API woke us from outside the loop: the picture is
             // already dirty, this turn only asks for the frame. Never
             // re-queue — the top of the loop schedules the rAF.
@@ -451,11 +466,23 @@ impl Shell {
             geometry = ui::render(frame, state, &view);
         });
         let title = state.window_title(view.now_timestamp());
+        let placed = self.images.placements();
         let backend = self.terminal.backend_mut();
+        // A picture that moved, came or went leaves its cells as they were
+        // (blank), so repaint the rows it was on and is on now.
+        for moved in placed
+            .iter()
+            .filter(|p| !self.placed.contains(p))
+            .chain(self.placed.iter().filter(|p| !placed.contains(p)))
+        {
+            backend.mark_rows(moved.rows());
+        }
         let rows = backend.take_dirty();
         let cursor = backend.cursor();
         let rendered = now_ms();
         self.painter.paint(backend.buffer(), &rows, cursor);
+        self.placed = placed;
+        self.paint_pictures(&rows);
         self.timings.record(Timing {
             render: rendered - started,
             paint: now_ms() - rendered,
@@ -513,7 +540,8 @@ impl Shell {
         self.settings_sent = Some(snapshot);
     }
 
-    /// Decode the images the frame wanted, in the background.
+    /// Decode the images the frame wanted, in the background: bitmaps for
+    /// pictures (D135), cells for half-blocks.
     fn decode(&mut self, wanted: &[ImageKey]) {
         let Some(page) = &self.page else {
             return;
@@ -523,11 +551,45 @@ impl Shell {
             let blob = self.session.blobs.get(&key.path);
             wasm_bindgen_futures::spawn_local(async move {
                 let image = match blob {
-                    Some(blob) => media::decode(blob.bytes, key.width, key.height).await,
+                    Some(blob) if key.protocol == ImageProtocol::Halfblocks => {
+                        media::decode(blob.bytes, key.width, key.height)
+                            .await
+                            .map(Fetched::Halfblocks)
+                    }
+                    Some(blob) => media::bitmap(blob.bytes).await.map(Fetched::Bitmap),
                     None => None,
                 };
                 let _ = page.send(Input::Decoded(key, image));
             });
+        }
+    }
+
+    /// A decode came back: into the cache (a picture's bitmap kept here
+    /// under a new id), freeing the bitmap of any picture it pushed out.
+    fn decoded(&mut self, key: ImageKey, image: Option<Fetched>) {
+        let image = image.map(|image| match image {
+            Fetched::Halfblocks(cells) => Decoded::Halfblocks(cells),
+            Fetched::Bitmap(bitmap) => {
+                let id = self.next_bitmap;
+                self.next_bitmap += 1;
+                self.bitmaps.insert(id, bitmap);
+                Decoded::Picture(id)
+            }
+        });
+        if let Some(dropped) = self.images.insert(key, image)
+            && let Some(bitmap) = self.bitmaps.remove(&dropped)
+        {
+            bitmap.close();
+        }
+        self.dirty = true;
+    }
+
+    /// Draw the last frame's pictures over the `rows` just painted.
+    fn paint_pictures(&mut self, rows: &[u16]) {
+        for placement in &self.placed {
+            if let Some(bitmap) = self.bitmaps.get(&placement.id) {
+                self.painter.picture(bitmap, placement, rows);
+            }
         }
     }
 
@@ -555,6 +617,7 @@ impl Shell {
         let rows = backend.take_dirty();
         let cursor = backend.cursor();
         self.painter.paint(backend.buffer(), &rows, cursor);
+        self.paint_pictures(&rows);
     }
 
     /// When the logo needs its next frame (D61): only while the last frame
