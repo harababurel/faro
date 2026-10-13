@@ -218,7 +218,6 @@ faro</pre>
       <li><strong>faro doesn&rsquo;t implement any cryptography.</strong> It talks to Signal through <a href="https://github.com/whisperfish/presage">presage</a>, which builds on libsignal, Signal&rsquo;s own protocol library.</li>
       <li><strong>Your data stays on your machine.</strong> Keys and history are in <code>~/.local/share/faro</code>, readable only by you (<code>0600</code>). They are <strong>not encrypted at rest yet</strong>; that&rsquo;s planned.</li>
       <li><strong>No telemetry.</strong> faro talks only to Signal&rsquo;s servers. The one exception is remote voice transcription, which is off by default and asks first. Logs never contain message text or phone numbers.</li>
-      <li><strong>Open source, AGPL-3.0.</strong> Read exactly what it does: <a href="https://github.com/harababurel/faro">the source</a>.</li>
     </ul>
   </section>
 

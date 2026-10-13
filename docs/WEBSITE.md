@@ -141,12 +141,13 @@ A small diagram, drawn as inline SVG in the page's own colours:
   └─ ~/.local/share/faro  (history, keys: readable only by you)
 ```
 
-Then five plain statements. Each must be checked against the code before launch:
+Then four plain statements. Each must be checked against the code before launch:
 - **It's a linked device, like Signal Desktop.** Your phone stays your primary device. faro links with a QR code (`faro link`).
 - **faro doesn't implement any cryptography.** It talks to Signal through [presage](https://github.com/whisperfish/presage), which builds on libsignal, Signal's own protocol library.
 - **Your data stays on your machine.** Keys and history are in `~/.local/share/faro`, readable only by you (`0600`). They are **not encrypted at rest yet**; that's planned.
 - **No telemetry.** faro talks only to Signal's servers. The one exception is remote voice transcription, which is off by default and asks first. Logs never contain message text or phone numbers.
-- **Open source, AGPL-3.0.** Read exactly what it does: source link.
+
+(A fifth, "Open source, AGPL-3.0. Read exactly what it does: the source.", was dropped on 2026-10-13, owner's call: the facts line, header and footer already say and link it.)
 
 ### 3.6 What it doesn't do (yet)
 
