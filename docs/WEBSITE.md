@@ -124,7 +124,7 @@ There are no icons and no cards with drop shadows: a bold title and one line of 
   faro link     # then link it: scan the QR code in Signal › Settings › Linked devices
   faro
   ```
-- A line under the tabs: "Linux and macOS, x86_64 and arm64. Windows isn't supported."
+- No platform line under the first-run commands (removed 2026-10-13, owner's call; the install methods already say which systems they cover).
 - Under the Cargo tab, the build prerequisites table from the README (protobuf, cmake, clang…).
 - **Every command on the page is tested in CI** (§6.8). A broken install line is the most damaging bug a landing page can have.
 

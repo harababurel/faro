@@ -277,7 +277,6 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
 .prereq { border-collapse: collapse; margin: 0 0 1rem; }
 .prereq th, .prereq td { border: 1px solid var(--border); padding: .35rem .7rem; text-align: left; }
 .prereq th { font-family: var(--mono); font-size: .85rem; }
-.platforms { font-size: .9rem; }
 
 .diagram { margin: 0 0 1.5rem; }
 .diagram svg { width: 100%; height: auto; max-width: 42rem; }
