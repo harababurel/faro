@@ -162,10 +162,13 @@ impl MockBackend {
             .schedule(|sim, now| sim.schedule_error(now, error));
     }
 
-    /// How many messages the backlog will deliver, in one burst right after
-    /// `Connected`. A client that wants to see the whole backlog before it
-    /// acts — the web demo opening its first chat, so its first frame is the
-    /// site poster (D122) — counts this many [`BackendEvent::Message`]s.
+    /// How many events the backlog will deliver, in one burst right after
+    /// `Connected`: its [`BackendEvent::Message`]s and the
+    /// [`BackendEvent::ReadElsewhere`] after them that marks most of it read
+    /// (D134). A client that wants to see the whole backlog before it acts —
+    /// the web demo opening its first chat, so its first frame is the site
+    /// poster (D122) — counts this many of those two kinds (the web demo
+    /// counts the read sync once its store has applied it).
     #[must_use]
     pub fn backlog_len(&self) -> usize {
         self.shared.sim().backlog_len()

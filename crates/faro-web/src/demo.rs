@@ -342,6 +342,32 @@ mod tests {
         assert!(!text.contains("connecting…"), "{text}");
     }
 
+    /// The demo starts like an inbox you keep up with (D134): only the branch
+    /// and Jim have a few unread messages; live messages bring the rest.
+    #[tokio::test(start_paused = true)]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "#[tokio::test] expands to block_on; tests may block"
+    )]
+    async fn the_demo_starts_with_two_chats_unread() {
+        let state = first_state().await.unwrap();
+        let mut unread: Vec<(String, u32)> = state
+            .conversations
+            .iter()
+            .filter(|c| c.unread > 0)
+            .map(|c| (state.conversation_title(c.id), c.unread))
+            .collect();
+        unread.sort();
+        assert_eq!(
+            unread,
+            [
+                ("Jim Halpert".to_owned(), 2),
+                ("Scranton Branch 📄".to_owned(), 3)
+            ],
+            "{unread:?}"
+        );
+    }
+
     /// The poster and the live demo are one picture (WEBSITE.md §3.2): the
     /// session's own start, drawn with the poster's clock, gives the same
     /// buffer at the panel's size.

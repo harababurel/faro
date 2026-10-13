@@ -427,6 +427,8 @@ In kitty (directly and inside tmux), `faro demo`, `Ctrl+P` › Settings › Bubb
 
 Notes (browser, version, OS, what went wrong):
 
+- [ ] **Starts mostly read (D134):** the demo opens with only Scranton Branch (3) and Jim Halpert (2) showing unread counts, the footer says `5 unread`, and the open branch shows a "new messages" line above its 3 newest messages. Clicking into the demo clears the branch's count; new live messages add counts as they arrive. `faro demo --fresh` in a terminal also starts with at most those two chats unread (on the logo, nothing open; its shorter backlog may not include Jim's chat).
+
 ## M8: terminal matrix (D50; run after M7 against the real backend, and once now with the demo)
 
 Columns: **direct** = faro straight in kitty; **tmux** = kitty → tmux (with the README's tmux settings); **SSH** = kitty → ssh → tmux on the other machine; **mosh** = kitty → mosh → tmux. Mark each cell ✓, ✗ (add a note below) or – (not applicable). Also try one other terminal per OS (WezTerm/Ghostty/Alacritty/foot on Linux, iTerm2 and Terminal.app on macOS) for the rows marked †.

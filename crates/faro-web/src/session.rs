@@ -129,7 +129,13 @@ impl Session {
         ) {
             self.visitor_acted = true;
         }
-        if matches!(event, AppEvent::Backend(BackendEvent::Message(_))) {
+        // The backlog's messages, then the read sync after them once the
+        // store has lowered the counts (D134): the chat opens only then, so
+        // its "new messages" marker and the list's counts are the poster's.
+        if matches!(
+            event,
+            AppEvent::Backend(BackendEvent::Message(_)) | AppEvent::UnreadCleared(_)
+        ) {
             self.waiting_backlog = self.waiting_backlog.saturating_sub(1);
         }
         let redraw = affects_view(&event);

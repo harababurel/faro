@@ -18,7 +18,7 @@ use std::cmp::{Ordering, Reverse};
 use std::collections::{BinaryHeap, VecDeque};
 use std::time::Duration;
 
-use super::cast::{Chat, KELLY_PROFILES, Who};
+use super::cast::{Chat, GroupKey, KELLY_PROFILES, Who};
 use super::scenes::{self, Line, SCENES, Scene, Then};
 use super::world::World;
 use super::{MockConfig, MockEpoch};
@@ -49,6 +49,13 @@ const MAX_RUNNING: usize = 2;
 const MENTION_PERCENT: u32 = 25;
 /// Scenes started this recently go to the back of the next shuffled order.
 const RECENT_SCENES: usize = 8;
+/// The chats whose newest backlog messages stay unread, and how many of them
+/// (D134). The rest of the backlog arrives already read on the phone, so the
+/// demo opens like an inbox you keep up with and live messages are what's new.
+const UNREAD_AT_START: [(Chat, usize); 2] = [
+    (Chat::Group(GroupKey::Branch), 3),
+    (Chat::Direct(Who::Jim), 2),
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Activity {
@@ -191,9 +198,10 @@ pub(super) struct Sim {
     running: Vec<Running>,
     /// Answers from reply pools (generic deletes only take back these).
     answers: VecDeque<MessageRef>,
-    /// How many messages [`Self::schedule_backlog`] put in the queue: the
-    /// driver sends them in one burst after connecting, so a client can tell
-    /// when the backlog has arrived.
+    /// How many messages [`Self::schedule_backlog`] put in the queue, plus
+    /// one for the read sync after them (D134): the driver sends them in one
+    /// burst after connecting, so a client can tell when the backlog has
+    /// arrived.
     backlog: usize,
     /// Index into [`KELLY_PROFILES`] of Kelly's current profile name.
     kelly_profile: usize,
@@ -244,7 +252,7 @@ impl Sim {
         &self.world
     }
 
-    /// How many messages the backlog put in the queue.
+    /// How many messages the backlog put in the queue, plus its read sync.
     pub(super) const fn backlog_len(&self) -> usize {
         self.backlog
     }
@@ -536,13 +544,52 @@ impl Sim {
         }
         // Stable: a message's follow-ups never overtake it.
         events.sort_by_key(|(at, _)| *at);
+        let read = self.backlog_read(&events);
         self.backlog = events
             .iter()
             .filter(|(_, event)| matches!(event, BackendEvent::Message(_)))
-            .count();
+            .count()
+            + usize::from(read.is_some());
         for (_, event) in events {
             self.emit(CONNECT_DELAY, event);
         }
+        if let Some(read) = read {
+            self.emit(CONNECT_DELAY, read);
+        }
+    }
+
+    /// The read sync that follows the backlog (D134): in each chat, the
+    /// newest incoming message, or in the [`UNREAD_AT_START`] chats the one
+    /// before the messages that stay unread. `None` if nothing is read.
+    fn backlog_read(&self, events: &[(u64, BackendEvent)]) -> Option<BackendEvent> {
+        let keep: Vec<(ConversationId, usize)> = UNREAD_AT_START
+            .iter()
+            .filter_map(|&(chat, unread)| Some((self.world.conversation(chat)?, unread)))
+            .collect();
+        // Incoming messages seen per chat, newest first.
+        let mut seen: Vec<(ConversationId, usize)> = Vec::new();
+        let mut read = Vec::new();
+        for (_, event) in events.iter().rev() {
+            let BackendEvent::Message(message) = event else {
+                continue;
+            };
+            if message.direction != Direction::Incoming {
+                continue;
+            }
+            let id = message.conversation;
+            let count = if let Some((_, count)) = seen.iter_mut().find(|(c, _)| *c == id) {
+                *count += 1;
+                *count
+            } else {
+                seen.push((id, 1));
+                1
+            };
+            let unread = keep.iter().find(|(c, _)| *c == id).map_or(0, |(_, n)| *n);
+            if count == unread + 1 {
+                read.push(message.reference());
+            }
+        }
+        (!read.is_empty()).then_some(BackendEvent::ReadElsewhere(read))
     }
 
     /// One backlog line sent at `wall` (and its follow-ups) into `events`.
