@@ -38,6 +38,9 @@ pub trait Page {
     fn play(&self, bytes: Arc<[u8]>, done: Box<dyn FnOnce(Option<String>)>);
     /// Stop what's playing, without calling its `done`.
     fn stop(&self);
+    /// `Escape` had nothing left to dismiss (§4.3): release the keyboard focus
+    /// so the page takes keys again. Only touches the DOM, never the state.
+    fn release_focus(&self);
 }
 
 pub struct Router {
@@ -78,6 +81,11 @@ impl Router {
                 }
                 Effect::Bell => {
                     self.page.bell();
+                    true
+                }
+                // Esc had nothing to close: the page blurs the canvas (§4.3).
+                Effect::ReleaseFocus => {
+                    self.page.release_focus();
                     true
                 }
                 // A pasted path is just text here.
@@ -182,6 +190,9 @@ pub mod tests {
         }
         fn stop(&self) {
             self.log.borrow_mut().push("stop".to_owned());
+        }
+        fn release_focus(&self) {
+            self.log.borrow_mut().push("release_focus".to_owned());
         }
     }
 

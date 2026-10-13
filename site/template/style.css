@@ -131,6 +131,9 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
   position: relative; /* the demo's parts sit over the poster (§4.2) */
   border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
 }
+/* the one accent says the keys belong to faro (§4.3, D125); demo.js puts
+   .focused on the frame while the canvas has the page's focus */
+.panel .frame.focused { border-color: var(--accent); }
 /* {{poster}} is two inline SVGs of one frame (§3.2, §6.4): the same frame
    in faro-dark and faro-light. Only the one matching the page's scheme
    shows — the same base / prefers-color-scheme / data-theme pattern as the
@@ -183,6 +186,13 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
 
 .panel figcaption { padding-top: .6rem; }
 .hints, .safety { font-size: .9rem; margin: 0 0 .4rem; }
+/* the focus hint (§4.3, D125): in the caption beside the key hints, never over
+   the canvas or faro's own footer row; demo.js shows it only while live */
+.demo-focus {
+  font-family: var(--mono); font-size: .85rem; color: var(--muted);
+  margin: 0 0 .4rem;
+}
+.demo-focus[hidden] { display: none; } /* keep [hidden] winning over the class rule */
 .humor { font-style: italic; }
 .poster-note { font-size: .85rem; margin: 0; }
 .panel-tools { display: flex; gap: .5rem; flex-wrap: wrap; margin: 0 0 .4rem; }
@@ -279,7 +289,7 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
 .small { font-size: .85rem; color: var(--muted); }
 
 /* ---- motion --------------------------------------------------------------- */
-a, button, .tab, .copy { transition: color .12s, border-color .12s; }
+a, button, .tab, .copy, .panel .frame { transition: color .12s, border-color .12s; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; }
 }

@@ -249,6 +249,10 @@ pub enum Effect {
         title: String,
         body: String,
     },
+    /// `Escape` had nothing left to dismiss (WEBSITE.md §4.3): the host may
+    /// release keyboard focus. The terminal app ignores it (faro keeps its
+    /// own focus); the web demo blurs the canvas so the page takes keys.
+    ReleaseFocus,
 }
 
 /// Work for the backend.

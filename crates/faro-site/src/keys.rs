@@ -85,8 +85,8 @@ const SPECS: &[Spec] = &[
     },
 ];
 
-/// The `<tr>` rows for the template's `{{keys}}`, in the shape the
-/// template documents next to the table.
+/// The `<tr>` rows for the template's `{{keys}}`: a key cell followed by the
+/// action's description.
 pub fn table(keymap: &Keymap) -> Result<String, String> {
     let mut rows: Vec<String> = Vec::new();
     for spec in SPECS {

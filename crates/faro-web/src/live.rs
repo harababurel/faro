@@ -138,9 +138,16 @@ impl Shell {
         self.page = Some(page);
     }
 
-    /// The page doesn't have the keys (faro assumes it does at first).
-    pub fn unfocus(&mut self) {
-        self.handle(AppEvent::Terminal(Event::FocusLost));
+    /// The page hands faro the keys (`true`) or takes them back (`false`), as
+    /// the browser's focus predicate says at start (D125). The session starts
+    /// unfocused; the page reports its actual focus once the canvas is attached.
+    pub fn focus(&mut self, focused: bool) {
+        let event = if focused {
+            Event::FocusGained
+        } else {
+            Event::FocusLost
+        };
+        self.handle(AppEvent::Terminal(event));
     }
 
     /// Draw in the theme `name` from now on, without a notice: the page's

@@ -216,7 +216,8 @@ pub fn on_shortcode_key(state: &mut State, key: KeyEvent) -> Option<Vec<Effect>>
 /// popup; else cancel an in-progress message edit; else remove a staged
 /// attachment; else cancel a reply being written; else dismiss the notice and
 /// go back to the input; else close the open conversation (its draft kept),
-/// leaving the list highlighting it.
+/// leaving the list highlighting it; else, with nothing open and no notice,
+/// emit `Effect::ReleaseFocus` so the host can release keyboard focus (§4.3).
 fn escape(state: &mut State) -> Vec<Effect> {
     if state.focus == Focus::Input && !state.mention_candidates().is_empty() {
         if let Some(open) = state.open.as_mut() {
@@ -233,8 +234,13 @@ fn escape(state: &mut State) -> Vec<Effect> {
         return vec![];
     }
     let Some(open) = state.open.as_mut() else {
-        state.notice = None;
-        return vec![];
+        // Nothing open: clearing a notice is a step; with none left, the host
+        // may release focus (the web demo blurs the canvas, §4.3).
+        return if state.notice.take().is_some() {
+            vec![]
+        } else {
+            vec![Effect::ReleaseFocus]
+        };
     };
     if state.focus == Focus::Input && open.editing.take().is_some() {
         let id = open.id;

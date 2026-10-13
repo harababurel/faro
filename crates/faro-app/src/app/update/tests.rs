@@ -2417,6 +2417,7 @@ fn forward_attachment_only_message_requires_download_first() {
 
 mod clipboard;
 mod curation;
+mod focus;
 mod notify;
 mod palette;
 mod people;

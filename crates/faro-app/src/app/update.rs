@@ -231,8 +231,17 @@ fn on_tick(state: &mut State) -> Vec<Effect> {
 }
 
 fn on_terminal(state: &mut State, event: &Event) -> Vec<Effect> {
-    // Keys and clicks only come from a focused terminal, whatever it reported.
-    state.env.focused = !matches!(event, Event::FocusLost);
+    // Keys, clicks and pastes only come from a focused terminal, and a
+    // focus-gained report says so; a focus-lost report clears it. A resize
+    // keeps whatever focus was last reported, so refitting an unfocused app
+    // can't reclaim it or send read receipts (D125).
+    match event {
+        Event::Key(_) | Event::Mouse(_) | Event::Paste(_) | Event::FocusGained => {
+            state.env.focused = true;
+        }
+        Event::FocusLost => state.env.focused = false,
+        Event::Resize(_, _) => {}
+    }
     let mut effects = match event {
         Event::Key(key) => {
             if state.palette.is_none()
@@ -349,7 +358,11 @@ pub(super) fn save_draft(state: &mut State) -> Vec<Effect> {
     }
 }
 
-fn open_conversation(state: &mut State, id: ConversationId) -> Vec<Effect> {
+/// Open `id`: reveal it in the list, load its history, take over its draft
+/// and playback, and mark it read. The web demo opens its first chat through
+/// this directly (D125) instead of driving the list with synthetic keys, which
+/// would claim keyboard focus it doesn't have.
+pub fn open_conversation(state: &mut State, id: ConversationId) -> Vec<Effect> {
     state.sidebar.reveal = true;
     state.popup = None;
     if state.focus == Focus::Messages {

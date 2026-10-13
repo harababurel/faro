@@ -12,12 +12,14 @@
   var exited = document.getElementById("demo-exited");
   var again = document.getElementById("demo-again");
   var cta = document.getElementById("demo-cta");
+  var focusHint = document.getElementById("demo-focus");
 
   // the poster's grid, so the first live frame is the poster's (§4.4, D123)
   var FONT = "JetBrains Mono", COLS = 120, ROWS = 34;
 
   var manifest = null, mod = null, demo = null, canvas = null;
   var loading = false, live = false;
+  var dead = false; // faro has quit; the overlay offers a fresh one
 
   var query = function (q) { return window.matchMedia(q).matches; };
 
@@ -70,6 +72,9 @@
       // the fragment jump would take the focus back from the canvas
       event.preventDefault();
       frame.scrollIntoView({ block: "center" });
+      // faro quit: the canvas sits dead behind the overlay, so the CTA lands on
+      // the restart button instead of a focus that goes nowhere (§4.5)
+      if (dead) { if (again) again.focus({ preventScroll: true }); return; }
       canvas.focus({ preventScroll: true });
     });
   };
@@ -157,6 +162,7 @@
     canvas.tabIndex = 0;
     canvas.setAttribute("role", "application");
     canvas.setAttribute("aria-label", "faro demo: click to type");
+    canvas.setAttribute("aria-describedby", "demo-focus"); // the hint below (§4.3)
     frame.appendChild(canvas);
     try {
       demo = await mod.start(canvas, FONT, size, COLS, ROWS);
@@ -170,9 +176,11 @@
     frame.classList.add("live"); // the CSS swaps the canvas for the posters
     if (status) status.hidden = true;
     live = true;
+    dead = false;
     loading = false;
     onCanvas();
     askCta();
+    syncFocus(); // a fresh canvas: the hint and the border start unfocused
     // the headless tests' hook: tools/shot.mjs waits for done, drives demo
     window.demo = demo;
     window.done = true;
@@ -189,6 +197,7 @@
     load().then(startLive).catch(function (e) {
       console.warn("the demo didn't load:", e); // the button comes back: retry
       loading = false;
+      clearFocus(); // no live demo: no hint, no amber border
       if (status) status.hidden = true;
       showStart();
     });
@@ -196,10 +205,50 @@
 
   if (startBtn) startBtn.addEventListener("click", begin);
 
+  // ---- the page's half of the focus model (§4.3, D125) ---------------------
+  // Rust owns the focus itself: mousedown-to-focus, the outside-click blur,
+  // the Esc chain and the input gating. Nothing here duplicates that, and
+  // nothing here reaches the demo: these listeners can run while the reducer
+  // handles a blur, with the shell borrowed. They only change the caption's
+  // hint and the frame's border.
+  var keysTo = function () {
+    return !!canvas && !dead && document.activeElement === canvas
+      && !document.hidden && document.hasFocus();
+  };
+
+  var syncFocus = function (forceOff) {
+    // forceOff is only ever our own true: an event object never forces it off
+    var on = live && !(forceOff === true) && keysTo();
+    frame.classList.toggle("focused", on);
+    if (!focusHint) return;
+    if (!live || dead) { focusHint.hidden = true; return; } // poster, or faro quit
+    focusHint.textContent = on
+      ? "keys go to faro · click outside or press Esc to leave"
+      : "live · click to type";
+    focusHint.hidden = false;
+  };
+
+  var clearFocus = function () {
+    frame.classList.remove("focused");
+    if (focusHint) focusHint.hidden = true;
+  };
+
+  // once for the page: a hidden tab or an unfocused window takes the keys away
+  // from faro even while the canvas is still the active element
+  document.addEventListener("visibilitychange", syncFocus); // document.hidden says it
+  window.addEventListener("focus", syncFocus);
+  // hasFocus() can still read true while the blur is being dispatched, so the
+  // window's own blur forces the hint and the border off
+  window.addEventListener("blur", function () { syncFocus(true); });
+
   // faro quit (Ctrl+Q, Ctrl+C twice): the overlay offers a fresh one, same seed
   // (§4.5), as on faro-web's own test page
   var onCanvas = function () {
+    canvas.addEventListener("focus", syncFocus);
+    canvas.addEventListener("blur", syncFocus);
     canvas.addEventListener("faro-exit", function () {
+      dead = true;
+      clearFocus(); // no faro to hold the keys: the hint and border go
       if (exited) exited.hidden = false;
       if (again) again.focus();
     });
@@ -213,6 +262,7 @@
       var old = demo;
       demo = null; // the scheme follower must not reach a freed demo
       if (old) old.free();
+      clearFocus(); // removing the canvas doesn't fire blur
       if (canvas) canvas.remove();
       try {
         await startLive();
@@ -223,6 +273,7 @@
         live = false;
         loading = false;
         frame.classList.remove("live");
+        clearFocus();
         showStart();
       }
     });

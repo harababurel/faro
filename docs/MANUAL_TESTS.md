@@ -440,7 +440,7 @@ Columns: **direct** = faro straight in kitty; **tmux** = kitty → tmux (with th
 | **Clipboard (OSC 52):** select a message, `y`, paste in another app on the machine you sit at | | | | | | | | |
 | **Bell:** a message in a background conversation rings (kitty bell / tmux bell flag in the status line) | | | | | | | | |
 | **Title:** window or pane title shows `faro (N)`; the old title comes back on quit | | | | | | | | |
-| **Focus events:** switch to another window/pane and back: messages arriving meanwhile stay unread and ring; on return they're read | | | | | | | | |
+| **Focus events:** switch to another window/pane and back: messages arriving meanwhile stay unread and ring; on return they're read. Resizing an unfocused terminal must not mark them read (D125). | | | | | | | | |
 | **Bracketed paste:** paste a multi-line text into the input: it arrives as one message draft with its newlines, nothing is sent early | | | | | | | | |
 | **Keys:** `Alt+J/K`, `Alt+1..9`, `Shift+Tab`, `Alt+Enter`/`Shift+Enter` new line, `F1`, `Ctrl+P` all reach faro | | | | | | | | |
 | **Ctrl+L:** repaints the whole screen; nothing freezes | | | | | | | | |
@@ -479,5 +479,22 @@ The template is `site/template/` (WEBSITE.md §7 Phase 1). Preview the built pag
 - [ ] **Colours (the `light-dark()` fix, D124):** the light scheme draws the cream page with dark text and the dark amber accent, the dark scheme the dark page with light text and the bright amber; the poster, code blocks, borders and the panel all match the scheme (they used to be swapped).
 
 Known gap, don't fail it: resizing the window after the swap doesn't refit the canvas — the grid is fixed at 120×34 (D124); refitting needs a `set_font_size` or a refit in faro-web and comes in a later chunk.
+
+Notes (browser, version, OS, what went wrong):
+
+## Website: focus and Escape (M13 Phase 4.3a, D125)
+
+Use the built site over http/localhost as in "Website: preload and handover";
+check Chrome, Firefox and Safari. These are browser/input checks, not a claim
+that headless Chromium covers every real browser.
+
+- [ ] **Starts unfocused:** autostart does not move page focus. The live panel says "live · click to type" with a neutral border; typing and scrolling still belong to the page.
+- [ ] **Enter the demo:** clicking the canvas or the hero CTA gives faro the keys and turns the frame border amber. The hint explains Esc and clicking outside; palette and chat keys work, and the wheel scrolls faro instead of the page.
+- [ ] **Escape one step at a time:** open the palette or a message menu, then press Esc: only that overlay closes. Repeat with an autocomplete, reply, edit or staged attachment. Esc then returns to the input and closes the chat, preserving its draft; only the next Esc with nothing left to close releases the canvas and restores the neutral hint/border.
+- [ ] **Outside plain text:** while typing a draft, click the page's non-focusable heading or safety text. The panel loses its keys immediately, without closing the chat or losing the draft; keys and wheel belong to the page until you click back in. Right-clicking an unfocused canvas opens the browser's menu, not faro's; middle-click retains the browser's normal behaviour.
+- [ ] **Keyboard exit:** Tab can reach the canvas from the page. Inside, Tab cycles faro's panes; after escaping all the way out, Tab continues to the next page control instead of trapping the visitor in the demo. Browser-reserved reload/close/zoom chords stay the browser's.
+- [ ] **Away and back:** switch tabs or applications with a chat open. Incoming messages stay unread while away; returning restores faro's focus only if the canvas was still active. Clicking outside before switching away must not return the keys to faro on return.
+- [ ] **Resize while unfocused:** click outside and resize or zoom the page. Faro stays unfocused and messages are not silently marked read. The known fixed-120×34 refitting gap in D124 is still deferred.
+- [ ] **Quit/restart:** after exit the hero CTA takes you to the restart button, not the dead canvas. After restarting from the exit overlay, focus hints, outside-click dismissal and the Esc chain still work; no duplicate handlers or freezing.
 
 Notes (browser, version, OS, what went wrong):

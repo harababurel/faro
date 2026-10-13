@@ -52,7 +52,8 @@ fn saved(effects: &[Effect], id: ConversationId) -> Option<ConversationState> {
         | Effect::StopAudio
         | Effect::CheckTerminal
         | Effect::Bell
-        | Effect::DesktopNotify { .. } => None,
+        | Effect::DesktopNotify { .. }
+        | Effect::ReleaseFocus => None,
     })
 }
 
@@ -433,8 +434,8 @@ fn esc_steps_back_then_closes_the_conversation() {
         (*id == climbing()).then(|| s.draft.clone()).flatten()
     });
     assert_eq!(draft, Some(MessageBody::new("half a thought")));
-    // Nothing more to close.
-    assert_eq!(esc(&mut state), vec![]);
+    // Nothing more to close: the host may release focus (§4.3).
+    assert_eq!(esc(&mut state), vec![Effect::ReleaseFocus]);
     // Opening it again brings the draft back.
     update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(

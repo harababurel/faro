@@ -192,6 +192,40 @@ fn receipts_wait_while_the_terminal_is_unfocused() {
 }
 
 #[test]
+fn a_resize_does_not_reclaim_focus_or_send_receipts() {
+    let mut state = loaded_state();
+    state.open.as_mut().unwrap().unread_marker = None;
+    focus(&mut state, false);
+    assert!(!state.env.focused);
+
+    let incoming = text(climbing(), BOB, fixtures::NOW_MS + 1, "you there?");
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::Message(incoming.clone())),
+    );
+
+    // Resizing an unfocused demo (the web grid refitting) keeps it unfocused
+    // and sends nothing (D125).
+    let effects = update(&mut state, AppEvent::Terminal(Event::Resize(120, 34)));
+    assert!(
+        !state.env.focused,
+        "a resize preserves the focus last reported"
+    );
+    assert_eq!(receipts(&effects), vec![]);
+    assert!(!effects.contains(&Effect::MarkRead(climbing())));
+
+    // A frame drawn after the resize, still unfocused, likewise.
+    let effects = update(&mut state, AppEvent::Drawn(Geometry::default()));
+    assert_eq!(receipts(&effects), vec![]);
+    assert!(!effects.contains(&Effect::MarkRead(climbing())));
+
+    // Back in focus: the receipt goes out.
+    let effects = focus(&mut state, true);
+    assert_eq!(receipts(&effects), vec![incoming.reference()]);
+    assert!(effects.contains(&Effect::MarkRead(climbing())));
+}
+
+#[test]
 fn a_key_press_counts_as_focus() {
     let mut state = loaded_state();
     focus(&mut state, false);

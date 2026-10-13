@@ -9,7 +9,6 @@ use std::time::Duration;
 use faro_app::app::event::{AppEvent, Effect};
 use faro_app::app::image_cache::NoImages;
 use faro_app::app::state::{BlockGlyphs, EmojiMode, EmojiSetting, Focus, GraphicsSupport, State};
-use faro_app::app::term_event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use faro_app::app::update::{self, PAGE, update};
 use faro_app::theme::{ColorDepth, Theme};
 use faro_app::ui::{self, View};
@@ -142,6 +141,11 @@ pub async fn stored_state(mock: &MockConfig) -> Result<(State, Store), Error> {
 pub fn configure_visitor(state: &mut State, capabilities: Capabilities) -> Vec<Effect> {
     state.profile = Profile::Demo;
     state.capabilities = capabilities;
+    // The demo starts without the keyboard: the browser hands faro the keys
+    // only when the canvas is the active element (D125). Both the live session
+    // and the poster start from this, so the poster shows the same legitimately
+    // unfocused picture the live demo settles on.
+    state.env.focused = false;
     state.env.glyphs = BlockGlyphs::Native;
     state.env.graphics = GraphicsSupport::HalfblocksOnly;
     state.env.colors = ColorDepth::Truecolor;
@@ -172,30 +176,36 @@ pub fn chat(state: &State) -> Option<ConversationId> {
         .map(|summary| summary.id)
 }
 
-/// Open [`CHAT`] the way a visitor would — walk the list cursor onto it with
-/// Alt+Down (which saturates) and press Enter — and hand back the effects to
-/// dispatch (D113). `None` while it isn't in the list yet: the backlog
-/// arrives a moment after the store's first answer.
+/// Open [`CHAT`] the way the app does — put the list cursor on it and run the
+/// reducer's own open — and hand back the effects to dispatch (D113). `None`
+/// while it isn't in the list yet: the backlog arrives a moment after the
+/// store's first answer.
+///
+/// It does *not* drive the list with synthetic keys: the demo starts without
+/// the keyboard (D125), and keys run through the reducer as if a focused
+/// visitor typed them, claiming focus and marking the backlog read. Instead
+/// the cursor is set directly and [`update::open_conversation`] opens the chat,
+/// which leaves `env.focused` as it is. Opening normally marks the chat read;
+/// since this open isn't a visitor action and faro has no keys, the unread
+/// count is put back and the store write dropped — the visitor's first real
+/// focus sends the read receipts.
 ///
 /// The list keeps the focus and no message is selected: the live demo starts
 /// unfocused (§4.2), so the poster must not show a selection tint either.
 pub fn open_start(state: &mut State) -> Option<(ConversationId, Vec<Effect>)> {
     let target = chat(state)?;
-    let steps = state.visible_conversations().count();
-    for _ in 0..=steps {
-        if state.highlighted() == Some(target) {
-            break;
-        }
-        let alt_down = Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::ALT));
-        update(state, AppEvent::Terminal(alt_down));
-    }
+    state.list.cursor = Some(target);
     if state.highlighted() != Some(target) {
         return None;
     }
-    let effects = update(
-        state,
-        AppEvent::Terminal(Event::Key(KeyEvent::from(KeyCode::Enter))),
-    );
+    let mut effects = update::open_conversation(state, target);
+    effects.retain(|effect| !matches!(effect, Effect::MarkRead(_)));
+    if let Some(open) = &state.open {
+        let unread = open.unread_on_open;
+        if let Some(summary) = state.conversations.iter_mut().find(|c| c.id == target) {
+            summary.unread = unread;
+        }
+    }
     state.focus = Focus::Conversations;
     Some((target, effects))
 }
@@ -277,6 +287,7 @@ pub fn draw(state: &State, width: u16, height: u16) -> Buffer {
 mod tests {
     use std::rc::Rc;
 
+    use faro_app::app::event::Command;
     use faro_app::app::state::State;
 
     use super::*;
@@ -355,6 +366,56 @@ mod tests {
             faro_app::ui::text::grid(&poster),
             "the poster is the demo's first frame"
         );
+    }
+
+    /// The demo opens its first chat without the keyboard (D125): it must not
+    /// claim focus, mark the backlog read, or send read receipts — the visitor
+    /// has not given faro the keys yet.
+    #[tokio::test(start_paused = true)]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "#[tokio::test] expands to block_on; tests may block"
+    )]
+    async fn open_start_opens_the_chat_without_claiming_focus_or_marking_read() {
+        let (mut state, store) = stored_state(&poster_mock()).await.unwrap();
+        assert!(!state.env.focused, "the demo starts unfocused (D125)");
+        let id = chat(&state).expect("the branch is in the list");
+        let before = state
+            .conversations
+            .iter()
+            .find(|c| c.id == id)
+            .map(|c| c.unread)
+            .expect("the branch is listed");
+        assert!(before > 0, "the backlog left it unread: {before}");
+
+        let (chat_id, effects) = open_start(&mut state).expect("open_start opens the branch");
+        assert_eq!(chat_id, id);
+        assert!(!state.env.focused, "opening keeps the demo unfocused");
+        assert_eq!(
+            state.focus,
+            Focus::Conversations,
+            "the list keeps the focus"
+        );
+        let open = state.open.as_ref().expect("the branch is open");
+        assert!(open.selected.is_none(), "nothing is selected (§4.2)");
+        assert!(
+            !effects.iter().any(|e| matches!(e, Effect::MarkRead(_))),
+            "no store write marking the chat read"
+        );
+        assert!(
+            !effects
+                .iter()
+                .any(|e| matches!(e, Effect::Backend(Command::MarkRead(_)))),
+            "no read receipts"
+        );
+        let after = state
+            .conversations
+            .iter()
+            .find(|c| c.id == id)
+            .map(|c| c.unread)
+            .expect("still listed");
+        assert_eq!(after, before, "the unread count is kept until focus");
+        store.close().await.unwrap();
     }
 
     /// What the 400-message backlog costs the live demo at start (D122): the

@@ -111,6 +111,15 @@ Inside `crates/faro-web` (M13, WEBSITE.md §6.2):
 - **`backend.rs`, `paint.rs`, `glyphs.rs`:** the Canvas 2D renderer (D106).
 - **`web.rs`:** the wasm-bindgen API.
 
+The page starts the demo without keyboard focus (D124). The shared reducer emits
+`Effect::ReleaseFocus` only when Escape has no remaining dismissal step (D125);
+the native router ignores it, and the web router blurs the canvas. DOM listeners
+queue focus events rather than borrowing the shell, including window/visibility
+changes. A resize preserves the app's focus instead of claiming the visitor has
+returned; opening the demo's first chat also uses reducer logic rather than
+simulated keypresses that would claim focus. The page shows whether keys go to faro and how to leave the panel;
+outside clicks, including on plain text, return input to the page.
+
 The demo draws emoji with `EmojiMode::Exact` (D118).
 
 ## 5. Backend interface

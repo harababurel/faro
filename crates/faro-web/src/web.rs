@@ -9,7 +9,7 @@ use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 
 use crate::demo::visitor_mock;
-use crate::dom::{CanvasPage, Listeners};
+use crate::dom::{self, CanvasPage, Listeners};
 use crate::live::{self, Shell};
 use crate::media::Audio;
 use crate::paint::Painter;
@@ -47,13 +47,10 @@ pub async fn start(
     let painter = Painter::new(canvas.clone(), &font, size)?;
     let fixed = (columns > 0 && rows > 0).then_some((columns, rows));
     let mut shell = Shell::new(session, painter, font, size, fixed);
-    let focused = canvas
-        .owner_document()
-        .and_then(|d| d.active_element())
-        .is_some_and(|a| a == **canvas);
-    if !focused {
-        shell.unfocus();
-    }
+    // The session starts without the keys (`configure_visitor`, D125); hand
+    // them over only if the canvas already has them by the same predicate the
+    // listeners use, so a genuinely focused canvas gains focus at start too.
+    shell.focus(dom::focused(&canvas));
     let (page, page_rx) = mpsc::unbounded_channel();
     shell.set_page(page.clone());
     let shell = Rc::new(RefCell::new(shell));
@@ -111,8 +108,8 @@ impl Demo {
         now_ms() - started
     }
 
-    /// Where faro is, for tests: focus, the open chat's selection, the
-    /// notice.
+    /// Where faro is, for tests: whether it has the keys and a chat is open,
+    /// plus the open chat's selection, playback and the notice.
     pub fn inspect(&self) -> String {
         let shell = self.shell.borrow();
         let state = shell.state();
@@ -123,7 +120,9 @@ impl Demo {
             .map(|s| s.message.sent_at.as_millis());
         let notice = state.notice.as_ref().map(|n| n.text.as_str());
         format!(
-            "focus={:?} selected={selected:?} playing={} notice={notice:?}",
+            "focused={} open={} focus={:?} selected={selected:?} playing={} notice={notice:?}",
+            state.env.focused,
+            state.open.is_some(),
             state.focus,
             state.playing.is_some()
         )

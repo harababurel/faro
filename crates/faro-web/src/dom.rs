@@ -11,8 +11,8 @@ use tokio::sync::mpsc::UnboundedSender;
 use wasm_bindgen::JsCast as _;
 use wasm_bindgen::prelude::*;
 use web_sys::{
-    AddEventListenerOptions, ClipboardEvent, EventTarget, FocusEvent, HtmlCanvasElement,
-    KeyboardEvent, MouseEvent, ResizeObserver, WheelEvent,
+    AddEventListenerOptions, ClipboardEvent, EventTarget, HtmlCanvasElement, KeyboardEvent,
+    MouseEvent, ResizeObserver, WheelEvent,
 };
 
 use faro_app::app::event::AppEvent;
@@ -83,6 +83,13 @@ impl Page for CanvasPage {
     fn stop(&self) {
         self.audio.stop();
     }
+
+    fn release_focus(&self) {
+        // Only the DOM: the canvas's own blur listener posts `FocusLost`, and
+        // the loop unfocuses faro on its next turn. Never borrow the state
+        // here — we're called from inside the loop's `borrow_mut`.
+        let _ = self.canvas.blur();
+    }
 }
 
 /// The listeners, removed when dropped.
@@ -106,28 +113,81 @@ impl Listeners {
             canvas.set_attribute("tabindex", "0")?;
         }
         let target: &EventTarget = canvas;
-        listeners.on(target, "keydown", page, move |e| keydown(e, &shell))?;
-        listeners.on(target, "mousedown", page, |e| pointer(e, Pointer::Down))?;
-        listeners.on(target, "mouseup", page, |e| pointer(e, Pointer::Up))?;
-        listeners.on(target, "mousemove", page, mouse_move)?;
-        listeners.on(target, "wheel", page, wheel)?;
-        listeners.on(target, "contextmenu", page, |e| {
-            e.prevent_default();
-            None
-        })?;
-        listeners.on(target, "focus", page, |e| {
-            e.dyn_ref::<FocusEvent>()
-                .map(|_| Input::Terminal(Event::FocusGained))
-        })?;
-        listeners.on(target, "blur", page, |e| {
-            e.dyn_ref::<FocusEvent>()
-                .map(|_| Input::Terminal(Event::FocusLost))
-        })?;
-        // Paste goes to the focused element; the canvas isn't editable, so
-        // listen on the document and check.
-        if let Some(document) = canvas.owner_document() {
+        listeners.on(target, "keydown", page, {
             let canvas = canvas.clone();
-            listeners.on(&document, "paste", page, move |e| paste(e, &canvas))?;
+            move |e| keydown(e, &canvas, &shell)
+        })?;
+        listeners.on(target, "mousedown", page, {
+            let canvas = canvas.clone();
+            move |e| mousedown(e, &canvas)
+        })?;
+        listeners.on(target, "mouseup", page, {
+            let canvas = canvas.clone();
+            move |e| mouse_up(e, &canvas)
+        })?;
+        listeners.on(target, "mousemove", page, {
+            let canvas = canvas.clone();
+            move |e| mouse_move(e, &canvas)
+        })?;
+        listeners.on(target, "wheel", page, {
+            let canvas = canvas.clone();
+            move |e| wheel(e, &canvas)
+        })?;
+        // faro's own menu only while it has the keys; otherwise the browser's
+        // native context menu stays (D125).
+        listeners.on(target, "contextmenu", page, {
+            let canvas = canvas.clone();
+            move |e| {
+                if focused(&canvas) {
+                    e.prevent_default();
+                }
+                None
+            }
+        })?;
+        // The canvas gaining or losing the active element moves faro's focus,
+        // but only in step with the predicate (a focus event while the window
+        // is unfocused must not claim the keys).
+        listeners.on(target, "focus", page, {
+            let canvas = canvas.clone();
+            move |_| focused(&canvas).then_some(Input::Terminal(Event::FocusGained))
+        })?;
+        listeners.on(target, "blur", page, {
+            let canvas = canvas.clone();
+            move |_| (!focused(&canvas)).then_some(Input::Terminal(Event::FocusLost))
+        })?;
+        if let Some(document) = canvas.owner_document() {
+            // Paste goes to the focused element; the canvas isn't editable, so
+            // listen on the document and check.
+            let paste_canvas = canvas.clone();
+            listeners.on(&document, "paste", page, move |e| paste(e, &paste_canvas))?;
+            // A click anywhere off the canvas gives up the keys, even on text
+            // that isn't focusable (D125).
+            let down_canvas = canvas.clone();
+            listeners.on(&document, "mousedown", page, move |e| {
+                outside_mousedown(e, &down_canvas)
+            })?;
+            // A hidden tab suspends faro's focus; showing it again hands the
+            // keys back only if the canvas is still active (D125).
+            let vis_canvas = canvas.clone();
+            listeners.on(&document, "visibilitychange", page, move |_| {
+                Some(Input::Terminal(if focused(&vis_canvas) {
+                    Event::FocusGained
+                } else {
+                    Event::FocusLost
+                }))
+            })?;
+        }
+        // The window losing focus always suspends faro; regaining it hands the
+        // keys back only if the canvas is still the active element — never
+        // stealing them from another element the visitor moved to (D125).
+        if let Some(window) = web_sys::window() {
+            listeners.on(&window, "blur", page, |_| {
+                Some(Input::Terminal(Event::FocusLost))
+            })?;
+            listeners.on(&window, "focus", page, {
+                let canvas = canvas.clone();
+                move |_| focused(&canvas).then_some(Input::Terminal(Event::FocusGained))
+            })?;
         }
         if let Some(parent) = canvas.parent_element() {
             let sender = page.clone();
@@ -200,9 +260,27 @@ fn held_mouse(event: &MouseEvent) -> Held {
     }
 }
 
-fn keydown(event: &web_sys::Event, shell: &Weak<RefCell<Shell>>) -> Option<Input> {
+/// Whether faro should have the keys: the canvas is the page's active element,
+/// the document is showing (not a hidden tab), and the window is focused
+/// (D125). Every focus-related listener and gate reads this, so the app's
+/// focus and the browser's agree.
+pub(crate) fn focused(canvas: &HtmlCanvasElement) -> bool {
+    let Some(document) = canvas.owner_document() else {
+        return false;
+    };
+    let element: &web_sys::Element = canvas;
+    document.active_element().as_ref() == Some(element)
+        && !document.hidden()
+        && document.has_focus().unwrap_or(false)
+}
+
+fn keydown(
+    event: &web_sys::Event,
+    canvas: &HtmlCanvasElement,
+    shell: &Weak<RefCell<Shell>>,
+) -> Option<Input> {
     let event = event.dyn_ref::<KeyboardEvent>()?;
-    if event.is_composing() {
+    if event.is_composing() || !focused(canvas) {
         return None;
     }
     match input::route(&event.key(), &event.code(), held_keys(event)) {
@@ -228,18 +306,71 @@ fn keydown(event: &web_sys::Event, shell: &Weak<RefCell<Shell>>) -> Option<Input
     }
 }
 
-fn pointer(event: &web_sys::Event, action: fn(i16) -> Pointer) -> Option<Input> {
+fn mousedown(event: &web_sys::Event, canvas: &HtmlCanvasElement) -> Option<Input> {
     let event = event.dyn_ref::<MouseEvent>()?;
+    let left = event.button() == 0;
+    if focused(canvas) {
+        // faro has the keys: it gets every button. Non-primary buttons cancel
+        // their default (which would move focus, though it's already here).
+        if !left {
+            event.prevent_default();
+        }
+    } else if left {
+        // A left click takes the keys for faro, then acts (D125).
+        let _ = canvas.focus();
+    } else if event.button() == 2 {
+        // A right click would focus the canvas and hand faro the keys by
+        // accident, so cancel that default — but not the `contextmenu` event,
+        // so the browser's own menu still opens (D125).
+        event.prevent_default();
+        return None;
+    } else {
+        // Middle and other buttons while unfocused: leave the browser's own
+        // behaviour (autoscroll, middle-paste) alone.
+        return None;
+    }
     Some(Input::Pointer {
-        action: action(event.button()),
+        action: Pointer::Down(event.button()),
         x: f64::from(event.offset_x()),
         y: f64::from(event.offset_y()),
         held: held_mouse(event),
     })
 }
 
-fn mouse_move(event: &web_sys::Event) -> Option<Input> {
+/// A `mousedown` on the document: off the canvas, give up the keys even when
+/// the click landed on text that isn't focusable (D125).
+fn outside_mousedown(event: &web_sys::Event, canvas: &HtmlCanvasElement) -> Option<Input> {
+    let element: &web_sys::Element = canvas;
+    let on_canvas = event.target().is_some_and(|t| {
+        t.dyn_ref::<web_sys::Element>()
+            .is_some_and(|el| el == element)
+    });
+    if !on_canvas && focused(canvas) {
+        let _ = canvas.blur();
+    }
+    None
+}
+
+fn mouse_up(event: &web_sys::Event, canvas: &HtmlCanvasElement) -> Option<Input> {
     let event = event.dyn_ref::<MouseEvent>()?;
+    if !focused(canvas) {
+        return None;
+    }
+    Some(Input::Pointer {
+        action: Pointer::Up(event.button()),
+        x: f64::from(event.offset_x()),
+        y: f64::from(event.offset_y()),
+        held: held_mouse(event),
+    })
+}
+
+fn mouse_move(event: &web_sys::Event, canvas: &HtmlCanvasElement) -> Option<Input> {
+    let event = event.dyn_ref::<MouseEvent>()?;
+    // Hover only counts while faro has the keys, so moving the mouse over an
+    // unfocused demo can't reclaim them (D125).
+    if !focused(canvas) {
+        return None;
+    }
     Some(Input::Pointer {
         action: Pointer::Move(event.buttons()),
         x: f64::from(event.offset_x()),
@@ -248,15 +379,10 @@ fn mouse_move(event: &web_sys::Event) -> Option<Input> {
     })
 }
 
-fn wheel(event: &web_sys::Event) -> Option<Input> {
+fn wheel(event: &web_sys::Event, canvas: &HtmlCanvasElement) -> Option<Input> {
     let event = event.dyn_ref::<WheelEvent>()?;
     // Only while it has the keys: an unfocused demo lets the page scroll.
-    let focused = event
-        .current_target()
-        .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
-        .zip(web_sys::window().and_then(|w| w.document()))
-        .is_some_and(|(el, doc)| doc.active_element().is_some_and(|a| a == el));
-    if !focused {
+    if !focused(canvas) {
         return None;
     }
     event.prevent_default();
@@ -272,9 +398,7 @@ fn wheel(event: &web_sys::Event) -> Option<Input> {
 
 fn paste(event: &web_sys::Event, canvas: &HtmlCanvasElement) -> Option<Input> {
     let event = event.dyn_ref::<ClipboardEvent>()?;
-    let document = canvas.owner_document()?;
-    let element: &web_sys::Element = canvas;
-    if document.active_element().as_ref() != Some(element) {
+    if !focused(canvas) {
         return None;
     }
     let text = event.clipboard_data()?.get_data("text/plain").ok()?;

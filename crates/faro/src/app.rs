@@ -336,104 +336,102 @@ impl Router {
 
     fn dispatch(&self, list: Vec<Effect>, state: &State) {
         for effect in list {
-            let delivered = match effect {
-                Effect::Backend(command) => self.commands.send(command).is_ok(),
-                Effect::Copy(text) => {
-                    system::copy(&text);
-                    true
-                }
-                Effect::OpenUrl(url) => {
-                    system::open_url(url, self.results.clone());
-                    true
-                }
-                Effect::OpenFile(path) => {
-                    system::open_file(path, self.results.clone());
-                    true
-                }
-                Effect::PlayAudio {
-                    message,
-                    index,
-                    path,
-                    player,
-                } => {
-                    self.audio.borrow_mut().play(
-                        message,
-                        index,
-                        path,
-                        player,
-                        self.results.clone(),
-                    );
-                    true
-                }
-                Effect::StopAudio => {
-                    self.audio.borrow_mut().stop();
-                    true
-                }
-                Effect::SaveToDownloads {
-                    source,
-                    file_name,
-                    content_type,
-                } => {
-                    system::save_to_downloads(
-                        source,
-                        file_name,
-                        content_type,
-                        self.results.clone(),
-                    );
-                    true
-                }
-                Effect::ListFiles(query) => {
-                    system::list_files(query, self.results.clone());
-                    true
-                }
-                Effect::StageFile(path) => {
-                    system::stage_file(path, self.results.clone());
-                    true
-                }
-                Effect::CheckPaste { raw, path } => {
-                    system::check_paste(raw, path, self.results.clone());
-                    true
-                }
-                Effect::CheckTerminal => {
-                    system::check_terminal(self.results.clone());
-                    true
-                }
-                Effect::ReadClipboardImage { conversation } => {
-                    self.clipboard.send(conversation).is_ok()
-                }
-                Effect::Bell => {
-                    system::bell();
-                    true
-                }
-                Effect::DesktopNotify { title, body } => {
-                    system::desktop_notify(
-                        title,
-                        body,
-                        state.config.notifications.desktop,
-                        state.env.glyphs,
-                        state.env.is_remote(),
-                    );
-                    true
-                }
-                Effect::SaveSetting(edit) => self.config.send(edit).is_ok(),
-                store @ (Effect::LoadConversations
-                | Effect::LoadMessages(_)
-                | Effect::LoadOlder { .. }
-                | Effect::LoadMessagesAround { .. }
-                | Effect::SearchMessages { .. }
-                | Effect::LoadMessageReceipts { .. }
-                | Effect::Persist(_)
-                | Effect::SaveAttachment { .. }
-                | Effect::MarkRead(_)
-                | Effect::ReadElsewhere(_)
-                | Effect::SaveConversationState(..)
-                | Effect::SaveNickname(..)
-                | Effect::SaveRecentReactions(_)
-                | Effect::RememberOpen(_)) => self.effects.send(store).is_ok(),
-            };
-            if !delivered {
+            if !self.deliver(effect, state) {
                 tracing::error!("a worker task stopped; dropping an effect");
             }
+        }
+    }
+
+    /// One effect to its owner: store work to the effects worker, backend
+    /// commands to the command task, settings to the config writer; terminal
+    /// and system effects run here, on the app loop. Whether it was delivered.
+    fn deliver(&self, effect: Effect, state: &State) -> bool {
+        match effect {
+            Effect::Backend(command) => self.commands.send(command).is_ok(),
+            Effect::Copy(text) => {
+                system::copy(&text);
+                true
+            }
+            Effect::OpenUrl(url) => {
+                system::open_url(url, self.results.clone());
+                true
+            }
+            Effect::OpenFile(path) => {
+                system::open_file(path, self.results.clone());
+                true
+            }
+            Effect::PlayAudio {
+                message,
+                index,
+                path,
+                player,
+            } => {
+                self.audio
+                    .borrow_mut()
+                    .play(message, index, path, player, self.results.clone());
+                true
+            }
+            Effect::StopAudio => {
+                self.audio.borrow_mut().stop();
+                true
+            }
+            Effect::SaveToDownloads {
+                source,
+                file_name,
+                content_type,
+            } => {
+                system::save_to_downloads(source, file_name, content_type, self.results.clone());
+                true
+            }
+            Effect::ListFiles(query) => {
+                system::list_files(query, self.results.clone());
+                true
+            }
+            Effect::StageFile(path) => {
+                system::stage_file(path, self.results.clone());
+                true
+            }
+            Effect::CheckPaste { raw, path } => {
+                system::check_paste(raw, path, self.results.clone());
+                true
+            }
+            Effect::CheckTerminal => {
+                system::check_terminal(self.results.clone());
+                true
+            }
+            Effect::ReadClipboardImage { conversation } => {
+                self.clipboard.send(conversation).is_ok()
+            }
+            Effect::Bell => {
+                system::bell();
+                true
+            }
+            Effect::ReleaseFocus => true, // the terminal keeps its own focus (§4.3)
+            Effect::DesktopNotify { title, body } => {
+                system::desktop_notify(
+                    title,
+                    body,
+                    state.config.notifications.desktop,
+                    state.env.glyphs,
+                    state.env.is_remote(),
+                );
+                true
+            }
+            Effect::SaveSetting(edit) => self.config.send(edit).is_ok(),
+            store @ (Effect::LoadConversations
+            | Effect::LoadMessages(_)
+            | Effect::LoadOlder { .. }
+            | Effect::LoadMessagesAround { .. }
+            | Effect::SearchMessages { .. }
+            | Effect::LoadMessageReceipts { .. }
+            | Effect::Persist(_)
+            | Effect::SaveAttachment { .. }
+            | Effect::MarkRead(_)
+            | Effect::ReadElsewhere(_)
+            | Effect::SaveConversationState(..)
+            | Effect::SaveNickname(..)
+            | Effect::SaveRecentReactions(_)
+            | Effect::RememberOpen(_)) => self.effects.send(store).is_ok(),
         }
     }
 }

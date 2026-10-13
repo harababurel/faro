@@ -68,8 +68,14 @@ const send = (method, params = {}) => new Promise((r) => {
   pending.set(i, r);
   ws.send(JSON.stringify({ id: i, method, params }));
 });
-const evaluate = async (expression) =>
-  (await send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true })).result?.result?.value;
+const evaluate = async (expression) => {
+  const reply = await send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true });
+  if (reply.result?.exceptionDetails) {
+    const error = reply.result.exceptionDetails;
+    logs.push("EVAL EXCEPTION " + (error.exception?.description ?? error.text));
+  }
+  return reply.result?.result?.value;
+};
 
 await send("Runtime.enable");
 if (init) {

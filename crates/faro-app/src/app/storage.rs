@@ -115,6 +115,7 @@ async fn run(store: &Store, effect: Effect) -> Result<Option<AppEvent>, StoreErr
         | Effect::ReadClipboardImage { .. }
         | Effect::Bell
         | Effect::DesktopNotify { .. }
+        | Effect::ReleaseFocus
         | Effect::SaveSetting(_) => {
             tracing::error!("a non-store effect reached the store worker; dropped");
             None
@@ -166,6 +167,7 @@ async fn write(store: &Store, effect: Effect) -> Result<(), StoreError> {
         | Effect::ReadClipboardImage { .. }
         | Effect::Bell
         | Effect::DesktopNotify { .. }
+        | Effect::ReleaseFocus
         | Effect::SaveSetting(_) => Ok(()),
     }
 }

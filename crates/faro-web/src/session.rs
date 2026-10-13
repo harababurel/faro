@@ -285,7 +285,7 @@ mod tests {
     use std::time::Duration;
 
     use faro_app::app::palette::Level;
-    use faro_app::app::state::{EmojiMode, Focus};
+    use faro_app::app::state::{EmojiMode, Focus, Geometry};
     use faro_app::app::term_event::{Event, KeyCode, KeyEvent, KeyModifiers};
     use faro_core::domain::{ConnectionState, Direction};
 
@@ -498,5 +498,89 @@ mod tests {
         session.router.dispatch(vec![copy], &session.state);
         pump(&mut session, &mut inbox, Duration::from_millis(10)).await;
         assert_eq!(session.state.notice.as_ref().unwrap().text, NOT_HERE);
+    }
+
+    #[tokio::test(start_paused = true)]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "#[tokio::test] expands to block_on; tests may block"
+    )]
+    async fn escape_releases_focus_only_at_the_end_of_the_chain() {
+        let (mut session, _inbox, page) = started().await;
+        // The demo opened the branch chat with the list focused (D60).
+        assert!(session.state.open.is_some());
+        session.state.notice = None; // ignore any notice the backlog left
+        key(&mut session, KeyCode::Enter); // focus the input
+        assert_eq!(session.state.focus, Focus::Input);
+
+        let esc = |session: &mut Session| {
+            session.handle(AppEvent::Terminal(Event::Key(KeyEvent::from(KeyCode::Esc))));
+        };
+        let released = || page.log.borrow().iter().any(|l| l == "release_focus");
+
+        // Closing the open chat is a step, not a release.
+        esc(&mut session);
+        assert!(session.state.open.is_none(), "the chat closed");
+        assert!(
+            !released(),
+            "no release while a chat was still open to close"
+        );
+
+        // With nothing open and no notice, the page blurs the canvas.
+        esc(&mut session);
+        assert!(released(), "the end of the chain releases focus");
+    }
+
+    /// The demo opens its first chat without the keys (D125): it must not send
+    /// read receipts or clear the unread count until the browser hands faro
+    /// the keys with a real `FocusGained`.
+    #[tokio::test(start_paused = true)]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "#[tokio::test] expands to block_on; tests may block"
+    )]
+    async fn an_unfocused_start_holds_read_receipts_until_the_keys_arrive() {
+        let (mut session, mut inbox, _page) = started().await;
+        assert!(!session.state.env.focused, "the demo starts unfocused");
+        let open = session.state.open.as_ref().expect("the branch is open");
+        assert_eq!(Some(open.id), demo::chat(&session.state));
+        // Opening while unfocused keeps the unread count (D125).
+        let branch = session
+            .state
+            .conversations
+            .iter()
+            .find(|c| c.id == open.id)
+            .expect("the branch is listed");
+        assert!(
+            branch.unread > 0,
+            "the unread count is kept: {}",
+            branch.unread
+        );
+        // The incoming messages are queued for a receipt, not sent.
+        assert!(!open.unreceipted.is_empty(), "receipts wait for the keys");
+
+        // A frame drawn while unfocused sends no receipt and clears nothing.
+        let effects = update::update(&mut session.state, AppEvent::Drawn(Geometry::default()));
+        assert!(
+            !effects
+                .iter()
+                .any(|e| matches!(e, Effect::Backend(Command::MarkRead(_)))),
+            "no read receipts while unfocused"
+        );
+        assert!(
+            !effects.iter().any(|e| matches!(e, Effect::MarkRead(_))),
+            "no unread clear while unfocused"
+        );
+
+        // The visitor gives faro the keys: the receipts go out.
+        let effects = update::update(&mut session.state, AppEvent::Terminal(Event::FocusGained));
+        assert!(
+            effects
+                .iter()
+                .any(|e| matches!(e, Effect::Backend(Command::MarkRead(_)))),
+            "focus sends the read receipts"
+        );
+        assert!(session.state.env.focused, "the keys are faro's now");
+        pump(&mut session, &mut inbox, Duration::from_millis(100)).await;
     }
 }
