@@ -100,8 +100,17 @@ jobs:
   site:
     name: site
     runs-on: ubuntu-latest
+    # The Rust site build plus the headless browser suite (§6.8, 4.6):
+    # the suite itself budgets 100 s; 30 min is the job's safety margin.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
+
+      # The site checks include Node harnesses (analytics regression,
+      # browser_test.mjs): Node 22 for its built-in WebSocket/fetch.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
       # Installs the toolchain and the wasm32 target pinned in
       # rust-toolchain.toml. faro-site needs nothing else: no protoc, no
@@ -127,7 +136,43 @@ jobs:
       - name: Build the site
         run: site/build.sh "$RUNNER_TEMP/site"
 
-      # The no-JS check runs on the runner's Chrome; if there is none,
-      # check.py skips it with a notice.
+      # The no-JS render check and the browser suite both need the
+      # runner's Chrome; it's preinstalled, but a missing one must fail
+      # the job, not silently skip coverage. Exported for every later step.
+      - name: Find Chrome
+        run: |
+          chrome=$(command -v google-chrome)
+          test -n "$chrome" || { echo "google-chrome not found on the runner" >&2; exit 1; }
+          echo "CHROME=$chrome" >> "$GITHUB_ENV"
+          "$chrome" --version
+
       - name: Check the site
-        run: CHROME=$(command -v google-chrome) python3 site/check.py "$RUNNER_TEMP/site"
+        run: python3 site/check.py "$RUNNER_TEMP/site"
+
+      # The demo loader's analytics/responsive rules in a fake DOM (§6.9,
+      # 4.4/4.5b): pure Node, no browser.
+      - name: Demo loader checks (Node)
+        run: node site/tools/test_demo_analytics.mjs
+
+      # The browser harness's own pure parts: nginx header parsing, the
+      # network audit filter, the CLI.
+      - name: Browser harness unit checks
+        run: node --test site/tools/browser/parse.test.mjs
+
+      # The real-wasm headless suite (4.6): desktop core flow, phone and
+      # privacy scenarios, panel controls, global audit. Its own 100 s
+      # budget bounds it; the report and up to 8 screenshots land in
+      # $RUNNER_TEMP/browser.
+      - name: Browser suite (headless Chrome)
+        run: node site/tools/browser_test.mjs "$RUNNER_TEMP/site" --out "$RUNNER_TEMP/browser" --budget 100
+
+      # Only on failure: the harness writes nothing on green runs beyond
+      # the report; warn (not fail) when the folder is absent.
+      - name: Upload browser artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-report
+          path: ${{ runner.temp }}/browser/
+          if-no-files-found: warn
+          retention-days: 7

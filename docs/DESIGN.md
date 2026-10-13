@@ -149,6 +149,14 @@ without losing visitor settings or allowing stale async startup to claim focus.
 Fullscreen explicitly retains the desktop demo until exit. Site budgets count all
 six stills conservatively, while desktop poster/OG output remains unchanged.
 
+Browser regression coverage (D130) lives in `site/tools/browser_test.mjs` and
+`site/tools/browser/`. It drives the real built site/wasm with Node 22's CDP
+client and a private localhost server carrying the nginx headers and tracker
+stub. CI requires Chrome and runs desktop, mobile, no-JS, privacy and controls
+checks; failures retain a JSON report and bounded screenshots. Timeouts and
+cleanup are part of the harness, not production code. Optional fullscreen denial
+is an explicit skip; manual browser/device checks remain separate.
+
 The demo draws emoji with `EmojiMode::Exact` (D118).
 
 ## 5. Backend interface

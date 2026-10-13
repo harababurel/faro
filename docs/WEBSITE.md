@@ -580,7 +580,7 @@ Ways to stay inside the budget:
 - **Bandwidth.** Preloading the demo (§4.2) means every desktop visitor downloads about 1.5 MB, so a burst of 10 new visitors a second needs about 120 Mbit/s of upload. Before a launch, check the server's uplink and anything else that shares it.
   - **Emergency switch:** the page reads `/demo/manifest.json` before preloading, and one nginx line can serve a version with `"preload": false` without a redeploy.
 - **CI checks for the site:**
-  - **Automated now (the CI `site` job):** `site/check.py <built dir>` over the `site/build.sh` output — link resolution (the nginx `try_files` rules), no third-party requests, no cookies, no inline code (the CSP's `'self'`), no leftover `{{…}}` placeholders, the §6.6 size budget, and the no-JS render when `CHROME` names a browser. Still to do: Lighthouse, HTML validation, the install-command containers and the demo headless tests below.
+  - **Automated now (the CI `site` job):** `site/check.py <built dir>` over the `site/build.sh` output — link resolution (the nginx `try_files` rules), no third-party requests, no cookies, no inline code (the CSP's `'self'`), no leftover `{{…}}` placeholders and the §6.6 size budget. Chrome is required in CI for the no-JS render and real-wasm browser suite (D130). Node loader/harness unit checks run too. Still to do: Lighthouse, HTML validation and the install-command containers.
   - **Install commands:** each command is run in a fresh container per tab (Debian, Arch, Nix, macOS runner for Homebrew) on every release.
   - **Links:** a link checker.
   - **HTML:** validation.
@@ -590,6 +590,13 @@ Ways to stay inside the budget:
     - the demo starts, draws a frame and accepts a key;
     - Esc releases focus;
     - no console errors.
+    - Desktop focus/send/restart/themes, mobile/no-fetch/scheme/gallery behavior,
+      no-JS, Save-Data/preload-off/opt-out and responsive controls are checked by
+      `CHROME=<chrome> node site/tools/browser_test.mjs <built dir> --out <reports>`.
+      This uses Node 22 built-ins and a private server, with the real nginx headers
+      and a tracker stub; it never sends telemetry. Assertions/errors/timeouts fail
+      CI, with a report and up to eight screenshots retained on failure. Fullscreen
+      denial is explicitly skipped after checking graceful recovery.
   - **Lighthouse thresholds:** performance, accessibility and best practices ≥ 95.
 - Checks that need a person at a real browser go into `docs/MANUAL_TESTS.md` (rule 10): real Chrome, Firefox and Safari; macOS Option keys; a trackpad; a hi-DPI screen; a phone.
 
@@ -903,6 +910,15 @@ wide/narrow transitions were checked. Site budgets pass: 40,692/40,960 B page,
 161,570/204,800 B conservative first load. Real-phone emoji and narrow fullscreen
 checks remain deferred: headless has no emoji fonts and did not grant fullscreen.
 **Next: 4.6 CI browser tests.** No deployment by agents.
+
+**Chunk 4.6 done (2026-10-13, D130):** the site job requires Chrome and Node 22,
+then runs loader regression checks, harness unit tests and real-wasm browser
+coverage. Local runs pass 101 assertions across 22 scenarios in about 42 seconds;
+700 native tests, 54 loader checks, five harness unit tests and site/no-JS budgets
+pass. Negative validation/timeout runs fail with reports and clean up resources.
+GitHub execution is still to be observed; no CI-green claim is made from local
+results. Phase 4 code is complete; real-browser/device checks remain deferred.
+**Next: Phase 5 launch polish**, without deployment or publication by agents.
 
 ### Phase 5: launch polish (2–3 days)
 

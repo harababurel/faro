@@ -541,3 +541,12 @@ replace real-phone and Chrome/Firefox/Safari checks.
 - [ ] **Network recovery:** a failed manifest request can retry after narrowing/widening; a stalled wasm download returns to Start after about 30 seconds and a later successful attempt starts normally.
 
 Notes (browser, version, OS, what went wrong):
+
+## Website: browser CI (M13 Phase 4.6, D130)
+
+Local/CI Chromium coverage does not replace the deferred Chrome/Firefox/Safari
+and real-device checks above. Check the first actual GitHub site-job result when
+available; local green runs do not mean the remote job ran.
+
+- [ ] **Failure diagnostics:** when a browser assertion fails in CI, the uploaded `browser-report` artifact has a readable report and relevant failure screenshots. Optional native fullscreen denial is labelled skipped, not passed.
+- [ ] **Real-device matrix:** run the existing focus/panel/gallery checks in real browsers when convenient; retain deferred status for emoji fonts, macOS Option keys, trackpads, high-DPI screens and phone/fullscreen permissions until actually checked.
