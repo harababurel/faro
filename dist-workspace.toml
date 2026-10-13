@@ -43,6 +43,9 @@ unix-archive = ".tar.xz"
 checksum = "sha256"
 # The bundled OpenCode themes are MIT; their notices ride along.
 include = ["THIRD_PARTY_NOTICES.md"]
+# Inserted into build-local-artifacts after checkout; mirrored by hand in
+# the allow-dirty release.yml.
+github-build-setup = "../install-protoc.yml"
 
 # presage needs protoc, but ubuntu-22.04's apt protobuf-compiler (3.12)
 # is too old for libsignal's protos; a pinned protoc is installed by the
@@ -53,10 +56,6 @@ include = ["THIRD_PARTY_NOTICES.md"]
 cmake = "*"
 clang = "*"
 pkg-config = "*"
-
-# Inserted into build-local-artifacts after checkout; mirrored by hand in
-# the allow-dirty release.yml.
-github-build-setup = "../install-protoc.yml"
 
 [dist.dependencies.homebrew]
 protobuf = "*"
