@@ -96,6 +96,7 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
     - **Phase 4 code complete:** 4.1 alignment ✅ (D123); 4.2 handover ✅ (D124); 4.3a focus/Esc ✅ (D125); 4.3b panel controls ✅ (D126); 4.4 analytics ✅ (D127); 4.5 phones ✅ (D128–D129); 4.6 browser CI ✅ (D130, local verified/remote run pending). Owner's checks deferred. **Next Phase 5 launch polish.**
     - Small Phase 3 follow-ups, if wanted: a console `tracing` subscriber in debug builds (D114), batching text runs in the painter (D119).
   - **M8 (v0.1):**
+    - Release pipeline prepared (D133, 2026-10-13, `c2ebdd1`…`1b2310b`): `vendored-openssl` feature, `dist-workspace.toml` + tag-only `.github/workflows/release.yml` (allow-dirty: edit by hand, `dist generate` refuses), `publish-debs.yml`, `.github/install-protoc.yml`, `packaging/aur/{faro,faro-bin}` (checksums `SKIP` until the tag). Release steps left: owner's `HOMEBREW_TAP_TOKEN` secret, bump the version to 0.1.0, make the repo public, tag, then `updpkgsums` + AUR push, `brew audit` on macOS, the clean-machine check per method.
     - Tasks 5–7 are done; the owner's checks are pending.
     - Left: the terminal matrix (task 1, the owner runs it; agents fix what it finds), then the release (task 8). The release starts with making the repo public, which can't be undone: never start it without the owner saying so.
   - **M11** waits on presage PR #430.
