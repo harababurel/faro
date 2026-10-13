@@ -555,6 +555,7 @@ Ways to stay inside the budget:
 - **Bandwidth.** Preloading the demo (§4.2) means every desktop visitor downloads about 1.5 MB, so a burst of 10 new visitors a second needs about 120 Mbit/s of upload. Before a launch, check the server's uplink and anything else that shares it.
   - **Emergency switch:** the page reads `/demo/manifest.json` before preloading, and one nginx line can serve a version with `"preload": false` without a redeploy.
 - **CI checks for the site:**
+  - **Automated now (the CI `site` job):** `site/check.py <built dir>` over the `site/build.sh` output — link resolution (the nginx `try_files` rules), no third-party requests, no cookies, no inline code (the CSP's `'self'`), no leftover `{{…}}` placeholders, the §6.6 size budget, and the no-JS render when `CHROME` names a browser. Still to do: Lighthouse, HTML validation, the install-command containers and the demo headless tests below.
   - **Install commands:** each command is run in a fresh container per tab (Debian, Arch, Nix, macOS runner for Homebrew) on every release.
   - **Links:** a link checker.
   - **HTML:** validation.

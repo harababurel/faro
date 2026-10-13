@@ -90,3 +90,31 @@ jobs:
           size=$(gzip -9 < crates/faro-web/www/pkg/faro_web_bg.wasm | wc -c)
           echo "faro_web_bg.wasm: $size bytes gzipped (budget: 1572864)"
           test "$size" -le 1572864
+
+  # The getfaro.dev static site (M13 Phase 1): build it the way the server
+  # does, then run the site checks (WEBSITE.md §6.8): links, no third-party
+  # requests, no cookies, no inline code, no leftover placeholders, the
+  # §6.6 size budget and the no-JS render. Deployment stays manual on the
+  # server (site/deploy/update.sh); there are no deploy steps and no secrets.
+  site:
+    name: site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Installs the toolchain pinned in rust-toolchain.toml. faro-site needs
+      # nothing else: no protoc, no libsignal (§6.8).
+      - name: Install Rust
+        run: rustup toolchain install && rustc --version
+
+      - uses: Swatinem/rust-cache@v2
+
+      # A fresh dir: build.sh refuses a non-empty one (stale hashed files).
+      # brotli isn't on the runner: build.sh skips the .br twins, fine.
+      - name: Build the site
+        run: site/build.sh "$RUNNER_TEMP/site"
+
+      # The no-JS check runs on the runner's Chrome; if there is none,
+      # check.py skips it with a notice.
+      - name: Check the site
+        run: CHROME=$(command -v google-chrome) python3 site/check.py "$RUNNER_TEMP/site"
