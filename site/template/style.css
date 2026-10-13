@@ -303,7 +303,7 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
 .site-foot a { color: var(--accent); }
 .opt-out-note { font-size: .9rem; }
 
-.legal h1 { font-size: 2rem; }
+.legal h1 { font-size: 2rem; margin-top: 2.5rem; }
 .legal h2 { font-size: 1.15rem; margin-top: 2rem; }
 .updated { color: var(--muted); font-size: .9rem; }
 .small { font-size: .85rem; color: var(--muted); }
