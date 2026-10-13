@@ -209,8 +209,6 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
   margin: 0 0 .4rem;
 }
 .demo-focus[hidden] { display: none; }
-.humor { font-style: italic; }
-.poster-note { display: var(--f); font-size: .85rem; margin: 0; }
 .panel-tools { display: flex; gap: .5rem; flex-wrap: wrap; margin: 0 0 .4rem; }
 .panel-tools[hidden] { display: none; }
 .chips { display: inline-flex; gap: .4rem; flex-wrap: wrap; }

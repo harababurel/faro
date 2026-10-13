@@ -61,7 +61,7 @@ One page, top to bottom. The demo and the install command are both within the fi
 │ └──────────────────────────────────────────────────────────────────────┘ │
 │  Ctrl+P palette · Alt+J/K chats · ↑ pick a message · + react · Enter send│  key hints
 │  Theme: [faro-dark] [faro-dusk] [faro-light] [catppuccin] [nord] [gruvbox] … ⛶ ↺ │  theme chips, fullscreen, restart
-│  Fake coworkers, scripted scenes. Nothing leaves your browser.           │
+│  Nothing you type leaves your browser.                                   │
 ├──────────────────────────────────────────────────────────────────────────┤
 │  Why faro                                   (5 short items, 2 columns)   │
 ├──────────────────────────────────────────────────────────────────────────┤
@@ -325,7 +325,7 @@ Rules:
 - **Plain words.** Say what it is before saying why it's good. One idea per sentence. Specific nouns (tmux, SSH, OSC 52, kitty) rather than adjectives.
 - **No unexplained acronyms** in the hero or "Why faro". Technical terms are fine further down, where the reader has opted in.
 - **No comparatives without a reference** ("faster", "better"). Show it instead: the demo does the persuading.
-- **A light touch of humour,** mostly carried by the demo's cast. One line on the page at most, for example under the safety note: *"Dwight will reply. He always replies."*
+- **A light touch of humour,** carried by the demo's cast, not the page's copy. (The "Dwight will reply" line under the demo was dropped on 2026-10-13, owner's call, with the poster note: the FAQ already says who the cast is and that the demo is real faro.)
 - Honest about limits (§3.6). The page never implies Signal endorses faro.
 
 Draft FAQ (to be checked against the code before launch):
