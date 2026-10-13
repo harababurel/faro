@@ -1,5 +1,5 @@
 pkgbase = faro
-	pkgdesc = A terminal client for Signal, built for people who live in tmux
+	pkgdesc = Terminal client for Signal, built for people who live in tmux
 	pkgver = 0.1.0
 	pkgrel = 1
 	url = https://getfaro.dev

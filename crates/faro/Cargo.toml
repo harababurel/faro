@@ -1,6 +1,6 @@
 [package]
 name = "faro"
-description = "A terminal client for Signal, built for people who live in tmux"
+description = "Terminal client for Signal, built for people who live in tmux"
 homepage = "https://getfaro.dev"
 version.workspace = true
 edition.workspace = true
