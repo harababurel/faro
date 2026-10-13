@@ -29,6 +29,7 @@ BUDGET_TOTAL = 200 * 1024
 BUDGET_PAGE = 40 * 1024  # HTML + CSS + JS, compressed
 BUDGET_FONT = 60 * 1024
 BUDGET_POSTER = 80 * 1024
+BUDGET_PHONE = 80 * 1024  # each §4.7 phone frame, compressed
 
 failures = []
 warnings = []
@@ -239,8 +240,20 @@ def check_budget(pages):
     if page > BUDGET_PAGE:
         fail(f"html+css+js is {page} bytes, over the {BUDGET_PAGE} budget (§6.6)")
     for name, size in items:
-        if os.path.splitext(name)[1] in (".woff", ".woff2", ".ttf", ".otf") and size > BUDGET_FONT:
+        ext = os.path.splitext(name)[1]
+        if ext in (".woff", ".woff2", ".ttf", ".otf") and size > BUDGET_FONT:
             fail(f"font {name} is {size} bytes, over the {BUDGET_FONT} budget (§6.6)")
+    phones = [
+        (name, size) for name, size in items
+        if name.startswith("phone/") and name.endswith(".svg")
+    ]
+    if len(phones) != 6:
+        fail(f"the page pulls in {len(phones)} phone frames, expected 6 (§4.7)")
+    for name, size in phones:
+        if not re.fullmatch(r"phone/[a-z-]+\.[0-9a-f]{10}\.svg", name):
+            fail(f"phone frame {name} isn't content-hashed (§6.1)")
+        if size > BUDGET_PHONE:
+            fail(f"phone frame {name} is {size} bytes, over the {BUDGET_PHONE} budget (§4.7)")
     poster = re.search(r'<div class="poster-dark">(.*?)</div>', read(index), re.S)
     if poster is None:
         warn("index.html: no .poster-dark wrapper: the poster budget wasn't checked")

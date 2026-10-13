@@ -137,11 +137,17 @@ handlers never call Rust synchronously, and opted-out or unavailable tracking
 cannot affect the demo. Run `node site/tools/test_demo_analytics.mjs` for the
 page-level regression checks; native tests check the send predicate.
 
-Phone frame generation (D128, 4.5a) reuses the deterministic poster state and
-shared reducer/exporter for conversation, command palette and Themes views at
-44×24 cells, in both page schemes. The site generator emits six unreferenced
-SVGs under `phone/`; gallery/responsive wiring and isolated-SVG font integration
-are deferred to 4.5b. The desktop page is unchanged at this checkpoint.
+Phone frames (D128–D129) reuse the deterministic poster state and shared
+reducer/exporter for conversation, command palette and Themes views at 44×24
+cells, in both schemes. A site-only converter outlines bundled font glyphs into
+reusable SVG paths, retaining unsupported grapheme runs as text for system fonts.
+Six hashed `phone/` assets supply a no-JS CSS scroll-snap gallery. It replaces the
+desktop frame on coarse-pointer/narrow screens; its minimum 358 px slide width
+keeps text readable, with horizontal panning on smaller screens. The loader never
+fetches the demo on an initially small device; resizing frees/restarts the session
+without losing visitor settings or allowing stale async startup to claim focus.
+Fullscreen explicitly retains the desktop demo until exit. Site budgets count all
+six stills conservatively, while desktop poster/OG output remains unchanged.
 
 The demo draws emoji with `EmojiMode::Exact` (D118).
 

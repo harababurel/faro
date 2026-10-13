@@ -23,10 +23,10 @@
 //! and reads at phone width. The palette needs at least 20 columns
 //! (`faro_app::ui::palette`), so it fits too.
 //!
-//! The SVGs keep the page's own font stack (`super::FONT_FAMILY`) and embed
-//! no fonts: an external SVG loaded as an image is an isolated document and
-//! can't use the page's webfont, and how these frames get `JetBrains Mono`
-//! anyway is 4.5b's decision. Until then they are written unreferenced.
+//! The SVGs embed no fonts and fetch none: an external SVG loaded as an
+//! image is an isolated document and can't use the page's webfont, so
+//! [`phone_font`] outlines the Latin text with the bundled subsets and
+//! keeps only the emoji as text for the browser's system emoji font.
 
 use faro_app::app::palette::Level;
 use faro_app::app::state::State;
@@ -35,7 +35,7 @@ use faro_app::theme::Theme;
 use faro_web::demo;
 use faro_web::svg;
 
-use super::{named, svg_options};
+use super::{named, phone_font, svg_options};
 
 /// The phone grid: one readable pane at about 44 columns (§4.7), tall
 /// enough for the newest messages, the input box and the footer.
@@ -91,11 +91,12 @@ impl Kind {
 }
 
 /// One phone frame: a real faro buffer at the phone grid as a standalone
-/// SVG document, plus the site-relative name it is written under.
+/// SVG document, plus the site-relative name the style sheet refers to it
+/// by (`site::generate` hashes it like every other asset before rewriting
+/// the CSS).
 #[derive(Debug, Clone)]
 pub struct Frame {
-    /// Site-relative file name, stable and unhashed (4.5b will hash it the
-    /// way the other assets are hashed).
+    /// The pre-hash site-relative name, as the template's CSS spells it.
     pub name: String,
     pub svg: String,
 }
@@ -148,12 +149,14 @@ fn frame(state: &State, kind: Kind, scheme: &str, theme_name: &str) -> Result<Fr
     let buffer = demo::draw(state, COLS, ROWS);
     let theme = Theme::find(theme_name, &state.user_themes)
         .ok_or_else(|| format!("the built-in theme {theme_name} is missing"))?;
+    let variant = format!("{}-{scheme}", kind.stem());
     let svg = named(
         &svg::buffer_to_svg(&buffer, &svg_options(theme, kind.title())),
-        &format!("{}-{scheme}", kind.stem()),
+        &variant,
     );
+    let svg = phone_font::outlined(&svg, &variant)?;
     Ok(Frame {
-        name: format!("phone/{}-{scheme}.svg", kind.stem()),
+        name: format!("phone/{variant}.svg"),
         svg,
     })
 }
@@ -223,55 +226,22 @@ mod tests {
             );
         }
 
-        // Conversation: the branch open with its backlog, and no sidebar —
-        // at 44 columns the list hides itself, which is the whole point of
-        // the crop.
+        // Outlined for the isolated-image context: Latin text is paths,
+        // the emoji the bundled subsets lack stay text, and nothing pulls
+        // a font in.
         let conversation = svg_named(&once.phones, "phone/conversation-dark.svg");
+        assert!(conversation.contains("<path"), "the text is outlined");
         assert!(
-            conversation.contains(">Scranton<"),
-            "the branch chat is open"
+            !conversation.contains(">Scranton<"),
+            "no Latin is left as text an image-mode SVG can't render"
         );
-        assert!(conversation.contains(">drill<"), "its backlog shows");
-        assert!(
-            !conversation.contains(">Conversations<"),
-            "the sidebar hides itself at 44 columns"
+        assert_eq!(
+            conversation.matches(">📄<").count(),
+            2,
+            "the chat title's and the file row's emoji stay text"
         );
-        assert!(
-            !conversation.contains(">Chats<"),
-            "no palette in this frame"
-        );
-
-        // Palette: the root's categories, opened through the reducer, and
-        // the Themes row's detail naming the *scheme's own* theme — the
-        // palette was opened under it, not recoloured afterwards.
-        let palette = svg_named(&once.phones, "phone/palette-dark.svg");
-        for category in ["Chats", "Themes", "Settings", "Commands", "Keys", "Search"] {
-            assert!(
-                palette.contains(&format!(">{category}<")),
-                "the palette root lists {category}"
-            );
-        }
-        assert!(
-            palette.contains(">faro-dark<"),
-            "the dark palette's Themes row shows faro-dark"
-        );
-        let palette_light = svg_named(&once.phones, "phone/palette-light.svg");
-        assert!(
-            palette_light.contains(">faro-light<"),
-            "the light palette's Themes row shows faro-light"
-        );
-        assert!(
-            !palette_light.contains(">faro-dark<"),
-            "the light palette doesn't carry the dark scheme's marker"
-        );
-
-        // Themes: the picker under the palette, faro's own themes listed.
-        let themes = svg_named(&once.phones, "phone/themes-dark.svg");
-        assert!(themes.contains(">faro-dark<"), "the picker lists faro-dark");
-        assert!(
-            themes.contains(">faro-light<"),
-            "the picker lists faro-light"
-        );
+        assert!(!conversation.contains("url("), "no font is fetched");
+        assert!(!conversation.contains("@font-face"), "no font is embedded");
 
         // The scheme follows the theme, as for the posters: the first rect
         // is the theme's background.
@@ -285,6 +255,68 @@ mod tests {
             "faro-light's background"
         );
         assert_ne!(conversation, light);
+    }
+
+    /// What the frames actually show, read from the real buffers behind
+    /// them (the SVGs' text is outlines, so the content lives here).
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the site generator is a one-shot CLI: the test blocks on a current-thread runtime to build the demo's first state"
+    )]
+    #[test]
+    fn the_phone_buffers_show_their_kinds() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .expect("the site's runtime starts");
+        let mut state = runtime
+            .block_on(demo::first_state())
+            .expect("the demo's first state");
+        let grid = |state: &mut State, kind: Kind, theme: &str| {
+            show(state, kind, theme);
+            faro_app::ui::text::grid(&demo::draw(state, COLS, ROWS))
+        };
+
+        // Conversation: the branch open with its backlog, and no sidebar —
+        // at 44 columns the list hides itself, which is the whole point of
+        // the crop.
+        let conversation = grid(&mut state, Kind::Conversation, "faro-dark");
+        assert!(conversation.contains("Scranton Branch"), "{conversation}");
+        assert!(conversation.contains("drill"), "its backlog shows");
+        assert!(
+            !conversation.contains("Conversations"),
+            "the sidebar hides itself at 44 columns"
+        );
+        assert!(!conversation.contains("Chats"), "no palette in this frame");
+
+        // Palette: the root's categories, opened through the reducer, and
+        // the Themes row's detail naming the *scheme's own* theme — the
+        // palette was opened under it, not recoloured afterwards.
+        let palette = grid(&mut state, Kind::Palette, "faro-dark");
+        for category in ["Chats", "Themes", "Settings", "Commands", "Keys", "Search"] {
+            assert!(
+                palette.contains(category),
+                "the palette root lists {category}"
+            );
+        }
+        assert!(
+            palette.contains("faro-dark"),
+            "the dark palette's Themes row shows faro-dark"
+        );
+        let palette_light = grid(&mut state, Kind::Palette, "faro-light");
+        assert!(
+            palette_light.contains("faro-light"),
+            "the light palette's Themes row shows faro-light"
+        );
+        assert!(
+            !palette_light.contains("faro-dark"),
+            "the light palette doesn't carry the dark scheme's marker"
+        );
+
+        // Themes: the picker under the palette, faro's own themes listed.
+        let themes = grid(&mut state, Kind::Themes, "faro-dark");
+        assert!(themes.contains("faro-dark"), "the picker lists faro-dark");
+        assert!(themes.contains("faro-light"), "the picker lists faro-light");
     }
 
     /// The picker's own state under each scheme: the current marker, the

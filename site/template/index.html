@@ -1,7 +1,6 @@
 <!doctype html>
-<!-- getfaro.dev landing page template: the generator fills its placeholders from
-     faro's own code and rewrites asset references to content-hashed names
-     (WEBSITE.md §3, D120-D122).
+<!-- getfaro.dev template: placeholders filled from faro's code, assets
+     content-hashed (WEBSITE.md §3, D120-D122).
      TODO(generator): favicon (the small lighthouse) and the exported logo SVGs (§5.4). -->
 <html lang="en">
 <head>
@@ -28,7 +27,7 @@
 <header class="site-head">
   <nav aria-label="Main">
     <a class="brand" href="/">
-      <!-- TODO(generator): replace with the exported logo SVG (§5.4). -->
+      <!-- TODO(generator): the exported logo SVG (§5.4). -->
       <svg class="logo" viewBox="0 0 9 8" width="27" height="24" aria-hidden="true" focusable="false">
         <rect x="3" y=".5" width="3" height=".5" fill="var(--logo-red)"/>
         <rect x="4" y="0" width="1" height="1" fill="var(--logo-red)"/>
@@ -87,6 +86,18 @@
         <button id="demo-start" class="btn primary demo-start" type="button" hidden>▶ Start the demo</button>
         <div id="demo-exited" class="demo-exited" hidden><button id="demo-again" type="button">faro exited · ↺ start again</button></div>
       </div>
+      <div class="phone-gallery" tabindex="0" role="group" aria-label="faro at phone width: swipe or press the arrow keys">
+        <figure class="phone-conversation" role="img" aria-label="The Scranton Branch chat in faro at phone width">
+          <figcaption>Conversation</figcaption>
+        </figure>
+        <figure class="phone-palette" role="img" aria-label="faro&rsquo;s command palette at phone width">
+          <figcaption>Palette</figcaption>
+        </figure>
+        <figure class="phone-themes" role="img" aria-label="faro&rsquo;s theme picker, the current theme marked">
+          <figcaption>Themes</figcaption>
+        </figure>
+      </div>
+      <p class="phone-hint">Swipe for palette and themes</p>
       <figcaption>
         <p class="hints"><kbd>Ctrl+P</kbd> palette · <kbd>Alt+J/K</kbd> chats · <kbd>↑</kbd> pick a message · <kbd>+</kbd> react · <kbd>Enter</kbd> send</p>
         <p id="demo-focus" class="demo-focus" hidden></p>
@@ -223,10 +234,7 @@ cargo build --release          <span class="cmt"># binary: target/release/faro</
     </details>
     <details>
       <summary>Can Signal block me for using it?</summary>
-      <!-- TODO(owner): wording to be confirmed before launch (WEBSITE.md §5.3, D-k). Draft:
-           faro uses the same linked-device mechanism as Signal Desktop. It's unofficial,
-           so Signal doesn't support it, and a change on their side can break it until
-           faro is updated. -->
+      <!-- TODO(owner): wording to be confirmed before launch (WEBSITE.md §5.3, D-k). -->
       <p>faro uses the same linked-device mechanism as Signal Desktop. It&rsquo;s unofficial, so Signal doesn&rsquo;t support it, and a change on their side can break it until faro is updated.</p>
     </details>
     <details>

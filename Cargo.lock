@@ -1310,6 +1310,7 @@ dependencies = [
  "sha2 0.11.0",
  "skrifa",
  "tokio",
+ "unicode-segmentation",
 ]
 
 [[package]]

@@ -30,6 +30,7 @@ use resvg::tiny_skia;
 use resvg::usvg::{self, fontdb};
 
 mod phone;
+mod phone_font;
 
 pub use phone::Frame as PhoneFrame;
 
@@ -118,6 +119,10 @@ fn og_frame_x() -> f32 {
 /// never system fonts, is what makes the PNG byte-identical everywhere.
 const FONT_REGULAR: &[u8] = include_bytes!("../../fonts/JetBrainsMono-Regular.ttf");
 const FONT_BOLD: &[u8] = include_bytes!("../../fonts/JetBrainsMono-Bold.ttf");
+/// The Italic subset, decompiled the same way (see `fonts/README.md`):
+/// only the phone frames' outliner needs it — the OG rasteriser stays on
+/// Regular + Bold so its bytes never change.
+const FONT_ITALIC: &[u8] = include_bytes!("../../fonts/JetBrainsMono-Italic.ttf");
 /// The family name inside those files.
 const FONT_NAME: &str = "JetBrains Mono";
 

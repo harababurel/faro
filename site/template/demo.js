@@ -1,6 +1,6 @@
-// getfaro.dev demo loader (WEBSITE.md §4.2): the poster turns into live faro.
-// Same-origin (CSP 'self' 'wasm-unsafe-eval'); phones, Save-Data/2G and a
-// "no" manifest keep the poster (§4.7, §6.8).
+// getfaro.dev demo loader (§4.2): the poster turns into live faro.
+// Same-origin; gallery mode (§4.7), Save-Data/2G and a "no" manifest (§6.8)
+// keep the stills.
 (function () {
   "use strict";
   var frame = document.querySelector(".panel .frame");
@@ -20,21 +20,20 @@
   var fsBtn = tools && tools.querySelector('[data-tool="fullscreen"]');
   var fsLabel = fsBtn && fsBtn.querySelector(".sr-only");
   var panel = frame.parentElement;
-  var caption = panel.querySelector("figcaption");
-  // poster's grid: first frame matches it (D123)
+  var caption = panel.querySelector(":scope > figcaption");
+  var gallery = document.querySelector(".phone-gallery");
   var FONT = "JetBrains Mono", COLS = 120, ROWS = 34;
   var manifest = null, mod = null, demo = null, canvas = null;
   var loading = false, live = false;
   var dead = false;
   var effTheme = "", cfgTheme = "", reduced = false;
-  var lastCfg = null, lastReduced = null, seeded = false; // our own calls update last* up front
+  var lastCfg = null, lastReduced = null, seeded = false;
   var themePinned = false, motionOverridden = false;
   var visitTheme = null, visitMotion = null; // these survive a restart (D126)
   var fsOn = false, gen = 0, fontSet = null, starting = false;
   var lockTok = 0, lockPending = false;
   var refitQueued = false;
-  // §6.9 analytics: opt-out aware, guarded; props only how/theme —
-  // nothing typed reaches the tracker.
+  // §6.9: opt-out aware; props only how/theme
   var track = function (name, props) {
     try {
       if (localStorage.getItem("plausible_ignore") === "true") return;
@@ -46,16 +45,17 @@
   var mqMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   var query = function (q) { return window.matchMedia(q).matches; };
   var pf = function (v) { return parseFloat(v) || 0; };
-  var phone = query("(max-width: 640px)") ||
-    (query("(pointer: coarse)") && !query("(pointer: fine)"));
-  if (phone) return;
+  // CSS owns the phone/desktop call (§4.7): gallery shows ⇔ no demo
+  var phoneMode = function () {
+    // fullscreen is never phone (§4.3)
+    return !fsOn && !!gallery && window.getComputedStyle(gallery).display !== "none";
+  };
   var frameWidth = function () {
     var cs = window.getComputedStyle(frame);
     return frame.parentElement.clientWidth
       - pf(cs.paddingLeft) - pf(cs.paddingRight)
       - pf(cs.borderLeftWidth) - pf(cs.borderRightWidth);
   };
-  // 16..13 fitting COLS, like metrics::cell (D122)
   var fontSize = function () {
     var dpr = window.devicePixelRatio || 1;
     var room = frameWidth();
@@ -67,7 +67,9 @@
   };
   var conn = navigator.connection;
   var cheap = !!(conn && (conn.saveData || /^(slow-2g|2g)$/.test(conn.effectiveType || "")));
-  var capable = query("(pointer: fine)") && !cheap && fontSize() !== null;
+  var capableNow = function () {
+    return query("(pointer: fine)") && !cheap && fontSize() !== null;
+  };
   var scheme = function () {
     var attr = document.documentElement.getAttribute("data-theme");
     if (attr === "light" || attr === "dark") return attr;
@@ -86,44 +88,68 @@
     });
   };
   var showStart = function () {
-    if (!startBtn || !manifest || fontSize() === null) return;
+    if (!startBtn || !manifest || phoneMode() || fontSize() === null) return;
     startBtn.textContent = "▶ Start the demo (" + (manifest.bytes / 1e6).toFixed(1) + " MB)";
     startBtn.hidden = false;
     askCta();
   };
-  window.addEventListener("load", function () {
+  // read once, lazily (§4.7)
+  var manifestRead = false, readQueued = false;
+  var scheduleRead = function () {
+    if (manifestRead || readQueued || phoneMode()) return;
+    readQueued = true;
     var read = function () {
+      readQueued = false;
+      if (phoneMode()) { // narrowed since the queue: record the
+        wasPhone = true; // flip; checkMode retries when wide
+        return;
+      }
+      manifestRead = true;
       fetch("/demo/manifest.json").then(function (res) {
         if (!res.ok) throw new Error("manifest: HTTP " + res.status);
         return res.json();
       }).then(function (data) {
         manifest = data;
-        if (manifest.preload && capable) begin("auto");
-        else showStart();
-      }).catch(function (e) { console.warn("demo manifest:", e); });
+        if (manifest.preload && capableNow()) begin("auto");
+        else if (!live) showStart();
+      }).catch(function (e) {
+        manifestRead = false; // one failure must not block every later grow
+        console.warn("demo manifest:", e);
+      });
     };
     if (window.requestIdleCallback) window.requestIdleCallback(read, { timeout: 3000 });
     else window.setTimeout(read, 1500);
+  };
+  window.addEventListener("load", function () {
+    if (!phoneMode()) scheduleRead();
   });
+  // a stalled download can't hang the panel: 30 s deadline, the signal
+  // covers the body reader too; begin's catch brings the Start button back.
   var fetchWasm = async function () {
-    var res = await fetch(manifest.wasm, { priority: "low" });
-    if (!res.ok) throw new Error("wasm: HTTP " + res.status);
-    var total = Math.round(manifest.bytes / 1024);
-    var reader = res.body.getReader();
-    var chunks = [], received = 0, chunk;
-    for (;;) {
-      chunk = await reader.read();
-      if (chunk.done) break;
-      chunks.push(chunk.value);
-      received += chunk.value.length;
-      if (status) {
-        var done = Math.round(Math.min(received / manifest.size, 1) * manifest.bytes / 1024);
-        status.textContent = "loading faro · " + done + " KB / " + total + " KB";
+    var ctl = new AbortController();
+    var timer = window.setTimeout(function () { ctl.abort(); }, 30000);
+    try {
+      var res = await fetch(manifest.wasm, { priority: "low", signal: ctl.signal });
+      if (!res.ok) throw new Error("wasm: HTTP " + res.status);
+      var total = Math.round(manifest.bytes / 1024);
+      var reader = res.body.getReader();
+      var chunks = [], received = 0, chunk;
+      for (;;) {
+        chunk = await reader.read();
+        if (chunk.done) break;
+        chunks.push(chunk.value);
+        received += chunk.value.length;
+        if (status) {
+          var done = Math.round(Math.min(received / manifest.size, 1) * manifest.bytes / 1024);
+          status.textContent = "loading faro · " + done + " KB / " + total + " KB";
+        }
       }
+      var bytes = new Uint8Array(received), at = 0;
+      chunks.forEach(function (c) { bytes.set(c, at); at += c.length; });
+      return bytes;
+    } finally {
+      window.clearTimeout(timer);
     }
-    var bytes = new Uint8Array(received), at = 0;
-    chunks.forEach(function (c) { bytes.set(c, at); at += c.length; });
-    return bytes;
   };
   var load = async function () {
     var bytes = await fetchWasm();
@@ -134,16 +160,15 @@
       document.fonts.load('bold 16px "JetBrains Mono"'),
       document.fonts.load('italic 16px "JetBrains Mono"'),
     ]);
-    mod = wasm; // set only after init+fonts: a failed load retries
+    mod = wasm; // only after init+fonts: a failed load retries
   };
-  var waitReady = async function () {
+  var waitReady = async function (d) {
     var until = Date.now() + 4000;
-    while (!demo.ready() && Date.now() < until) {
+    while (!d.ready() && Date.now() < until) {
       await new Promise(function (go) { window.setTimeout(go, 50); });
     }
   };
-  // caption controls (§4.5, §4.6, D126). faro-settings/focus/exit handlers
-  // run with the shell borrowed: never call Rust (D125).
+  // caption controls (§4.5): never Rust in handlers (D125).
   var paintTools = function () {
     chipBtns.forEach(function (b) {
       b.setAttribute("aria-pressed", String(b.getAttribute("data-theme") === effTheme));
@@ -170,7 +195,7 @@
     if (!d) return;
     effTheme = d.theme; cfgTheme = d.configuredTheme; reduced = d.reduceMotion;
     if (seeded) {
-      if (cfgTheme !== lastCfg) { // committed in the palette (schemes pre-set lastCfg)
+      if (cfgTheme !== lastCfg) {
         themePinned = true; visitTheme = cfgTheme;
         track("Theme changed", { theme: cfgTheme });
       }
@@ -180,7 +205,6 @@
     paintTools();
     queueRefit();
   };
-  // set_theme dispatches faro-settings sync: lastCfg first, undo on false
   var applyTheme = function (want) {
     var was = lastCfg;
     lastCfg = want;
@@ -201,7 +225,6 @@
     lastReduced = want;
     demo.configure_reduce_motion(want);
   };
-  // chips/motion keep the keys; "all…" takes them (D126)
   var noFocus = function (e) { e.preventDefault(); };
   chipBtns.forEach(function (btn) {
     btn.addEventListener("mousedown", noFocus);
@@ -233,27 +256,29 @@
       demo.set_reduce_motion(want);
     });
   }
-  // one restart: same seed, choices survive
+  // restart: same seed, choices survive
   var restart = async function () {
-    if (loading || !mod) return;
+    if (loading || !mod || phoneMode()) return;
     loading = true;
+    var tok = ++gen; // fence: newest attempt owns the panel
     tell("");
     setActions(false);
     releaseLock(); // lock goes; fullscreen stays (D126)
     if (exited) exited.hidden = true;
     var old = demo;
-    demo = null; // followers must not reach a freed demo
+    demo = null; // no follower reaches a freed demo
     if (old) old.free();
-    clearFocus(); // removing the canvas doesn't fire blur
+    clearFocus(); // remove fires no blur
     canvas.remove();
     canvas = null;
     live = false; dead = false;
     frame.classList.remove("live");
     setTools(false);
     try {
-      await startLive();
+      await startLive(tok);
       canvas.focus(); // only restart lands keys; autostart doesn't
     } catch (e) {
+      if (tok !== gen) return; // newer attempt cleans up
       console.warn("the demo didn't start again:", e);
       loading = false;
       clearFocus(); setTools(false);
@@ -263,8 +288,7 @@
   [again, restartBtn].forEach(function (b) {
     if (b) b.addEventListener("click", restart);
   });
-  // fullscreen (§4.3, D126): Lock best-effort, never Escape; listeners
-  // never call Rust (D125).
+  // fullscreen (§4.3): Lock best-effort, never Rust (D125).
   var syncFsBtn = function () {
     if (!fsBtn) return;
     fsBtn.setAttribute("aria-pressed", String(fsOn));
@@ -275,7 +299,7 @@
       if (navigator.keyboard && navigator.keyboard.unlock) navigator.keyboard.unlock();
     } catch (e) {}
   };
-  // token bump: a stale in-flight lock → unlock, never re-grant
+  // stale lock grant → unlock
   var releaseLock = function () {
     lockTok += 1;
     unlock();
@@ -304,7 +328,7 @@
       return;
     }
     if (loading || dead || !live) return;
-    var c = canvas, g = gen; // a stale grant must not focus a new canvas
+    var c = canvas, g = gen; // stale grant: not a new canvas
     panel.requestFullscreen().then(function () {
       if (live && !dead && !loading && canvas === c && gen === g) {
         canvas.focus();
@@ -319,11 +343,12 @@
       if (ours) tryLock();
       else releaseLock();
       syncFsBtn();
+      checkMode(); // FS moved the phone call
     }
     syncFocus();
     queueRefit();
   });
-  // font refit (§4.4, D126): same grid, rAF-coalesced.
+  // font refit (§4.4, D126)
   var queueRefit = function () {
     if (refitQueued || !live) return;
     refitQueued = true;
@@ -353,14 +378,58 @@
     });
   };
   window.addEventListener("resize", queueRefit);
-  // focus model (§4.3, D125): Rust owns focus; these listeners only
-  // touch hint and border.
+  // narrow ⇄ wide (4.5b): a live demo that no longer fits is freed, a load
+  // in flight pauses at its next fence and keeps the module (D125: async,
+  // never in a faro borrow). Growing back reuses the cache; choices survive.
+  // Fullscreen is never torn down, never phone.
+  var teardown = function () {
+    gen += 1;
+    releaseLock();
+    if (exited) exited.hidden = true;
+    if (startBtn) startBtn.hidden = true;
+    var old = demo;
+    demo = null; // no follower reaches a freed demo
+    if (old) old.free();
+    clearFocus(); // remove fires no blur
+    if (canvas) {
+      canvas.remove();
+      canvas = null;
+    }
+    live = false;
+    dead = false;
+    loading = false;
+    seeded = false;
+    frame.classList.remove("live");
+    setTools(false);
+    tell("");
+    if (status) status.hidden = true;
+    window.demo = null;
+    window.done = false;
+  };
+  var wasPhone = phoneMode();
+  var checkMode = function () {
+    var now = phoneMode();
+    if (now === wasPhone) return;
+    wasPhone = now;
+    if (now) {
+      if (live && !fsOn) teardown();
+    } else if (!live && !loading && !dead) {
+      if (manifest) {
+        if (manifest.preload && capableNow()) begin("auto");
+        else showStart();
+      } else {
+        scheduleRead();
+      }
+    }
+  };
+  window.addEventListener("resize", checkMode);
+  window.matchMedia("(pointer: coarse)").addEventListener("change", checkMode);
+  // focus model (§4.3): Rust owns focus
   var keysTo = function () {
     return !!canvas && !dead && document.activeElement === canvas
       && !document.hidden && document.hasFocus();
   };
   var syncFocus = function (forceOff) {
-    // forceOff is only ever our own true
     var on = live && !(forceOff === true) && keysTo();
     if (on && !focusSent) { focusSent = true; track("Demo focused"); }
     frame.classList.toggle("focused", on);
@@ -382,30 +451,28 @@
     syncFocus();
   });
   window.addEventListener("focus", syncFocus);
-  // hasFocus() reads true mid-blur; window blur forces off
+  // hasFocus() lies mid-blur; blur forces off
   window.addEventListener("blur", function () {
     releaseLock();
     syncFocus(true);
   });
-  var startLive = async function () {
+  var startLive = async function (tok) {
     var size = fontSize();
     if (size === null) throw new Error("too narrow for " + COLS + " columns");
-    gen += 1;
-    canvas = document.createElement("canvas");
-    canvas.className = "demo-canvas";
-    canvas.tabIndex = 0;
-    canvas.setAttribute("role", "application");
-    canvas.setAttribute("aria-label", "faro demo: click to type");
-    canvas.setAttribute("aria-describedby", "demo-focus");
-    // before start()'s first draw sends faro-settings
-    seeded = false;
-    canvas.addEventListener("faro-settings", onSettings);
-    canvas.addEventListener("focus", function () { tryLock(); syncFocus(); });
-    canvas.addEventListener("blur", function () {
+    var c = document.createElement("canvas");
+    c.className = "demo-canvas";
+    c.tabIndex = 0;
+    c.setAttribute("role", "application");
+    c.setAttribute("aria-label", "faro demo: click to type");
+    c.setAttribute("aria-describedby", "demo-focus");
+    seeded = false; // before start()'s first draw
+    c.addEventListener("faro-settings", onSettings);
+    c.addEventListener("focus", function () { tryLock(); syncFocus(); });
+    c.addEventListener("blur", function () {
       releaseLock();
       syncFocus();
     });
-    canvas.addEventListener("faro-exit", function () {
+    c.addEventListener("faro-exit", function () {
       dead = true;
       releaseLock();
       clearFocus();
@@ -414,42 +481,49 @@
       if (restartBtn) restartBtn.disabled = false;
       if (again) again.focus();
     });
-    canvas.addEventListener("faro-sent", function () { // Rust: send accepted (§6.9)
+    c.addEventListener("faro-sent", function () { // Rust: send accepted (§6.9)
       if (!sentSent) { sentSent = true; track("Demo message sent"); }
     });
-    frame.appendChild(canvas);
+    frame.appendChild(c);
+    var d = null;
     try {
-      demo = await mod.start(canvas, FONT, size, COLS, ROWS);
-      // seed the cache outside faro callbacks
-      effTheme = demo.theme(); cfgTheme = demo.configured_theme();
-      reduced = demo.reduce_motion();
+      d = await mod.start(c, FONT, size, COLS, ROWS);
+      // a mode flip mid-await: leave no canvas
+      if (tok !== gen || phoneMode()) throw new Error("the panel moved on");
+      demo = d;
+      // seed outside faro callbacks
+      effTheme = d.theme(); cfgTheme = d.configured_theme();
+      reduced = d.reduce_motion();
       lastCfg = cfgTheme; lastReduced = reduced; seeded = true;
       paintTools();
       starting = true;
       if (!(themePinned && visitTheme && applyTheme(visitTheme))) applyScheme();
       if (motionOverridden && visitMotion !== null) {
         lastReduced = visitMotion;
-        demo.configure_reduce_motion(visitMotion);
+        d.configure_reduce_motion(visitMotion);
       } else followMotion();
       starting = false;
-      await waitReady();
+      await waitReady(d);
+      if (tok !== gen || phoneMode()) throw new Error("the panel moved on");
     } catch (e) {
       starting = false;
       releaseLock();
-      if (demo) { demo.free(); demo = null; }
+      if (d) d.free();
+      if (demo === d) demo = null;
       seeded = false; live = false;
       frame.classList.remove("live");
-      canvas.remove();
-      canvas = null;
+      c.remove();
+      if (canvas === c) canvas = null;
       throw e;
     }
+    canvas = c;
     fontSet = size;
     frame.classList.add("live");
     if (status) status.hidden = true;
     live = true;
     dead = false;
     loading = false;
-    if (!startSent && startHow) { // first handover only; restarts stay quiet
+    if (!startSent && startHow) { // first handover only
       startSent = true;
       track("Demo started", { how: startHow });
     }
@@ -458,20 +532,29 @@
     askCta();
     syncFocus();
     queueRefit();
-    // headless hook: shot.mjs waits for done
     window.demo = demo;
     window.done = true;
   };
   var begin = function (how) { // explicit "auto"/"button": never a DOM event
-    if (loading || live || !manifest) return;
+    if (loading || live || !manifest || phoneMode()) return;
     startHow = how;
     loading = true;
+    var tok = ++gen; // fence: newest attempt owns the panel
     if (startBtn) startBtn.hidden = true;
     if (status) {
       status.textContent = "loading faro";
       status.hidden = false;
     }
-    (mod ? Promise.resolve() : load()).then(startLive).catch(function (e) {
+    (mod ? Promise.resolve() : load()).then(function () {
+      if (tok !== gen) return; // superseded: module stays cached
+      if (phoneMode()) { // paused: checkMode restarts when wide
+        loading = false;
+        if (status) status.hidden = true;
+        return;
+      }
+      return startLive(tok);
+    }).catch(function (e) {
+      if (tok !== gen) return; // newer attempt cleans up
       console.warn("the demo didn't load:", e);
       loading = false;
       clearFocus();

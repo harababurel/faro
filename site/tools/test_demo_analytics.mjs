@@ -4,6 +4,14 @@
 // faro-sent signal), Theme changed only on committed visitor choices —
 // never on previews, scheme following, restart restores or same-theme
 // no-ops; opt-out, and an absent or throwing tracker, stay inert.
+// Plus the 4.5b responsive rule: while the phone gallery shows nothing is
+// fetched; growing hands the panel to the live demo, shrinking frees it,
+// and growing back reuses the cached manifest and module. Section H adds
+// the lifecycle fences: stalled fetches and starts paused by a mode flip,
+// no orphan canvases, and the fullscreen exemption. Section I adds the
+// failure paths: one failed manifest read doesn't block the next wide
+// flip, and a hung wasm download hits a 30 s abort deadline that returns
+// the Start button for a fresh click.
 // Run: node site/tools/test_demo_analytics.mjs. Not in CI (that's 4.6).
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -66,7 +74,8 @@ function el(tag) {
   return node;
 }
 
-function boot({ preload, plausible, storage, failWasmOnce }) {
+function boot({ preload, plausible, storage, failWasmOnce, failManifestOnce, hangWasm,
+  galleryDisplay, idleQueue, stallFetch, stallStart }) {
   const store = storage || {};
   const blocked = store === "blocked"; // localStorage throws (private mode)
   const byId = {};
@@ -74,6 +83,9 @@ function boot({ preload, plausible, storage, failWasmOnce }) {
   const panel = el("div");
   panel.appendChild(frame);
   frame.appendChild(el("figcaption"));
+  const gallery = el("div");
+  gallery._display = galleryDisplay || "none"; // CSS's phone/desktop call
+  panel.appendChild(gallery);
   const tools = el("div");
   const chips = ["faro-dark", "nord", "gruvbox"].map((name) => {
     const b = el("button");
@@ -91,14 +103,25 @@ function boot({ preload, plausible, storage, failWasmOnce }) {
   });
   ["demo-status", "demo-start", "demo-exited", "demo-again", "demo-cta",
     "demo-focus", "demo-controls-status"].forEach((id) => { byId[id] = el("div"); });
+  byId["demo-start"].hidden = true; // the template starts it hidden
   const root = el("html");
   const doc = {
-    querySelector: (sel) => (sel === ".panel .frame" ? frame : sel === ".panel-tools" ? tools : null),
+    querySelector: (sel) => (sel === ".panel .frame" ? frame
+      : sel === ".panel-tools" ? tools : sel === ".phone-gallery" ? gallery : null),
     getElementById: (id) => byId[id] || null,
     createElement: (tag) => { const c = el(tag); c.doc = doc; return c; },
     documentElement: root, fonts: { load: async () => {} },
-    hidden: false, hasFocus: () => true, activeElement: null,
-    addEventListener() {},
+    hidden: false, hasFocus: () => true, activeElement: null, fullscreenElement: null,
+    _cbs: {},
+    addEventListener(t, f) { (doc._cbs[t] ||= []).push(f); },
+    exitFullscreen: async () => {
+      doc.fullscreenElement = null;
+      (doc._cbs.fullscreenchange || []).forEach((f) => f({ type: "fullscreenchange" }));
+    },
+  };
+  panel.requestFullscreen = async () => {
+    doc.fullscreenElement = panel;
+    (doc._cbs.fullscreenchange || []).forEach((f) => f({ type: "fullscreenchange" }));
   };
   const mqs = {};
   const mq = (q, m) => (mqs[q] ||= { matches: m, addEventListener() {} });
@@ -106,10 +129,17 @@ function boot({ preload, plausible, storage, failWasmOnce }) {
     matchMedia: (q) => mq(q, q === "(pointer: fine)"),
     _cbs: {},
     addEventListener(t, f) { (win._cbs[t] ||= []).push(f); },
-    requestIdleCallback: (f) => f(),
+    requestIdleCallback: (f) => { if (idleQueue) (win._idle ||= []).push(f); else f(); },
     requestAnimationFrame: (f) => f(),
-    setTimeout: (...a) => setTimeout(...a),
-    getComputedStyle: () => new Proxy({}, { get: () => "0" }),
+    // the harness's fast deadline: only the wasm fetch's 30000 ms timer is
+    // redirected (to a 0 ms tick), so a hung download aborts without sleeps.
+    setTimeout: (f, ms, ...r) => setTimeout(f, hangWasm && ms === 30000 ? 0 : ms, ...r),
+    clearTimeout: (...a) => clearTimeout(...a),
+    getComputedStyle: (node) => ({
+      paddingLeft: "0", paddingRight: "0", borderLeftWidth: "0", borderRightWidth: "0",
+      paddingTop: "0", paddingBottom: "0", borderTopWidth: "0", borderBottomWidth: "0",
+      display: node && node._display !== undefined ? node._display : "none",
+    }),
     devicePixelRatio: 1, innerWidth: 1400, innerHeight: 900,
     MutationObserver: class { constructor(cb) { win._schemeCb = cb; } observe() {} },
     plausible,
@@ -135,9 +165,10 @@ function boot({ preload, plausible, storage, failWasmOnce }) {
     // a palette preview: only the effective theme moves, the setting stays.
     preview(n) { fake.eff = n; fake.settings(); },
     sent() { if (fake.canvas) fake.canvas.dispatch("faro-sent"); },
-    start(canvas) {
+    async start(canvas) {
       fake.canvas = canvas;
-      return Promise.resolve({
+      if (stallStart && !fake._stalled) { fake._stalled = true; await globalThis.__goStartP; }
+      return ({
         ready: () => true,
         theme: () => fake.eff,
         configured_theme: () => fake.cfg,
@@ -167,19 +198,42 @@ function boot({ preload, plausible, storage, failWasmOnce }) {
     ),
   };
   globalThis.__fetchN = 0;
-  globalThis.fetch = async (url) => {
-    if (String(url).endsWith("manifest.json")) return { ok: true, json: async () => manifest };
+  globalThis.__manifestN = 0;
+  globalThis.__sawSignal = false;
+  if (stallFetch) globalThis.__goFetchP = new Promise((go) => { globalThis.__goFetch = go; });
+  if (stallStart) globalThis.__goStartP = new Promise((go) => { globalThis.__goStart = go; });
+  globalThis.fetch = async (url, init) => {
+    if (String(url).endsWith("manifest.json")) {
+      globalThis.__manifestN += 1;
+      if (failManifestOnce && globalThis.__manifestN === 1) return { ok: false, status: 500 };
+      return { ok: true, json: async () => manifest };
+    }
     globalThis.__fetchN += 1;
+    if (stallFetch && globalThis.__fetchN === 1) await globalThis.__goFetchP;
     if (failWasmOnce && globalThis.__fetchN === 1) return { ok: false, status: 500 };
+    if (hangWasm && globalThis.__fetchN === 1) {
+      // a download that never delivers a chunk: the reader only settles
+      // when fetchWasm's signal aborts it (a real browser honours this too).
+      globalThis.__sawSignal = !!(init && init.signal);
+      if (!globalThis.__sawSignal) throw new Error("hung fetch: no abort signal");
+      return { ok: true, body: { getReader: () => ({
+        read: () => new Promise((_go, rej) => {
+          init.signal.addEventListener("abort", () => rej(init.signal.reason));
+        }),
+      }) } };
+    }
     return { ok: true, body: { getReader: () => ({ read: async () => ({ done: true }) }) } };
   };
   new Function(SRC)();
   return {
     fireLoad: () => (win._cbs.load || []).forEach((f) => f()),
+    fireResize: () => (win._cbs.resize || []).forEach((f) => f()),
     click: (node) => (node._listeners.click || []).forEach((f) => f({})),
     focusCanvas: () => { doc.activeElement = fake.canvas; fake.canvas.dispatch("focus"); },
     blurCanvas: () => { doc.activeElement = null; fake.canvas.dispatch("blur"); },
-    fake, byId, chips, root, win, light, store,
+    fake, byId, chips, root, win, light, store, gallery, frame, doc,
+    fsBtn: tools.querySelector('[data-tool="fullscreen"]'),
+    runIdle: () => (win._idle || []).splice(0).forEach((f) => f()),
   };
 }
 
@@ -306,6 +360,148 @@ async function run() {
   hf.fireLoad();
   for (let i = 0; i < 4; i += 1) await tick();
   ok(callsF.filter(([n]) => n === "Demo started").length === 1, "blocked storage: still counts");
+
+  // --- G: phone gallery (4.5b): nothing fetched while it shows; growing
+  // starts the demo, shrinking frees it, growing back reuses the cache ---
+  const callsG = [];
+  const hg = boot({
+    preload: true, storage: {}, galleryDisplay: "flex",
+    plausible: (n, o) => callsG.push([n, o && o.props]),
+  });
+  hg.fireLoad();
+  for (let i = 0; i < 4; i += 1) await tick();
+  ok(globalThis.__manifestN === 0 && globalThis.__fetchN === 0,
+    "phone mode at load: no manifest and no wasm fetched");
+  hg.gallery._display = "none";
+  hg.fireResize();
+  for (let i = 0; i < 6; i += 1) await tick();
+  const stG = callsG.filter(([n]) => n === "Demo started");
+  ok(stG.length === 1 && stG[0][1] && stG[0][1].how === "auto",
+    "growing wide: manifest read lazily, Demo started {how:auto} once");
+  ok(hg.frame.classList.contains("live"), "growing wide: the frame went live");
+  hg.gallery._display = "flex";
+  hg.fireResize();
+  await tick();
+  ok(!hg.frame.classList.contains("live") && hg.win.demo === null,
+    "shrinking: the live demo is freed and the gallery takes over");
+  ok(hg.frame.children.filter((c) => c.tagName === "canvas").length === 0,
+    "shrinking: the canvas is gone");
+  hg.gallery._display = "none";
+  hg.fireResize();
+  for (let i = 0; i < 6; i += 1) await tick();
+  ok(callsG.filter(([n]) => n === "Demo started").length === 1,
+    "growing back: no second Demo started (visit choices survive)");
+  ok(globalThis.__manifestN === 1 && globalThis.__fetchN === 1,
+    "growing back: cached manifest and module, one fetch each");
+
+  // --- H: loader lifecycle fences (4.5b) ---
+
+  // H1: desktop at load, narrowed before the idle read: no manifest fetch.
+  const h1 = boot({ preload: true, storage: {}, idleQueue: true });
+  h1.fireLoad();
+  h1.gallery._display = "flex"; // narrowed between load and idle
+  h1.runIdle(); await tick();
+  ok(globalThis.__manifestN === 0 && globalThis.__fetchN === 0,
+    "narrowed before the idle read: the read skips, nothing fetched");
+  h1.gallery._display = "none"; h1.fireResize();
+  h1.runIdle();
+  for (let i = 0; i < 6; i += 1) await tick();
+  ok(globalThis.__manifestN === 1 && h1.frame.classList.contains("live"),
+    "wide again: checkMode retries the read and the demo starts");
+
+  // H2: the wasm fetch stalls; wide -> phone -> wide: quiet pause, no canvas.
+  const h2 = boot({ preload: true, storage: {}, stallFetch: true });
+  h2.fireLoad(); await tick(); // manifest read, begin: the wasm fetch stalls
+  ok(globalThis.__fetchN === 1, "phone flip mid-fetch: the fetch had started");
+  h2.gallery._display = "flex"; h2.fireResize(); await tick();
+  globalThis.__goFetch();
+  for (let i = 0; i < 6; i += 1) await tick();
+  ok(!h2.frame.classList.contains("live") &&
+    h2.frame.children.filter((c) => c.tagName === "canvas").length === 0,
+    "phone while loading: completes quietly, no canvas, not live");
+  h2.gallery._display = "none"; h2.fireResize();
+  for (let i = 0; i < 6; i += 1) await tick();
+  ok(h2.frame.classList.contains("live") &&
+    h2.frame.children.filter((c) => c.tagName === "canvas").length === 1,
+    "wide again: the cached module starts, exactly one canvas");
+  ok(globalThis.__manifestN === 1 && globalThis.__fetchN === 1,
+    "wide again: still one manifest read and one wasm fetch (no restart storm)");
+
+  // H3: mod.start stalls; the phone fence frees the half-made canvas and a
+  // stale attempt must not clear the new one's state.
+  const h3 = boot({ preload: true, storage: {}, stallStart: true });
+  h3.fireLoad();
+  for (let i = 0; i < 3; i += 1) await tick(); // up to mod.start
+  h3.gallery._display = "flex"; h3.fireResize(); await tick();
+  globalThis.__goStart();
+  for (let i = 0; i < 6; i += 1) await tick();
+  ok(!h3.frame.classList.contains("live") &&
+    h3.frame.children.filter((c) => c.tagName === "canvas").length === 0,
+    "phone while starting: the canvas is gone, nothing is live");
+  h3.gallery._display = "none"; h3.fireResize();
+  for (let i = 0; i < 6; i += 1) await tick();
+  ok(h3.frame.classList.contains("live") && globalThis.__fetchN === 1,
+    "wide again: one wasm fetch, the new attempt goes live (no stale reset)");
+
+  // H4: fullscreen exemption: narrow while fullscreen keeps the live demo;
+  // exiting fullscreen into phone width frees it (checkMode after fsOn).
+  const h4 = boot({ preload: true, storage: {} });
+  h4.fireLoad();
+  for (let i = 0; i < 6; i += 1) await tick(); // live, wide
+  h4.click(h4.fsBtn);
+  for (let i = 0; i < 3; i += 1) await tick(); // requestFullscreen resolves
+  h4.gallery._display = "flex"; h4.fireResize(); await tick();
+  ok(h4.frame.classList.contains("live") &&
+    h4.frame.children.filter((c) => c.tagName === "canvas").length === 1,
+    "fullscreen on a narrow viewport: exempt, not torn down");
+  h4.click(h4.fsBtn);
+  for (let i = 0; i < 3; i += 1) await tick(); // exitFullscreen + fschange
+  ok(!h4.frame.classList.contains("live") &&
+    h4.frame.children.filter((c) => c.tagName === "canvas").length === 0,
+    "exiting fullscreen into phone width: checkMode frees the demo");
+
+  // H5: the start button clicked while the gallery shows: begin refuses.
+  const h5 = boot({ preload: false, storage: {}, galleryDisplay: "none" });
+  h5.fireLoad(); await tick();
+  ok(h5.byId["demo-start"].hidden === false, "wide, no preload: the start button shows");
+  h5.gallery._display = "flex"; h5.fireResize(); await tick();
+  h5.click(h5.byId["demo-start"]); await tick();
+  ok(globalThis.__fetchN === 0, "start clicked on phone: begin refuses, nothing fetched");
+
+  // --- I: failed manifest read and hung wasm download (4.5b review) ---
+
+  // I1: the manifest read fails once: nothing else loads and the button
+  // stays hidden; the next narrow→wide flip retries the read exactly once.
+  const h6 = boot({ preload: true, storage: {}, failManifestOnce: true });
+  h6.fireLoad(); await tick();
+  ok(globalThis.__manifestN === 1 && globalThis.__fetchN === 0 &&
+    h6.byId["demo-start"].hidden === true,
+    "failed manifest: no wasm fetch, no start button");
+  h6.gallery._display = "flex"; h6.fireResize(); await tick();
+  h6.gallery._display = "none"; h6.fireResize();
+  for (let i = 0; i < 6; i += 1) await tick();
+  ok(globalThis.__manifestN === 2 && globalThis.__fetchN === 1 &&
+    h6.frame.classList.contains("live"),
+    "wide again: the read retries once and the demo starts");
+  h6.fireResize(); h6.fireResize();
+  for (let i = 0; i < 4; i += 1) await tick();
+  ok(globalThis.__manifestN === 2 && globalThis.__fetchN === 1,
+    "live again: further resizes fetch nothing new (no retry storm)");
+
+  // I2: the wasm download hangs: the 30 s deadline (redirected to a fast
+  // tick) aborts the body reader, the Start button comes back, and a click
+  // fetches afresh and goes live.
+  const h7 = boot({ preload: true, storage: {}, hangWasm: true });
+  h7.fireLoad(); await tick();
+  ok(globalThis.__fetchN === 1 && globalThis.__sawSignal,
+    "hung wasm: the fetch started with an abort signal");
+  for (let i = 0; i < 6; i += 1) await tick(); // the redirected deadline fires
+  ok(h7.byId["demo-start"].hidden === false && h7.byId["demo-status"].hidden === true,
+    "hung wasm: the deadline aborts the read and the Start button returns");
+  h7.click(h7.byId["demo-start"]);
+  for (let i = 0; i < 6; i += 1) await tick();
+  ok(h7.frame.classList.contains("live") && globalThis.__fetchN === 2,
+    "Start after the abort: a fresh fetch goes live");
 }
 
 run().then(() => {

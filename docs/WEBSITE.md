@@ -258,15 +258,24 @@ font is re-measured after resize/fullscreen, never made smaller than 13 px.
 
 ### 4.7 Phones and small screens
 
-The panel shows the poster cropped to one readable pane (the open conversation at about 44 columns), not a whole scaled-down screen. Under it: *faro is a keyboard app. Open this page on a computer to try the live demo.* There are also three static frames (conversation, palette, themes) that can be swiped.
+The panel shows one readable pane at about 44 columns, not a whole scaled-down
+screen. The conversation is the first of three swipeable static frames
+(conversation, palette, themes), with no duplicate poster. Under it:
+*faro is a keyboard app. Open this page on a computer to try the live demo.*
+Slides stay at least 358 px wide (about 13 px text); smaller screens pan within
+the gallery rather than shrinking the text. Labels and keyboard scrolling work
+without JavaScript. Coarse-pointer devices and panels too narrow for the
+120-column live grid receive the same treatment (D129).
 
 A later option is a read-only "watch" mode, where the demo plays its scenes with no keyboard and taps switch chats. It's not in v1.
 
-4.5a (D128) generates the three views at 44×24 cells, in dark and light,
-from the real app state/reducer/exporter. They are currently unreferenced assets;
-4.5b still needs to wire the gallery, mobile poster and responsive fallback,
-hash the assets and verify fonts in the browser. An external SVG image does not
-inherit the page's webfonts: this must be solved before these frames are shown.
+The three views are generated at 44×24 cells in dark and light from the real app
+state/reducer/exporter (D128). The isolated SVGs outline bundled Latin font glyphs
+as reusable paths and retain unsupported grapheme runs, such as emoji, as text
+for system fonts (D129); they neither inherit page fonts nor fetch external ones.
+Shrinking the live demo releases its session/audio; growing restarts it unfocused
+with cached wasm and visitor choices. Initially small devices fetch no demo
+manifest/wasm. Fullscreen is an explicit exception until the visitor exits it.
 
 ### 4.8 What doesn't work in the browser, and what happens instead
 
@@ -884,6 +893,16 @@ and written by faro-site; composition checked with local raster previews and
 theme/selection correctness covered by tests. This is an asset-only checkpoint,
 not completed mobile behaviour. **Next: 4.5b gallery and responsive wiring**, then
 4.6 CI browser tests. Owner deployment remains deferred.
+
+**Chunk 4.5b done (2026-10-13, D129), completing 4.5:** hashed, self-contained
+stills in a no-JS swipe/keyboard gallery, responsive demo lifecycle and bounded
+download/retry recovery. 700 native tests, 54 Node checks and Chromium checks
+at 320/390/640/768 px, coarse-pointer 1200 px and live desktop 1440 px pass.
+Scheme overrides, no-JS, isolated SVG fonts, keyboard/touch scrolling and
+wide/narrow transitions were checked. Site budgets pass: 40,692/40,960 B page,
+161,570/204,800 B conservative first load. Real-phone emoji and narrow fullscreen
+checks remain deferred: headless has no emoji fonts and did not grant fullscreen.
+**Next: 4.6 CI browser tests.** No deployment by agents.
 
 ### Phase 5: launch polish (2–3 days)
 

@@ -49,10 +49,16 @@ pub fn generate(template: &Path, out: &Path, pkg: Option<&Path>) -> Result<(), S
     let og_name = assets::hashed_name("og.png", &assets::hash_prefix(&art.og_png));
     let values = values(&art.posters, format!("https://getfaro.dev/{og_name}"))?;
 
-    // Hashed assets, in dependency order: fonts (content unchanged), then
-    // CSS (hashed after its font URLs are rewritten), then JS.
+    // Hashed assets, in dependency order: the §4.7 phone frames and the
+    // fonts (content unchanged) first, then CSS — hashed after its font
+    // *and* phone url()s are rewritten — then JS.
     let mut hashed: BTreeMap<String, String> = BTreeMap::new();
     let mut written: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    for frame in &art.phones {
+        let new = assets::hashed_name(&frame.name, &assets::hash_prefix(frame.svg.as_bytes()));
+        hashed.insert(frame.name.clone(), new.clone());
+        written.insert(new, frame.svg.clone().into_bytes());
+    }
     for (rel, bytes) in &contents {
         if kind(rel) == Kind::Font {
             let new = assets::hashed_name(rel, &assets::hash_prefix(bytes));
@@ -121,11 +127,6 @@ pub fn generate(template: &Path, out: &Path, pkg: Option<&Path>) -> Result<(), S
         }
     }
     written.insert(og_name, art.og_png);
-    // The §4.7 phone frames (4.5a): written under stable names, not hashed
-    // and not referenced by the template yet — 4.5b wires them in.
-    for frame in &art.phones {
-        written.insert(frame.name.clone(), frame.svg.clone().into_bytes());
-    }
 
     for (rel, bytes) in &written {
         let path = out.join(rel);
@@ -414,8 +415,43 @@ mod tests {
         // The web demo ships beside the page (Phase 4).
         the_demo_ships_beside_the_page(&names, &files, &index);
 
+        // The phone gallery (4.5b): the markup is in the page, and the six
+        // frames are hashed like every other asset, pulled in by the
+        // style sheet's url()s.
+        assert!(
+            index.contains(r#"class="phone-gallery""#),
+            "the phone gallery is in the page"
+        );
+        the_phone_frames_are_hashed_into_the_style_sheet(&names, &css_bytes);
+
         let _ = fs::remove_dir_all(&out);
         let _ = fs::remove_dir_all(&pkg);
+    }
+
+    /// Every phone frame ships under a content-hashed name — never the
+    /// plain one — and the hashed style sheet points at each hashed file
+    /// (the gallery's backgrounds, §4.7).
+    fn the_phone_frames_are_hashed_into_the_style_sheet(names: &[&str], css: &str) {
+        for kind in ["conversation", "palette", "themes"] {
+            for scheme in ["dark", "light"] {
+                let plain = format!("phone/{kind}-{scheme}.svg");
+                assert!(!names.contains(&plain.as_str()), "{plain} stays unhashed");
+                let stem = format!("phone/{kind}-{scheme}.");
+                let found = names
+                    .iter()
+                    .find(|name| name.starts_with(stem.as_str()) && has_ext(name, "svg"))
+                    .unwrap_or_else(|| panic!("{kind}-{scheme}: a hashed phone frame is shipped"));
+                let hash = &found[stem.len()..found.len() - ".svg".len()];
+                assert!(
+                    hash.len() == 10 && hash.bytes().all(|b| b.is_ascii_hexdigit()),
+                    "{found} isn't content-hashed"
+                );
+                assert!(
+                    css.contains(&format!(r#"url("{found}")"#)),
+                    "the style sheet points at {found}"
+                );
+            }
+        }
     }
 
     /// The demo's files are in the build, hashed like any other asset, both

@@ -1,8 +1,5 @@
-// getfaro.dev (WEBSITE.md §6.1): theme toggle, install tabs, copy buttons and
-// analytics events. Vanilla, no dependencies, no cookies: localStorage only
-// ever holds the light/dark choice (here) and the analytics opt-out flag
-// (set by /js/init.js from the footer link). Without this file the page shows
-// every install panel and hides the toggle/copy buttons (they need html.js).
+// getfaro.dev (§6.1): theme toggle, install tabs, copy buttons, analytics.
+// Vanilla, no cookies: only the theme choice and the opt-out flag.
 (function () {
   "use strict";
   var root = document.documentElement;
@@ -12,8 +9,7 @@
     if (window.plausible) window.plausible(name, { props: props });
   }
 
-  // ---- theme toggle (§5.1): remembered in localStorage, never sent anywhere.
-  // theme.js in <head> re-applies the choice on the next load.
+  // theme toggle (§5.1): theme.js re-applies it.
   var THEME_KEY = "faro-site-theme";
   var toggle = document.getElementById("theme-toggle");
   if (toggle) {
@@ -38,9 +34,7 @@
     paintToggle();
   }
 
-  // ---- install tabs (§3.4): a plain tablist, wired generically so future
-  // methods only need markup. Without JS (or with a single method, where the
-  // template has no tablist at all) every panel stays visible.
+  // install tabs (§3.4)
   var tabs = Array.prototype.slice.call(document.querySelectorAll("[role=tab]"));
   var panelOf = function (tab) {
     var id = tab.getAttribute("aria-controls");
@@ -58,7 +52,7 @@
   if (tabs.length > 1) {
     tabs.forEach(function (tab) {
       var panel = panelOf(tab);
-      if (panel) panel.tabIndex = 0; // let the keyboard scroll a long panel
+      if (panel) panel.tabIndex = 0; // keyboard-scrollable
       tab.addEventListener("click", function () { selectTab(tabs.indexOf(tab)); });
       tab.addEventListener("keydown", function (e) {
         var step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
@@ -72,7 +66,7 @@
     selectTab(0);
   }
 
-  // ---- copy buttons: copy the block's text, tick for 2 s, count the copy.
+  // copy buttons
   document.querySelectorAll("button.copy").forEach(function (btn) {
     btn.addEventListener("click", function () {
       var label = btn.firstChild;
@@ -94,9 +88,7 @@
     });
   });
 
-  // ---- analytics opt-out (§6.9): /js/init.js sets or clears the tracker's
-  // plausible_ignore flag from the footer link's URL; reflect it here and
-  // offer to undo it.
+  // analytics opt-out (§6.9)
   var optLink = document.getElementById("opt-out");
   var optNote = document.getElementById("opt-out-note");
   var optedOut = false;
@@ -107,9 +99,7 @@
     if (optNote) optNote.hidden = false;
   }
 
-  // ---- outbound links (§6.9). Same event name and props as Plausible's
-  // outbound-links extension: if that extension is enabled in the dashboard,
-  // drop this block so clicks aren't counted twice.
+  // outbound links (§6.9)
   document.querySelectorAll('a[href^="http"]').forEach(function (link) {
     var url = new URL(link.href);
     if (url.host === window.location.host) return;

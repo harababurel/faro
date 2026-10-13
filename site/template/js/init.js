@@ -1,12 +1,9 @@
-// Plausible's snippet initialisation (CE 3.1+ tracker), moved out of the page so the
-// CSP stays `script-src 'self'`. Runs before /js/s.js (both are `defer`, in order).
+// Plausible's init, out of the page for the CSP
+// (`script-src 'self'`); runs before /js/s.js (both `defer`).
 
-// Opt-out link (WEBSITE.md §6.9): the tracker only honours
-// localStorage.plausible_ignore === "true", so the footer's
-// /?plausible_ignore=true link is handled here: set the flag (or clear it for
-// ?plausible_ignore=false, the "count my visits again" link) and drop the
-// parameter from the URL. Runs before the tracker loads, so the current
-// pageview is already ignored.
+// Opt-out link (§6.9): the footer's /?plausible_ignore=true link is handled
+// here (set/clear the flag, drop the parameter) before the tracker loads,
+// so this pageview is already ignored.
 try {
   var url = new URL(window.location.href);
   var want = url.searchParams.get("plausible_ignore");

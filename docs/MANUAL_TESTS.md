@@ -531,10 +531,13 @@ Notes (browser, version, OS, what went wrong):
 
 ## Website: phone frames (M13 Phase 4.5, D128)
 
-Deferred until 4.5b integrates the generated assets; 4.5a alone has no visible
-page change. Local raster previews are not browser/font or real-phone checks.
+Deferred owner checks after 4.5b integration. Local automated checks do not
+replace real-phone and Chrome/Firefox/Safari checks.
 
 - [ ] **Readable frames:** once integrated, the conversation, palette and Themes stills stay legible on a phone without shrinking the whole desktop UI. Dark/light colours, selected theme marker, text alignment and emoji look correct.
-- [ ] **Gallery and fallback:** swipe between the three views; the computer-only explanation is visible. Phones/narrow screens fetch no wasm, and the gallery remains useful without JavaScript. Check portrait/landscape and returning to laptop width.
+- [ ] **Gallery and fallback:** swipe between the three views; the computer-only explanation is visible. Initially small/coarse-pointer devices fetch no manifest/wasm, and the gallery remains useful without JavaScript. Check portrait/landscape and returning to laptop width; at 320 px the gallery pans rather than shrinking text or making the whole page scroll sideways.
+- [ ] **Scheme:** OS light/dark and explicit page overrides show matching stills, including explicit dark with a light OS preference. Emoji/complex graphemes remain intact; outlined Latin is aligned and legible.
+- [ ] **Resize and fullscreen:** shrinking a running/loading demo leaves no hidden active canvas/audio or stolen keys; growing starts unfocused and restores theme/motion choices without another wasm fetch. Fullscreen keeps the demo, not the gallery, and exit into a narrow window returns to stills.
+- [ ] **Network recovery:** a failed manifest request can retry after narrowing/widening; a stalled wasm download returns to Start after about 30 seconds and a later successful attempt starts normally.
 
 Notes (browser, version, OS, what went wrong):

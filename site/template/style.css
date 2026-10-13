@@ -1,5 +1,4 @@
-/* getfaro.dev (WEBSITE.md §5): faro's own faro-dark / faro-light colours (§5.1),
-   JetBrains Mono + system UI sans (§5.2). */
+/* getfaro.dev (§5): faro-dark / faro-light colours and JetBrains Mono (§5.1, §5.2). */
 
 @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url("fonts/JetBrainsMono-Regular.woff2") format("woff2"); }
 @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 700; font-display: swap; src: url("fonts/JetBrainsMono-Bold.woff2") format("woff2"); }
@@ -60,7 +59,7 @@ h3 { font-size: 1.05rem; margin: 0 0 .3rem; }
   overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
 }
 
-/* controls that need JS stay hidden until site.js adds html.js */
+/* these need html.js (site.js) */
 .js-only { display: none; }
 html.js .js-only { display: inline-flex; align-items: center; gap: .3em; }
 
@@ -99,7 +98,7 @@ html.js .js-only { display: inline-flex; align-items: center; gap: .3em; }
 [data-theme="light"] #theme-toggle .icon-sun { display: none; }
 [data-theme="light"] #theme-toggle .icon-moon { display: block; }
 
-main { max-width: 75rem; margin: 0 auto; padding: 0 1.25rem; }
+main { max-width: 75rem; margin: 0 auto; padding: 0 1.25rem; container-type: inline-size; }
 section { margin: 3rem 0; }
 main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin-right: auto; }
 
@@ -121,7 +120,7 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
   position: relative;
   border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
 }
-/* the accent says keys are faro's (§4.3, D125); demo.js sets .focused */
+/* demo.js sets .focused (§4.3) */
 .panel .frame.focused { border-color: var(--accent); }
 
 .panel .frame svg { display: block; width: 100%; height: auto; }
@@ -136,6 +135,42 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
 [data-theme="light"] .poster-dark { display: none; }
 [data-theme="light"] .poster-light { display: block; }
 
+/* §4.7 phone gallery (4.5b): below the readable floor (120 cols need
+   962 px at 13 px, D122) and on touch-only devices, three 44-column stills
+   swipe past; the first is the mobile poster; demo.js reads display back. */
+.panel-section { --g: none; --h: none; --f: block; }
+@media (pointer: coarse) { .panel-section { --g: flex; --h: block; --f: none; } }
+@container (max-width: 961px) { .panel-section { --g: flex; --h: block; --f: none; } }
+.phone-gallery {
+  display: var(--g); gap: .75rem; overflow-x: auto;
+  scroll-snap-type: x mandatory;
+}
+.phone-hint { display: var(--h); font-size: .85rem; color: var(--muted); margin: .4rem 0 0; }
+.panel .frame { display: var(--f); }
+.panel:fullscreen { --g: none; --h: none; --f: block; }
+.phone-gallery figure {
+  flex: 0 0 clamp(358px, 100%, 440px); margin: 0; scroll-snap-align: center;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--panel) top left / 0 0 no-repeat; /* the ::before shows it */
+  background-image: var(--shot-d);
+}
+.phone-gallery figure::before {
+  content: ""; display: block; aspect-ratio: 440 / 456;
+  background: inherit; background-size: 100% 100%;
+  border-radius: 5px 5px 0 0;
+}
+.phone-gallery figcaption {
+  padding: .1rem .5rem;
+  font-family: var(--mono); font-size: .75rem; color: var(--fg);
+  background: var(--panel); border-top: 1px solid var(--border);
+  border-bottom-left-radius: 5px; border-bottom-right-radius: 5px;
+}
+.phone-conversation { --shot-d: url("phone/conversation-dark.svg"); --shot-l: url("phone/conversation-light.svg"); }
+.phone-palette { --shot-d: url("phone/palette-dark.svg"); --shot-l: url("phone/palette-light.svg"); }
+.phone-themes { --shot-d: url("phone/themes-dark.svg"); --shot-l: url("phone/themes-light.svg"); }
+@media (prefers-color-scheme: light) { .phone-gallery figure { background-image: var(--shot-l); } }
+[data-theme="light"] .phone-gallery figure { background-image: var(--shot-l); }
+[data-theme="dark"] .phone-gallery figure { background-image: var(--shot-d); }
 .demo-status {
   position: absolute; left: 0; right: 0; bottom: 0;
   margin: 0; max-width: none; padding: .15rem .6rem;
@@ -145,7 +180,7 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
 }
 .demo-status[hidden] { display: none; }
 .demo-start { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
-.demo-start[hidden] { display: none; } /* .btn sets display: inline-flex */
+.demo-start[hidden] { display: none; }
 .demo-exited {
   position: absolute; inset: 0; display: grid; place-items: center;
   background: color-mix(in srgb, var(--bg) 75%, transparent);
@@ -165,16 +200,17 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
 
 .panel figcaption { padding-top: .6rem; }
 .hints, .safety { font-size: .9rem; margin: 0 0 .4rem; }
+.hints { display: var(--f); }
 
 .demo-focus {
   font-family: var(--mono); font-size: .85rem; color: var(--muted);
   margin: 0 0 .4rem;
 }
-.demo-focus[hidden] { display: none; } /* [hidden] beats the class rule */
+.demo-focus[hidden] { display: none; }
 .humor { font-style: italic; }
-.poster-note { font-size: .85rem; margin: 0; }
+.poster-note { display: var(--f); font-size: .85rem; margin: 0; }
 .panel-tools { display: flex; gap: .5rem; flex-wrap: wrap; margin: 0 0 .4rem; }
-.panel-tools[hidden] { display: none; } /* the class rule beats the UA's [hidden] */
+.panel-tools[hidden] { display: none; }
 .chips { display: inline-flex; gap: .4rem; flex-wrap: wrap; }
 .chips button, .panel-tools > button {
   font-family: var(--mono); font-size: .8rem; color: var(--fg);
@@ -193,16 +229,9 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
 }
 
 .demo-controls-status { font-family: var(--mono); font-size: .85rem; margin: 0 0 .4rem; }
-.phone-note { display: none; font-size: .9rem; margin: .4rem 0 0; }
+.phone-note { display: var(--h); font-size: .9rem; margin: .4rem 0 0; }
 
-@media (max-width: 640px) {
-
-  .phone-note { display: block; }
-  .panel-section .panel-tools, .demo-controls-status { display: none; }
-}
-
-/* ⛶ (§4.5): the whole figure goes fullscreen, keeping the caption's controls
-   reachable; the frame is never squeezed — the panel scrolls. */
+/* ⛶ fullscreen (§4.5). */
 .panel:fullscreen {
   display: flex; flex-direction: column; height: 100%; padding: 1.25rem;
   background: var(--bg); overflow: auto;

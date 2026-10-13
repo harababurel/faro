@@ -27,9 +27,12 @@ resvg = { version = "0.48.1", default-features = false, features = ["text"] }
 # tree through resvg → tiny-skia → png, so it costs no extra compilation,
 # and site/build.sh's `gzip -9` uses the same level.
 flate2 = "1.1"
-# Only for the OG image's glyph coverage check (scene.rs); already in the
-# tree through resvg → usvg, so it costs no extra compilation.
+# OG glyph coverage and phone SVG outlines (scene/); already in the tree
+# through resvg → usvg, so it costs no extra compilation.
 skrifa = "0.44"
+# UAX #29 grapheme clusters for the phone frames' outliner
+# (scene/phone_font.rs); already in the tree through faro-app.
+unicode-segmentation = "1.13.3"
 sha2 = "0.11"
 tokio = { version = "1.53.2", default-features = false, features = ["rt", "time"] }
 
