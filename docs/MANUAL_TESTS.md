@@ -557,5 +557,8 @@ The nginx template gained `error_page 404 /404.html` with an `internal`
 location — apply the updated config on the server before checking the status
 codes (the owner deploys; `site/deploy/README.md`).
 
+Owner, 2026-10-13 (Arch server, `sites.d/getfaro.dev.conf` edited by hand): status 404, the title, the CSP header, robots' sitemap line and 3 sitemap `<loc>`s all correct with `curl`. Not yet looked at in a browser.
+
+- [x] **404 (curl part):** status, title and security headers.
 - [ ] **404:** visit `https://getfaro.dev/nope` (and a missing URL at depth, e.g. `/a/b`): the styled page says "Page not found" with the normal header, footer and colours, and a link home that works; `curl -si https://getfaro.dev/nope | head -1` shows `404`. Requesting `/404.html` directly also gives 404 (the location is internal), and the page is not indexed (`robots` meta).
-- [ ] **robots and sitemap:** `https://getfaro.dev/robots.txt` loads as plain text and names the sitemap; `https://getfaro.dev/sitemap.xml` loads as XML with a filled `<lastmod>` date, and every `<loc>` opens a real page.
+- [x] **robots and sitemap:** `https://getfaro.dev/robots.txt` loads as plain text and names the sitemap; `https://getfaro.dev/sitemap.xml` loads as XML with a filled `<lastmod>` date, and every `<loc>` opens a real page.
