@@ -92,9 +92,11 @@
         <p id="demo-focus" class="demo-focus" hidden></p>
         <p class="panel-tools" hidden>
           <span class="chips">{{themes}}</span>
-          <button type="button" data-tool="fullscreen">⛶<span class="sr-only">Fullscreen</span></button>
+          <button type="button" data-tool="fullscreen" aria-pressed="false">⛶<span class="sr-only">Fullscreen</span></button>
           <button type="button" data-tool="restart">↺<span class="sr-only">Restart the demo</span></button>
+          <button type="button" data-tool="motion" aria-pressed="true">motion: on</button>
         </p>
+        <p id="demo-controls-status" class="demo-controls-status" role="status" aria-live="polite" hidden></p>
         <p class="safety">Fake coworkers, scripted scenes. Nothing leaves your browser. <span class="humor">Dwight will reply. He always replies.</span></p>
         <p class="poster-note">A real frame of <code>faro demo</code>, rendered from the app at build time. On a computer it turns into the live demo once it loads.</p>
         <p class="phone-note">faro is a keyboard app. Open this page on a computer to try the live demo.</p>

@@ -37,6 +37,10 @@ pub struct CanvasPage {
 pub const BELL_EVENT: &str = "faro-bell";
 /// The event the canvas sends when faro quits; the page offers a restart.
 pub const EXIT_EVENT: &str = "faro-exit";
+/// The event the canvas sends when the settings its controls show change
+/// (theme, configured theme, motion): the detail carries the new values,
+/// so the page's listener never reaches back into the borrowed shell.
+pub const SETTINGS_EVENT: &str = "faro-settings";
 
 impl Page for CanvasPage {
     fn copy(&self, text: String, results: UnboundedSender<AppEvent>) {

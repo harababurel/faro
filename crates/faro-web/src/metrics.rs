@@ -48,6 +48,15 @@ pub fn letter_spacing(cell_width: f32, font_size: f32) -> Option<f32> {
     (room.abs() >= 0.005).then_some(room)
 }
 
+/// The type sizes the demo accepts (§4.4): finite, and 13 to 32 CSS
+/// pixels — readable at the low end, sane at the high one. The page
+/// chooses within this (16 max normally, 24 fullscreen); Rust keeps the
+/// bound mechanical, it never auto-fits.
+#[must_use]
+pub fn valid_font_size(size: f64) -> bool {
+    size.is_finite() && (13.0..=32.0).contains(&size)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -91,5 +100,23 @@ mod tests {
         ));
         // A cell that is exactly one advance wide needs nothing added.
         assert!(letter_spacing(9.6, 16.0).is_none());
+    }
+
+    #[test]
+    fn font_sizes_are_finite_and_between_13_and_32() {
+        for ok in [13.0, 16.0, 24.0, 32.0] {
+            assert!(valid_font_size(ok), "{ok} is allowed");
+        }
+        for no in [
+            12.9,
+            32.1,
+            0.0,
+            -16.0,
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+        ] {
+            assert!(!valid_font_size(no), "{no} is refused");
+        }
     }
 }

@@ -86,6 +86,19 @@ impl Audio {
     }
 }
 
+impl Drop for Audio {
+    /// Stop the voice note (and leave any still-decoding one unable to
+    /// play — `stop` bumps the generation), then close the context:
+    /// browsers cap how many a page may open, and every demo restart
+    /// makes another.
+    fn drop(&mut self) {
+        self.stop();
+        if let Some(context) = self.context.borrow_mut().take() {
+            let _ = context.close();
+        }
+    }
+}
+
 fn start(
     context: &AudioContext,
     buffer: &AudioBuffer,

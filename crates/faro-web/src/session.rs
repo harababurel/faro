@@ -7,10 +7,14 @@ use std::rc::Rc;
 
 use faro_app::app::commands;
 use faro_app::app::event::{AppEvent, Command, Effect};
+use faro_app::app::palette::{
+    ItemKind, Level, Preview, Setting, SettingChoice, items as palette_items,
+};
 use faro_app::app::state::State;
 use faro_app::app::storage;
 use faro_app::app::term_event::Event;
 use faro_app::app::update::{self, affects_view};
+use faro_app::theme::Theme;
 use faro_core::backend::{Backend, BackendError, BackendEvent, BackendEvents};
 use faro_core::domain::{AttachmentRef, AttachmentStatus, MessageRef, TranscriptSource};
 use faro_core::mock::{MockBackend, MockConfig};
@@ -37,8 +41,8 @@ pub struct Session {
     opened_start: bool,
     /// Whether the visitor has taken the demo in hand before its opening chat
     /// (D122): a key, click, wheel or paste of their own, a palette or popup
-    /// they opened, or a chat they opened. Then the opening keys are never
-    /// injected — they would drive whatever the visitor has open, not the list.
+    /// they opened, or a chat they opened. Then the opening is never applied
+    /// — it would drive whatever the visitor has open, not the list.
     visitor_acted: bool,
     /// The workers; stopped when the session ends.
     tasks: Vec<rt::Task>,
@@ -162,6 +166,103 @@ impl Session {
         self.router.dispatch(effects, &self.state);
         true
     }
+
+    /// The page's theme chip (WEBSITE.md §4.5): the palette's own path —
+    /// `choose_theme` sets the theme and notices it; its save effect is
+    /// dropped by the router, so the choice lasts for the visit (§4.8).
+    /// `false` if there's no such theme. While the Themes palette is open
+    /// its stale Theme preview is deliberately ended (the chosen theme
+    /// must draw, not the row the cursor sits on) and the theme rows'
+    /// radio marks move onto the chosen one; the list, query and path
+    /// stay as they are, and stepping the cursor previews again from
+    /// there. A preview of a setting is none of the chip's business.
+    pub fn pick_theme(&mut self, name: &str) -> bool {
+        if Theme::find(name, &self.state.user_themes).is_none() {
+            return false;
+        }
+        self.visitor_acted = true;
+        let effects = update::choose_theme(&mut self.state, name);
+        if let Some(palette) = self.state.palette.as_mut() {
+            if matches!(palette.preview, Some(Preview::Theme(_))) {
+                palette.preview = None;
+            }
+            for item in &mut palette.items {
+                if let ItemKind::Theme(row) = &item.kind {
+                    item.current = Some(row == name);
+                }
+            }
+        }
+        self.router.dispatch(effects, &self.state);
+        true
+    }
+
+    /// The page's motion toggle (§4.6): faro's own `reduce_motion` setting
+    /// through the shared settings path (notice and visit-only save). It
+    /// stills the lighthouse (`State::logo_moves`) and touches nothing else.
+    pub fn set_reduce_motion(&mut self, reduced: bool) {
+        self.visitor_acted = true;
+        let effects = update::choose(&mut self.state, SettingChoice::ReduceMotion(reduced));
+        self.refresh_motion_rows();
+        self.router.dispatch(effects, &self.state);
+    }
+
+    /// The page's motion preference before the handover (§4.6): the same
+    /// shared path, but quietly — the notice is put back as it was (the
+    /// poster's picture must not gain one) and it is not a visitor
+    /// takeover, so the demo's own opening chat still opens.
+    pub fn configure_reduce_motion(&mut self, reduced: bool) {
+        let previous = self.state.notice.take();
+        let effects = update::choose(&mut self.state, SettingChoice::ReduceMotion(reduced));
+        self.state.notice = previous;
+        self.refresh_motion_rows();
+        self.router.dispatch(effects, &self.state);
+    }
+
+    /// After a motion change from outside the palette, refresh the open
+    /// palette's rows that show that setting, so a row doesn't sit on the
+    /// old value while the page's toolbar shows the new one — the shared
+    /// palette `flip` does this for changes made inside the palette. Only
+    /// the motion rows are replaced, with the shared builder's fresh rows
+    /// for the open level (the settings list and the setting's own
+    /// values); positions, path, query, scroll and selection stay put —
+    /// titles don't change, so the query still matches the same rows —
+    /// and previews and other levels are none of this change's business.
+    fn refresh_motion_rows(&mut self) {
+        let Some(palette) = self.state.palette.as_ref() else {
+            return;
+        };
+        let level = palette.level();
+        if !matches!(
+            level,
+            Level::Settings | Level::Setting(Setting::ReduceMotion)
+        ) {
+            return;
+        }
+        let fresh = palette_items(&self.state, level, &self.state.recent_commands);
+        let Some(palette) = self.state.palette.as_mut() else {
+            return;
+        };
+        for item in &mut palette.items {
+            if !matches!(
+                item.kind,
+                ItemKind::Switch(Setting::ReduceMotion)
+                    | ItemKind::Setting(SettingChoice::ReduceMotion(_))
+            ) {
+                continue;
+            }
+            if let Some(replacement) = fresh.iter().find(|row| row.kind == item.kind) {
+                *item = replacement.clone();
+            }
+        }
+    }
+
+    /// The "all…" chip: the palette at Themes, through the shared opener —
+    /// no synthetic keys (D125), so the keys, the focused pane and any
+    /// draft stay as they are.
+    pub fn open_themes(&mut self) {
+        self.visitor_acted = true;
+        update::open_palette(&mut self.state, Level::Themes);
+    }
 }
 
 impl Drop for Session {
@@ -284,8 +385,8 @@ fn canned_transcript(blobs: &Blobs, path: &Path) -> Result<(String, TranscriptSo
 mod tests {
     use std::time::Duration;
 
-    use faro_app::app::palette::Level;
-    use faro_app::app::state::{EmojiMode, Focus, Geometry};
+    use faro_app::app::palette::Item;
+    use faro_app::app::state::{EmojiMode, Focus, Geometry, Notice};
     use faro_app::app::term_event::{Event, KeyCode, KeyEvent, KeyModifiers};
     use faro_core::domain::{ConnectionState, Direction};
 
@@ -582,5 +683,305 @@ mod tests {
         );
         assert!(session.state.env.focused, "the keys are faro's now");
         pump(&mut session, &mut inbox, Duration::from_millis(100)).await;
+    }
+
+    /// A theme chip goes through the palette's own path: the setting, the
+    /// notice, and a save the web router drops (settings last for the visit,
+    /// D-c). It never takes the keys (D125).
+    #[tokio::test(start_paused = true)]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "#[tokio::test] expands to block_on; tests may block"
+    )]
+    async fn a_theme_chip_switches_like_the_palette_does() {
+        let (mut session, mut inbox, page) = started().await;
+        assert!(
+            !session.pick_theme("no-such-theme"),
+            "an unknown theme is refused"
+        );
+        assert_eq!(session.state.config.theme, "faro-dark", "left alone");
+        assert!(session.pick_theme("nord"));
+        assert_eq!(session.state.config.theme, "nord", "the setting");
+        assert_eq!(session.state.theme_name(), "nord", "and what draws");
+        assert_eq!(
+            session.state.notice.as_ref().expect("a notice").text,
+            "Theme: nord",
+            "the palette's own notice"
+        );
+        assert!(session.visitor_acted, "a chip is the visitor taking over");
+        assert!(!session.state.env.focused, "the chip doesn't take the keys");
+        pump(&mut session, &mut inbox, Duration::from_millis(100)).await;
+        assert!(
+            page.log.borrow().is_empty(),
+            "the dropped save reaches neither page nor store: {:?}",
+            page.log.borrow()
+        );
+    }
+
+    /// A chip while the Themes palette previews another row must show the
+    /// chosen theme, not the stale preview.
+    #[tokio::test(start_paused = true)]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "#[tokio::test] expands to block_on; tests may block"
+    )]
+    async fn a_chip_under_a_theme_preview_shows_the_chosen_theme() {
+        let (mut session, _inbox, _page) = started().await;
+        session.open_themes();
+        let palette = session
+            .state
+            .palette
+            .as_ref()
+            .expect("the palette is at Themes");
+        assert_eq!(palette.path.last(), Some(&Level::Themes));
+        // What stepping the cursor onto another row does (D54).
+        session.state.palette.as_mut().expect("still open").preview =
+            Some(Preview::Theme("tokyonight".to_owned()));
+        assert_eq!(
+            session.state.theme_name(),
+            "tokyonight",
+            "the preview draws"
+        );
+        assert!(session.pick_theme("nord"));
+        assert_eq!(
+            session.state.theme_name(),
+            "nord",
+            "the chip wins over the stale preview"
+        );
+        assert!(session.state.palette.is_some(), "the palette stays open");
+    }
+
+    /// A chip while the Themes palette is open moves the radio mark onto
+    /// the chosen row and only that row, and keeps the query, the path
+    /// and the keys exactly as they were.
+    #[tokio::test(start_paused = true)]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "#[tokio::test] expands to block_on; tests may block"
+    )]
+    async fn a_chip_under_the_themes_palette_marks_the_chosen_row_only() {
+        let (mut session, _inbox, _page) = started().await;
+        session.open_themes();
+        let palette = session
+            .state
+            .palette
+            .as_mut()
+            .expect("the palette is at Themes");
+        palette.input.insert_str("o"); // a query matching several themes
+        palette.preview = Some(Preview::Theme("tokyonight".to_owned()));
+        assert!(session.pick_theme("nord"));
+        let palette = session.state.palette.as_ref().expect("still open");
+        let themes: Vec<(&str, Option<bool>)> = palette
+            .items
+            .iter()
+            .filter_map(|item| {
+                if let ItemKind::Theme(name) = &item.kind {
+                    Some((name.as_str(), item.current))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(!themes.is_empty(), "the Themes level lists themes");
+        let marked: Vec<&str> = themes
+            .iter()
+            .filter(|(_, current)| *current == Some(true))
+            .map(|(name, _)| *name)
+            .collect();
+        assert_eq!(marked, ["nord"], "only the chosen row is marked");
+        assert_eq!(palette.input.text(), "o", "the query is kept");
+        assert_eq!(
+            palette.path.last(),
+            Some(&Level::Themes),
+            "the path is kept"
+        );
+        assert!(palette.preview.is_none(), "the stale Theme preview ended");
+        assert!(!session.state.env.focused, "the keys stay the page's");
+    }
+
+    /// The motion toggle goes through faro's own setting and stills the
+    /// lighthouse (D61); it doesn't touch the keys.
+    #[tokio::test(start_paused = true)]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "#[tokio::test] expands to block_on; tests may block"
+    )]
+    async fn the_motion_toggle_stills_the_lighthouse() {
+        let (mut session, _inbox, _page) = started().await;
+        // The logo only moves with nothing open and the keys (D61): set that up.
+        session.state.open = None;
+        session.state.env.focused = true;
+        assert!(session.state.logo_moves(), "the beam turns by default");
+        session.set_reduce_motion(true);
+        assert!(session.state.config.reduce_motion, "faro's own setting");
+        assert!(!session.state.logo_moves(), "reduced motion stills it");
+        assert_eq!(
+            session.state.notice.as_ref().expect("a notice").text,
+            "Reduce motion: the lighthouse stands still"
+        );
+        session.set_reduce_motion(false);
+        assert!(session.state.logo_moves(), "motion comes back");
+        assert!(
+            session.state.env.focused,
+            "the toggle doesn't touch the keys"
+        );
+    }
+
+    /// The page's motion preference at start is quiet: the shared path is
+    /// still taken, but no notice lands on the poster's picture, a notice
+    /// already there is kept, and it isn't a visitor takeover — the demo's
+    /// own opening chat still opens (D125).
+    #[tokio::test(start_paused = true)]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "#[tokio::test] expands to block_on; tests may block"
+    )]
+    async fn configuring_motion_at_start_is_quiet_and_keeps_the_opening() {
+        let page = Rc::new(FakePage::default());
+        let shared: Rc<dyn Page> = page.clone();
+        let (mut session, mut inbox) = Session::start(&visitor_mock(), shared).await.unwrap();
+        assert!(
+            session.waiting_backlog > 0,
+            "the backlog is still to come: {} messages",
+            session.waiting_backlog
+        );
+        session.state.notice = Some(Notice::info("keep me".to_owned()));
+        session.configure_reduce_motion(true);
+        assert!(session.state.config.reduce_motion, "the setting took");
+        assert_eq!(
+            session.state.notice.as_ref().expect("the old notice").text,
+            "keep me",
+            "no notice over the poster, and the old one stays"
+        );
+        assert!(!session.visitor_acted, "not a visitor takeover");
+        assert!(!session.state.env.focused, "the keys stay the page's");
+        session.state.notice = None;
+        pump(&mut session, &mut inbox, Duration::from_secs(1)).await;
+        assert!(session.settled(), "the demo still opens its own chat");
+        assert_eq!(
+            session.state.open.as_ref().map(|open| open.id),
+            demo::chat(&session.state),
+            "the branch opened on its own"
+        );
+        assert!(
+            session.state.config.reduce_motion,
+            "and the motion preference stuck"
+        );
+    }
+
+    /// A motion toggle from the page refreshes the rows of an open
+    /// settings palette, so a row doesn't sit on the old value while the
+    /// toolbar shows the new one (the shared palette `flip` does this for
+    /// changes made inside the palette). Path, query, cursor, keys and
+    /// draft stay put, and the refreshed row equals what the shared
+    /// builder makes for the new config.
+    #[tokio::test(start_paused = true)]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "#[tokio::test] expands to block_on; tests may block"
+    )]
+    async fn a_motion_toggle_refreshes_an_open_settings_palette() {
+        let (mut session, _inbox, _page) = started().await;
+        key(&mut session, KeyCode::Enter); // focus the input
+        for c in "keep me".chars() {
+            key(&mut session, KeyCode::Char(c));
+        }
+        update::open_palette(&mut session.state, Level::Settings);
+        let palette = session
+            .state
+            .palette
+            .as_mut()
+            .expect("the palette is at Settings");
+        palette.input.insert_str("motion");
+        let path = palette.path.clone();
+        let selected = palette.selected;
+        let before = motion_row(&session.state).expect("the row is listed");
+        assert_eq!(before.detail, "off", "the demo's default");
+        assert!(!before.changed, "off is the default, so unmarked");
+        let focused = session.state.env.focused;
+        session.set_reduce_motion(true);
+        let palette = session.state.palette.as_ref().expect("still open");
+        assert_eq!(palette.path, path, "the path is kept");
+        assert_eq!(palette.input.text(), "motion", "the query is kept");
+        assert_eq!(palette.selected, selected, "the cursor stays put");
+        let after = motion_row(&session.state).expect("the row is still listed");
+        assert_eq!(after.detail, "on", "the row shows the new value");
+        assert!(after.changed, "on differs from the default");
+        let fresh = palette_items(
+            &session.state,
+            Level::Settings,
+            &session.state.recent_commands,
+        );
+        let expected = fresh
+            .iter()
+            .find(|row| row.kind == after.kind)
+            .expect("the builder lists it too");
+        assert_eq!(after, expected, "the row matches the shared builder");
+        assert_eq!(session.state.env.focused, focused, "the keys are untouched");
+        let open = session.state.open.as_ref().expect("the chat stays open");
+        assert_eq!(open.input.text(), "keep me", "the draft stays");
+        // The values level: the radio mark moves too, and the quiet
+        // system update refreshes it the same way.
+        update::open_palette(&mut session.state, Level::Setting(Setting::ReduceMotion));
+        let marked = |session: &Session| {
+            session
+                .state
+                .palette
+                .as_ref()
+                .expect("open")
+                .items
+                .iter()
+                .find_map(|item| {
+                    if let ItemKind::Setting(SettingChoice::ReduceMotion(on)) = &item.kind {
+                        (item.current == Some(true)).then_some(*on)
+                    } else {
+                        None
+                    }
+                })
+        };
+        assert_eq!(marked(&session), Some(true), "the radio marks on");
+        session.configure_reduce_motion(false);
+        assert_eq!(
+            marked(&session),
+            Some(false),
+            "the quiet update refreshes it too"
+        );
+    }
+
+    /// The settings list's `Reduce motion` switch row.
+    fn motion_row(state: &State) -> Option<&Item> {
+        state
+            .palette
+            .as_ref()?
+            .items
+            .iter()
+            .find(|item| matches!(item.kind, ItemKind::Switch(Setting::ReduceMotion)))
+    }
+
+    /// The "all…" chip opens the palette at Themes without synthetic keys
+    /// (D125): the keys, the focused pane and the draft stay as they are.
+    #[tokio::test(start_paused = true)]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "#[tokio::test] expands to block_on; tests may block"
+    )]
+    async fn open_themes_keeps_the_keys_and_the_draft() {
+        let (mut session, _inbox, _page) = started().await;
+        key(&mut session, KeyCode::Enter); // focus the input
+        for c in "keep me".chars() {
+            key(&mut session, KeyCode::Char(c));
+        }
+        let focused = session.state.env.focused;
+        session.open_themes();
+        let palette = session.state.palette.as_ref().expect("the palette is open");
+        assert_eq!(palette.path.last(), Some(&Level::Themes));
+        assert!(
+            palette.input.text().is_empty(),
+            "no fake keys typed into the query"
+        );
+        assert_eq!(session.state.env.focused, focused, "the keys are untouched");
+        let open = session.state.open.as_ref().expect("the chat stays open");
+        assert_eq!(open.input.text(), "keep me", "the draft stays");
+        assert!(session.visitor_acted, "the chip is the visitor taking over");
     }
 }

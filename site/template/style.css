@@ -1,9 +1,9 @@
 /* getfaro.dev (WEBSITE.md §5): colours from faro's own faro-dark / faro-light
    themes (§5.1), JetBrains Mono + system UI sans (§5.2). Dark is the default;
-   the page follows prefers-color-scheme, and the toggle overrides it with a
-   data-theme attribute on <html> (theme.js applies the stored choice).
-   light-dark() resolves per the used scheme. Muted grey is for labels only,
-   never sentences (§5.1). */
+   the page follows prefers-color-scheme, the toggle overrides it with a
+   data-theme attribute on <html> (theme.js applies the stored choice), and
+   light-dark() resolves per the used scheme. Muted grey: labels only, never
+   sentences (§5.1). */
 
 @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url("fonts/JetBrainsMono-Regular.woff2") format("woff2"); }
 @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 700; font-display: swap; src: url("fonts/JetBrainsMono-Bold.woff2") format("woff2"); }
@@ -92,8 +92,7 @@ html.js .js-only { display: inline-flex; align-items: center; gap: .3em; }
   color: var(--fg); padding: .25rem .5rem; cursor: pointer;
 }
 #theme-toggle:hover { border-color: var(--accent); color: var(--accent); }
-/* Sun in the dark scheme (click: go light), moon in the light one. The
-   webfont subset (D107) has no ☀/☾, hence the inline SVG icons. */
+/* Sun in dark (click: go light), moon in light; the subset (D107) lacks ☀/☾. */
 #theme-toggle svg { display: block; }
 #theme-toggle .icon-moon { display: none; }
 @media (prefers-color-scheme: light) {
@@ -105,8 +104,7 @@ html.js .js-only { display: inline-flex; align-items: center; gap: .3em; }
 [data-theme="light"] #theme-toggle .icon-sun { display: none; }
 [data-theme="light"] #theme-toggle .icon-moon { display: block; }
 
-/* The panel takes the page's full width (§3.2), so main is as wide as the
-   header and footer; the prose sections keep the 46rem column inside it. */
+/* The panel takes the page's full width (§3.2); prose keeps its 46rem column. */
 main { max-width: 75rem; margin: 0 auto; padding: 0 1.25rem; }
 section { margin: 3rem 0; }
 main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin-right: auto; }
@@ -131,15 +129,13 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
   position: relative; /* the demo's parts sit over the poster (§4.2) */
   border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
 }
-/* the one accent says the keys belong to faro (§4.3, D125); demo.js puts
-   .focused on the frame while the canvas has the page's focus */
+/* the one accent says the keys are faro's (§4.3, D125); demo.js puts .focused
+   on the frame while the canvas has the focus */
 .panel .frame.focused { border-color: var(--accent); }
-/* {{poster}} is two inline SVGs of one frame (§3.2, §6.4): the same frame
-   in faro-dark and faro-light. Only the one matching the page's scheme
-   shows — the same base / prefers-color-scheme / data-theme pattern as the
-   theme toggle above. display:none also takes the hidden poster out of the
-   accessibility tree, so screen readers hear exactly one poster; no aria
-   attributes needed. */
+/* {{poster}} is two inline SVGs of one frame (§3.2, §6.4), one per scheme:
+   only the one matching the page's scheme shows — the same base /
+   prefers-color-scheme / data-theme pattern as the toggle above. display:none
+   also leaves the hidden poster out of the accessibility tree. */
 .panel .frame svg { display: block; width: 100%; height: auto; }
 .poster-dark { display: block; }
 .poster-light { display: none; }
@@ -152,11 +148,10 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
 [data-theme="light"] .poster-dark { display: none; }
 [data-theme="light"] .poster-light { display: block; }
 
-/* ---- the live demo over the poster (§4.2) ---------------------------------
-   demo.js adds these to .frame; they start hidden, and the [hidden] rules keep
-   them hidden past the display rules here. */
+/* ---- the live demo over the poster (§4.2): demo.js adds these to .frame;
+   they start hidden, and the [hidden] rules keep them hidden past these. */
 .demo-status {
-  /* over the poster's own footer row, in faro's footer colours */
+  /* over the poster's footer row, in faro's footer colours */
   position: absolute; left: 0; right: 0; bottom: 0;
   margin: 0; max-width: none; padding: .15rem .6rem;
   font-family: var(--mono); font-size: .8rem; line-height: 1.5;
@@ -177,8 +172,7 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
   padding: .5rem .9rem; cursor: pointer;
 }
 .demo-exited button:hover { color: var(--accent); }
-/* the canvas waits for the demo to go live; then the frame shrinks to it and
-   stays centred, the posters hidden past the scheme rules above (§3.2) */
+/* live: the frame shrinks to the canvas, centred, posters hidden (§3.2) */
 .demo-canvas { display: none; }
 .frame.live .demo-canvas { display: block; }
 .frame.live .poster-dark, .frame.live .poster-light { display: none !important; }
@@ -186,8 +180,8 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
 
 .panel figcaption { padding-top: .6rem; }
 .hints, .safety { font-size: .9rem; margin: 0 0 .4rem; }
-/* the focus hint (§4.3, D125): in the caption beside the key hints, never over
-   the canvas or faro's own footer row; demo.js shows it only while live */
+/* the focus hint (§4.3, D125): in the caption, never over the canvas or faro's
+   footer row; demo.js shows it only while live */
 .demo-focus {
   font-family: var(--mono); font-size: .85rem; color: var(--muted);
   margin: 0 0 .4rem;
@@ -204,12 +198,37 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
   padding: .2rem .7rem; cursor: pointer;
 }
 .chips button:hover, .panel-tools > button:hover { border-color: var(--accent); color: var(--accent); }
+/* which theme is showing, and motion on (§4.5): demo.js keeps aria-pressed */
+.chips button[aria-pressed="true"], .panel-tools > button[aria-pressed="true"] {
+  border-color: var(--accent); color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+}
+.chips button[disabled], .panel-tools > button[disabled] { opacity: .5; cursor: default; }
+.chips button[disabled]:hover, .panel-tools > button[disabled]:hover {
+  border-color: var(--border); color: var(--fg);
+}
+/* what a control couldn't do (fullscreen unsupported/refused, §4.5): demo.js
+   fills this polite live region */
+.demo-controls-status { font-family: var(--mono); font-size: .85rem; margin: 0 0 .4rem; }
 .phone-note { display: none; font-size: .9rem; margin: .4rem 0 0; }
 
 @media (max-width: 640px) {
-  /* §4.7: the poster SVG stays full width; the honest note replaces the demo. */
+  /* §4.7: the poster stays full width; the honest note replaces the demo and
+     the controls it would drive. */
   .phone-note { display: block; }
+  .panel-section .panel-tools, .demo-controls-status { display: none; }
 }
+
+/* ⛶ (§4.5): the whole figure goes fullscreen, so the caption's controls stay
+   reachable beside the canvas; standard :fullscreen covers Chromium, Firefox
+   and Safari. The frame is never squeezed — the panel scrolls when the screen
+   is smaller, and demo.js refits the font. */
+.panel:fullscreen {
+  display: flex; flex-direction: column; height: 100%; padding: 1.25rem;
+  background: var(--bg); overflow: auto;
+}
+.panel:fullscreen .frame { flex: none; }
+.panel:fullscreen figcaption { flex: none; }
 
 /* ---- why faro (§3.3) ----------------------------------------------------- */
 .why-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.4rem 2rem; }
@@ -223,8 +242,7 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
   color: var(--fg); padding: .35rem .8rem; cursor: pointer; font-size: .9rem;
 }
 .tab[aria-selected="true"] { border-color: var(--accent); color: var(--accent); }
-/* The copy button sits in the flow beside the text, never over it; long
-   commands scroll horizontally inside the block. */
+/* the copy button sits beside the text, never over it; long commands scroll. */
 .codeblock {
   display: flex; align-items: center; gap: .75rem;
   background: var(--panel); border: 1px solid var(--border);

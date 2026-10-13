@@ -16,9 +16,18 @@ use crate::paint::Painter;
 use crate::session::Session;
 
 /// The demo running in a canvas. Dropping it (`demo.free()`) stops it. The
-/// canvas sends `faro-bell` events when faro rings and `faro-exit` when it
-/// quits (free it and start again); `document.title` follows faro's window
-/// title.
+/// canvas sends `faro-bell` events when faro rings, `faro-exit` when it
+/// quits (free it and start again), and `faro-settings` when the settings
+/// its controls show change (its `detail` carries the values);
+/// `document.title` follows faro's window title.
+///
+/// **Never call a `Demo` method from a synchronous handler of an event faro
+/// itself dispatched** (`faro-settings`, `faro-exit`, canvas focus/blur):
+/// faro dispatches those while the shell is borrowed, and a re-entrant call
+/// panics on the borrow (D125). Read the event's `detail` instead, and
+/// defer any `Demo` work to `requestAnimationFrame`/`setTimeout`. Ordinary
+/// user-gesture handlers (clicks, keydown) are fine — no borrow is held
+/// then.
 #[wasm_bindgen]
 pub struct Demo {
     shell: Rc<RefCell<Shell>>,
@@ -91,6 +100,64 @@ impl Demo {
         self.shell.borrow_mut().set_theme(name)
     }
 
+    /// Switch the theme the way the palette does — faro notices it and the
+    /// choice lasts for the visit; `false` if there's no such theme. The
+    /// page's theme chips (§4.5). Call from a click handler, never from an
+    /// event faro itself dispatches (the shell is borrowed; D125).
+    pub fn pick_theme(&self, name: &str) -> bool {
+        self.shell.borrow_mut().pick_theme(name)
+    }
+
+    /// faro's reduce-motion setting, for the page's motion toggle (§4.6).
+    pub fn reduce_motion(&self) -> bool {
+        self.shell.borrow().reduce_motion()
+    }
+
+    /// Turn faro's motion off or on through faro's own settings path (§4.6).
+    pub fn set_reduce_motion(&self, reduced: bool) {
+        self.shell.borrow_mut().set_reduce_motion(reduced);
+    }
+
+    /// Open faro's palette at Themes (the "all…" chip, §4.5); no synthetic
+    /// keys, so the keys, focus and any draft stay as they are (D125).
+    pub fn open_themes(&self) {
+        self.shell.borrow_mut().open_themes();
+    }
+
+    /// faro's configured theme, ignoring any palette preview: what the
+    /// page's scheme follower compares against (D124) and what its chips
+    /// bootstrap from (§4.5).
+    pub fn configured_theme(&self) -> String {
+        self.shell.borrow().configured_theme()
+    }
+
+    /// Turn faro's motion off or on quietly at start — no notice over the
+    /// poster's picture and no visitor takeover (§4.6): for the system
+    /// preference before the handover, not for a visitor's toggle (that's
+    /// `set_reduce_motion`).
+    pub fn configure_reduce_motion(&self, reduced: bool) {
+        self.shell.borrow_mut().configure_reduce_motion(reduced);
+    }
+
+    /// Re-measure the font at `size` CSS px and redraw on the same grid
+    /// (fullscreen or a resize, §4.4); `false` if the size isn't finite or
+    /// is outside 13..=32 px, or the font couldn't be measured. The page
+    /// picks the size (16 max normally, 24 fullscreen); faro never
+    /// auto-fits, and the keys are untouched (a resize is not input, D125).
+    pub fn set_font_size(&self, size: f64) -> bool {
+        self.shell.borrow_mut().set_font_size(size)
+    }
+
+    /// A cell's CSS width and height as `[w, h]`, for the page's size
+    /// checks (§4.4).
+    pub fn cell_css(&self) -> js_sys::Array {
+        let (width, height) = self.shell.borrow().cell_css();
+        let array = js_sys::Array::new();
+        array.push(&JsValue::from_f64(width));
+        array.push(&JsValue::from_f64(height));
+        array
+    }
+
     /// Draw a whole frame from scratch, as after a resize or a theme switch:
     /// render, diff and paint every row (to measure); returns the
     /// milliseconds it took.
@@ -142,6 +209,11 @@ impl Demo {
 
 impl Drop for Demo {
     fn drop(&mut self) {
+        // Stop any playing voice note first: nothing else will call `stop`
+        // once the loop is gone, and `Audio::drop` closes the context.
+        if let Ok(shell) = self.shell.try_borrow() {
+            shell.session.router.page.stop();
+        }
         self.listeners = None;
         self.task.abort();
     }

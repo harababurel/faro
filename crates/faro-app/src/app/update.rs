@@ -34,8 +34,9 @@ mod settings;
 
 pub use curation::mentions_toggle;
 pub use navigation::mouse_affects_view;
+pub use palette::open as open_palette;
 pub use sending::wall_clock;
-pub use settings::configure;
+pub use settings::{choose, choose_theme, configure};
 
 /// How many messages to load when a conversation opens.
 pub const PAGE: u32 = 200;

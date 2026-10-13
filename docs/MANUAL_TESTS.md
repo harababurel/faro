@@ -484,6 +484,9 @@ Notes (browser, version, OS, what went wrong):
 
 ## Website: focus and Escape (M13 Phase 4.3a, D125)
 
+Owner deployed `778dcaf` on 2026-10-13; these checks are explicitly deferred,
+not marked as passed. Agent work on panel controls can continue independently.
+
 Use the built site over http/localhost as in "Website: preload and handover";
 check Chrome, Firefox and Safari. These are browser/input checks, not a claim
 that headless Chromium covers every real browser.
@@ -496,5 +499,19 @@ that headless Chromium covers every real browser.
 - [ ] **Away and back:** switch tabs or applications with a chat open. Incoming messages stay unread while away; returning restores faro's focus only if the canvas was still active. Clicking outside before switching away must not return the keys to faro on return.
 - [ ] **Resize while unfocused:** click outside and resize or zoom the page. Faro stays unfocused and messages are not silently marked read. The known fixed-120×34 refitting gap in D124 is still deferred.
 - [ ] **Quit/restart:** after exit the hero CTA takes you to the restart button, not the dead canvas. After restarting from the exit overlay, focus hints, outside-click dismissal and the Esc chain still work; no duplicate handlers or freezing.
+
+Notes (browser, version, OS, what went wrong):
+
+## Website: panel controls (M13 Phase 4.3b, D126)
+
+Deferred at the owner's request (2026-10-13). Agent/headless checks do not
+replace Chrome, Firefox and Safari checks on a real computer.
+
+- [ ] **Themes:** seven chips switch the app immediately, with the selected chip marked. “all…” focuses the app's Themes palette; preview/select there updates the chips, Escape restores the configured theme. An explicit chip choice survives page light/dark changes. No setting survives a page reload.
+- [ ] **Restart:** toolbar and exit-overlay restart produce a fresh demo with the same cast/scenes. Drafts/history reset, chosen theme/motion stay for the visit; old audio stops and keys still work after repeated restarts.
+- [ ] **Fullscreen:** the entire panel and controls are visible. Enter/exit button and browser Escape work, no clipping at normal laptop sizes, and returning refits the normal panel without stealing focus. Rejected/unsupported fullscreen shows a clear message instead of breaking the demo.
+- [ ] **Keyboard Lock:** Chromium may request permission. Declining still permits ordinary fullscreen; Escape always exits. Clicking a control, switching windows/tabs, quitting or restarting releases any lock, and the page never traps browser shortcuts while the canvas is unfocused. Firefox/Safari work without Keyboard Lock.
+- [ ] **Motion:** a system reduced-motion preference starts with “motion: off” and a still lighthouse; messages/scenes continue. Toggle on/off and change the app's setting in the palette: the toggle stays in sync. The visitor's override wins over later system preference changes until reload.
+- [ ] **Fallbacks:** no JavaScript, phone/small-screen poster, slow connection and load failure leave unusable controls hidden. After quit only restart/fullscreen-exit remain usable; a failed restart returns to a retryable poster.
 
 Notes (browser, version, OS, what went wrong):

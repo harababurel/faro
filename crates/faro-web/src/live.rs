@@ -16,12 +16,14 @@ use faro_app::ui::{self, View};
 use faro_core::rt::{self, Instant};
 use ratatui::Terminal;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
 
 use crate::backend::CanvasBackend;
 use crate::images::{Halfblocks, Images};
 use crate::input::{self, Held, Wheel};
 use crate::media;
+use crate::metrics;
 use crate::paint::Painter;
 use crate::session::{Inbox, Session};
 
@@ -50,6 +52,12 @@ pub enum Input {
     Resized,
     /// An image was decoded for the cache (`None`: it couldn't be).
     Decoded(ImageKey, Option<Halfblocks>),
+    /// A `Demo` API changed something while the loop was parked idle:
+    /// wake it so it notices the dirty picture. Setting `dirty` alone
+    /// can't — `run` blocks in `select!` and only asks for an animation
+    /// frame at the top of each turn. This arm must never queue another
+    /// `Redraw`, or the loop would spin.
+    Redraw,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -95,6 +103,9 @@ pub struct Shell {
     page: Option<UnboundedSender<Input>>,
     /// The cell under the pointer, so moves within a cell aren't sent.
     pointer: Option<(u16, u16)>,
+    /// The last settings snapshot told to the page (theme, configured
+    /// theme, motion); a change sends a `faro-settings` event (§4.5, §4.6).
+    settings_sent: Option<(String, String, bool)>,
 }
 
 impl Shell {
@@ -128,6 +139,7 @@ impl Shell {
             timings: Timings::default(),
             page: None,
             pointer: None,
+            settings_sent: None,
         };
         shell.painter.resize(columns, rows);
         shell.handle(AppEvent::Terminal(Event::Resize(columns, rows)));
@@ -161,6 +173,67 @@ impl Shell {
         name.clone_into(&mut state.config.theme);
         self.draw();
         true
+    }
+
+    /// The page's theme chip (§4.5): faro's own palette path, notice and all
+    /// (the silent `set_theme` above stays for the page's scheme follower).
+    /// `false` if there's no such theme.
+    pub fn pick_theme(&mut self, name: &str) -> bool {
+        let picked = self.session.pick_theme(name);
+        if picked {
+            self.request_frame();
+        }
+        picked
+    }
+
+    /// The page's motion toggle (§4.6), through faro's own setting.
+    pub fn set_reduce_motion(&mut self, reduced: bool) {
+        self.session.set_reduce_motion(reduced);
+        self.request_frame();
+    }
+
+    /// The page's motion preference at start (§4.6): quiet — no notice over
+    /// the poster's picture, and not a visitor takeover.
+    pub fn configure_reduce_motion(&mut self, reduced: bool) {
+        self.session.configure_reduce_motion(reduced);
+        self.request_frame();
+    }
+
+    /// faro's `reduce_motion`, for the page's toggle.
+    pub const fn reduce_motion(&self) -> bool {
+        self.session.state.config.reduce_motion
+    }
+
+    /// faro's configured theme, ignoring any palette preview: what the
+    /// page's scheme follower compares against (D124) and what its chips
+    /// bootstrap from (§4.5).
+    pub fn configured_theme(&self) -> String {
+        self.session.state.config.theme.clone()
+    }
+
+    /// A cell's CSS size, for the page's own fit checks.
+    pub fn cell_css(&self) -> (f64, f64) {
+        self.painter.cell_css()
+    }
+
+    /// The "all…" chip: the palette at Themes, no synthetic keys (D125).
+    pub fn open_themes(&mut self) {
+        self.session.open_themes();
+        self.request_frame();
+    }
+
+    /// Ask for a frame from outside the loop — a `Demo` API call the page
+    /// made while faro was idle. Setting `dirty` alone isn't enough: `run`
+    /// sits in `select!` with nothing scheduled and only asks for an
+    /// animation frame at the top of each turn, so the `Redraw` input is
+    /// what wakes it (and the loop recomputes the notice deadlines then).
+    /// Callers the loop is already handling (terminal input, `Resized`)
+    /// just set `dirty`.
+    fn request_frame(&mut self) {
+        self.dirty = true;
+        if let Some(page) = &self.page {
+            let _ = page.send(Input::Redraw);
+        }
     }
 
     /// Whether faro takes the mouse (`[mouse] enabled`); if not, the wheel
@@ -220,6 +293,10 @@ impl Shell {
                 self.images.insert(key, image);
                 self.dirty = true;
             }
+            // A `Demo` API woke us from outside the loop: the picture is
+            // already dirty, this turn only asks for the frame. Never
+            // re-queue — the top of the loop schedules the rAF.
+            Input::Redraw => self.dirty = true,
         }
     }
 
@@ -257,16 +334,33 @@ impl Shell {
     fn resized(&mut self) {
         let ratio = web_sys::window().map_or(1.0, |w| w.device_pixel_ratio());
         if (ratio - self.painter.ratio()).abs() > f64::EPSILON {
-            match Painter::new(self.painter.canvas().clone(), &self.family, self.size) {
-                Ok(painter) => {
-                    self.painter = painter;
-                    self.themes = Themes::default();
-                    let cell = self.painter.cell_size();
-                    self.terminal.backend_mut().set_cell_size(cell);
-                }
-                Err(error) => tracing::warn!(?error, "measuring the font again failed"),
+            self.remeasure();
+        }
+        self.refit();
+    }
+
+    /// Re-measure the font on the same canvas at `self.size`; the theme
+    /// cache goes with it, its colours were picked against the old cell.
+    fn remeasure(&mut self) -> bool {
+        match Painter::new(self.painter.canvas().clone(), &self.family, self.size) {
+            Ok(painter) => {
+                self.painter = painter;
+                self.themes = Themes::default();
+                let cell = self.painter.cell_size();
+                self.terminal.backend_mut().set_cell_size(cell);
+                true
+            }
+            Err(error) => {
+                tracing::warn!(?error, "measuring the font again failed");
+                false
             }
         }
+    }
+
+    /// Fit the grid to the canvas's parent (or keep the page's fixed one)
+    /// and make faro redraw every row. A resize is not input: the keys
+    /// stay as they are (D125).
+    fn refit(&mut self) {
         let (columns, rows) = self.fixed.unwrap_or_else(|| fit(&self.painter));
         self.painter.resize(columns, rows);
         self.terminal.backend_mut().resize(columns, rows);
@@ -275,6 +369,38 @@ impl Shell {
         let Ok(()) = self.terminal.clear();
         self.handle(AppEvent::Terminal(Event::Resize(columns, rows)));
         self.dirty = true;
+    }
+
+    /// The page chose a new type size (fullscreen or a resize, §4.4):
+    /// re-measure the font at `size` CSS px and redraw on the same grid —
+    /// the demo's fixed 120×34 stays; faro never auto-fits. `false` if
+    /// `size` isn't finite or is outside 13..=32 px
+    /// ([`metrics::valid_font_size`]), or the font couldn't be measured
+    /// again. The same size at the same pixels is a no-op.
+    pub fn set_font_size(&mut self, size: f64) -> bool {
+        if !metrics::valid_font_size(size) {
+            return false;
+        }
+        let ratio = web_sys::window().map_or(1.0, |w| w.device_pixel_ratio());
+        if (size - self.size).abs() <= f64::EPSILON
+            && (ratio - self.painter.ratio()).abs() <= f64::EPSILON
+        {
+            return true;
+        }
+        // Only adopt the new size once the font has actually been measured
+        // at it: on failure the size and the painter must stay a matching
+        // pair, or a later same-size call would no-op onto the wrong cells.
+        let previous = self.size;
+        self.size = size;
+        if !self.remeasure() {
+            self.size = previous;
+            return false;
+        }
+        self.refit();
+        // Called from the page, not from the loop: wake it for the new
+        // picture. (The same-size no-op above returns without waking.)
+        self.request_frame();
+        true
     }
 
     /// Draw a frame now and paint the rows that changed.
@@ -326,6 +452,46 @@ impl Shell {
         self.decode(&geometry.images_wanted);
         // Same picture; only bookkeeping (and maybe loading older messages).
         self.handle(AppEvent::Drawn(geometry));
+        self.sync_settings();
+    }
+
+    /// Tell the page its controls' picture changed (§4.5, §4.6): the theme
+    /// faro draws with (palette preview included), the configured theme,
+    /// and motion. The event's detail carries the values, so the page's
+    /// listener never reaches back into the borrowed shell (D125).
+    fn sync_settings(&mut self) {
+        let state = &self.session.state;
+        let snapshot = (
+            state.theme_name().to_owned(),
+            state.config.theme.clone(),
+            state.config.reduce_motion,
+        );
+        if self.settings_sent.as_ref() == Some(&snapshot) {
+            return;
+        }
+        let detail = js_sys::Object::new();
+        let tell = |key: &str, value: JsValue| {
+            let _ = js_sys::Reflect::set(&detail, &JsValue::from_str(key), &value);
+        };
+        tell("theme", snapshot.0.as_str().into());
+        tell("configuredTheme", snapshot.1.as_str().into());
+        tell("reduceMotion", snapshot.2.into());
+        let init = web_sys::CustomEventInit::new();
+        init.set_detail(&detail);
+        match web_sys::CustomEvent::new_with_event_init_dict(crate::dom::SETTINGS_EVENT, &init) {
+            Ok(event) => {
+                if self.painter.canvas().dispatch_event(&event).is_err() {
+                    tracing::warn!("telling the page the settings changed failed");
+                    // Keep the old snapshot: the next draw retries.
+                    return;
+                }
+            }
+            Err(error) => {
+                tracing::warn!(?error, "making the settings event failed");
+                return;
+            }
+        }
+        self.settings_sent = Some(snapshot);
     }
 
     /// Decode the images the frame wanted, in the background.

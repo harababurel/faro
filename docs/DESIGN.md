@@ -120,6 +120,14 @@ returned; opening the demo's first chat also uses reducer logic rather than
 simulated keypresses that would claim focus. The page shows whether keys go to faro and how to leave the panel;
 outside clicks, including on plain text, return input to the page.
 
+Panel controls (D126) call the shared settings/palette reducer for theme chips,
+motion and the full Themes picker. `faro-settings` event detail updates the page's
+controls without re-entering Rust during a draw. Restart keeps visitor control
+choices but starts fresh mock/history state and stops old audio. Fullscreen
+includes the caption and exit button; Keyboard Lock is optional, excludes Escape
+and is released whenever the canvas loses the keys. Re-measuring the font keeps
+the fixed poster grid readable after resizing/fullscreen, with no fake key events.
+
 The demo draws emoji with `EmojiMode::Exact` (D118).
 
 ## 5. Backend interface

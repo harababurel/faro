@@ -1,7 +1,7 @@
 # getfaro.dev: landing page design and implementation plan
 
 Status: **implementation in progress** (M13). Phases 0, 2 and 3 are complete;
-Phase 1 code is complete with the owner's deploy/checks pending; Phase 4 is
+Phase 1 code is complete and deployed; the owner's checks are deferred. Phase 4 is
 integrating the demo into the page. Current progress is in PLAN.md and §7.
 The decisions are summarised in §8.
 
@@ -242,6 +242,13 @@ The web build therefore:
 - **Chips:** faro-dark, faro-dusk, faro-light, catppuccin, nord, gruvbox, tokyonight, and "all…" (opens the palette at Themes inside the demo). Clicking one switches the demo's theme live through the same code path as the palette. The demo starts in faro-dark or faro-light, matching the page's colour scheme.
 - **Restart (↺):** a fresh demo with the same seed.
 - **Quit inside faro:** a small overlay, "faro exited · ↺ start again".
+
+Panel-control details (D126): chips and motion do not take the keyboard;
+“all…” focuses the palette. Restart retains visitor theme/motion choices for
+the visit, while resetting the mock/history/drafts and stopping old audio.
+Fullscreen includes the caption controls, with optional Keyboard Lock excluding
+Escape and released whenever the canvas stops holding the keys. The fixed grid's
+font is re-measured after resize/fullscreen, never made smaller than 13 px.
 
 ### 4.6 Motion
 
