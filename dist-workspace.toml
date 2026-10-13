@@ -1,0 +1,59 @@
+[workspace]
+members = ["cargo:."]
+
+# Config for 'dist' (the v0.1 release pipeline, D133). Nothing publishes
+# until a version tag is pushed; NEVER run this by hand against a real
+# tag without the owner's say-so.
+[dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.33.0"
+# release.yml is hand-customized to trigger on version tags only (no
+# pull_request run); keep that instead of regenerating it.
+allow-dirty = ["ci"]
+# CI backends to support
+ci = "github"
+# Where to host releases
+hosting = "github"
+# Only the faro binary ships. The workspace crates are publish = false,
+# which would hide them; this explicit list overrides that inference,
+# and faro-site/faro-web/faro-app/faro-core stay undistributed.
+packages = ["faro"]
+# Target platforms to build apps for (Rust target-triple syntax)
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+]
+# Installers: the Homebrew formula only (owner's decision: no curl|sh script).
+installers = ["homebrew"]
+# The formula goes to the existing tap; publishing it needs a
+# HOMEBREW_TAP_TOKEN secret on GitHub (owner to create).
+tap = "harababurel/homebrew-tap"
+formula = "faro"
+publish-jobs = ["homebrew"]
+# Release builds link OpenSSL statically into the bundled SQLCipher (D133).
+features = ["vendored-openssl"]
+# Archives and checksums.
+unix-archive = ".tar.xz"
+checksum = "sha256"
+# The bundled OpenCode themes are MIT; their notices ride along.
+include = ["THIRD_PARTY_NOTICES.md"]
+
+# presage needs protoc; SQLCipher's bundled build and libsignal need a C
+# toolchain. (libssl-dev is deliberately absent: OpenSSL is vendored.)
+[dist.dependencies.apt]
+protobuf-compiler = "*"
+cmake = "*"
+clang = "*"
+pkg-config = "*"
+
+[dist.dependencies.homebrew]
+protobuf = "*"
+cmake = "*"
+
+# Native GitHub-hosted ARM64 Linux runner (22.04, like x86_64, so the glibc
+# baseline stays 2.35), so aarch64 builds natively
+# instead of cross-compiling.
+[dist.github-custom-runners]
+aarch64-unknown-linux-gnu = "ubuntu-22.04-arm"
