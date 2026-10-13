@@ -352,7 +352,7 @@ Draft FAQ (to be checked against the code before launch):
 These drafts cover what this site actually does: no accounts, self-hosted analytics, a demo that runs in the browser, and the software's own licence. Operator details (`{operator}`, `{contact}`, `{country}`, `{law}`) are placeholders, filled in from the site's configuration at build time.
 
 - **Before publishing:** the operator checks every statement against the deployed setup (log retention, the Plausible configuration, the contact address).
-- These are drafts, not legal advice.
+- These are drafts, not legal advice. Notes like this one are for the operator and never go on the published pages (a leftover "this is a draft" line was removed from both pages on 2026-10-13).
 - The pages carry a "Last updated" date and are kept in the repo, so changes are tracked.
 - Statements about what the site does are checked by CI where possible. For example, a test fails if a page sets a cookie or loads a script from another origin.
 

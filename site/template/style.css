@@ -313,7 +313,6 @@ main.legal { max-width: calc(46rem + 2.5rem); }
 .legal h1 { font-size: 2rem; margin-top: 2.5rem; }
 .legal h2 { font-size: 1.15rem; margin-top: 2rem; }
 .updated { color: var(--muted); font-size: .9rem; }
-.small { font-size: .85rem; color: var(--muted); }
 
 a, button, .tab, .copy, .panel .frame { transition: color .12s, border-color .12s; }
 @media (prefers-reduced-motion: reduce) {
