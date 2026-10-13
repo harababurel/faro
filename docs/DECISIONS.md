@@ -1301,3 +1301,11 @@ Refines the DESIGN.md §5.1 sketch:
 - iPadOS reports a touch primary pointer even with a Magic Keyboard attached, so D128's "coarse pointer → phone gallery" gave the owner's iPad Pro the stills. Now `(any-pointer: fine)` decides: any device with a mouse or trackpad behaves like a laptop (width still decides gallery vs demo, and it preloads/autostarts like one). Only touch-only devices get the gallery at every width.
 - CSS: the old `(pointer: coarse)` rule plus `(pointer: coarse) and (any-pointer: fine)` turning it back off (headless Chrome reports no pointer at all, so a bare `not all and (any-pointer: fine)` would make every headless run a phone). `demo.js` checks and listens on `(any-pointer: fine)`.
 - Browser suite: an iPad-like shim scenario (coarse primary, fine any-pointer, 1200 px) autostarts; 109 assertions/23 scenarios. What a real iPad reports is the owner's check (MANUAL_TESTS).
+
+### D133. Release packaging and the install section — Accepted (owner, 2026-10-13; tooling Judgement)
+
+- **Methods for v0.1:** Homebrew (`brew install harababurel/tap/faro`, prebuilt), AUR (`faro-bin` prebuilt, `faro` tagged source, `faro-git`, D86), Debian/Ubuntu `.deb`, prebuilt archives on GitHub Releases (macOS arm64/x86_64, Linux x86_64/aarch64, with checksums), and from source.
+- **Tooling (Judgement):** `dist` (formerly cargo-dist) generates the release workflow, archives, checksums and the tap's formula; `cargo-deb` builds the `.deb`s in the same workflow, uploaded as `faro_amd64.deb`/`faro_arm64.deb` so `releases/latest/download/` links on the site stay stable. Linux prebuilt binaries probably vendor OpenSSL so they run on any distro; confirm when setting it up.
+- **No `curl | sh` installer** (owner): a script from our own server for an app holding Signal keys puts too much trust in that server, and the audience has package managers. Can be added later from GitHub Releases if asked for.
+- **Nix:** later; a flake in the repo is the likely route, but the owner doesn't use Nix and it isn't needed for v0.1.
+- **The site shows every method before they exist** (owner): no "coming soon" note; the repo is private until the release anyway. The clean-machine check moves after the release and covers each method.

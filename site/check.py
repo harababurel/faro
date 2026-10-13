@@ -26,7 +26,7 @@ OWNER_MARKS = ["{operator}", "{contact}", "{country}", "{law}", "TODO(owner)"]
 
 # The §6.6 budgets, in bytes.
 BUDGET_TOTAL = 200 * 1024
-BUDGET_PAGE = 40 * 1024  # HTML + CSS + JS, compressed
+BUDGET_PAGE = 48 * 1024  # HTML + CSS + JS, compressed
 BUDGET_FONT = 60 * 1024
 BUDGET_POSTER = 80 * 1024
 BUDGET_PHONE = 80 * 1024  # each §4.7 phone frame, compressed

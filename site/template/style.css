@@ -269,6 +269,8 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
   padding: .2rem .5rem; cursor: pointer;
 }
 .copy:hover { border-color: var(--accent); color: var(--accent); }
+.install h3 { margin-top: 1.4rem; }
+.install .note { font-size: .9rem; }
 .prereq { border-collapse: collapse; margin: 0 0 1rem; }
 .prereq th, .prereq td { border: 1px solid var(--border); padding: .35rem .7rem; text-align: left; }
 .prereq th { font-family: var(--mono); font-size: .85rem; }

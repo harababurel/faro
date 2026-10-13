@@ -74,8 +74,8 @@
     <p class="cta">
       <a class="btn primary" id="demo-cta" href="#demo">▶ See it here, no install</a>
       <span class="codeblock hero-install">
-        <code>git clone https://github.com/harababurel/faro</code>
-        <button class="copy js-only" type="button" data-method="cargo">Copy<span class="sr-only"> the install command</span></button>
+        <code>brew install harababurel/tap/faro</code>
+        <button class="copy js-only" type="button" data-method="brew">Copy<span class="sr-only"> the install command</span></button>
       </span>
     </p>
     <p class="facts">Unofficial · not affiliated with Signal · AGPL-3.0 · v{{version}} ({{date}})</p>
@@ -147,31 +147,57 @@
 
   <section class="install" id="install" aria-labelledby="install-title">
     <h2 id="install-title">Install</h2>
-    <div class="install-panel" id="install-source">
-      <div class="codeblock">
-        <pre>git clone https://github.com/harababurel/faro
+
+    <h3>macOS / Linux (Homebrew)</h3>
+    <div class="codeblock">
+      <pre>brew install harababurel/tap/faro</pre>
+      <button class="copy js-only" type="button" data-method="brew">Copy<span class="sr-only"> the Homebrew command</span></button>
+    </div>
+
+    <h3>Arch Linux (AUR)</h3>
+    <div class="codeblock">
+      <pre>yay -S faro-bin</pre>
+      <button class="copy js-only" type="button" data-method="aur">Copy<span class="sr-only"> the AUR command</span></button>
+    </div>
+    <p class="note">or <code>faro</code> to build the release from source, <code>faro-git</code> for the latest commit; any AUR helper works.</p>
+
+    <h3>Debian / Ubuntu (.deb)</h3>
+    <div class="codeblock">
+      <pre>curl -LO https://github.com/harababurel/faro/releases/latest/download/faro_amd64.deb
+sudo apt install ./faro_amd64.deb</pre>
+      <button class="copy js-only" type="button" data-method="deb">Copy<span class="sr-only"> the .deb commands</span></button>
+    </div>
+    <p class="note"><code>faro_arm64.deb</code> on ARM.</p>
+
+    <h3>Prebuilt binary</h3>
+    <p>macOS (Apple silicon, Intel) and Linux (x86_64, ARM64) archives with checksums on the <a href="https://github.com/harababurel/faro/releases/latest">releases page</a>.</p>
+
+    <h3>From source</h3>
+    <div class="codeblock">
+      <pre>git clone https://github.com/harababurel/faro
 cd faro
 cargo build --release          <span class="cmt"># binary: target/release/faro</span></pre>
-        <button class="copy js-only" type="button" data-method="cargo">Copy<span class="sr-only"> the build commands</span></button>
-      </div>
-      <p>You need Rust via <a href="https://rustup.rs">rustup</a>; the exact toolchain is pinned in the repo and rustup installs it on the first build. Building also needs the protobuf compiler and a C toolchain for libsignal and SQLCipher:</p>
-      <table class="prereq">
-        <caption class="sr-only">Build prerequisites per operating system</caption>
-        <thead><tr><th>OS</th><th>Packages</th></tr></thead>
-        <tbody>
-          <tr><td>Arch</td><td><code>sudo pacman -S protobuf cmake clang pkgconf openssl</code></td></tr>
-          <tr><td>Debian/Ubuntu</td><td><code>sudo apt install protobuf-compiler cmake clang pkg-config libssl-dev</code></td></tr>
-          <tr><td>macOS</td><td><code>brew install protobuf cmake</code></td></tr>
-        </tbody>
-      </table>
-      <p>Then try it before linking anything:</p>
-      <div class="codeblock">
-        <pre>./target/release/faro demo   <span class="cmt"># try it with fake contacts first</span>
-./target/release/faro link   <span class="cmt"># then link it: scan the QR code in Signal › Settings › Linked devices</span>
-./target/release/faro</pre>
-      </div>
-      <p class="platforms">Linux and macOS, x86_64 and arm64. Windows isn&rsquo;t supported.</p>
+      <button class="copy js-only" type="button" data-method="cargo">Copy<span class="sr-only"> the build commands</span></button>
     </div>
+    <p>You need Rust via <a href="https://rustup.rs">rustup</a>; the exact toolchain is pinned in the repo and rustup installs it on the first build. Building also needs the protobuf compiler and a C toolchain for libsignal and SQLCipher:</p>
+    <table class="prereq">
+      <caption class="sr-only">Build prerequisites per operating system</caption>
+      <thead><tr><th>OS</th><th>Packages</th></tr></thead>
+      <tbody>
+        <tr><td>Arch</td><td><code>sudo pacman -S protobuf cmake clang pkgconf openssl</code></td></tr>
+        <tr><td>Debian/Ubuntu</td><td><code>sudo apt install protobuf-compiler cmake clang pkg-config libssl-dev</code></td></tr>
+        <tr><td>macOS</td><td><code>brew install protobuf cmake</code></td></tr>
+      </tbody>
+    </table>
+
+    <h3>First run</h3>
+    <p>Works the same whichever way you installed faro. Try it before linking anything:</p>
+    <div class="codeblock">
+      <pre>faro demo   <span class="cmt"># try it with fake contacts first</span>
+faro link   <span class="cmt"># then link it: scan the QR code in Signal › Settings › Linked devices</span>
+faro</pre>
+    </div>
+    <p class="platforms">Linux and macOS, x86_64 and arm64. Windows isn&rsquo;t supported.</p>
   </section>
 
   <section class="trust" id="trust" aria-labelledby="trust-title">
@@ -282,7 +308,7 @@ cargo build --release          <span class="cmt"># binary: target/release/faro</
   <p>This page and its demo were built from <a href="{{source_url}}">faro {{commit}}</a> (AGPL-3.0).</p>
   <p>faro is an independent project, not affiliated with, endorsed by, or supported by Signal Messenger LLC or the Signal Technology Foundation.</p>
   <p>The demo&rsquo;s cast is an affectionate parody of characters from NBC&rsquo;s <em>The Office</em>; faro is not affiliated with NBCUniversal.</p>
-  <p>No cookies. Visitor numbers come from cookieless analytics on our own server (<a href="/privacy">Privacy</a>). This page is one HTML file, one stylesheet and a little JavaScript — the inline posters included, under 40 KB compressed — and it makes no third-party requests.</p>
+  <p>No cookies. Visitor numbers come from cookieless analytics on our own server (<a href="/privacy">Privacy</a>). This page is one HTML file, one stylesheet and a little JavaScript — the inline posters included, under 50 KB compressed — and it makes no third-party requests.</p>
 </footer>
 
 <script defer src="site.js"></script>

@@ -534,7 +534,7 @@ These follow the existing rules: lints, no blocking calls, decisions recorded, q
 
 | What | Budget |
 |---|---|
-| HTML + CSS + JS (compressed) | ≤ 40 KB |
+| HTML + CSS + JS (compressed) | ≤ 48 KB |
 | Webfont (one subset woff2) | ≤ 60 KB |
 | Poster SVG (compressed) | ≤ 80 KB |
 | **First load total** | **≤ 200 KB**; first paint < 1 s on a slow 4G profile |

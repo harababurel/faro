@@ -177,6 +177,7 @@ The owner's main complaint after trying the prototype: misaligned borders and st
 6. ✅ Sidebar markers (D96, done 2026-10-11): `#` before group names (also in the palette, where direct chats lose their `@`), and on the right edge before the unread count `⊘` for muted and `@` for mentions only, in the muted colour.
 7. ✅ Bubble shapes (D98, done 2026-10-11; owner's hands-on checks pending): quarter-circle corners on taller rounded bubbles, `[messages] bubble_padding`, compact runs that join on their aligned side, `[messages] match_widths`, a blank line between runs in compact.
 8. Tag `v0.1.0`; build release binaries (manual or cargo-dist). Make the repo public first; then upload `faro-git` to the AUR, add `faro` and `faro-bin` PKGBUILDs and the Homebrew formula in `harababurel/tap` (D86).
+   Packaging plan (D133): `dist` builds macOS arm64/x86_64 and Linux x86_64/aarch64 archives with checksums and pushes the Homebrew formula; `cargo-deb` adds `faro_amd64.deb`/`faro_arm64.deb` (stable names for `releases/latest/download/`); `faro-bin` uses the Linux archive. No `curl | sh` installer. Nix later. Then the clean-machine check: one install per method (brew on macOS, `faro-bin` on Arch, the `.deb` on Debian, from source).
 
 **Acceptance**
 - The owner uses faro as their daily Signal client instead of gurk.
