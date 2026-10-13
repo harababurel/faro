@@ -1,9 +1,5 @@
-/* getfaro.dev (WEBSITE.md §5): colours from faro's own faro-dark / faro-light
-   themes (§5.1), JetBrains Mono + system UI sans (§5.2). Dark is the default;
-   the page follows prefers-color-scheme, the toggle overrides it with a
-   data-theme attribute on <html> (theme.js applies the stored choice), and
-   light-dark() resolves per the used scheme. Muted grey: labels only, never
-   sentences (§5.1). */
+/* getfaro.dev (WEBSITE.md §5): faro's own faro-dark / faro-light colours (§5.1),
+   JetBrains Mono + system UI sans (§5.2). */
 
 @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url("fonts/JetBrainsMono-Regular.woff2") format("woff2"); }
 @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 700; font-display: swap; src: url("fonts/JetBrainsMono-Bold.woff2") format("woff2"); }
@@ -14,8 +10,8 @@
   --bg: light-dark(#f7f4ee, #101216);
   --panel: light-dark(#efebe3, #1a1d23);
   --fg: light-dark(#24272e, #e6e6e6);
-  --muted: light-dark(#656a73, #7c838f); /* labels only, never body copy (§5.1) */
-  --accent: light-dark(#9a5c06, #f5b94a); /* the one accent (§5.1) */
+  --muted: light-dark(#656a73, #7c838f);
+  --accent: light-dark(#9a5c06, #f5b94a);
   --border: light-dark(#c9c3b6, #3a3f4a);
   --logo-red: light-dark(#b8352a, #e86b6b);
   --logo-lamp: light-dark(#9c4f08, #f5a742);
@@ -64,16 +60,15 @@ h3 { font-size: 1.05rem; margin: 0 0 .3rem; }
   overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
 }
 
-/* Controls that need JavaScript stay hidden until site.js adds html.js. */
+/* controls that need JS stay hidden until site.js adds html.js */
 .js-only { display: none; }
 html.js .js-only { display: inline-flex; align-items: center; gap: .3em; }
 
-/* ---- header ------------------------------------------------------------- */
 .site-head nav {
   display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
   max-width: 75rem; margin: 0 auto; padding: .6rem 1.25rem;
 }
-/* Sticky and thin on desktop only (§3); phones keep it in flow. */
+
 @media (min-width: 641px) {
   .site-head {
     position: sticky; top: 0; z-index: 5;
@@ -92,7 +87,7 @@ html.js .js-only { display: inline-flex; align-items: center; gap: .3em; }
   color: var(--fg); padding: .25rem .5rem; cursor: pointer;
 }
 #theme-toggle:hover { border-color: var(--accent); color: var(--accent); }
-/* Sun in dark (click: go light), moon in light; the subset (D107) lacks ☀/☾. */
+
 #theme-toggle svg { display: block; }
 #theme-toggle .icon-moon { display: none; }
 @media (prefers-color-scheme: light) {
@@ -104,12 +99,10 @@ html.js .js-only { display: inline-flex; align-items: center; gap: .3em; }
 [data-theme="light"] #theme-toggle .icon-sun { display: none; }
 [data-theme="light"] #theme-toggle .icon-moon { display: block; }
 
-/* The panel takes the page's full width (§3.2); prose keeps its 46rem column. */
 main { max-width: 75rem; margin: 0 auto; padding: 0 1.25rem; }
 section { margin: 3rem 0; }
 main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin-right: auto; }
 
-/* ---- hero --------------------------------------------------------------- */
 .hero { margin-top: 3.5rem; }
 .subline { font-size: 1.2rem; max-width: 60ch; }
 .cta { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
@@ -122,20 +115,15 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
 .hero-install { flex: 1 1 22rem; min-width: 0; }
 .facts { color: var(--muted); font-size: .85rem; }
 
-/* ---- the terminal panel (§3.2, §4.7) ------------------------------------ */
 .panel-section { max-width: 75rem; }
 .panel { margin: 0; }
 .panel .frame {
-  position: relative; /* the demo's parts sit over the poster (§4.2) */
+  position: relative;
   border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
 }
-/* the one accent says the keys are faro's (§4.3, D125); demo.js puts .focused
-   on the frame while the canvas has the focus */
+/* the accent says keys are faro's (§4.3, D125); demo.js sets .focused */
 .panel .frame.focused { border-color: var(--accent); }
-/* {{poster}} is two inline SVGs of one frame (§3.2, §6.4), one per scheme:
-   only the one matching the page's scheme shows — the same base /
-   prefers-color-scheme / data-theme pattern as the toggle above. display:none
-   also leaves the hidden poster out of the accessibility tree. */
+
 .panel .frame svg { display: block; width: 100%; height: auto; }
 .poster-dark { display: block; }
 .poster-light { display: none; }
@@ -148,10 +136,7 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
 [data-theme="light"] .poster-dark { display: none; }
 [data-theme="light"] .poster-light { display: block; }
 
-/* ---- the live demo over the poster (§4.2): demo.js adds these to .frame;
-   they start hidden, and the [hidden] rules keep them hidden past these. */
 .demo-status {
-  /* over the poster's footer row, in faro's footer colours */
   position: absolute; left: 0; right: 0; bottom: 0;
   margin: 0; max-width: none; padding: .15rem .6rem;
   font-family: var(--mono); font-size: .8rem; line-height: 1.5;
@@ -172,7 +157,7 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
   padding: .5rem .9rem; cursor: pointer;
 }
 .demo-exited button:hover { color: var(--accent); }
-/* live: the frame shrinks to the canvas, centred, posters hidden (§3.2) */
+
 .demo-canvas { display: none; }
 .frame.live .demo-canvas { display: block; }
 .frame.live .poster-dark, .frame.live .poster-light { display: none !important; }
@@ -180,17 +165,16 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
 
 .panel figcaption { padding-top: .6rem; }
 .hints, .safety { font-size: .9rem; margin: 0 0 .4rem; }
-/* the focus hint (§4.3, D125): in the caption, never over the canvas or faro's
-   footer row; demo.js shows it only while live */
+
 .demo-focus {
   font-family: var(--mono); font-size: .85rem; color: var(--muted);
   margin: 0 0 .4rem;
 }
-.demo-focus[hidden] { display: none; } /* keep [hidden] winning over the class rule */
+.demo-focus[hidden] { display: none; } /* [hidden] beats the class rule */
 .humor { font-style: italic; }
 .poster-note { font-size: .85rem; margin: 0; }
 .panel-tools { display: flex; gap: .5rem; flex-wrap: wrap; margin: 0 0 .4rem; }
-.panel-tools[hidden] { display: none; } /* the class rule would beat the UA's [hidden] */
+.panel-tools[hidden] { display: none; } /* the class rule beats the UA's [hidden] */
 .chips { display: inline-flex; gap: .4rem; flex-wrap: wrap; }
 .chips button, .panel-tools > button {
   font-family: var(--mono); font-size: .8rem; color: var(--fg);
@@ -198,7 +182,7 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
   padding: .2rem .7rem; cursor: pointer;
 }
 .chips button:hover, .panel-tools > button:hover { border-color: var(--accent); color: var(--accent); }
-/* which theme is showing, and motion on (§4.5): demo.js keeps aria-pressed */
+
 .chips button[aria-pressed="true"], .panel-tools > button[aria-pressed="true"] {
   border-color: var(--accent); color: var(--accent);
   background: color-mix(in srgb, var(--accent) 14%, var(--panel));
@@ -207,42 +191,37 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
 .chips button[disabled]:hover, .panel-tools > button[disabled]:hover {
   border-color: var(--border); color: var(--fg);
 }
-/* what a control couldn't do (fullscreen unsupported/refused, §4.5): demo.js
-   fills this polite live region */
+
 .demo-controls-status { font-family: var(--mono); font-size: .85rem; margin: 0 0 .4rem; }
 .phone-note { display: none; font-size: .9rem; margin: .4rem 0 0; }
 
 @media (max-width: 640px) {
-  /* §4.7: the poster stays full width; the honest note replaces the demo and
-     the controls it would drive. */
+
   .phone-note { display: block; }
   .panel-section .panel-tools, .demo-controls-status { display: none; }
 }
 
-/* ⛶ (§4.5): the whole figure goes fullscreen, so the caption's controls stay
-   reachable beside the canvas; standard :fullscreen covers Chromium, Firefox
-   and Safari. The frame is never squeezed — the panel scrolls when the screen
-   is smaller, and demo.js refits the font. */
+/* ⛶ (§4.5): the whole figure goes fullscreen, keeping the caption's controls
+   reachable; the frame is never squeezed — the panel scrolls. */
 .panel:fullscreen {
   display: flex; flex-direction: column; height: 100%; padding: 1.25rem;
   background: var(--bg); overflow: auto;
 }
 .panel:fullscreen .frame { flex: none; }
 .panel:fullscreen figcaption { flex: none; }
+.panel:fullscreen figcaption > p { max-width: none; }
 
-/* ---- why faro (§3.3) ----------------------------------------------------- */
 .why-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.4rem 2rem; }
 .why-grid > div > p { margin: 0; }
 @media (max-width: 640px) { .why-grid { grid-template-columns: 1fr; } }
 
-/* ---- install (§3.4) ------------------------------------------------------ */
 .tabs { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: .8rem; }
 .tab {
   background: none; border: 1px solid var(--border); border-radius: 6px 6px 0 0;
   color: var(--fg); padding: .35rem .8rem; cursor: pointer; font-size: .9rem;
 }
 .tab[aria-selected="true"] { border-color: var(--accent); color: var(--accent); }
-/* the copy button sits beside the text, never over it; long commands scroll. */
+
 .codeblock {
   display: flex; align-items: center; gap: .75rem;
   background: var(--panel); border: 1px solid var(--border);
@@ -250,7 +229,7 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
 }
 .codeblock > pre, .codeblock > code { flex: 1 1 auto; min-width: 0; overflow-x: auto; }
 .codeblock > code { white-space: pre; }
-/* #7c838f on #1a1d23 is only 4.3:1, so code comments use the full text colour. */
+
 .codeblock .cmt { color: var(--fg); }
 .copy {
   flex: none;
@@ -264,7 +243,6 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
 .prereq th { font-family: var(--mono); font-size: .85rem; }
 .platforms { font-size: .9rem; }
 
-/* ---- trust (§3.5) --------------------------------------------------------- */
 .diagram { margin: 0 0 1.5rem; }
 .diagram svg { width: 100%; height: auto; max-width: 42rem; }
 .diagram .box rect { fill: var(--panel); stroke: var(--border); }
@@ -274,23 +252,19 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
 .statements { list-style: none; margin: 0; padding: 0; }
 .statements li { margin: 0 0 1rem; max-width: 70ch; }
 
-/* ---- limits -------------------------------------------------------------- */
 .limits ul { margin: 0; padding-left: 1.2rem; }
 .limits li { margin: 0 0 .5rem; max-width: 70ch; }
 
-/* ---- keys (§3.7) ---------------------------------------------------------- */
 .keytable { border-collapse: collapse; margin: 0 0 1rem; width: 100%; }
 .keytable th, .keytable td { border: 1px solid var(--border); padding: .35rem .7rem; text-align: left; vertical-align: top; }
 .keytable thead th { font-family: var(--mono); font-size: .85rem; }
 .keytable th[scope="row"] { white-space: nowrap; font-weight: 400; }
 
-/* ---- FAQ (§3.8) ------------------------------------------------------------ */
 .faq details { border-bottom: 1px solid var(--border); padding: .5rem 0; }
 .faq summary { font-weight: 700; cursor: pointer; }
 .faq summary:hover { color: var(--accent); }
 .faq details p { margin: .6rem 0 .4rem; }
 
-/* ---- footer ------------------------------------------------------------ */
 .site-foot {
   max-width: 75rem; margin: 3rem auto 0; padding: 1.5rem 1.25rem 2.5rem;
   border-top: 1px solid var(--border); font-size: .9rem;
@@ -300,13 +274,11 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
 .site-foot a { color: var(--accent); }
 .opt-out-note { font-size: .9rem; }
 
-/* ---- legal pages (§3.10) -------------------------------------------------- */
 .legal h1 { font-size: 2rem; }
 .legal h2 { font-size: 1.15rem; margin-top: 2rem; }
 .updated { color: var(--muted); font-size: .9rem; }
 .small { font-size: .85rem; color: var(--muted); }
 
-/* ---- motion --------------------------------------------------------------- */
 a, button, .tab, .copy, .panel .frame { transition: color .12s, border-color .12s; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; }

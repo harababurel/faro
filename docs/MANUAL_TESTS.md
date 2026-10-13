@@ -478,7 +478,9 @@ The template is `site/template/` (WEBSITE.md §7 Phase 1). Preview the built pag
 - [ ] **Narrow window** (below ~1000 px wide): the poster stays, no button and no preload — the grid is fixed at 120 columns, so the page gives the poster treatment rather than unreadable text.
 - [ ] **Colours (the `light-dark()` fix, D124):** the light scheme draws the cream page with dark text and the dark amber accent, the dark scheme the dark page with light text and the bright amber; the poster, code blocks, borders and the panel all match the scheme (they used to be swapped).
 
-Known gap, don't fail it: resizing the window after the swap doesn't refit the canvas — the grid is fixed at 120×34 (D124); refitting needs a `set_font_size` or a refit in faro-web and comes in a later chunk.
+Historical D124 gap: resizing did not refit the canvas. D126 adds font refitting
+on the fixed 120×34 grid; include resize/fullscreen in the panel-control checks
+below. Very small windows scroll rather than shrinking the font below 13 px.
 
 Notes (browser, version, OS, what went wrong):
 
@@ -497,7 +499,7 @@ that headless Chromium covers every real browser.
 - [ ] **Outside plain text:** while typing a draft, click the page's non-focusable heading or safety text. The panel loses its keys immediately, without closing the chat or losing the draft; keys and wheel belong to the page until you click back in. Right-clicking an unfocused canvas opens the browser's menu, not faro's; middle-click retains the browser's normal behaviour.
 - [ ] **Keyboard exit:** Tab can reach the canvas from the page. Inside, Tab cycles faro's panes; after escaping all the way out, Tab continues to the next page control instead of trapping the visitor in the demo. Browser-reserved reload/close/zoom chords stay the browser's.
 - [ ] **Away and back:** switch tabs or applications with a chat open. Incoming messages stay unread while away; returning restores faro's focus only if the canvas was still active. Clicking outside before switching away must not return the keys to faro on return.
-- [ ] **Resize while unfocused:** click outside and resize or zoom the page. Faro stays unfocused and messages are not silently marked read. The known fixed-120×34 refitting gap in D124 is still deferred.
+- [ ] **Resize while unfocused:** click outside and resize or zoom the page. Faro stays unfocused and messages are not silently marked read. D126 refits the font while preserving the 120×34 grid; tiny windows scroll at the 13 px minimum.
 - [ ] **Quit/restart:** after exit the hero CTA takes you to the restart button, not the dead canvas. After restarting from the exit overlay, focus hints, outside-click dismissal and the Esc chain still work; no duplicate handlers or freezing.
 
 Notes (browser, version, OS, what went wrong):

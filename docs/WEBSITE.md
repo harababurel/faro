@@ -845,15 +845,20 @@ Differences from the list above:
 - a visitor can click into it, chat with the cast, switch themes and leave with Esc or a click, in current Chrome, Firefox and Safari;
 - the page stays usable without JS, on a phone and with preloading switched off.
 
-**Progress (2026-10-13):** chunk 4.2 — preload, autostart and the handover — is done (D124): `site/template/demo.js` fetches the manifest when the page is idle, preloads only a capable device, shows a progress line over the poster's footer row, and swaps the poster for the canvas once faro has settled, on the poster's own 120×34 grid; the page's scheme, the hero CTA and the quit → restart overlay follow. Checked in headless Chromium; the owner's browser checks are in MANUAL_TESTS "Website: preload and handover". **Known gap:** resizing the window after the swap doesn't refit the canvas (the grid is fixed, D124) — needs a `set_font_size` or a refit in faro-web, for a later chunk.
+**Progress (2026-10-13):** chunk 4.2 — preload, autostart and the handover — is done (D124): `site/template/demo.js` fetches the manifest when the page is idle, preloads only a capable device, shows a progress line over the poster's footer row, and swaps the poster for the canvas once faro has settled, on the poster's own 120×34 grid; the page's scheme, the hero CTA and the quit → restart overlay follow. Checked in headless Chromium; the owner's browser checks are in MANUAL_TESTS "Website: preload and handover". D124's resize gap is addressed by D126's font refit, keeping the grid fixed at 120×34.
 
 **Chunk 4.3a done (2026-10-13, D125):** focus hints and the active panel border,
 click-to-enter and click-outside/Esc-to-leave, with window and hidden-tab focus
 handling. Escape releases the canvas only after faro's own dismissal chain;
 startup chat opening and resizing never pretend the visitor typed. Headless
 Chromium checks pass; the owner's Chrome/Firefox/Safari checks are in MANUAL_TESTS
-"Website: focus and Escape". **Next: 4.3b** — theme chips, restart, fullscreen and
-the motion controls; then analytics, phones and CI browser tests (4.4–4.6).
+"Website: focus and Escape".
+
+**Chunk 4.3b done (2026-10-13, D126):** theme chips/All, motion, restart and
+fullscreen with optional non-Escape Keyboard Lock; font refit and failed-load
+retry. Native/browser checks pass, including the native keyboard API and dpr2.
+Real-browser checks remain deferred in MANUAL_TESTS "Website: panel controls".
+**Next: 4.4 analytics**, then phones and CI browser tests (4.5–4.6).
 
 ### Phase 5: launch polish (2–3 days)
 
