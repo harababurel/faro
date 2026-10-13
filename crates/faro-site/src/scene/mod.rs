@@ -1,4 +1,5 @@
-//! The poster and the OG image (WEBSITE.md §3.2, §5.4, §6.4): a real faro
+//! The poster, the phone frames and the OG image (WEBSITE.md §3.2, §4.7,
+//! §5.4, §6.4): a real faro
 //! frame, built from the web demo's own starting point — the mock's backlog
 //! in the memory store, through the real reducer, the branch chat open at the
 //! bottom — exported as SVG in both faro themes, plus a 1200×630 PNG for
@@ -27,6 +28,10 @@ use faro_web::svg::{self, SvgOptions};
 use ratatui::buffer::Buffer;
 use resvg::tiny_skia;
 use resvg::usvg::{self, fontdb};
+
+mod phone;
+
+pub use phone::Frame as PhoneFrame;
 
 /// The poster grid: the demo's size (WEBSITE.md §4.4).
 const COLS: u16 = 120;
@@ -111,15 +116,19 @@ fn og_frame_x() -> f32 {
 /// The fonts resvg rasterises with — the web demo's own subsets (D107),
 /// decompiled for resvg (see `fonts/README.md`). Loading only these, and
 /// never system fonts, is what makes the PNG byte-identical everywhere.
-const FONT_REGULAR: &[u8] = include_bytes!("../fonts/JetBrainsMono-Regular.ttf");
-const FONT_BOLD: &[u8] = include_bytes!("../fonts/JetBrainsMono-Bold.ttf");
+const FONT_REGULAR: &[u8] = include_bytes!("../../fonts/JetBrainsMono-Regular.ttf");
+const FONT_BOLD: &[u8] = include_bytes!("../../fonts/JetBrainsMono-Bold.ttf");
 /// The family name inside those files.
 const FONT_NAME: &str = "JetBrains Mono";
 
-/// The page's posters and the OG image, all from one frame.
+/// The page's posters, phone frames and the OG image, all from one frame.
 pub struct Art {
     pub posters: Posters,
     pub og_png: Vec<u8>,
+    /// The §4.7 phone frames: conversation, palette and themes, each in
+    /// both schemes, as site-relative files (4.5a: written unreferenced;
+    /// 4.5b wires them into the page).
+    pub phones: Vec<PhoneFrame>,
 }
 
 /// The same frame as SVG, once per page scheme.
@@ -156,9 +165,11 @@ async fn frame() -> Result<Art, String> {
     let dark = poster(&mut state, "faro-dark", "dark")?;
     let light = poster(&mut state, "faro-light", "light")?;
     let og_png = og(&mut state)?;
+    let phones = phone::phones(&mut state)?;
     Ok(Art {
         posters: Posters { dark, light },
         og_png,
+        phones,
     })
 }
 
@@ -170,13 +181,15 @@ fn poster(state: &mut State, name: &str, variant: &str) -> Result<String, String
     let theme = Theme::find(name, &state.user_themes)
         .ok_or_else(|| format!("the built-in theme {name} is missing"))?;
     Ok(named(
-        &svg::buffer_to_svg(&buffer, &svg_options(theme)),
+        &svg::buffer_to_svg(&buffer, &svg_options(theme, TITLE)),
         variant,
     ))
 }
 
-/// The SVG export options shared by both posters and the OG's frame.
-fn svg_options(theme: &Theme) -> SvgOptions {
+/// The SVG export options shared by the posters, the phone frames and the
+/// OG's frame: the same cell metrics and font stack, only the accessible
+/// name differs.
+pub(super) fn svg_options(theme: &Theme, title: &str) -> SvgOptions {
     let (foreground, background) = theme_rgb(theme);
     let (cell_width, cell_height) = cell();
     SvgOptions {
@@ -186,7 +199,7 @@ fn svg_options(theme: &Theme) -> SvgOptions {
         font_size: FONT_SIZE,
         foreground,
         background,
-        title: TITLE.to_owned(),
+        title: title.to_owned(),
     }
 }
 
@@ -203,7 +216,7 @@ fn og(state: &mut State) -> Result<Vec<u8>, String> {
         .ok_or_else(|| "the built-in theme faro-dark is missing".to_owned())?;
     let mut buffer = demo::draw(state, COLS, ROWS);
     strip_unsupported(&mut buffer);
-    let inner = svg::buffer_to_svg(&buffer, &svg_options(theme));
+    let inner = svg::buffer_to_svg(&buffer, &svg_options(theme, TITLE));
     let svg = og_svg(&inner, theme);
     rasterise(&svg)
 }
@@ -351,8 +364,10 @@ fn theme_rgb(theme: &Theme) -> (Rgb, Rgb) {
 
 /// `svg::buffer_to_svg` calls its `<title>` `poster-title`; two inline
 /// posters in one page need distinct ids so each `aria-labelledby` points
-/// at its own.
-fn named(svg: &str, variant: &str) -> String {
+/// at its own. The phone frames use the same mechanism with their kind and
+/// scheme as the variant, so every frame's id is unique however many end up
+/// in one page.
+pub(super) fn named(svg: &str, variant: &str) -> String {
     svg.replace("poster-title", &format!("poster-title-{variant}"))
 }
 
@@ -414,8 +429,8 @@ mod tests {
         assert!(!once.posters.dark.contains(r#"id="poster-title">"#));
         assert!(once.posters.light.contains(r#"id="poster-title-light""#));
 
-        // `FARO_POSTER_OUT=<dir> cargo test -p faro-site` writes all three
-        // out.
+        // `FARO_POSTER_OUT=<dir> cargo test -p faro-site` writes all of it
+        // out, the phone frames under `phone/` as the site writes them.
         if let Some(dir) = std::env::var_os("FARO_POSTER_OUT") {
             std::fs::create_dir_all(&dir).expect("the poster out dir");
             let out = std::path::Path::new(&dir);
@@ -424,6 +439,12 @@ mod tests {
             std::fs::write(out.join("poster-light.svg"), &once.posters.light)
                 .expect("poster-light.svg can be written");
             std::fs::write(out.join("og.png"), &once.og_png).expect("og.png can be written");
+            for frame in &once.phones {
+                let path = out.join(&frame.name);
+                std::fs::create_dir_all(path.parent().expect("the phone frames' dir"))
+                    .expect("the phone frames' dir");
+                std::fs::write(&path, &frame.svg).expect("a phone frame can be written");
+            }
         }
     }
 

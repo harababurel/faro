@@ -262,6 +262,12 @@ The panel shows the poster cropped to one readable pane (the open conversation a
 
 A later option is a read-only "watch" mode, where the demo plays its scenes with no keyboard and taps switch chats. It's not in v1.
 
+4.5a (D128) generates the three views at 44×24 cells, in dark and light,
+from the real app state/reducer/exporter. They are currently unreferenced assets;
+4.5b still needs to wire the gallery, mobile poster and responsive fallback,
+hash the assets and verify fonts in the browser. An external SVG image does not
+inherit the page's webfonts: this must be solved before these frames are shown.
+
 ### 4.8 What doesn't work in the browser, and what happens instead
 
 | Feature | In the web demo |
@@ -872,6 +878,12 @@ opt-out, absent/throwing trackers, previews, restarts and payload privacy.
 Site budgets and no-JS checks pass; dashboard/real-browser checks are deferred
 in MANUAL_TESTS "Website: demo analytics". **Next: 4.5 phones**, then CI browser
 tests (4.6).
+
+**Chunk 4.5a done (2026-10-13, D128):** six deterministic phone frames generated
+and written by faro-site; composition checked with local raster previews and
+theme/selection correctness covered by tests. This is an asset-only checkpoint,
+not completed mobile behaviour. **Next: 4.5b gallery and responsive wiring**, then
+4.6 CI browser tests. Owner deployment remains deferred.
 
 ### Phase 5: launch polish (2–3 days)
 

@@ -121,6 +121,11 @@ pub fn generate(template: &Path, out: &Path, pkg: Option<&Path>) -> Result<(), S
         }
     }
     written.insert(og_name, art.og_png);
+    // The §4.7 phone frames (4.5a): written under stable names, not hashed
+    // and not referenced by the template yet — 4.5b wires them in.
+    for frame in &art.phones {
+        written.insert(frame.name.clone(), frame.svg.clone().into_bytes());
+    }
 
     for (rel, bytes) in &written {
         let path = out.join(rel);

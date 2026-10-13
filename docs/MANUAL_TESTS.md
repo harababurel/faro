@@ -528,3 +528,13 @@ Plausible dashboard. Use a fresh page load and enable counting only if desired.
 - [ ] **Privacy:** inspect `/api/event` requests: no typed message, draft, recipient or message identifier is sent. Use “Don't count my visits”, reload and interact: no analytics events. Blocking the tracker does not break sending, themes or restart.
 
 Notes (browser, version, OS, what went wrong):
+
+## Website: phone frames (M13 Phase 4.5, D128)
+
+Deferred until 4.5b integrates the generated assets; 4.5a alone has no visible
+page change. Local raster previews are not browser/font or real-phone checks.
+
+- [ ] **Readable frames:** once integrated, the conversation, palette and Themes stills stay legible on a phone without shrinking the whole desktop UI. Dark/light colours, selected theme marker, text alignment and emoji look correct.
+- [ ] **Gallery and fallback:** swipe between the three views; the computer-only explanation is visible. Phones/narrow screens fetch no wasm, and the gallery remains useful without JavaScript. Check portrait/landscape and returning to laptop width.
+
+Notes (browser, version, OS, what went wrong):

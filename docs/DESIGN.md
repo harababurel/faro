@@ -137,6 +137,12 @@ handlers never call Rust synchronously, and opted-out or unavailable tracking
 cannot affect the demo. Run `node site/tools/test_demo_analytics.mjs` for the
 page-level regression checks; native tests check the send predicate.
 
+Phone frame generation (D128, 4.5a) reuses the deterministic poster state and
+shared reducer/exporter for conversation, command palette and Themes views at
+44×24 cells, in both page schemes. The site generator emits six unreferenced
+SVGs under `phone/`; gallery/responsive wiring and isolated-SVG font integration
+are deferred to 4.5b. The desktop page is unchanged at this checkpoint.
+
 The demo draws emoji with `EmojiMode::Exact` (D118).
 
 ## 5. Backend interface
