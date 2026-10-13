@@ -56,25 +56,38 @@ export async function assertGallery(ctx, sc, page) {
     "Math.round(document.querySelector('.phone-gallery figure').getBoundingClientRect().width)"
   );
   ctx.assert(sc, "figure is at least the 358px clamp", figure >= 358, `${figure}px`);
-  // On failure, name up to 3 elements past the right edge so CI reports
-  // the culprit instead of just the pixel count.
+  // On failure, name up to 3 outermost elements past the right edge so
+  // CI reports the culprit instead of just the pixel count. Elements
+  // inside a horizontal scroller (overflow-x auto/scroll/hidden/clip,
+  // other than html/body) are expected to extend past the viewport.
   const overflow = await page.evaluate(`(() => {
     const de = document.documentElement;
     const over = de.scrollWidth - de.clientWidth;
     if (over <= 2) return { over, bad: [] };
     const limit = de.clientWidth;
+    const clipped = (e) => {
+      for (let p = e.parentElement; p && p !== document.body; p = p.parentElement) {
+        if (["auto", "scroll", "hidden", "clip"].includes(getComputedStyle(p).overflowX)) return true;
+      }
+      return false;
+    };
     const bad = [];
     for (const el of document.querySelectorAll("body *")) {
       const r = el.getBoundingClientRect();
-      if (r.right > limit + 0.5 && r.width > 0 && r.height > 0) {
-        const id = el.id ? "#" + el.id : "";
-        const cls = typeof el.className === "string" && el.className
-          ? "." + el.className.trim().split(/\\s+/)[0] : "";
-        bad.push(el.tagName.toLowerCase() + id + cls + " right=" + Math.round(r.right));
-        if (bad.length === 3) break;
-      }
+      if (r.right <= limit + 0.5 || r.width === 0 || r.height === 0) continue;
+      if (clipped(el)) continue;
+      if (bad.some((seen) => seen.contains(el))) continue; // inner: keep the outer
+      for (let i = bad.length - 1; i >= 0; i--) if (el.contains(bad[i])) bad.splice(i, 1);
+      bad.push(el);
+      if (bad.length === 3) break;
     }
-    return { over, bad };
+    const name = (el) => {
+      const id = el.id ? "#" + el.id : "";
+      const cls = typeof el.className === "string" && el.className
+        ? "." + el.className.trim().split(/\\s+/)[0] : "";
+      return el.tagName.toLowerCase() + id + cls + " right=" + Math.round(el.getBoundingClientRect().right);
+    };
+    return { over, bad: bad.map(name) };
   })()`);
   ctx.assert(sc, "no horizontal page overflow", overflow.over <= 2,
     `${overflow.over}px${overflow.bad.length ? " — " + overflow.bad.join(", ") : ""}`);
