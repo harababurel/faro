@@ -15,8 +15,8 @@
                   selectable, readable by screen readers, crisp at any zoom.
     {{og_image}}  absolute URL of the 1200x630 OG PNG (§5.4)
 
-  Asset references (style.css, theme.js, site.js, js/init.js, fonts/) stay
-  plain; the generator replaces them with content-hashed names.
+  Asset references (style.css, theme.js, site.js, demo.js, js/init.js, fonts/)
+  stay plain; the generator replaces them with content-hashed names.
   TODO(generator): favicon (the small lighthouse) and the exported logo
   SVGs (§5.4).
 -->
@@ -40,6 +40,9 @@
      /js/init.js also handles the footer's analytics opt-out link (§6.9). -->
 <script defer src="/js/init.js"></script>
 <script defer src="/js/s.js"></script>
+<!-- The demo loader (§4.2): the poster turns into the live faro, after the page
+     has loaded, so it's outside the first-load budget (§6.6). -->
+<script defer src="demo.js"></script>
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -91,7 +94,7 @@
     <h1 id="hero-title">Signal, in your terminal.</h1>
     <p class="subline">faro is an unofficial, open-source Signal client for people who live in tmux and SSH. It&rsquo;s keyboard-driven, it looks good, and it never freezes.</p>
     <p class="cta">
-      <a class="btn primary" href="#demo">▶ See it here, no install</a>
+      <a class="btn primary" id="demo-cta" href="#demo">▶ See it here, no install</a>
       <span class="codeblock hero-install">
         <code>git clone https://github.com/harababurel/faro</code>
         <button class="copy js-only" type="button" data-method="cargo">Copy<span class="sr-only"> the install command</span></button>
@@ -111,6 +114,10 @@
              open on the right, an input box below, and a footer reading
              connected · demo · unread". Only one is shown (style.css). -->
 {{poster}}
+        <!-- The live demo's parts (§4.2), hidden until demo.js needs one -->
+        <p id="demo-status" class="demo-status" aria-hidden="true" hidden></p>
+        <button id="demo-start" class="btn primary demo-start" type="button" hidden>▶ Start the demo</button>
+        <div id="demo-exited" class="demo-exited" hidden><button id="demo-again" type="button">faro exited · ↺ start again</button></div>
       </div>
       <figcaption>
         <p class="hints"><kbd>Ctrl+P</kbd> palette · <kbd>Alt+J/K</kbd> chats · <kbd>↑</kbd> pick a message · <kbd>+</kbd> react · <kbd>Enter</kbd> send</p>
@@ -123,7 +130,7 @@
           <button type="button" data-tool="restart">↺<span class="sr-only">Restart the demo</span></button>
         </p>
         <p class="safety">Fake coworkers, scripted scenes. Nothing leaves your browser. <span class="humor">Dwight will reply. He always replies.</span></p>
-        <p class="poster-note">A real frame of <code>faro demo</code>, rendered from the app at build time. The live demo lands here in an update.</p>
+        <p class="poster-note">A real frame of <code>faro demo</code>, rendered from the app at build time. On a computer it turns into the live demo once it loads.</p>
         <p class="phone-note">faro is a keyboard app. Open this page on a computer to try the live demo.</p>
       </figcaption>
     </figure>

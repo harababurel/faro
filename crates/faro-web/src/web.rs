@@ -76,6 +76,24 @@ impl Demo {
         now_ms() - started
     }
 
+    /// Whether the start has settled: the opening chat is open with its
+    /// history, or the visitor took over first. The page shows the canvas in
+    /// the poster's place only then (D124).
+    pub fn ready(&self) -> bool {
+        self.shell.borrow().session.settled()
+    }
+
+    /// The theme faro draws with (the palette's preview, else the setting).
+    pub fn theme(&self) -> String {
+        self.shell.borrow().state().theme_name().to_owned()
+    }
+
+    /// Switch to the theme `name` without a notice, as the page does to
+    /// follow its light/dark scheme; `false` if there's no such theme.
+    pub fn set_theme(&self, name: &str) -> bool {
+        self.shell.borrow_mut().set_theme(name)
+    }
+
     /// Draw a whole frame from scratch, as after a resize or a theme switch:
     /// render, diff and paint every row (to measure); returns the
     /// milliseconds it took.

@@ -2,7 +2,7 @@
 // `window.done`, optionally type, click and wait, and take screenshots.
 //
 //   node crates/faro-web/tools/shot.mjs <url> <out.png> [script.json] \
-//        [--size 1280x760] [--dpr 2]
+//        [--size 1280x760] [--dpr 2] [--init "js run before the page's own"]
 //
 // `CHROME` names the browser (default /opt/google/chrome/chrome); headless
 // shell builds work too. The script is a list of steps:
@@ -29,6 +29,7 @@ const flag = (name, def) => {
 };
 const [width, height] = flag("--size", "1280x760").split("x").map(Number);
 const dpr = Number(flag("--dpr", "2"));
+const init = flag("--init", null);
 const [url, out, scriptPath] = args;
 const script = scriptPath ? JSON.parse(readFileSync(scriptPath, "utf8")) : [];
 
@@ -50,6 +51,7 @@ for (let i = 0; i < 50 && !target; i++) {
     target = list.find((t) => t.type === "page");
   } catch {}
 }
+if (!target) { console.log(JSON.stringify({ error: "no CDP target" })); process.exit(2); }
 const ws = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((r) => ws.addEventListener("open", r, { once: true }));
 let id = 0;
@@ -70,6 +72,10 @@ const evaluate = async (expression) =>
   (await send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true })).result?.result?.value;
 
 await send("Runtime.enable");
+if (init) {
+  await send("Page.enable");
+  await send("Page.addScriptToEvaluateOnNewDocument", { source: init });
+}
 await send("Page.navigate", { url });
 let stats = null;
 for (let i = 0; i < 300 && stats === null; i++) {

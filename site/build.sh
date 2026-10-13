@@ -24,7 +24,7 @@ fi
 
 # The web demo's wasm module (needs the wasm32 target and wasm-bindgen-cli:
 # site/deploy/README.md step 5). Skip with SITE_NO_DEMO=1 to build only the
-# page while working on it; the page doesn't load the demo yet, so nothing
+# page while working on it; demo.js loads it, so nothing
 # else changes.
 pkg="$here/../crates/faro-web/www/pkg"
 demo=()

@@ -11,14 +11,14 @@
 
 :root {
   color-scheme: dark light;
-  --bg: light-dark(#101216, #f7f4ee);
-  --panel: light-dark(#1a1d23, #efebe3);
-  --fg: light-dark(#e6e6e6, #24272e);
-  --muted: light-dark(#7c838f, #656a73); /* labels only, never body copy (§5.1) */
-  --accent: light-dark(#f5b94a, #9a5c06); /* the one accent (§5.1) */
-  --border: light-dark(#3a3f4a, #c9c3b6);
-  --logo-red: light-dark(#e86b6b, #b8352a);
-  --logo-lamp: light-dark(#f5a742, #9c4f08);
+  --bg: light-dark(#f7f4ee, #101216);
+  --panel: light-dark(#efebe3, #1a1d23);
+  --fg: light-dark(#24272e, #e6e6e6);
+  --muted: light-dark(#656a73, #7c838f); /* labels only, never body copy (§5.1) */
+  --accent: light-dark(#9a5c06, #f5b94a); /* the one accent (§5.1) */
+  --border: light-dark(#c9c3b6, #3a3f4a);
+  --logo-red: light-dark(#b8352a, #e86b6b);
+  --logo-lamp: light-dark(#9c4f08, #f5a742);
   --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
@@ -105,8 +105,11 @@ html.js .js-only { display: inline-flex; align-items: center; gap: .3em; }
 [data-theme="light"] #theme-toggle .icon-sun { display: none; }
 [data-theme="light"] #theme-toggle .icon-moon { display: block; }
 
-main { max-width: 46rem; margin: 0 auto; padding: 0 1.25rem; }
+/* The panel takes the page's full width (§3.2), so main is as wide as the
+   header and footer; the prose sections keep the 46rem column inside it. */
+main { max-width: 75rem; margin: 0 auto; padding: 0 1.25rem; }
 section { margin: 3rem 0; }
+main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin-right: auto; }
 
 /* ---- hero --------------------------------------------------------------- */
 .hero { margin-top: 3.5rem; }
@@ -124,7 +127,10 @@ section { margin: 3rem 0; }
 /* ---- the terminal panel (§3.2, §4.7) ------------------------------------ */
 .panel-section { max-width: 75rem; }
 .panel { margin: 0; }
-.panel .frame { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.panel .frame {
+  position: relative; /* the demo's parts sit over the poster (§4.2) */
+  border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+}
 /* {{poster}} is two inline SVGs of one frame (§3.2, §6.4): the same frame
    in faro-dark and faro-light. Only the one matching the page's scheme
    shows — the same base / prefers-color-scheme / data-theme pattern as the
@@ -142,6 +148,39 @@ section { margin: 3rem 0; }
 [data-theme="dark"] .poster-light { display: none; }
 [data-theme="light"] .poster-dark { display: none; }
 [data-theme="light"] .poster-light { display: block; }
+
+/* ---- the live demo over the poster (§4.2) ---------------------------------
+   demo.js adds these to .frame; they start hidden, and the [hidden] rules keep
+   them hidden past the display rules here. */
+.demo-status {
+  /* over the poster's own footer row, in faro's footer colours */
+  position: absolute; left: 0; right: 0; bottom: 0;
+  margin: 0; max-width: none; padding: .15rem .6rem;
+  font-family: var(--mono); font-size: .8rem; line-height: 1.5;
+  color: var(--muted); background: var(--panel);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.demo-status[hidden] { display: none; }
+.demo-start { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+.demo-start[hidden] { display: none; } /* .btn sets display: inline-flex */
+.demo-exited {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--bg) 75%, transparent);
+}
+.demo-exited[hidden] { display: none; }
+.demo-exited button {
+  font-family: var(--mono); font-size: .9rem; color: var(--fg);
+  background: var(--panel); border: 1px solid var(--accent); border-radius: 6px;
+  padding: .5rem .9rem; cursor: pointer;
+}
+.demo-exited button:hover { color: var(--accent); }
+/* the canvas waits for the demo to go live; then the frame shrinks to it and
+   stays centred, the posters hidden past the scheme rules above (§3.2) */
+.demo-canvas { display: none; }
+.frame.live .demo-canvas { display: block; }
+.frame.live .poster-dark, .frame.live .poster-light { display: none !important; }
+.frame.live { width: fit-content; margin-left: auto; margin-right: auto; }
+
 .panel figcaption { padding-top: .6rem; }
 .hints, .safety { font-size: .9rem; margin: 0 0 .4rem; }
 .humor { font-style: italic; }

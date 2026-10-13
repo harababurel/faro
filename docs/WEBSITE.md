@@ -835,6 +835,8 @@ Differences from the list above:
 - a visitor can click into it, chat with the cast, switch themes and leave with Esc or a click, in current Chrome, Firefox and Safari;
 - the page stays usable without JS, on a phone and with preloading switched off.
 
+**Progress (2026-10-13):** chunk 4.2 — preload, autostart and the handover — is done (D124): `site/template/demo.js` fetches the manifest when the page is idle, preloads only a capable device, shows a progress line over the poster's footer row, and swaps the poster for the canvas once faro has settled, on the poster's own 120×34 grid; the page's scheme, the hero CTA and the quit → restart overlay follow. Checked in headless Chromium; the owner's browser checks are in MANUAL_TESTS "Website: preload and handover". **Known gap:** resizing the window after the swap doesn't refit the canvas (the grid is fixed, D124) — needs a `set_font_size` or a refit in faro-web, for a later chunk.
+
 ### Phase 5: launch polish (2–3 days)
 
 - Final copy review. Run every command on the page on a clean machine.

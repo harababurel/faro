@@ -11,7 +11,7 @@ use faro_app::app::event::AppEvent;
 use faro_app::app::image_cache::ImageKey;
 use faro_app::app::state::{Geometry, State};
 use faro_app::app::term_event::{Event, MouseEvent, MouseEventKind};
-use faro_app::theme::Themes;
+use faro_app::theme::{Theme, Themes};
 use faro_app::ui::{self, View};
 use faro_core::rt::{self, Instant};
 use ratatui::Terminal;
@@ -141,6 +141,19 @@ impl Shell {
     /// The page doesn't have the keys (faro assumes it does at first).
     pub fn unfocus(&mut self) {
         self.handle(AppEvent::Terminal(Event::FocusLost));
+    }
+
+    /// Draw in the theme `name` from now on, without a notice: the page's
+    /// light/dark scheme, which the demo follows (D124). `false` if there's
+    /// no such theme.
+    pub fn set_theme(&mut self, name: &str) -> bool {
+        let state = &mut self.session.state;
+        if Theme::find(name, &state.user_themes).is_none() {
+            return false;
+        }
+        name.clone_into(&mut state.config.theme);
+        self.draw();
+        true
     }
 
     /// Whether faro takes the mouse (`[mouse] enabled`); if not, the wheel

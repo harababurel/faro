@@ -123,6 +123,16 @@ impl Session {
         self.open_start() || redraw
     }
 
+    /// Whether the start has settled (D124): the chat list is in and the
+    /// opening chat's history loaded — or the visitor took over first. The
+    /// page swaps the poster for the canvas only then, so the swap shows the
+    /// picture the poster already did.
+    pub fn settled(&self) -> bool {
+        self.opened_start
+            && !self.state.loading
+            && self.state.open.as_ref().is_none_or(|open| !open.loading)
+    }
+
     /// The demo opens the branch chat once its whole backlog has arrived, so
     /// its first frame is the poster the page already shows (D122, WEBSITE.md
     /// §3.2). Before that the chat isn't in the list at all, and the store
@@ -288,6 +298,7 @@ mod tests {
         let page = Rc::new(FakePage::default());
         let shared: Rc<dyn Page> = page.clone();
         let (mut session, mut inbox) = Session::start(&visitor_mock(), shared).await.unwrap();
+        assert!(!session.settled(), "nothing has arrived yet");
         pump(&mut session, &mut inbox, Duration::from_secs(1)).await;
         (session, inbox, page)
     }
@@ -331,6 +342,7 @@ mod tests {
         assert!(!open.loading && !open.messages.is_empty(), "history loaded");
         assert_eq!(state.focus, Focus::Conversations, "the list has the focus");
         assert!(open.selected.is_none(), "nothing is selected (§4.2)");
+        assert!(session.settled(), "the page may swap the poster out");
         assert_eq!(
             state.env.emoji.mode,
             EmojiMode::Exact,
@@ -432,6 +444,10 @@ mod tests {
         assert_eq!(palette.selected, 0, "no item was chosen");
         assert!(palette.input.text().is_empty(), "the query is untouched");
         assert!(session.state.open.is_none(), "no chat was opened");
+        assert!(
+            session.settled(),
+            "the visitor's own start counts as settled"
+        );
     }
 
     #[tokio::test(start_paused = true)]

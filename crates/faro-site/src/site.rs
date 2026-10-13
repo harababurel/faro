@@ -414,8 +414,9 @@ mod tests {
     }
 
     /// The demo's files are in the build, hashed like any other asset, both
-    /// manifests are there, and the landing page doesn't reference any of it
-    /// yet (chunk 2 wires it up).
+    /// manifests are there, and the landing page reaches them only through
+    /// its own hashed loader (chunk 2): the loader fetches the manifest, so
+    /// the page itself names no demo file.
     fn the_demo_ships_beside_the_page(names: &[&str], files: &[(String, Vec<u8>)], index: &str) {
         let manifest = files
             .iter()
@@ -446,8 +447,17 @@ mod tests {
             "the demo's plain names are gone"
         );
         assert!(
+            !names.contains(&"demo.js"),
+            "the loader's plain name is gone too"
+        );
+        let loader = names
+            .iter()
+            .find(|name| name.starts_with("demo.") && has_ext(name, "js"))
+            .expect("the hashed demo loader");
+        assert!(index.contains(loader), "the page loads the demo (D124)");
+        assert!(
             !index.contains("/demo/"),
-            "the landing page must not load the demo yet"
+            "the page names no demo file itself: demo.js fetches the manifest (§4.2)"
         );
     }
 

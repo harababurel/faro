@@ -464,3 +464,20 @@ The template is `site/template/` (WEBSITE.md §7 Phase 1). Preview the built pag
 - [ ] **Keyboard-only:** `Tab` walks skip link → nav → toggle → links → buttons → FAQ → footer; every focused element shows the amber ring; the skip link jumps to the content; FAQ items open with `Enter`; no focus trap anywhere.
 - [ ] **Reduced motion** (OS setting): hover/focus colour changes are instant, no transitions; with the setting off, the transitions are short and don't move layout.
 
+## Website: preload and handover (M13 Phase 4, D124)
+
+**Setup:** build the site with the demo: `site/build.sh <empty out dir>` (it builds the wasm too; it needs the wasm32 target and wasm-bindgen-cli, see `site/deploy/README.md`). Serve it over http — `python3 -m http.server -d <out dir> 8000` — and open `http://localhost:8000/`: `demo.js` fetches `/demo/manifest.json`, so a `file://` URL never gets past the poster. Check in Chrome, Firefox and Safari on a desktop.
+
+- [ ] **Handover:** a moment after the page loads, the poster turns into the live demo without a click, with no visible jump — the first live frame is the poster's picture (same chat, same cells, same colours); the chat is alive (messages arrive, `Ctrl+P` works once you click in).
+- [ ] **Progress line:** with DevTools network throttling (Fast 3G / Slow 4G) a line reads `loading faro · X KB / Y KB` over the poster's footer row while the wasm arrives, and the poster stays until the swap; it never shows a blank box.
+- [ ] **Scheme follows:** the page's toggle and the OS's light/dark switch flip the demo between `faro-dark` and `faro-light` while its theme is one of those; after picking another theme in `Ctrl+P` › Themes, the toggle and the OS switch leave the demo alone.
+- [ ] **Quit and restart:** `Ctrl+Q` in the demo → "faro exited · ↺ start again" over the frame; clicking it frees the old demo and starts a fresh one with working keys.
+- [ ] **Hero CTA:** "▶ Try it here, no install" scrolls to the panel and focuses the canvas — typing goes to faro straight away; before the demo is live the same button starts the load.
+- [ ] **Save-Data:** with *Save-Data* on (Chrome DevTools › Network › Data Saver, or the equivalent browser setting) there is no preload: the poster stays with a "▶ Start the demo (N MB)" button, and clicking it starts the demo.
+- [ ] **Preloading switched off** (the emergency switch, §6.8): on a test server, copy `demo/manifest.no-preload.json` over `demo/manifest.json` and reload → the button instead of a preload, and it starts the demo.
+- [ ] **Narrow window** (below ~1000 px wide): the poster stays, no button and no preload — the grid is fixed at 120 columns, so the page gives the poster treatment rather than unreadable text.
+- [ ] **Colours (the `light-dark()` fix, D124):** the light scheme draws the cream page with dark text and the dark amber accent, the dark scheme the dark page with light text and the bright amber; the poster, code blocks, borders and the panel all match the scheme (they used to be swapped).
+
+Known gap, don't fail it: resizing the window after the swap doesn't refit the canvas — the grid is fixed at 120×34 (D124); refitting needs a `set_font_size` or a refit in faro-web and comes in a later chunk.
+
+Notes (browser, version, OS, what went wrong):

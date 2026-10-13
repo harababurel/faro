@@ -32,14 +32,16 @@ const WASM: &str = "faro_web_bg.wasm";
 ///
 /// ```json
 /// {"preload": true, "js": "/demo/faro_web.<hash>.js",
-///  "wasm": "/demo/faro_web_bg.<hash>.wasm", "bytes": <wasm gzipped>}
+///  "wasm": "/demo/faro_web_bg.<hash>.wasm", "bytes": <wasm gzipped>,
+///  "size": <wasm as is>}
 /// ```
 ///
 /// The loader's fallback wasm name (`new URL('faro_web_bg.wasm',
 /// import.meta.url)`) is rewritten to the hashed one, so the page only has to
 /// load the JS it's given. `bytes` is what nginx sends for the wasm — the
 /// build's `.gz` twin (`site/build.sh`) — so the page's progress line is
-/// honest.
+/// honest. `size` is the wasm as is: what the page's reader counts, since the
+/// browser decompresses as it reads (D124).
 pub fn copy(pkg: &Path, out: &Path) -> Result<(), String> {
     let wasm = read(&pkg.join(WASM))?;
     let js =
@@ -71,7 +73,7 @@ pub fn copy(pkg: &Path, out: &Path) -> Result<(), String> {
         // serves this instead, with no rebuild and no hashed name to change.
         ("demo/manifest.no-preload.json", false),
     ] {
-        let text = manifest(preload, &js_name, &wasm_name, bytes);
+        let text = manifest(preload, &js_name, &wasm_name, bytes, wasm.len());
         files.push((rel.to_owned(), text.into_bytes()));
     }
     files.push((js_name, js.into_bytes()));
@@ -88,8 +90,10 @@ pub fn copy(pkg: &Path, out: &Path) -> Result<(), String> {
 }
 
 /// One manifest as the page reads it: the same fields, `preload` as given.
-fn manifest(preload: bool, js: &str, wasm: &str, bytes: usize) -> String {
-    format!(r#"{{"preload":{preload},"js":"/{js}","wasm":"/{wasm}","bytes":{bytes}}}"#)
+fn manifest(preload: bool, js: &str, wasm: &str, bytes: usize, size: usize) -> String {
+    format!(
+        r#"{{"preload":{preload},"js":"/{js}","wasm":"/{wasm}","bytes":{bytes},"size":{size}}}"#
+    )
 }
 
 /// The wasm gzipped at the best level, as `gzip -9` in `site/build.sh` does.
@@ -202,6 +206,7 @@ mod tests {
             assert_eq!(data["wasm"], format!("/demo/{wasm}"), "{text}");
             let bytes = data["bytes"].as_u64().expect("a size");
             assert!(bytes > 0 && bytes < 200, "{text}");
+            assert_eq!(data["size"], 43, "the wasm as is: {text}");
         }
         let _ = fs::remove_dir_all(&root);
     }

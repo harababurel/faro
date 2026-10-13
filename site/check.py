@@ -294,7 +294,7 @@ def check_demo():
         # at this file, so it must exist and say no.
         if switch.get("preload") is not False:
             fail("demo/manifest.no-preload.json: preload should be false")
-        for key in ("js", "wasm", "bytes"):
+        for key in ("js", "wasm", "bytes", "size"):
             if key in data and switch.get(key) != data[key]:
                 fail(f"demo/manifest.no-preload.json: {key} differs from manifest.json")
     for key in ("js", "wasm"):
@@ -320,6 +320,9 @@ def check_demo():
     if isinstance(claimed, int) and abs(claimed - size) > size // 50:
         warn(f"demo/manifest.json says {claimed} bytes, the .gz twin is {size} "
              "(the page's progress line would be off)")
+    if data.get("size") != os.path.getsize(found):
+        fail(f"demo/manifest.json: size={data.get('size')!r}, the wasm is {os.path.getsize(found)} "
+             "bytes (the page's progress line counts it as it decompresses)")
     # The manifests are never precompressed: gzip_static would serve a stale
     # twin after an edit on disk.
     for rel in ("demo/manifest.json", "demo/manifest.no-preload.json"):
