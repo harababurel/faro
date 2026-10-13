@@ -35,6 +35,46 @@ pub const CACHE_LIMIT: usize = 32;
 
 const QUERY_TIMEOUT: Duration = Duration::from_millis(500);
 
+/// The cell size ratatui-image assumes when the terminal didn't say.
+const LIBRARY_FONT_SIZE: FontSize = FontSize::new(10, 20);
+
+/// The cell size from the window's size in pixels (`TIOCGWINSZ`), if the
+/// terminal (or tmux, or ssh) reports pixels at all.
+fn window_font_size() -> Option<FontSize> {
+    let size = crossterm::terminal::window_size().ok()?;
+    if size.width == 0 || size.height == 0 || size.columns == 0 || size.rows == 0 {
+        return None;
+    }
+    Some(FontSize::new(
+        size.width / size.columns,
+        size.height / size.rows,
+    ))
+}
+
+/// A picker for a cell size faro measured itself (it still detects tmux).
+#[expect(
+    deprecated,
+    reason = "ratatui-image has no other way to give a picker a known cell size"
+)]
+fn sized_picker(font_size: FontSize) -> Picker {
+    Picker::from_fontsize(font_size)
+}
+
+/// `picker`, with the window's cell size when the terminal answered the
+/// query but not its cell-size part (ratatui-image then assumes 10 × 20).
+fn with_window_size(picker: Picker, window: Option<FontSize>) -> Picker {
+    let FontSize { width, height } = picker.font_size();
+    match window {
+        Some(window) if (width, height) == (LIBRARY_FONT_SIZE.width, LIBRARY_FONT_SIZE.height) => {
+            let protocol = picker.protocol_type();
+            let mut measured = sized_picker(window);
+            measured.set_protocol_type(protocol);
+            measured
+        }
+        Some(_) | None => picker,
+    }
+}
+
 /// Result of off-thread decoding and encoding, sent back on the cache's
 /// channel.
 pub struct DecodedImage {
@@ -94,23 +134,36 @@ impl Images {
     /// Query the terminal once at startup (after entering the alternate screen
     /// and before `EventStream` reads stdin) when `mode` is `Auto` and nothing
     /// in between (`mosh`, mixed tmux clients, detached tmux) blocks graphics
-    /// passthrough (D78).
+    /// passthrough (D78), or when `mode` forces a graphics protocol: that
+    /// still needs the cell's size in pixels, or every image is encoded for
+    /// a guessed 10 × 20 cell and fills only part of its box (D136).
     pub async fn detect(mode: InlineImages, graphics: GraphicsSupport) -> Self {
-        if mode == InlineImages::Auto && graphics == GraphicsSupport::Direct {
-            let queried = tokio::task::spawn_blocking(|| {
+        let forced = matches!(
+            mode,
+            InlineImages::Kitty | InlineImages::Sixel | InlineImages::Iterm2
+        );
+        if forced || (mode == InlineImages::Auto && graphics == GraphicsSupport::Direct) {
+            let queried = tokio::task::spawn_blocking(move || {
                 let options = QueryStdioOptions {
                     timeout: QUERY_TIMEOUT,
                     ..QueryStdioOptions::default()
                 };
-                (
-                    Picker::from_query_stdio_with_options(options),
-                    Picker::halfblocks(),
-                )
+                let picker = Picker::from_query_stdio_with_options(options);
+                let window = window_font_size();
+                let picker = match picker {
+                    Ok(picker) => Ok(with_window_size(picker, window)),
+                    // Forced: the protocol comes from the setting; only the
+                    // cell size is wanted, and the window may still say it.
+                    Err(_) if forced => Ok(sized_picker(window.unwrap_or(LIBRARY_FONT_SIZE))),
+                    Err(error) => Err(error),
+                };
+                (picker, Picker::halfblocks())
             })
             .await;
             match queried {
                 Ok((Ok(picker), halfblocks)) => {
                     tracing::info!(
+                        ?mode,
                         protocol = ?picker.protocol_type(),
                         font_size = ?picker.font_size(),
                         "terminal image protocol detected"
@@ -390,6 +443,28 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
+
+    /// A terminal that answers the query but not its cell-size part leaves
+    /// ratatui-image guessing 10 × 20; the window's own size is better
+    /// (D136). A size the terminal did give always wins.
+    #[test]
+    fn an_unanswered_cell_size_comes_from_the_window() {
+        let mut guessed = Picker::halfblocks();
+        guessed.set_protocol_type(ProtocolType::Kitty);
+        let measured = with_window_size(guessed.clone(), Some(FontSize::new(20, 42)));
+        let FontSize { width, height } = measured.font_size();
+        assert_eq!((width, height), (20, 42));
+        assert_eq!(measured.protocol_type(), ProtocolType::Kitty);
+
+        let answered = with_window_size(
+            sized_picker(FontSize::new(18, 36)),
+            Some(FontSize::new(20, 42)),
+        );
+        assert_eq!(answered.font_size().width, 18, "the terminal's answer wins");
+
+        let unknown = with_window_size(guessed, None);
+        assert_eq!(unknown.font_size().width, LIBRARY_FONT_SIZE.width);
+    }
 
     #[test]
     fn switching_protocols_live_invalidates_in_flight_decodes() {

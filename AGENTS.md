@@ -169,6 +169,7 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 - 2026-10-13: D134 (owner's choice): the demo starts mostly read. After the backlog the mock sends one `ReadElsewhere` (`Sim::backlog_read`, `UNREAD_AT_START`: Scranton Branch keeps 3 unread, Jim 2); the web `Session` opens the branch only after `AppEvent::UnreadCleared`, so the poster still matches. README images regenerated from the new poster.
 - 2026-10-13: D135 (owner's choice): the web demo draws images as pictures, like faro in kitty: `images::Picture` + `Placement`, bitmaps kept in `live::Shell`, `Painter::picture`; the browser reports `GraphicsSupport::Direct` and Kitty, so faro's own rules (overlay placeholders, half-blocks in Settings, 256 colours) apply unchanged.
 - 2026-10-13: website: the demo no longer copies faro's window title into the tab (owner's call); favicon from the app's small lighthouse (`faro-site/src/favicon.rs`, fixed names `favicon.svg`/`favicon.ico`/`apple-touch-icon.png`, linked from every page).
+- 2026-10-13: D136: forced image protocols (`kitty`/`sixel`/`iterm2`) now measure the cell size at startup (query, then `TIOCGWINSZ`), so pictures fill their boxes; measured once, so reattaching from a terminal with different cells still needs a restart.
 
 ### Gotchas found so far
 
