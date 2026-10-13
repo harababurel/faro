@@ -37,6 +37,18 @@ qrcode = { version = "0.14", default-features = false }
 # v4: kitty's per-run clipboard password and request ids (D91).
 uuid = { version = "1.27.0", features = ["v4"] }
 
+# Linux only, off by default; see the `vendored-openssl` feature below. On
+# macOS SQLCipher uses Apple's CommonCrypto, so the feature does nothing there.
+[target.'cfg(target_os = "linux")'.dependencies]
+libsqlite3-sys = { workspace = true, optional = true, features = ["bundled-sqlcipher-vendored-openssl"] }
+
+[features]
+# Release builds (D133): build OpenSSL from source and link it statically
+# into the bundled SQLCipher, so prebuilt Linux binaries need no system
+# libcrypto. Distro packages (AUR `faro`/`faro-git`) leave this off and
+# link the system library (D86).
+vendored-openssl = ["dep:libsqlite3-sys"]
+
 [dev-dependencies]
 faro-app = { workspace = true, features = ["test-support"] }
 base64 = "0.22.1"

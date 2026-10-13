@@ -19,6 +19,9 @@ publish = false
 
 [workspace.dependencies]
 faro-app = { path = "crates/faro-app" }
+# Only for the `faro` binary's `vendored-openssl` feature (D133): the same
+# crate the patch below points at whisperfish's fork, so features unify.
+libsqlite3-sys = "0.36.0"
 # Without SQLite unless a crate asks for it (`features = ["sqlite"]`): the
 # web demo uses the in-memory store (M13).
 faro-core = { path = "crates/faro-core", default-features = false }
