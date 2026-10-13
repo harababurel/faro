@@ -55,6 +55,27 @@ libsqlite3-sys = { workspace = true, optional = true, features = ["bundled-sqlci
 # link the system library (D86).
 vendored-openssl = ["dep:libsqlite3-sys"]
 
+# .deb packages for the v0.1 release (D133): built with vendored-openssl,
+# so Depends: $auto only pulls the glibc the binary was built against.
+# The site links releases/latest/download/faro_amd64.deb, so the file
+# names are kept stable by renaming with `-o` at build time.
+[package.metadata.deb]
+maintainer = "Sergiu Pușcaș <srg.pscs@gmail.com>"
+copyright = "Sergiu Pușcaș"
+section = "net"
+priority = "optional"
+depends = "$auto"
+extended-description = """\
+A terminal (TUI) client for Signal, built for people who run everything
+over SSH inside tmux. It uses presage for the Signal protocol and never
+reimplements it. Unofficial; not affiliated with Signal.\
+"""
+assets = [
+    ["../../target/release/faro", "usr/bin/faro", "755"],
+    ["../../README.md", "usr/share/doc/faro/README.md", "644"],
+    ["../../THIRD_PARTY_NOTICES.md", "usr/share/doc/faro/THIRD_PARTY_NOTICES.md", "644"],
+]
+
 [dev-dependencies]
 faro-app = { workspace = true, features = ["test-support"] }
 base64 = "0.22.1"

@@ -1,0 +1,80 @@
+# Custom publish job for dist (D133): build .deb packages with cargo-deb
+# and upload them to the GitHub Release dist just created. The site links
+# releases/latest/download/faro_amd64.deb, so the names are stable.
+# Called from release.yml as `custom-publish-debs` (publish-jobs =
+# ["./publish-debs"]); it builds natively per arch on the same runners
+# dist uses, so the glibc baseline matches the dist archives.
+name: Publish debs
+
+on:
+  workflow_call:
+    # dist passes the plan JSON in; we only need the tag, but the input
+    # is part of dist's custom-job contract.
+    inputs:
+      plan:
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-deb:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-22.04
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+    name: deb (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v6
+
+      # C toolchain for SQLCipher/libsignal, dpkg-dev so cargo-deb's
+      # $auto Depends sees the real shared libs. No apt protobuf-compiler:
+      # ubuntu-22.04's protoc 3.12 is too old for libsignal's protos.
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake clang pkg-config dpkg-dev unzip
+
+      # Same pinned protoc as the dist builds (.github/install-protoc.yml);
+      # prost-build picks it up via PROTOC.
+      - name: Install a recent protoc
+        run: |
+          case "$(uname -m)" in
+            x86_64) protoc_arch=linux-x86_64 ;;
+            aarch64) protoc_arch=linux-aarch_64 ;;
+            *) echo "no protoc release for $(uname -m)" >&2; exit 1 ;;
+          esac
+          curl -fsSL -o protoc.zip \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v25.6/protoc-25.6-${protoc_arch}.zip"
+          sudo unzip -o protoc.zip -d /usr/local bin/protoc
+          sudo unzip -o protoc.zip -d /usr/local 'include/*'
+          echo "PROTOC=/usr/local/bin/protoc" >> "$GITHUB_ENV"
+          /usr/local/bin/protoc --version
+
+      # The pinned toolchain comes from rust-toolchain.toml via rustup.
+      - name: Install cargo-deb
+        run: cargo install cargo-deb --locked --version 3.8.0
+
+      # Same vendored-openssl feature as the dist archives (D133), so the
+      # deb needs no system OpenSSL. -o keeps the stable file name.
+      - name: Build faro_${{ matrix.arch }}.deb
+        run: |
+          cargo deb -p faro --locked --features vendored-openssl \
+            -o "faro_${{ matrix.arch }}.deb"
+          dpkg-deb -I "faro_${{ matrix.arch }}.deb"
+
+      - name: Upload to the release
+        run: gh release upload "$TAG" "faro_${{ matrix.arch }}.deb" --clobber

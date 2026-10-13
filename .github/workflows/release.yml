@@ -123,6 +123,24 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+      # Mirrors .github/install-protoc.yml (dist's github-build-setup);
+      # release.yml is allow-dirty, so the steps are inserted by hand.
+      # ubuntu-22.04's apt protoc (3.12) is too old for libsignal's protos.
+      - name: Install a recent protoc (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          case "$(uname -m)" in
+            x86_64) protoc_arch=linux-x86_64 ;;
+            aarch64) protoc_arch=linux-aarch_64 ;;
+            *) echo "no protoc release for $(uname -m)" >&2; exit 1 ;;
+          esac
+          curl -fsSL -o protoc.zip \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v25.6/protoc-25.6-${protoc_arch}.zip"
+          sudo unzip -o protoc.zip -d /usr/local bin/protoc
+          sudo unzip -o protoc.zip -d /usr/local 'include/*'
+          echo "PROTOC=/usr/local/bin/protoc" >> "$GITHUB_ENV"
+          /usr/local/bin/protoc --version
       - name: Install Rust non-interactively if not already installed
         if: ${{ matrix.container }}
         run: |
@@ -327,15 +345,31 @@ jobs:
           done
           git push
 
+  custom-publish-debs:
+    needs:
+      - plan
+      - host
+    if: ${{ !fromJson(needs.plan.outputs.val).announcement_is_prerelease || fromJson(needs.plan.outputs.val).publish_prereleases }}
+    uses: ./.github/workflows/publish-debs.yml
+    with:
+      plan: ${{ needs.plan.outputs.val }}
+    secrets: inherit
+    # publish jobs get escalated permissions
+    permissions:
+      "contents": "write"
+      "id-token": "write"
+      "packages": "write"
+
   announce:
     needs:
       - plan
       - host
       - publish-homebrew-formula
+      - custom-publish-debs
     # use "always() && ..." to allow us to wait for all publish jobs while
     # still allowing individual publish jobs to skip themselves (for prereleases).
     # "host" however must run to completion, no skipping allowed!
-    if: ${{ always() && needs.host.result == 'success' && (needs.publish-homebrew-formula.result == 'skipped' || needs.publish-homebrew-formula.result == 'success') }}
+    if: ${{ always() && needs.host.result == 'success' && (needs.publish-homebrew-formula.result == 'skipped' || needs.publish-homebrew-formula.result == 'success') && (needs.custom-publish-debs.result == 'skipped' || needs.custom-publish-debs.result == 'success') }}
     runs-on: "ubuntu-22.04"
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
