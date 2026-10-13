@@ -960,7 +960,7 @@ Agreed on 2026-10-11 and recorded as D105 in DECISIONS.md. Phase 0's renderer an
 | D-h | Headline | "Signal, in your terminal." (easy to change later) |
 | D-i | Launch timing | Phase 1 can go up with the source-build install; announce publicly once binaries and the demo are live |
 | D-j | The demo's cast | Keep the parody (D88), with the footer disclaimer and the FAQ line |
-| D-k | Remaining FAQ answers | Some FAQ answers are still to be written; they're settled before launch |
+| D-k | Remaining FAQ answers | Settled 2026-10-13 (owner): "Can Signal block me" and "Which terminals work" (tested: kitty, tmux, SSH, mosh; say "Best in …" again once the M8 matrix passes) |
 
 **Operations:**
 - Server logs for getfaro.dev are kept 30 days, the same figure as the privacy policy. They change together.
