@@ -468,6 +468,7 @@ The template is `site/template/` (WEBSITE.md §7 Phase 1). Preview the built pag
 - [ ] **Keyboard-only:** `Tab` walks skip link → nav → toggle → links → buttons → FAQ → footer; every focused element shows the amber ring; the skip link jumps to the content; FAQ items open with `Enter`; no focus trap anywhere.
 - [ ] **Reduced motion** (OS setting): hover/focus colour changes are instant, no transitions; with the setting off, the transitions are short and don't move layout.
 - [ ] **One text column (2026-10-13):** on a wide window, the footer's links and text line up with the text sections above (hero, install, FAQ): same left and right edges, centred; only the header and the demo are wider. On Privacy, Terms and the 404 page the text and the footer share that same centred column. On a phone, all of them keep the same side margins.
+- [ ] **Text under the demo (2026-10-13):** the key hints, the theme buttons and the "Nothing you type leaves your browser" line use the demo's full width (the theme buttons don't wrap early); once the live demo has loaded, their left edge lines up with the live demo's left edge. In fullscreen they still sit under the demo.
 
 ## Website: preload and handover (M13 Phase 4, D124)
 

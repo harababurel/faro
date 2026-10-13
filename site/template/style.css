@@ -201,6 +201,12 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
 .frame.live { width: fit-content; margin-left: auto; margin-right: auto; }
 
 .panel figcaption { padding-top: .6rem; }
+.panel figcaption > p { max-width: none; }
+/* Live, the canvas can be narrower than the panel (it's centred): the caption
+   keeps to its width. The panel itself stays full width, because demo.js
+   measures it to refit the font. */
+.panel:not(:fullscreen):has(.frame.live) { display: grid; justify-content: center; }
+.panel:not(:fullscreen):has(.frame.live) > figcaption { width: 0; min-width: 100%; }
 .hints, .safety { font-size: .9rem; margin: 0 0 .4rem; }
 .hints { display: var(--f); }
 
@@ -238,7 +244,6 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
 }
 .panel:fullscreen .frame { flex: none; }
 .panel:fullscreen figcaption { flex: none; }
-.panel:fullscreen figcaption > p { max-width: none; }
 
 .why-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.4rem 2rem; }
 .why-grid > div > p { margin: 0; }
