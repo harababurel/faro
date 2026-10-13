@@ -14,6 +14,7 @@ use faro_app::app::keymap::Keymap;
 
 use crate::assets;
 use crate::demo;
+use crate::favicon;
 use crate::keys;
 use crate::placeholders::{self, Problem, Syntax, Values};
 use crate::release;
@@ -140,6 +141,12 @@ pub fn generate(template: &Path, out: &Path, pkg: Option<&Path>) -> Result<(), S
         }
     }
     written.insert(og_name, art.og_png);
+    // Fixed names: browsers ask for `/favicon.ico` unprompted, and iOS for
+    // `/apple-touch-icon.png`.
+    let icons = favicon::render()?;
+    written.insert("favicon.svg".to_owned(), icons.svg.into_bytes());
+    written.insert("favicon.ico".to_owned(), icons.ico);
+    written.insert("apple-touch-icon.png".to_owned(), icons.apple_touch);
 
     for (rel, bytes) in &written {
         let path = out.join(rel);

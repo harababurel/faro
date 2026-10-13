@@ -288,7 +288,7 @@ manifest/wasm. Fullscreen is an explicit exception until the visitor exits it.
 | Open a link (`o`) | Real: new tab, `noopener` |
 | Voice notes (`x`) | Real: Web Audio (the demo's notes are synthesized WAV) |
 | Transcription (`t`) | Canned transcripts for the demo's notes, marked `[demo]`; no network |
-| Bell, title, desktop notifications | Panel border flashes; `document.title` shows the unread count; no OS notifications |
+| Bell, title, desktop notifications | Panel border flashes; the page keeps its own title (faro's window title isn't copied to the tab, owner's call 2026-10-13); no OS notifications |
 | Settings written to the config | Kept for the visit only (D-c); a reload starts fresh |
 
 ---
@@ -343,7 +343,7 @@ Draft FAQ (to be checked against the code before launch):
 
 ### 5.4 Logo and imagery
 
-- **The logo** is faro's own pixel lighthouse and 5×7 pixel wordmark from `ui/logo/art.rs`, exported to SVG by the build so it's identical to the app. Favicon: the small lighthouse.
+- **The logo** is faro's own pixel lighthouse and 5×7 pixel wordmark from `ui/logo/art.rs`, exported to SVG by the build so it's identical to the app. Favicon: the small lighthouse, pixel for pixel (its 9 × 8 half-block cells are 9 × 16 pixels) on a dark rounded tile in faro-dark's colours, so it reads on light and dark tab bars; `faro-site` (`favicon.rs`) writes `favicon.svg`, `favicon.ico` (16 + 32 px) and `apple-touch-icon.png` (180 px) under fixed names (done 2026-10-13).
 - **The only imagery is real faro output:** the poster, the phone frames and the OG image, all generated from the app at build time (§6.4). No stock photos, illustrations, gradients or blobs.
 - **Open Graph / social preview:** a 1200×630 PNG of the poster (conversation open, faro-dark) with the wordmark. It's regenerated with every release, so it never goes stale.
 

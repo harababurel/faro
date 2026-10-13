@@ -12,6 +12,7 @@
 
 mod assets;
 mod demo;
+mod favicon;
 mod keys;
 mod placeholders;
 mod release;

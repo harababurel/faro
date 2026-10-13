@@ -18,8 +18,9 @@ use crate::session::Session;
 /// The demo running in a canvas. Dropping it (`demo.free()`) stops it. The
 /// canvas sends `faro-bell` events when faro rings, `faro-exit` when it
 /// quits (free it and start again), and `faro-settings` when the settings
-/// its controls show change (its `detail` carries the values);
-/// `document.title` follows faro's window title.
+/// its controls show change (its `detail` carries the values). The page
+/// keeps its own title: faro's window title (`faro demo (N)`) is for
+/// terminals, and a count rising in a visitor's tab is noise.
 ///
 /// **Never call a `Demo` method from a synchronous handler of an event faro
 /// itself dispatched** (`faro-settings`, `faro-exit`, canvas focus/blur):

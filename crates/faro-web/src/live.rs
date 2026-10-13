@@ -102,9 +102,6 @@ pub struct Shell {
     dirty: bool,
     last_draw: Option<Instant>,
     logo_since: Option<Instant>,
-    /// The page's own title, for when faro has none to show.
-    page_title: String,
-    title: Option<String>,
     wheel: Wheel,
     images: Images,
     /// The pictures' bitmaps, by the id [`Images`] knows them by (D135).
@@ -147,8 +144,6 @@ impl Shell {
             dirty: true,
             last_draw: None,
             logo_since: None,
-            page_title: document().map(|d| d.title()).unwrap_or_default(),
-            title: None,
             wheel: Wheel::default(),
             images: Images::default(),
             bitmaps: HashMap::new(),
@@ -465,7 +460,6 @@ impl Shell {
         let Ok(_) = self.terminal.draw(|frame| {
             geometry = ui::render(frame, state, &view);
         });
-        let title = state.window_title(view.now_timestamp());
         let placed = self.images.placements();
         let backend = self.terminal.backend_mut();
         // A picture that moved, came or went leaves its cells as they were
@@ -488,12 +482,6 @@ impl Shell {
             paint: now_ms() - rendered,
             rows: rows.len(),
         });
-        if title != self.title {
-            if let Some(document) = document() {
-                document.set_title(title.as_deref().unwrap_or(&self.page_title));
-            }
-            self.title = title;
-        }
         self.last_draw = Some(Instant::now());
         self.decode(&geometry.images_wanted);
         // Same picture; only bookkeeping (and maybe loading older messages).
@@ -787,8 +775,4 @@ fn now_ms() -> f64 {
     web_sys::window()
         .and_then(|w| w.performance())
         .map_or(0.0, |p| p.now())
-}
-
-fn document() -> Option<web_sys::Document> {
-    web_sys::window()?.document()
 }

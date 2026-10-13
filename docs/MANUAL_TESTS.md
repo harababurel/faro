@@ -420,7 +420,7 @@ In kitty (directly and inside tmux), `faro demo`, `Ctrl+P` › Settings › Bubb
 | **Images (D135):** in a chat with photos or stickers (Pam's watercolour, Jim's stapler) they show as real pictures, like faro in kitty, filling the box above the `📎` line; scrolled half off the top they're cut, not squashed; with the palette or a popup open they turn into a blank panel and come back when it closes; `Ctrl+P › Settings › Inline images › halfblocks` switches them to half-blocks and `auto` back; `v` opens the viewer; drawing is right after scrolling | | | |
 | **Voice notes:** `x` on a voice note plays it with sound, the progress and waveform move, `x` again stops; `t` shows a transcript marked `[demo]` | | | |
 | **Not in the browser:** `Ctrl+P` › *Send a file…* and *Save to Downloads* on an attachment show "Not in the web demo: try it in your terminal" and leave nothing open | | | |
-| **Bell and title:** with the chat list focused and a background chat getting messages, the panel's border flashes; the tab title shows `faro (N)` | | | |
+| **Bell and title:** with the chat list focused and a background chat getting messages, the panel's border flashes; the tab title stays the page's own ("faro · Signal, in your terminal"), with no unread count | | | |
 | **Focus:** click outside the canvas (or add `?unfocused` to the URL): incoming messages stay unread until you click back in | | | |
 | **Quit:** `Ctrl+Q`: "faro exited · ↺ start again"; clicking it starts a fresh demo with working keys | | | |
 | **Speed:** `?bench` in the URL (or `await bench()` in the console): `frame avg` under 4 ms on a mid-range laptop; flooding (`Alt+J/K` quickly through busy chats) never stutters | | | |
@@ -471,6 +471,7 @@ The template is `site/template/` (WEBSITE.md §7 Phase 1). Preview the built pag
 - [ ] **Reduced motion** (OS setting): hover/focus colour changes are instant, no transitions; with the setting off, the transitions are short and don't move layout.
 - [ ] **One text column (2026-10-13):** on a wide window, the footer's links and text line up with the text sections above (hero, install, FAQ): same left and right edges, centred; only the header and the demo are wider. On Privacy, Terms and the 404 page the text and the footer share that same centred column. On a phone, all of them keep the same side margins.
 - [ ] **Text under the demo (2026-10-13):** the key hints, the theme buttons and the "Nothing you type leaves your browser" line use the demo's full width (the theme buttons don't wrap early); once the live demo has loaded, their left edge lines up with the live demo's left edge. In fullscreen they still sit under the demo.
+- [ ] **Favicon and tab title (2026-10-13):** the tab shows the small lighthouse on a dark rounded tile, on the home page, Privacy, Terms and a 404, in light and dark browser themes; adding the page to an iPhone/iPad home screen uses the same lighthouse. The tab title stays "faro · Signal, in your terminal" after the live demo starts and while messages arrive (no unread count).
 
 ## Website: preload and handover (M13 Phase 4, D124)
 
