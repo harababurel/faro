@@ -8,28 +8,11 @@ faro is an unofficial, independent project. It is not affiliated with, endorsed 
 
 Website and live demo: https://getfaro.dev
 
-<!-- TODO(owner): replace the text capture below with real screenshots (kitty + tmux, faro-dark and faro-light). -->
+<!-- TODO(owner): these images are generated from the app's own renderer (crates/faro-site's poster scene: the first frame of `faro demo`); replace them with real screenshots or a GIF/WebM whenever you like. -->
 
-```text
-╭ Conversations ─────────────╮╭ Scranton Branch 📄 ────────────────────────────────────────────────╮
-│ ● Kelly's mom            6 ││  Stanley Hudson                                                    │
-│   Scranton Branch 📄       ││ ┃Is it mandatory?  02:33                                           │
-│ ● Dwight K. Schrute III… 4 ││                                                                    │
-│ ● Ryan Howard            4 ││  Michael Scott                                                     │
-│ ● Kelly Kapoor 💁🏽‍♀️        5 ││ ┃▎ Stanley Hudson: Is it mandatory?                                │
-│ ● Mariam · Cairo office… 7 ││ ┃Did I stutter?               02:34                                │
-│ ● Jim Halpert            4 ││                                                                    │
-│ ● Finer Things Club 🍷   5 ││  Meredith Palmer                                                   │
-│                            ││ ┃Is there cake?  02:38                                             │
-│                            ││                                                                    │
-│                            ││╭──────────────────────────────────────────────────────────────────╮│
-│                            │││ Message Scranton Branch 📄…                                      ││
-│                            ││╰──────────────────────────────────────────────────────────────────╯│
-╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯
- ● connected · demo · 35 unread          enter send · alt+j/k conversations · esc close · tab focus
-```
+![faro demo in the faro-dark theme: the conversation list on the left, a group chat in bubbles on the right](docs/images/faro-dark.png)
 
-<sub>A text capture of `faro demo` in tmux (cut down). Emoji may look misaligned in your browser; in a terminal they line up.</sub>
+![faro demo in the faro-light theme: the same conversation list and group chat on a light background](docs/images/faro-light.png)
 
 ## What it does (today, in the demo)
 
