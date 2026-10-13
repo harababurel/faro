@@ -48,6 +48,17 @@ pub struct Session {
     tasks: Vec<rt::Task>,
 }
 
+/// Whether `event` is the mock accepting a message the visitor sent (§6.9's
+/// `Demo message sent` signal): only `Command::Send` results answer with
+/// `SendResult`, so incoming messages, the backlog, reactions, edits,
+/// deletes and downloads never count. A retried send answers with the same
+/// event; the page counts one per visit. Only wasm's `live` and the tests
+/// use it, so it's absent in native builds that aren't tests.
+#[cfg(any(test, target_arch = "wasm32"))]
+pub(crate) fn accepted_send(event: &AppEvent) -> bool {
+    matches!(event, AppEvent::SendResult { result: Ok(()), .. })
+}
+
 /// What the app loop listens to besides the page.
 pub struct Inbox {
     pub backend: BackendEvents,
@@ -630,6 +641,52 @@ mod tests {
         // With nothing open and no notice, the page blurs the canvas.
         esc(&mut session);
         assert!(released(), "the end of the chain releases focus");
+    }
+
+    /// The predicate behind the `faro-sent` signal (§6.9): only a
+    /// successful send result counts; everything else the loop can see
+    /// doesn't, so incoming messages, backlog, reactions, edits, deletes,
+    /// failed sends and downloads never fire the analytics event.
+    #[test]
+    fn accepted_send_counts_only_successful_send_results() {
+        let sent_at = faro_core::domain::Timestamp::from_millis(1);
+        let who: faro_core::domain::ServiceId =
+            "00000000-0000-0000-0000-00000000000a".parse().unwrap();
+        let target = MessageRef {
+            sender: who,
+            sent_at,
+        };
+        let cases = [
+            (
+                AppEvent::SendResult {
+                    sent_at,
+                    result: Ok(()),
+                },
+                true,
+            ),
+            (
+                AppEvent::SendResult {
+                    sent_at,
+                    result: Err(faro_core::backend::BackendError::Network("down".to_owned())),
+                },
+                false,
+            ),
+            (
+                AppEvent::ReactResult {
+                    conversation: who.into(),
+                    target,
+                    previous: None,
+                    result: Ok(()),
+                },
+                false,
+            ),
+            (AppEvent::EditResult(Ok(())), false),
+            (AppEvent::DeleteResult(Ok(())), false),
+            (AppEvent::Tick, false),
+        ];
+        for (event, accepted) in cases {
+            assert_eq!(accepted_send(&event), accepted, "{event:?}");
+        }
     }
 
     /// The demo opens its first chat without the keys (D125): it must not send

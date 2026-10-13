@@ -4,7 +4,7 @@
 (function () {
   "use strict";
   var frame = document.querySelector(".panel .frame");
-  if (!frame) return; // privacy, terms
+  if (!frame) return;
   var status = document.getElementById("demo-status");
   var startBtn = document.getElementById("demo-start");
   var exited = document.getElementById("demo-exited");
@@ -21,7 +21,7 @@
   var fsLabel = fsBtn && fsBtn.querySelector(".sr-only");
   var panel = frame.parentElement;
   var caption = panel.querySelector("figcaption");
-  // poster's grid: first live frame matches it (D123)
+  // poster's grid: first frame matches it (D123)
   var FONT = "JetBrains Mono", COLS = 120, ROWS = 34;
   var manifest = null, mod = null, demo = null, canvas = null;
   var loading = false, live = false;
@@ -33,6 +33,16 @@
   var fsOn = false, gen = 0, fontSet = null, starting = false;
   var lockTok = 0, lockPending = false;
   var refitQueued = false;
+  // §6.9 analytics: opt-out aware, guarded; props only how/theme —
+  // nothing typed reaches the tracker.
+  var track = function (name, props) {
+    try {
+      if (localStorage.getItem("plausible_ignore") === "true") return;
+    } catch (e) {}
+    if (typeof window.plausible !== "function") return;
+    try { window.plausible(name, { props: props }); } catch (e) {}
+  };
+  var startHow = null, startSent = false, focusSent = false, sentSent = false;
   var mqMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   var query = function (q) { return window.matchMedia(q).matches; };
   var pf = function (v) { return parseFloat(v) || 0; };
@@ -45,7 +55,7 @@
       - pf(cs.paddingLeft) - pf(cs.paddingRight)
       - pf(cs.borderLeftWidth) - pf(cs.borderRightWidth);
   };
-  // 16..13 fitting COLS cells, rounded like metrics::cell (D122)
+  // 16..13 fitting COLS, like metrics::cell (D122)
   var fontSize = function () {
     var dpr = window.devicePixelRatio || 1;
     var room = frameWidth();
@@ -68,10 +78,10 @@
     cta.setAttribute("data-demo", "on");
     cta.textContent = "▶ Try it here, no install";
     cta.addEventListener("click", function (event) {
-      if (!live || !canvas) { begin(); return; }
+      if (!live || !canvas) { begin("button"); return; }
       event.preventDefault(); // the fragment jump steals the canvas's focus
       frame.scrollIntoView({ block: "center" });
-      if (dead) { if (again) again.focus({ preventScroll: true }); return; } // §4.5
+      if (dead) { if (again) again.focus({ preventScroll: true }); return; }
       canvas.focus({ preventScroll: true });
     });
   };
@@ -88,14 +98,13 @@
         return res.json();
       }).then(function (data) {
         manifest = data;
-        if (manifest.preload && capable) begin();
+        if (manifest.preload && capable) begin("auto");
         else showStart();
       }).catch(function (e) { console.warn("demo manifest:", e); });
     };
     if (window.requestIdleCallback) window.requestIdleCallback(read, { timeout: 3000 });
     else window.setTimeout(read, 1500);
   });
-  // progress: count decompressed (size), show wire (D124)
   var fetchWasm = async function () {
     var res = await fetch(manifest.wasm, { priority: "low" });
     if (!res.ok) throw new Error("wasm: HTTP " + res.status);
@@ -150,7 +159,7 @@
       if (b) b.disabled = !on;
     });
   };
-  var tell = function (msg) { // tell("") hides
+  var tell = function (msg) {
     if (!ctlStatus) return;
     ctlStatus.textContent = msg;
     ctlStatus.hidden = !msg;
@@ -161,7 +170,10 @@
     if (!d) return;
     effTheme = d.theme; cfgTheme = d.configuredTheme; reduced = d.reduceMotion;
     if (seeded) {
-      if (cfgTheme !== lastCfg) { themePinned = true; visitTheme = cfgTheme; }
+      if (cfgTheme !== lastCfg) { // committed in the palette (schemes pre-set lastCfg)
+        themePinned = true; visitTheme = cfgTheme;
+        track("Theme changed", { theme: cfgTheme });
+      }
       if (reduced !== lastReduced) { motionOverridden = true; visitMotion = reduced; }
     }
     lastCfg = cfgTheme; lastReduced = reduced;
@@ -189,7 +201,7 @@
     lastReduced = want;
     demo.configure_reduce_motion(want);
   };
-  // chips/motion keep the keys; "all…" takes them + palette (D126)
+  // chips/motion keep the keys; "all…" takes them (D126)
   var noFocus = function (e) { e.preventDefault(); };
   chipBtns.forEach(function (btn) {
     btn.addEventListener("mousedown", noFocus);
@@ -197,8 +209,11 @@
       if (!demo || dead || loading) return;
       tell("");
       var name = btn.getAttribute("data-theme");
-      if (demo.pick_theme(name)) { themePinned = true; visitTheme = lastCfg = name; }
-      else tell("that theme isn't in this demo");
+      var prev = cfgTheme;
+      if (demo.pick_theme(name)) {
+        themePinned = true; visitTheme = lastCfg = name;
+        if (name !== prev) track("Theme changed", { theme: name });
+      } else tell("that theme isn't in this demo");
     });
   });
   if (allBtn) allBtn.addEventListener("click", function () {
@@ -212,13 +227,13 @@
     motionBtn.addEventListener("click", function () {
       if (!demo || dead || loading) return;
       tell("");
-      var want = !reduced; // motion on = reduce_motion off
+      var want = !reduced;
       motionOverridden = true;
       visitMotion = lastReduced = want;
-      demo.set_reduce_motion(want); // faro's own path and notice (D126)
+      demo.set_reduce_motion(want);
     });
   }
-  // one restart for toolbar+overlay: same seed; choices survive (D126)
+  // one restart: same seed, choices survive
   var restart = async function () {
     if (loading || !mod) return;
     loading = true;
@@ -228,7 +243,7 @@
     if (exited) exited.hidden = true;
     var old = demo;
     demo = null; // followers must not reach a freed demo
-    if (old) old.free(); // Rust stops audio and tasks on drop
+    if (old) old.free();
     clearFocus(); // removing the canvas doesn't fire blur
     canvas.remove();
     canvas = null;
@@ -248,8 +263,8 @@
   [again, restartBtn].forEach(function (b) {
     if (b) b.addEventListener("click", restart);
   });
-  // fullscreen (§4.3, D126): whole panel; Keyboard Lock best-effort, never
-  // Escape. Listeners touch DOM/browser only, queue refit (D125).
+  // fullscreen (§4.3, D126): Lock best-effort, never Escape; listeners
+  // never call Rust (D125).
   var syncFsBtn = function () {
     if (!fsBtn) return;
     fsBtn.setAttribute("aria-pressed", String(fsOn));
@@ -257,10 +272,10 @@
   };
   var unlock = function () {
     try {
-      if (navigator.keyboard && navigator.keyboard.unlock) navigator.keyboard.unlock(); // void per spec
+      if (navigator.keyboard && navigator.keyboard.unlock) navigator.keyboard.unlock();
     } catch (e) {}
   };
-  // token bump: an in-flight lock resolves stale: unlock, never re-grant
+  // token bump: a stale in-flight lock → unlock, never re-grant
   var releaseLock = function () {
     lockTok += 1;
     unlock();
@@ -272,9 +287,9 @@
     var tok = lockTok;
     navigator.keyboard.lock(["KeyW", "KeyT", "KeyN", "KeyQ", "Tab"]).then(function () {
       lockPending = false;
-      if (tok !== lockTok) unlock(); // superseded: hand the keys back
+      if (tok !== lockTok) unlock();
     }, function () {
-      lockPending = false; // denial leaves ordinary fullscreen
+      lockPending = false;
       tell("Keyboard Lock isn't allowed here");
     });
   };
@@ -284,7 +299,7 @@
       tell(fsNo);
       return;
     }
-    if (document.fullscreenElement) { // leaving ours works even dead/loading
+    if (document.fullscreenElement) {
       if (fsOn) document.exitFullscreen().catch(function () {});
       return;
     }
@@ -301,15 +316,14 @@
     var ours = document.fullscreenElement === panel;
     if (ours !== fsOn) {
       fsOn = ours;
-      if (ours) tryLock(); // grant may land after the focus
+      if (ours) tryLock();
       else releaseLock();
       syncFsBtn();
     }
     syncFocus();
     queueRefit();
   });
-  // font refit (§4.4, D126): same grid, re-measured on resize/FS; 13 floor
-  // (CSS scrolls), 16/24 FS cap; rAF-coalesced.
+  // font refit (§4.4, D126): same grid, rAF-coalesced.
   var queueRefit = function () {
     if (refitQueued || !live) return;
     refitQueued = true;
@@ -334,13 +348,13 @@
         if (COLS * Math.round(font * 0.6) / dpr <= w &&
             ROWS * Math.round(font * 1.2) / dpr <= h) { size = s; break; }
       }
-      if (size === null) size = 13; // floor: the CSS scrolls (§4.4)
+      if (size === null) size = 13;
       if (size !== fontSet) { fontSet = size; demo.set_font_size(size); }
     });
   };
   window.addEventListener("resize", queueRefit);
-  // the page's half of the focus model (§4.3, D125): Rust owns focus;
-  // these listeners only touch hint and border.
+  // focus model (§4.3, D125): Rust owns focus; these listeners only
+  // touch hint and border.
   var keysTo = function () {
     return !!canvas && !dead && document.activeElement === canvas
       && !document.hidden && document.hasFocus();
@@ -348,6 +362,7 @@
   var syncFocus = function (forceOff) {
     // forceOff is only ever our own true
     var on = live && !(forceOff === true) && keysTo();
+    if (on && !focusSent) { focusSent = true; track("Demo focused"); }
     frame.classList.toggle("focused", on);
     if (!focusHint) return;
     if (!live || dead) { focusHint.hidden = true; return; }
@@ -395,9 +410,12 @@
       releaseLock();
       clearFocus();
       if (exited) exited.hidden = false;
-      setActions(false); // chips/all/motion off...
-      if (restartBtn) restartBtn.disabled = false; // ...restart stays (D126)
+      setActions(false);
+      if (restartBtn) restartBtn.disabled = false;
       if (again) again.focus();
+    });
+    canvas.addEventListener("faro-sent", function () { // Rust: send accepted (§6.9)
+      if (!sentSent) { sentSent = true; track("Demo message sent"); }
     });
     frame.appendChild(canvas);
     try {
@@ -412,7 +430,7 @@
       if (motionOverridden && visitMotion !== null) {
         lastReduced = visitMotion;
         demo.configure_reduce_motion(visitMotion);
-      } else followMotion(); // quiet, before the handover (§4.6)
+      } else followMotion();
       starting = false;
       await waitReady();
     } catch (e) {
@@ -431,6 +449,10 @@
     live = true;
     dead = false;
     loading = false;
+    if (!startSent && startHow) { // first handover only; restarts stay quiet
+      startSent = true;
+      track("Demo started", { how: startHow });
+    }
     setTools(true);
     setActions(true);
     askCta();
@@ -440,15 +462,16 @@
     window.demo = demo;
     window.done = true;
   };
-  var begin = function () {
+  var begin = function (how) { // explicit "auto"/"button": never a DOM event
     if (loading || live || !manifest) return;
+    startHow = how;
     loading = true;
     if (startBtn) startBtn.hidden = true;
     if (status) {
       status.textContent = "loading faro";
       status.hidden = false;
     }
-    (mod ? Promise.resolve() : load()).then(startLive).catch(function (e) { // no re-fetch once loaded
+    (mod ? Promise.resolve() : load()).then(startLive).catch(function (e) {
       console.warn("the demo didn't load:", e);
       loading = false;
       clearFocus();
@@ -457,7 +480,7 @@
       showStart();
     });
   };
-  if (startBtn) startBtn.addEventListener("click", begin);
+  if (startBtn) startBtn.addEventListener("click", function () { begin("button"); });
   if (window.MutationObserver) {
     new window.MutationObserver(applyScheme).observe(document.documentElement, {
       attributes: true, attributeFilter: ["data-theme"],

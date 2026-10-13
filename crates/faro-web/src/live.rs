@@ -25,7 +25,7 @@ use crate::input::{self, Held, Wheel};
 use crate::media;
 use crate::metrics;
 use crate::paint::Painter;
-use crate::session::{Inbox, Session};
+use crate::session::{self, Inbox, Session};
 
 /// What the page sends the loop.
 #[derive(Debug)]
@@ -256,7 +256,26 @@ impl Shell {
     }
 
     fn handle(&mut self, event: AppEvent) {
+        // The §6.9 `Demo message sent` signal: tell the page when the mock
+        // accepted a message the visitor sent (the predicate ignores
+        // everything else). The event carries no detail; the page counts
+        // one per visit and must never call back (D125).
+        let sent = session::accepted_send(&event);
         self.dirty |= self.session.handle(event);
+        if sent {
+            self.tell_sent();
+        }
+    }
+
+    /// Tell the page a send landed (§6.9), as [`Self::exited`] does for a
+    /// quit; a lost dispatch is harmless — the analytics are best-effort.
+    fn tell_sent(&mut self) {
+        let event = web_sys::CustomEvent::new(crate::dom::SENT_EVENT);
+        if let Ok(event) = event
+            && self.painter.canvas().dispatch_event(&event).is_err()
+        {
+            tracing::warn!("telling the page a send landed failed");
+        }
     }
 
     fn take(&mut self, wake: Wake) {

@@ -83,7 +83,7 @@ sudo certbot --nginx -d plausible.harababurel.com
    ```
 4. **Add a website:** domain `getfaro.dev`. In the installation options, turn on **outbound links**.
 5. From the snippet Plausible shows, **note the script name**: the `pa-XXXXXXXX` part of `…/js/pa-XXXXXXXX.js`. Ignore the rest of the snippet; the site already contains its equivalent (`site/placeholder/js/init.js`).
-6. Site settings → **Goals** → add these custom events (WEBSITE.md §6.9; only "Install copied" fires before Phase 4): `Demo started`, `Demo focused`, `Demo message sent`, `Theme changed`, `Install copied`.
+6. Site settings → **Goals** → add these custom events (WEBSITE.md §6.9; demo events ship in Phase 4.4): `Demo started`, `Demo focused`, `Demo message sent`, `Theme changed`, `Install copied`.
 
 There's no email set up, so a lost password can't be reset by email. Keep the credentials in your password manager.
 

@@ -128,6 +128,15 @@ includes the caption and exit button; Keyboard Lock is optional, excludes Escape
 and is released whenever the canvas loses the keys. Re-measuring the font keeps
 the fixed poster grid readable after resizing/fullscreen, with no fake key events.
 
+Demo analytics (D127) run only in the page's JavaScript through the existing
+same-origin Plausible tracker. Start/focus/send count once per page, even across
+restarts; committed theme changes count separately. Only start method and bundled
+theme name are event properties. The web shell dispatches detail-less `faro-sent`
+after a successful send result; no message data is exposed to analytics. Page
+handlers never call Rust synchronously, and opted-out or unavailable tracking
+cannot affect the demo. Run `node site/tools/test_demo_analytics.mjs` for the
+page-level regression checks; native tests check the send predicate.
+
 The demo draws emoji with `EmojiMode::Exact` (D118).
 
 ## 5. Backend interface

@@ -517,3 +517,14 @@ replace Chrome, Firefox and Safari checks on a real computer.
 - [ ] **Fallbacks:** no JavaScript, phone/small-screen poster, slow connection and load failure leave unusable controls hidden. After quit only restart/fullscreen-exit remain usable; a failed restart returns to a retryable poster.
 
 Notes (browser, version, OS, what went wrong):
+
+## Website: demo analytics (M13 Phase 4.4, D127)
+
+Deferred owner checks; local automated checks do not verify the deployed
+Plausible dashboard. Use a fresh page load and enable counting only if desired.
+
+- [ ] **Funnel:** successful automatic/manual starts show `Demo started` with `how=auto|button`; click the canvas for `Demo focused`, then send a message for `Demo message sent`. Each appears once per page load; blur/refocus, further messages and restart do not repeat them. Incoming messages and failed sends do not count.
+- [ ] **Themes:** committed chip/palette changes show `Theme changed` with only the chosen theme name. Preview/cancel, choosing the current theme, page scheme changes and restored restart choices are silent.
+- [ ] **Privacy:** inspect `/api/event` requests: no typed message, draft, recipient or message identifier is sent. Use “Don't count my visits”, reload and interact: no analytics events. Blocking the tracker does not break sending, themes or restart.
+
+Notes (browser, version, OS, what went wrong):

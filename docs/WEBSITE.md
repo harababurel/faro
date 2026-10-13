@@ -612,6 +612,13 @@ Ways to stay inside the budget:
 
 **Opting out:** a "Don't count my visits" link in the footer sets Plausible's `plausible_ignore` flag in local storage. Use it in your own browsers too.
 
+Demo start, focus and message-send events count once per page load, including
+across restarts (D127). Start means successful live handover, and send means an
+accepted visitor send, not incoming activity. Theme events are committed changes,
+not palette previews, automatic scheme changes or restart restoration. Tracking
+is best-effort and cannot prevent the demo working. No typed content or message
+metadata is ever passed to Plausible.
+
 **Backups:** the statistics aren't critical. A weekly `pg_dump` of the settings database is enough. ClickHouse data can be rebuilt by starting over, losing only history.
 
 ### 6.10 Server runbook (draft)
@@ -858,7 +865,13 @@ Chromium checks pass; the owner's Chrome/Firefox/Safari checks are in MANUAL_TES
 fullscreen with optional non-Escape Keyboard Lock; font refit and failed-load
 retry. Native/browser checks pass, including the native keyboard API and dpr2.
 Real-browser checks remain deferred in MANUAL_TESTS "Website: panel controls".
-**Next: 4.4 analytics**, then phones and CI browser tests (4.5–4.6).
+**Chunk 4.4 done (2026-10-13, D127):** the four demo analytics events in §6.9,
+with page-level funnel deduplication and committed-theme tracking. Native send
+predicate tests, 29 Node checks and real-wasm Chromium checks pass, including
+opt-out, absent/throwing trackers, previews, restarts and payload privacy.
+Site budgets and no-JS checks pass; dashboard/real-browser checks are deferred
+in MANUAL_TESTS "Website: demo analytics". **Next: 4.5 phones**, then CI browser
+tests (4.6).
 
 ### Phase 5: launch polish (2–3 days)
 

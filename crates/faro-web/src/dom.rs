@@ -41,6 +41,11 @@ pub const EXIT_EVENT: &str = "faro-exit";
 /// (theme, configured theme, motion): the detail carries the new values,
 /// so the page's listener never reaches back into the borrowed shell.
 pub const SETTINGS_EVENT: &str = "faro-settings";
+/// The event the canvas sends when the mock accepts a message the visitor
+/// sent (§6.9's `Demo message sent`): no detail, and the page counts one
+/// per visit. Dispatched while the shell is borrowed: the listener must
+/// never call back into Rust (D125).
+pub const SENT_EVENT: &str = "faro-sent";
 
 impl Page for CanvasPage {
     fn copy(&self, text: String, results: UnboundedSender<AppEvent>) {
