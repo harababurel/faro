@@ -118,10 +118,17 @@ class Page(html.parser.HTMLParser):
             name = name.lower()
             if name.startswith("on"):
                 fail(f"{self.name}: inline event handler {name}= (the CSP is script-src 'self')")
+            if name == "style":
+                fail(f"{self.name}: inline style attribute (the CSP is style-src 'self')")
             if name in ("href", "src") and value:
                 if value.lower().startswith("javascript:"):
                     fail(f"{self.name}: javascript: URL in {name}= (the CSP is script-src 'self')")
                 self.refs.append((f"<{tag} {name}>", value))
+            if name in ("srcset", "imagesrcset") and value:
+                for cand in value.split(","):
+                    cand = cand.strip().split(" ")[0]
+                    if cand:
+                        self.refs.append((f"<{tag} {name}>", cand))
             if tag == "meta" and name == "http-equiv" and "cookie" in value.lower():
                 fail(f"{self.name}: <meta http-equiv=\"{value}\"> sets a cookie")
         if tag == "meta" and props.get("property", props.get("name", "")) in ("og:image", "twitter:image"):
@@ -147,6 +154,12 @@ CSS_IMPORT = re.compile(r"""@import\s+(?:url\(\s*)?['"]([^'"]+)""")
 JS_URL = re.compile(
     r"""(?:fetch|import)\s*\(\s*['"]([^'"]+)['"]|import\s+['"]([^'"]+)['"]|import\s+[\w{},*\s]*?\bfrom\s*['"]([^'"]+)['"]"""
 )
+# Other ways JS can reach out: only absolute URLs are third-party risks
+# (relative ones are same-origin; .open also takes a method as its 1st arg).
+JS_NET = re.compile(
+    r"""sendBeacon\s*\(\s*['"]([^'"]*)['"]|new\s+(?:EventSource|WebSocket)\s*\(\s*['"]([^'"]*)['"]"""
+    r"""|\.open\s*\(\s*['"]([^'"]*)['"](?:\s*,\s*['"]([^'"]*)['"])?|\bsrc\s*=\s*['"]([^'"]*)['"]"""
+)
 
 
 def check_css(rel, text):
@@ -162,6 +175,10 @@ def check_js(rel, text):
     base = os.path.dirname(os.path.join(ROOT, rel))
     for match in JS_URL.finditer(text):
         check_ref(rel, "js fetch/import", next(g for g in match.groups() if g), False, base)
+    for match in JS_NET.finditer(text):
+        for url in (g for g in match.groups() if g and (ABS.match(g) or g.startswith("//"))):
+            if target(url, base)[0] == "external":
+                fail(f"{rel}: js network call makes a third-party request: {url}")
 
 
 def check_placeholders(rel, text):
@@ -182,7 +199,7 @@ def text_files():
                 yield os.path.relpath(os.path.join(dirpath, name), ROOT).replace(os.sep, "/")
 
 
-LOADED = ("<link href>", "<script src>", "<img src>", "css url()")
+LOADED = ("<link href>", "<script src>", "<img src>", "<img srcset>", "<link imagesrcset>", "css url()")
 
 
 def check_budget(pages):
