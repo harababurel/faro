@@ -539,7 +539,7 @@ replace real-phone and Chrome/Firefox/Safari checks.
 - [ ] **Scheme:** OS light/dark and explicit page overrides show matching stills, including explicit dark with a light OS preference. Emoji/complex graphemes remain intact; outlined Latin is aligned and legible.
 - [ ] **Resize and fullscreen:** shrinking a running/loading demo leaves no hidden active canvas/audio or stolen keys; growing starts unfocused and restores theme/motion choices without another wasm fetch. Fullscreen keeps the demo, not the gallery, and exit into a narrow window returns to stills.
 - [ ] **Network recovery:** a failed manifest request can retry after narrowing/widening; a stalled wasm download returns to Start after about 30 seconds and a later successful attempt starts normally.
-- [x] **iPad with keyboard/trackpad:** on an iPad with a Magic Keyboard attached, the live demo loads like on a laptop; detached (touch only), the phone gallery shows. Owner, 2026-10-13: passes on an iPad Pro M4 with the Magic Keyboard.
+- [x] **iPad with keyboard/trackpad:** on an iPad with a Magic Keyboard attached, the live demo loads like on a laptop; detached (touch only), the phone gallery shows. Owner, 2026-10-13: passes on an iPad Pro M4 with the Magic Keyboard attached (live demo) and detached (gallery).
 
 Notes (browser, version, OS, what went wrong):
 
