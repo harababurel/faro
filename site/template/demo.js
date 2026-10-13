@@ -68,7 +68,7 @@
   var conn = navigator.connection;
   var cheap = !!(conn && (conn.saveData || /^(slow-2g|2g)$/.test(conn.effectiveType || "")));
   var capableNow = function () {
-    return query("(pointer: fine)") && !cheap && fontSize() !== null;
+    return query("(any-pointer: fine)") && !cheap && fontSize() !== null;
   };
   var scheme = function () {
     var attr = document.documentElement.getAttribute("data-theme");
@@ -423,7 +423,7 @@
     }
   };
   window.addEventListener("resize", checkMode);
-  window.matchMedia("(pointer: coarse)").addEventListener("change", checkMode);
+  window.matchMedia("(any-pointer: fine)").addEventListener("change", checkMode);
   // focus model (§4.3): Rust owns focus
   var keysTo = function () {
     return !!canvas && !dead && document.activeElement === canvas

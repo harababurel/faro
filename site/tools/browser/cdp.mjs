@@ -183,9 +183,10 @@ export class Page {
 }
 
 // Headless Chrome reports no fine pointer, so demo.js won't autostart.
-// This shim answers only the two pointer queries and delegates every other
-// query to the real matchMedia; it records what the browser really said.
-// The report labels this as emulation, never as a native pointer check.
+// This shim answers only the four pointer queries (primary and any-, fine
+// and coarse) and delegates every other query to the real matchMedia; it
+// records what the browser really said. The report labels this as
+// emulation, never as a native pointer check.
 export const POINTER_FINE_SHIM = `(() => {
   var real = window.matchMedia.bind(window);
   window.__pointerNative = real("(pointer: fine)").matches;
@@ -198,8 +199,31 @@ export const POINTER_FINE_SHIM = `(() => {
     };
   };
   window.matchMedia = function (q) {
-    if (/\\(\\s*pointer\\s*:\\s*fine\\s*\\)/.test(q)) return fake("(pointer: fine)");
-    if (/\\(\\s*pointer\\s*:\\s*coarse\\s*\\)/.test(q)) return fake("(pointer: coarse)");
+    if (/\\(\\s*(?:any-)?pointer\\s*:\\s*fine\\s*\\)/.test(q)) return fake(q);
+    if (/\\(\\s*(?:any-)?pointer\\s*:\\s*coarse\\s*\\)/.test(q)) return fake(q);
+    return real(q);
+  };
+})();`;
+
+// An iPad with a Magic Keyboard: the PRIMARY pointer (the trackpad's is
+// fine, but iPadOS reports the touch screen as primary coarse) while
+// any-pointer says a fine pointer exists. Same shape as the shim above,
+// with per-query answers: pointer:fine false, pointer:coarse true,
+// any-pointer:fine true, any-pointer:coarse true.
+export const POINTER_IPAD_SHIM = `(() => {
+  var real = window.matchMedia.bind(window);
+  window.__pointerNative = real("(pointer: fine)").matches;
+  var fake = function (q, matches) {
+    return {
+      matches: matches, media: q, onchange: null,
+      addEventListener: function () {}, removeEventListener: function () {},
+      addListener: function () {}, removeListener: function () {},
+      dispatchEvent: function () { return false; },
+    };
+  };
+  window.matchMedia = function (q) {
+    if (/\\(\\s*(?:any-)?pointer\\s*:\\s*fine\\s*\\)/.test(q)) return fake(q, /any-/.test(q));
+    if (/\\(\\s*(?:any-)?pointer\\s*:\\s*coarse\\s*\\)/.test(q)) return fake(q, true);
     return real(q);
   };
 })();`;

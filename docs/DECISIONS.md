@@ -1295,3 +1295,9 @@ Refines the DESIGN.md §5.1 sketch:
 - **Crawlers:** `robots.txt` allows everything and names the sitemap; `sitemap.xml` lists `/`, `/privacy`, `/terms` with `lastmod` = the build's commit date (`faro-site` fills `.xml` like HTML, unhashed). Canonical links on every page; `twitter:` title/description/image mirror the `og:` tags. `check.py` fails without 404/robots/sitemap or when a sitemap `<loc>` doesn't resolve.
 - **AGPL source link:** `version::BUILD_COMMIT` (from `build.rs`); `{{commit}}` and `{{source_url}}` (`/tree/<hash>`, a dirty `+` stripped from the URL but shown in the text) fill a footer line. The generator fails without a commit. Deploy from a clean checkout so the link is exact.
 - **Not done by agents:** install commands on a clean machine, real screenshots, legal placeholders and FAQ approval stay the owner's. A fact check of the page against the code found no wrong claims; the page is at ~40.7 of its 40.96 KB gzipped budget, so further copy needs trimming elsewhere.
+
+### D132. A trackpad anywhere means the live demo (M13 Phase 5, 2026-10-13, owner's choice)
+
+- iPadOS reports a touch primary pointer even with a Magic Keyboard attached, so D128's "coarse pointer → phone gallery" gave the owner's iPad Pro the stills. Now `(any-pointer: fine)` decides: any device with a mouse or trackpad behaves like a laptop (width still decides gallery vs demo, and it preloads/autostarts like one). Only touch-only devices get the gallery at every width.
+- CSS: the old `(pointer: coarse)` rule plus `(pointer: coarse) and (any-pointer: fine)` turning it back off (headless Chrome reports no pointer at all, so a bare `not all and (any-pointer: fine)` would make every headless run a phone). `demo.js` checks and listens on `(any-pointer: fine)`.
+- Browser suite: an iPad-like shim scenario (coarse primary, fine any-pointer, 1200 px) autostarts; 109 assertions/23 scenarios. What a real iPad reports is the owner's check (MANUAL_TESTS).

@@ -126,7 +126,7 @@ function boot({ preload, plausible, storage, failWasmOnce, failManifestOnce, han
   const mqs = {};
   const mq = (q, m) => (mqs[q] ||= { matches: m, addEventListener() {} });
   const win = {
-    matchMedia: (q) => mq(q, q === "(pointer: fine)"),
+    matchMedia: (q) => mq(q, q === "(any-pointer: fine)"),
     _cbs: {},
     addEventListener(t, f) { (win._cbs[t] ||= []).push(f); },
     requestIdleCallback: (f) => { if (idleQueue) (win._idle ||= []).push(f); else f(); },

@@ -137,9 +137,11 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
 
 /* §4.7 phone gallery (4.5b): below the readable floor (120 cols need
    962 px at 13 px, D122) and on touch-only devices, three 44-column stills
-   swipe past; the first is the mobile poster; demo.js reads display back. */
+   swipe past; the first is the mobile poster; demo.js reads display back.
+   A touch device with a trackpad too (iPad + keyboard) counts as a laptop. */
 .panel-section { --g: none; --h: none; --f: block; }
 @media (pointer: coarse) { .panel-section { --g: flex; --h: block; --f: none; } }
+@media (pointer: coarse) and (any-pointer: fine) { .panel-section { --g: none; --h: none; --f: block; } }
 @container (max-width: 961px) { .panel-section { --g: flex; --h: block; --f: none; } }
 .phone-gallery {
   display: var(--g); gap: .75rem; overflow-x: auto;
