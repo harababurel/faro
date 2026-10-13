@@ -448,6 +448,8 @@ Columns: **direct** = faro straight in kitty; **tmux** = kitty → tmux (with th
 
 Notes (terminal, versions, what went wrong):
 
+- 2026-10-13, owner's sign-off instead of cell-by-cell marks: weeks of daily use on the real account on the Mac mini (kitty direct; SSH and mosh from kitty on macOS and Blink on iPadOS), and `faro demo` on Arch (orion: tmux and no tmux, SSH and mosh, from the same clients). Nothing wrong noticed. Not covered: Linux direct on a desktop, and terminals other than kitty/Blink (the FAQ says "should work" for those).
+
 - 2026-10-10, Terminal.app → SSH (seen while checking clipboard paste): emoji glitches and misalignment in faro. The fish prompt's Nerd Font symbols don't render there either, so the font/terminal setup is the first suspect; look at it properly in the matrix run.
 
 ## Website: static page (M13 Phase 1)
