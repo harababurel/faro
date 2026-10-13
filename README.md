@@ -6,6 +6,8 @@ A terminal client for [Signal](https://signal.org), built for people who live in
 
 faro is an unofficial, independent project. It is not affiliated with, endorsed by, or supported by Signal Messenger LLC or the Signal Technology Foundation.
 
+Website and live demo: https://getfaro.dev
+
 <!-- TODO(owner): replace the text capture below with real screenshots (kitty + tmux, faro-dark and faro-light). -->
 
 ```text

@@ -922,6 +922,8 @@ results. Phase 4 code is complete; real-browser/device checks remain deferred.
 
 ### Phase 5: launch polish (2–3 days)
 
+**Status (2026-10-13, D131):** 404, `robots.txt`, `sitemap.xml`, canonical and Twitter tags, the source-commit footer link and the README link are done (security headers existed already). Left for the owner: running the install commands on a clean machine, real screenshots in the README, the legal placeholders and FAQ approval, then deployment.
+
 - Final copy review. Run every command on the page on a clean machine.
 - A 404 page, `robots.txt`, `sitemap.xml`, canonical URL, OG and Twitter card tags, the security headers.
 - AGPL source link for the deployed build (commit hash in the footer).
