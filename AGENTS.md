@@ -175,6 +175,7 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 - 2026-10-14: D137 stage 3: a different set of attached tmux clients (`Environment::tmux_clients`) also triggers the probe, for `auto` and forced protocols, and `Images::adopt` drops every cached picture so the new terminal gets them at its cell size.
 - 2026-10-14: stage 3 hardened (`1f1b87a`): the probe waits up to 3 s for the answer and passes on focus reports that came with it. **v0.1.1 released** (tag at `8937753`, version bump only after `1f1b87a`): GitHub release with 4 archives and 2 debs, `faro.rb` 0.1.1 pushed to the tap, CI green. AUR PKGBUILDs bumped with pinned checksums in the repo; pushing them to the AUR is the owner's.
 - 2026-10-14: D138 (owner's choice): README restructured (badges, quick start, essential keys + all default keys in a collapsed block under `### Keys`, privacy and limits, troubleshooting); terminal detail moved to `docs/TERMINALS.md`, development to `CONTRIBUTING.md`. Keep the README's key tables in step with `keymap/defaults.rs` and its flags with `cli.rs`; image/emoji/colour/bubble behaviour changes go in TERMINALS.md.
+- 2026-10-14: D139 (owner's report): the demo's backlog dates the `UNREAD_AT_START` chats' scenes newest (`Sim::next_scene_where`), so Scranton Branch and Jim top the list; README images regenerated.
 
 ### Gotchas found so far
 

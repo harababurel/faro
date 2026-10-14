@@ -497,10 +497,24 @@ impl Sim {
 
     /// Messages "queued on the server" while faro was closed: `count` lines from
     /// whole scenes (the last one may stop part-way and carry on live), dated
-    /// over the past few days and delivered right after connecting.
+    /// over the past few days and delivered right after connecting. The
+    /// [`UNREAD_AT_START`] chats always get a scene each, dated newest, so
+    /// the chats left unread sit at the top of the list (D139).
     fn schedule_backlog(&mut self, count: usize) {
-        let mut plays: Vec<(usize, usize)> = Vec::new();
         let mut left = count;
+        let mut unread: Vec<(usize, usize)> = Vec::new();
+        for (chat, _) in UNREAD_AT_START {
+            if left == 0 {
+                break;
+            }
+            let Some(scene) = self.next_scene_where(|s| s.chat == chat) else {
+                continue;
+            };
+            let lines = SCENES.get(scene).map_or(0, |s| s.lines.len()).min(left);
+            unread.push((scene, lines));
+            left -= lines;
+        }
+        let mut plays: Vec<(usize, usize)> = Vec::new();
         while left > 0 {
             let Some(scene) = self.next_scene() else {
                 break;
@@ -513,6 +527,8 @@ impl Sim {
             plays.push((scene, lines));
             left -= lines;
         }
+        // Oldest first: the first unread chat ends up newest, at the top.
+        plays.extend(unread.into_iter().rev());
         let scenes = u64::try_from(plays.len()).unwrap_or(1).max(1);
         let slot = (BACKLOG_SPAN - BACKLOG_NEWEST) / scenes;
         // (wall-clock ms, event), sorted before delivery.
@@ -627,6 +643,12 @@ impl Sim {
 
     /// The next scene in the seeded order whose chat has no scene running.
     fn next_scene(&mut self) -> Option<usize> {
+        self.next_scene_where(|_| true)
+    }
+
+    /// The next scene in the seeded order that `wanted` accepts and whose
+    /// chat has no scene running.
+    fn next_scene_where(&mut self, wanted: impl Fn(&Scene) -> bool) -> Option<usize> {
         if self.cursor >= self.order.len() {
             // Reshuffle, keeping what just played away from the front.
             shuffle(&mut self.rng, &mut self.order);
@@ -643,7 +665,7 @@ impl Sim {
         let offset = self.order.get(self.cursor..)?.iter().position(|&s| {
             SCENES
                 .get(s)
-                .is_some_and(|scene| !busy.contains(&scene.chat))
+                .is_some_and(|scene| wanted(scene) && !busy.contains(&scene.chat))
         })?;
         self.order.swap(self.cursor, self.cursor + offset);
         let scene = self.order.get(self.cursor).copied()?;
@@ -1424,5 +1446,33 @@ mod tests {
         assert!(times.is_sorted());
         assert!(times.iter().all(|t| *t < sim.wall_clock_at(0)));
         assert_eq!(sim.next_due(), None, "no activity configured");
+    }
+
+    /// The chats left unread hold the newest backlog messages, in
+    /// [`UNREAD_AT_START`] order, so they top the list (D139).
+    #[test]
+    fn unread_chats_are_the_newest() {
+        for seed in 0..16 {
+            let mut config = MockConfig::deterministic(seed);
+            config.activity = None;
+            let mut sim = Sim::new(&config, World::build());
+            let mut newest: Vec<(ConversationId, Timestamp)> = Vec::new();
+            for event in sim.pop_due(CONNECT_DELAY) {
+                let Some(m) = as_message(&event) else {
+                    continue;
+                };
+                match newest.iter_mut().find(|(c, _)| *c == m.conversation) {
+                    Some((_, at)) => *at = (*at).max(m.sent_at),
+                    None => newest.push((m.conversation, m.sent_at)),
+                }
+            }
+            newest.sort_by_key(|&(_, at)| std::cmp::Reverse(at));
+            let top: Vec<ConversationId> = newest.iter().take(2).map(|&(c, _)| c).collect();
+            let expected: Vec<ConversationId> = UNREAD_AT_START
+                .iter()
+                .filter_map(|&(chat, _)| sim.world.conversation(chat))
+                .collect();
+            assert_eq!(top, expected, "seed {seed}");
+        }
     }
 }
