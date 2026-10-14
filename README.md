@@ -1,46 +1,34 @@
 # faro
 
-A terminal client for [Signal](https://signal.org), built for people who live in tmux.
+[![Release](https://img.shields.io/github/v/release/harababurel/faro)](https://github.com/harababurel/faro/releases/latest)
+[![CI](https://github.com/harababurel/faro/actions/workflows/ci.yml/badge.svg)](https://github.com/harababurel/faro/actions/workflows/ci.yml)
+[![AUR](https://img.shields.io/aur/version/faro-bin?label=AUR)](https://aur.archlinux.org/packages/faro-bin)
+[![License: AGPL-3.0](https://img.shields.io/github/license/harababurel/faro)](LICENSE)
 
-> **Status: v0.1.1.** Install it with Homebrew, from the AUR or as a `.deb` ([below](#install)). The interface can be tried with **`faro demo`** (fake contacts and messages, no account needed). The real Signal backend (via [presage](https://github.com/whisperfish/presage)) works and is in daily use; for testing it can be limited to an allowlist of who faro may talk to. See the [plan](docs/PLAN.md) for what's next.
+**Signal, in your terminal.** faro is an unofficial, open-source [Signal](https://signal.org) client for people who live in tmux and SSH. It's keyboard-driven, it looks good, and it never freezes.
 
-faro is an unofficial, independent project. It is not affiliated with, endorsed by, or supported by Signal Messenger LLC or the Signal Technology Foundation.
+Website and live demo (no install): **https://getfaro.dev**
 
-Website and live demo: https://getfaro.dev
-
-<!-- TODO(owner): these images are generated from the app's own renderer (crates/faro-site's poster scene: the first frame of `faro demo`); replace them with real screenshots or a GIF/WebM whenever you like. -->
+<!-- TODO(owner): this image is generated from the app's own renderer (crates/faro-site's poster scene: the first frame of `faro demo`); replace it with a real screenshot or a GIF/WebM whenever you like. A light version is in docs/images/faro-light.png. -->
 
 ![faro demo in the faro-dark theme: the conversation list on the left, a group chat in bubbles on the right](docs/images/faro-dark.png)
 
-![faro demo in the faro-light theme: the same conversation list and group chat on a light background](docs/images/faro-light.png)
+> faro is not affiliated with, endorsed by, or supported by Signal Messenger LLC or the Signal Technology Foundation.
 
-## What it does (today, in the demo)
+## Why faro
 
-- Conversation list with pinning, muting (with durations), hiding, archiving and an allowlist mode
-- Two message layouts: **bubbles** (default; rounded in kitty, with a coloured bar elsewhere: `[messages] bubble_style`) and **IRC**-style, with configurable density (`comfortable` / `compact`) and timestamps (`absolute` / `relative` / `off`)
-- Replies, reactions (with `:shortcode:` search over every standard emoji and its official keywords: `:cool` finds 😎), editing (`e`) and deleting (`D`) your own messages, forwarding (`f`), copying a message (OSC 52, works over SSH), opening links, per-recipient delivery/read receipts (`i`), and sending `@mentions` with `@` autocomplete and `:shortcode:` emoji completion
-- Full-text message and voice-note transcript search (`Ctrl+F` or `/`), in the open chat or across all conversations, plus jump to unread (`u`) and a per-chat links & files browser (`Alt+I` info panel and palette)
-- Attachments and inline images: images and stickers render in the message pane (kitty graphics, sixel, iTerm2 or half-block fallback) and in a full-size viewer (`v`); receive, download (`d`), save to `Downloads` (`s`) and send files from the palette or by pasting a path
-- Voice notes and opt-in Whisper transcription: voice notes show their duration and a 16-bar waveform (`▶ 0:14 ▁▃▆█▅▂…`), play locally (`x`) with live progress (`■ 0:05 / 0:14`), and can be transcribed (`t` or automatically) with a local Whisper CLI or an OpenAI-compatible remote endpoint (with explicit consent and per-conversation permission)
-- A command palette (`Ctrl+P`): chats, themes, settings, commands, key bindings and search as categories you open and fuzzy-search; every setting in one list with its current value (`*` marks the ones you changed), cycled in place with `←`/`→`, flipped with `Enter`, or put back to its default with `Ctrl+R`
-- Read receipts only for what you've actually seen (terminal focus + scrolled to the bottom), typing indicators
-- Terminal bell (with a do-not-disturb key, `Alt+N`), unread count in the window/tmux title, and OSC 99 / 777 desktop notifications (with tmux passthrough and configurable privacy)
-- A commented config file that faro reloads while running and writes back to without losing your comments
-- Themes: `faro-dark`, `faro-dusk`, `faro-light`, `system` (your terminal's own 16 colours), OpenCode's 33 themes (dark and light), and your own theme files; previewed live as you move through them; automatic 256-colour fallback
-- Never blocks: the UI keeps up while messages flood in
+- **Never freezes.** Network, decryption and storage run off the UI thread, so typing stays instant while messages flood in.
+- **Everything is one keystroke away.** `Ctrl+P` opens one palette for chats, settings, themes, commands and search, and shows the key for each.
+- **Made for SSH and tmux.** Copying works over SSH (OSC 52), the unread count shows in the tmux title, read receipts know whether you're looking, and emoji line up even through mosh.
+- **The chat features you expect.** Replies, reactions, edits, deletes, forwards, mentions, search across all chats, delivery and read receipts, typing indicators, bell and desktop notifications.
+- **Pictures and voice notes.** Inline images (kitty, sixel, iTerm2 or half-blocks), voice notes with waveforms and playback, and optional Whisper transcription (local, or remote only after you agree).
+- **Looks the part.** Bubbles or IRC layout, 37 themes with live preview (plus your own), and a commented config file that reloads as you edit it.
 
 ## Install
 
-macOS / Linux (Homebrew):
-
 ```sh
-brew install harababurel/tap/faro
-```
-
-Arch Linux (AUR), with any AUR helper; or `faro` to build the release from source, `faro-git` for the latest commit:
-
-```sh
-yay -S faro-bin
+brew install harababurel/tap/faro            # macOS / Linux (Homebrew)
+yay -S faro-bin                              # Arch (AUR); also `faro` (from source) and `faro-git`
 ```
 
 Debian / Ubuntu (`faro_arm64.deb` on ARM):
@@ -50,19 +38,12 @@ curl -LO https://github.com/harababurel/faro/releases/latest/download/faro_amd64
 sudo apt install ./faro_amd64.deb
 ```
 
-Prebuilt archives for macOS (Apple silicon, Intel) and Linux (x86_64, ARM64), with checksums, are on the [releases page](https://github.com/harababurel/faro/releases/latest).
+Prebuilt archives for macOS (Apple silicon, Intel) and Linux (x86_64, ARM64), with checksums, are on the [releases page](https://github.com/harababurel/faro/releases/latest). To upgrade, use the same tool again (`brew upgrade`, your AUR helper, or the latest `.deb`).
 
-### From source
+<details>
+<summary>Building from source</summary>
 
-You need Rust via [rustup](https://rustup.rs). The exact toolchain is pinned in `rust-toolchain.toml`; rustup installs it on the first build.
-
-```sh
-git clone https://github.com/harababurel/faro
-cd faro
-cargo build --release          # binary: target/release/faro
-```
-
-Building also needs the protobuf compiler and a C toolchain for libsignal and SQLCipher:
+You need Rust via [rustup](https://rustup.rs); the exact toolchain is pinned in `rust-toolchain.toml` and rustup installs it on the first build. You also need the protobuf compiler and a C toolchain for libsignal and SQLCipher:
 
 | OS | Packages |
 |---|---|
@@ -70,149 +51,141 @@ Building also needs the protobuf compiler and a C toolchain for libsignal and SQ
 | Debian/Ubuntu | `sudo apt install protobuf-compiler cmake clang pkg-config libssl-dev` |
 | macOS | `brew install protobuf cmake` |
 
-## Try it
-
 ```sh
-faro demo                     # installed
-cargo run --release -- demo   # from a checkout
+git clone https://github.com/harababurel/faro
+cd faro
+cargo build --release          # binary: target/release/faro
 ```
 
-`faro demo` runs faro against a fake account: the new temp at a paper company's Scranton branch, with scripted coworkers, groups, photos and voice notes. No Signal account is involved. Its data lives in its own directory under the system temp dir (`$TMPDIR` or `/tmp`, as `faro-demo-<uid>`), kept until the system clears it; `--fresh` starts over. The demo never reads or writes your real data directory (it ignores `--data-dir` and `FARO_DATA_DIR`), but it does use your real config file, so a theme you pick in the demo stays picked.
+</details>
 
-With a real account:
+## Quick start
 
 ```sh
-faro link                                  # shows a QR code: scan it in Signal › Settings › Linked devices
-faro                                       # talks to everyone, like any Signal client
-faro ids --username alice.42               # for testing: prints the IDs for an allowlist file
-faro --allowlist ~/faro-allowlist.toml     # for testing: faro only talks to the people and groups listed
+faro demo     # try it first: a fake account with scripted coworkers, nothing is sent
+faro link     # link to your account: scan the QR code in Signal › Settings › Linked devices
+faro          # run it
 ```
 
-| Flag | Environment | What |
-|---|---|---|
-| `--data-dir DIR` | `FARO_DATA_DIR` | Database, logs and Signal keys. Default `~/.local/share/faro`. Never used by `faro demo` |
-| `--config FILE` | `FARO_CONFIG` | Config file. Default `~/.config/faro/config.toml` |
-| `--emoji auto\|full\|compatible` | `FARO_EMOJI` | How to draw emoji (see [mosh](#mosh)); overrides the config |
-| `--allowlist FILE` | `FARO_ALLOWLIST` | For testing: talk only to the people and groups in FILE; drop everything else |
-| `--no-allowlist` | | Does nothing now (talking to everyone is the default); still accepted |
-| `faro demo` | | Run with a fake account and scripted activity, in its own data directory (see [Try it](#try-it)) |
-| `faro demo --seed N` | | Another seed, another order of scripted scenes (default 0) |
-| `faro demo --activity MS` | | Mean time between demo events (default 4000; small values flood the UI) |
-| `faro demo --no-faults` | | No scripted outages or send failures |
-| `faro demo --fresh` | | Wipe the demo's data and start over |
-| `faro demo --dir DIR` | | Keep the demo's data in DIR (must be empty, new, or an earlier demo directory) |
-| `faro link [--device-name NAME]` | | Link this computer to your Signal account (QR code) |
-| `faro ids [--username NAME]…` | | Print this account's, usernames' and groups' IDs for an allowlist |
+faro is a **linked device**, like Signal Desktop: your phone stays your primary device. Your messages and keys live in `~/.local/share/faro/`; the config file is `~/.config/faro/config.toml` (the same paths on macOS).
 
-The demo's flags have no environment variables on purpose: a leftover variable can't change what a demo run touches. `--emoji` and `--allowlist` also work after `demo`.
+The demo is the new temp at a paper company's Scranton branch. It keeps its data in its own temporary directory and never touches your real data, but it shares your config file, so a theme you pick there stays picked. `faro demo --fresh` starts it over.
 
-## Keys
+## Using faro
 
-Press `F1` (or `?` outside the input box) for the full list, or search it in the palette's `Keys`. Every key can be rebound in the config file.
+Press **`F1`** for every key, or search them in the palette. Every key can be rebound in the config file.
+
+### Keys
 
 | Key | What |
 |---|---|
-| `Ctrl+P` | Command palette: `Enter`/`→` opens a category, `←`/`Backspace` goes back (`←`/`→` cycles settings, `Ctrl+R` puts one back to its default); `@` chats, `/` search, `:` settings, `>` commands, `?` keys jump straight in |
-| `Ctrl+F` (or `/` in messages) | Search messages and voice-note transcripts (in the open chat or across all chats) |
+| `Ctrl+P` | Command palette: chats, settings, themes, commands, keys |
+| `Alt+J` / `Alt+K` | Next / previous conversation (`Alt+1`…`Alt+9`: pinned ones) |
+| `Tab` | Move between the conversation list, the messages and the input |
+| `Enter` | Send (`Alt+Enter` or `Shift+Enter`: new line) |
+| `↑` on an empty input | Select a message: `r` reply, `+` react, `e` edit, `y` copy, `Enter` for everything else |
+| `Ctrl+F` | Search messages, in this chat or all of them |
+| `Ctrl+V` | Paste an image from the clipboard (kitty) |
+| `Alt+N` | Do not disturb: bell off / on |
+| `Esc` | Back; then close the open chat |
+| `Ctrl+Q` | Quit |
+
+<details>
+<summary>All default keys</summary>
+
+**Everywhere**
+
+| Key | What |
+|---|---|
+| `Ctrl+P` | Command palette. Inside it: `Enter`/`→` opens, `←`/`Backspace` goes back, `←`/`→` cycles a setting, `Ctrl+R` resets it; type `@` chats, `/` search, `:` settings, `>` commands, `?` keys |
+| `Ctrl+F` | Search messages and voice-note transcripts |
+| `F1` (or `?` outside the input) | All keys |
 | `Alt+J` / `Alt+K` (or `Alt+↓` / `Alt+↑`) | Next / previous conversation |
 | `Alt+1`…`Alt+9` | Pinned conversation 1–9 |
-| `Tab` / `Shift+Tab` | Move between the conversation list, the messages and the input |
-| `Enter` | Send (`Alt+Enter`, `Shift+Enter` or `Ctrl+J`: new line; `@name` and `:shortcode:` complete inline) |
-| `↑` on an empty input | Select a message: `r` reply, `f` forward, `+` react (`/` searches all emoji), `y` copy, `i` info/receipts, `e` edit, `D` delete, `u` jump to unread, `o` open link, `d` download, `v` view/open, `s` save, `x` play/stop voice note, `t` transcribe, `Enter` menu |
+| `Tab` / `Shift+Tab` | Next / previous pane |
 | `PgUp` / `PgDn` | Scroll the messages |
-| `Alt+S` / `Alt+I` | Show or hide the conversation list / conversation info (with shared links & media) |
-| `Alt+N` | Do not disturb: turn the bell off (the footer says `bell off`) or back on |
-| `Ctrl+V` | Paste an image from the clipboard (kitty; see [Images](#images)); it waits above the input until you press `Enter`, `Ctrl+O` shows it |
-| In the list | `j`/`k` move, `Space` menu, `p` pin, `m` mute, `@` mentions only, `h` hide, `a` archive, `l` allow, `L` allowlist mode, `A` archive view |
+| `Alt+S` / `Alt+I` | Show or hide the conversation list / the info panel (shared links and files) |
+| `Alt+N` | Do not disturb (the footer says `bell off`) |
+| `Ctrl+V` / `Ctrl+O` | Paste an image from the clipboard / show the staged image |
 | `Ctrl+L` | Redraw the screen |
-| `Esc` | Back, dismiss; then close the open chat (nothing is read while no chat is open) |
+| `Esc` | Back, dismiss; then close the open chat (nothing is marked read while no chat is open) |
 | `Ctrl+Q` (or `Ctrl+C` twice) | Quit |
 
-The input box has readline-style editing (`Ctrl+A`/`E`/`U`/`K`/`W`, `Alt+B`/`F`/`D`).
+**Conversation list**
 
-## Configuration
-
-On first run faro writes `~/.config/faro/config.toml` (or `$XDG_CONFIG_HOME/faro/config.toml`) with **every setting commented out**, showing its default and what it does, followed by every default key binding. Uncomment and edit; faro applies changes while it runs and reports mistakes in the footer (keeping the previous value). Settings changed from the palette (`:`) are written back, keeping your comments.
-
-| What | Where |
+| Key | What |
 |---|---|
-| Config | `~/.config/faro/config.toml` (`--config`) |
-| Your themes | `themes/*.json` beside the config file |
-| Data (database, later Signal keys) | `~/.local/share/faro/` (`--data-dir`) |
-| Log | `<data dir>/logs/faro.log`; level via `FARO_LOG`, e.g. `FARO_LOG=debug` |
+| `j` / `k`, `g` / `G` | Move, first / last |
+| `Enter` | Open the chat |
+| `Space` | Conversation menu |
+| `p`, `J` / `K` | Pin, move a pinned chat down / up |
+| `m`, `@` | Mute (with a duration), notify for mentions only |
+| `h`, `a`, `A` | Hide, archive, switch to the archive |
+| `l`, `L` | Allow a chat, show only allowed chats |
 
-The same paths are used on macOS. Files are created readable only by you. faro never logs message bodies or phone numbers.
+**Messages** (after `↑` on an empty input, or `Tab`)
 
-## Themes
+| Key | What |
+|---|---|
+| `j` / `k`, `g` / `G` | Older / newer, oldest / newest |
+| `Enter` | Message menu |
+| `r`, `f`, `+` | Reply, forward, react (`/` searches all emoji) |
+| `e`, `D` | Edit, delete (your own messages) |
+| `y`, `o`, `i` | Copy, open link, info and receipts |
+| `d`, `v`, `s` | Download, view, save an attachment to `Downloads` |
+| `x`, `t` | Play / stop, transcribe a voice note |
+| `/`, `u` | Search, jump to unread |
 
-`Ctrl+P` › Themes lists every theme; moving through the list previews each one, `Enter` keeps it (and writes `theme = "…"` to the config), `Esc` puts the old one back. faro ships its own themes and [OpenCode](https://github.com/anomalyco/opencode)'s (`tokyonight`, `catppuccin`, `gruvbox`, `nord`, `dracula`…, each with a `-light` variant where it has one).
+**Input:** `@name` and `:shortcode:` complete inline; readline keys (`Ctrl+A`/`E`/`U`/`K`/`W`, `Alt+B`/`F`/`D`); `Ctrl+J` is a new line too.
 
-Your own themes go in `~/.config/faro/themes/` as JSON files in [OpenCode's theme format](https://opencode.ai/docs/themes/); the file name is the theme's name. faro needs `background`, `text` and `primary`; it also uses `backgroundPanel`, `backgroundElement`, `textMuted`, `secondary`, `accent`, `border`, `borderActive`, `success`, `warning`, `error` and `info`, and works out the rest (message bubbles, sender colours). Save a file and faro picks it up at once; a broken one is named in the footer. A file named after a built-in theme replaces it, so copying [`nord.json`](crates/faro/themes/opencode/nord.json) is a quick way to tweak it.
+</details>
 
-## tmux
+### Configuration
 
-faro works in tmux as it is, but these settings make it better (in `~/.tmux.conf`):
+On first run faro writes `~/.config/faro/config.toml` (or `$XDG_CONFIG_HOME/faro/config.toml`) with every setting commented out, showing its default and what it does. Edit it and faro applies the change while running (mistakes show in the footer); settings changed in the palette are written back without losing your comments. Your own themes go in `themes/` beside it, in [OpenCode's theme format](https://opencode.ai/docs/themes/).
+
+| Flag | Environment | What |
+|---|---|---|
+| `--config FILE` | `FARO_CONFIG` | Config file |
+| `--data-dir DIR` | `FARO_DATA_DIR` | Database, keys and logs |
+| `--emoji auto\|full\|compatible` | `FARO_EMOJI` | How to draw emoji ([details](docs/TERMINALS.md#mosh-and-emoji)) |
+
+`faro --help` and `faro demo --help` list the rest.
+
+## Terminal setup
+
+faro works in any modern terminal, and in tmux as it is. These tmux settings make it better (in `~/.tmux.conf`):
 
 ```tmux
 set -g mouse on                        # clicks and the wheel reach faro
-set -g set-clipboard on                # copying a message (OSC 52) reaches your clipboard, even over SSH
-set -g allow-passthrough on            # for inline images (kitty, sixel, iTerm2)
-set -as terminal-features ",*:RGB"     # truecolor themes (otherwise tmux rounds colours to 256)
-set -g extended-keys on                # more distinguishable key combinations
+set -g set-clipboard on                # copying a message reaches your clipboard, even over SSH
+set -g allow-passthrough on            # inline images (kitty, sixel, iTerm2)
+set -as terminal-features ",*:RGB"     # truecolor themes
+set -g extended-keys on                # more key combinations
 set -g focus-events on                 # read receipts and the bell know whether you're looking
 ```
 
-## mosh
+[docs/TERMINALS.md](docs/TERMINALS.md) covers the rest: inline images and why faro may fall back to half-blocks, mosh and emoji, colour depth, and bubble styles.
 
-mosh measures emoji differently from kitty and tmux, which misaligns borders. faro detects when it (or any client of its tmux session) runs under mosh and then draws emoji in a simpler form that every terminal measures alike (❤️ becomes ❤, a family becomes its people), switching back when mosh detaches. Force either way with `--emoji full|compatible` or `[ui] emoji` in the config. Other programs in the same tmux can still look misaligned through mosh.
+## Privacy and limits
 
-## Images
+- faro implements no cryptography of its own: it talks to Signal through [presage](https://github.com/whisperfish/presage), which builds on libsignal, Signal's own protocol library.
+- Your data stays on your machine, in files readable only by you. It is **not encrypted at rest yet**.
+- No telemetry: faro talks only to Signal's servers. The one exception is remote voice transcription, which is off by default and asks first. Logs never contain message text or phone numbers.
+- Not yet: voice or video calls, stories, Windows, history from before linking. It can't be your only device: you need Signal on a phone.
+- It's unofficial: a change on Signal's servers can break it until faro catches up.
 
-`Ctrl+P › Settings › Inline images` (or `[media] inline_images` in the config) offers:
+To remove faro from your account, unlink it in Signal › Settings › Linked devices, then delete `~/.local/share/faro/`.
 
-- **`auto`** (default): detect Kitty graphics, Sixel or iTerm2 at startup; otherwise use coloured Unicode half-blocks. Mixed terminal types attached to tmux, detached tmux, mosh and 256-colour mode use half-blocks; 16-colour mode disables images. The settings page explains the current choice.
-- **`kitty`, `sixel`, `iterm2`**: force that graphics protocol, overriding automatic fallbacks, including colour depth. Use these when you know your viewing terminal supports it. They require tmux passthrough inside tmux, cannot work through mosh, and may display no image in incompatible terminals or other attached clients.
-- **`halfblocks`**: always use coloured text cells (disabled at 16 colours).
-- **`off`**: show attachment details without inline pictures.
+## Troubleshooting
 
-Changes apply immediately and are saved. Forced modes work without a capability query, using estimated cell sizing if no query ran at startup. Returning to Auto reuses startup detection; if startup skipped the query, restart to detect graphical support. JPEG, PNG, GIF and WebP render as static images, including stickers; `v` opens a larger viewer.
+- The log is `~/.local/share/faro/logs/faro.log`. Run `FARO_LOG=debug faro` for more detail.
+- Borders out of line, images missing or the wrong colours: see [docs/TERMINALS.md](docs/TERMINALS.md). `Ctrl+L` redraws the screen.
+- Found a bug? [Open an issue](https://github.com/harababurel/faro/issues) with `faro --version`, your terminal, whether you're in tmux, SSH or mosh, and the relevant log lines.
 
-**Pasting an image** from your clipboard: press `Ctrl+V` in a chat. This works in kitty, directly or over SSH, and inside tmux (with `set -g allow-passthrough on`), but not through mosh. kitty asks for permission; choose "allow all" to stop it asking until faro restarts. The image is staged above the input with its size; `Ctrl+O` shows it, `Enter` sends it (with whatever you typed as a caption), `Esc` removes it. Nothing is sent before you press `Enter`. `Cmd+V` stays kitty's text paste.
+## Contributing
 
-## Colours
-
-faro guesses how many colours your terminal shows: truecolor when `COLORTERM` says so, inside tmux, or in terminals known to support it (kitty, Ghostty, WezTerm, iTerm2, Alacritty, foot…); otherwise 256 colours, or 16 on the Linux console and similar. Override with `[ui] colors = "truecolor" | "256" | "16"` or in the palette (`Settings › Colours`, which also shows what was detected).
-
-- **Truecolor:** every theme exactly as designed.
-- **256 colours:** themes are **approximated**: each colour becomes the nearest of the terminal's 240 fixed colours, so subtle tints can turn grey. Solarized's dark blue background (`#002b36`), for example, becomes the neutral grey `#262626`, much as Solarized's own 256-colour fallback uses `#1c1c1c`: there's no dark blue-teal among those colours. faro keeps the background, panels, selection and bubbles apart so the layout still reads.
-- **16 colours:** the **`system` theme** is drawn, whatever theme is set, since faro can't know which 16 colours your terminal uses. You can still pick another theme; it's saved and drawn once faro runs with more colours.
-
-The palette's Themes list says which of these applies.
-
-## Bubbles
-
-Rounded bubbles are drawn with Powerline half circles (U+E0B6, U+E0B4) and Unicode 16 block glyphs: quarter circles (U+1FBEC to U+1FBEF), octants (U+1CD00 to U+1CDE5) and quarter blocks. A recent kitty draws these itself, whatever your font (an older one shows boxes at the corners of taller bubbles: update kitty, or use `"bar"`); other terminals take them from the font, and most fonts without Nerd Font patches lack them (you'd see boxes or question marks). So by default (`bubble_style = "auto"`) faro draws rounded bubbles only when every terminal it's shown in is kitty, inside tmux too (it asks tmux for each attached client's terminal), and otherwise a coloured bar on each bubble's outer side. Through mosh the terminal can't be seen, so it draws bars there; set `[messages] bubble_style = "rounded"` (or `Settings › Bubble style` in the palette) if your terminal or font has the glyphs, or `"bar"` to always have bars. `"mixed"` puts the bar on the outer side and rounds the inner one (it needs the same glyphs as `"rounded"`).
-
-`bubble_padding` (on by default) keeps a blank cell between the text and each rounded side. With `density = "compact"`, rounded bubbles from one sender join up: they touch and share one edge on their aligned side, rounded only at the top and bottom of the run. `match_widths` (on by default) gives neighbours in such a run that are within 3 cells of each other the same width, so they line up.
-
-## Development
-
-```sh
-cargo test                                   # tests
-cargo fmt --check                            # formatting
-cargo clippy --all-targets -- -D warnings    # lints (pedantic; no panics, no blocking calls)
-FARO_LOG=info,faro=debug cargo run -- demo --seed 7   # log every demo event
-```
-
-The last three must pass before every commit; CI runs them on Linux and macOS.
-
-- [Design](docs/DESIGN.md): architecture, UI, configuration, themes
-- [Implementation plan](docs/PLAN.md): milestones and progress
-- [Decision log](docs/DECISIONS.md): what was decided and why
-- [Manual tests](docs/MANUAL_TESTS.md): checks that need a real terminal
-- [Background](docs/BACKGROUND.md): motivation, research, naming
-- [Website](docs/WEBSITE.md): design and plan for getfaro.dev
-- [AGENTS.md](AGENTS.md): guide for coding agents working on this repo
+See [CONTRIBUTING.md](CONTRIBUTING.md) for building, the checks every change must pass, and where the design docs are.
 
 ## License
 
