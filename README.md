@@ -4,6 +4,7 @@
 [![CI](https://github.com/harababurel/faro/actions/workflows/ci.yml/badge.svg)](https://github.com/harababurel/faro/actions/workflows/ci.yml)
 [![AUR](https://img.shields.io/aur/version/faro-bin?label=AUR)](https://aur.archlinux.org/packages/faro-bin)
 [![License: AGPL-3.0](https://img.shields.io/github/license/harababurel/faro)](LICENSE)
+[![Built With Ratatui](https://ratatui.rs/built-with-ratatui/badge.svg)](https://ratatui.rs/)
 
 **Signal, in your terminal.** faro is an unofficial, open-source [Signal](https://signal.org) client for people who live in tmux and SSH. It's keyboard-driven, it looks good, and it never freezes.
 
