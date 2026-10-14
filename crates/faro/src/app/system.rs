@@ -485,6 +485,7 @@ pub async fn inspect_terminal() -> Terminal {
                 graphics,
                 kitty: clients.iter().any(|c| is_kitty(&c.term) && !mosh(c.pid)),
                 graphics_blocker,
+                tmux_clients: ttys(&clients),
             }
         } else {
             let under_mosh = mosh(std::process::id());
@@ -499,6 +500,7 @@ pub async fn inspect_terminal() -> Terminal {
                     GraphicsSupport::Direct
                 },
                 graphics_blocker: under_mosh.then_some(GraphicsBlocker::Mosh),
+                tmux_clients: Vec::new(),
             }
         }
     };
@@ -584,6 +586,13 @@ fn graphics_of_clients(
         GraphicsSupport::Direct
     };
     (graphics, blocker)
+}
+
+/// The clients' ttys, sorted, so the same clients compare equal (D137).
+fn ttys(clients: &[Client]) -> Vec<String> {
+    let mut ttys: Vec<String> = clients.iter().map(|c| c.tty.clone()).collect();
+    ttys.sort();
+    ttys
 }
 
 /// A tmux client attached to faro's session.

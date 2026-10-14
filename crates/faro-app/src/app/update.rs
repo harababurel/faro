@@ -769,11 +769,15 @@ const TERMINAL_RECHECK: Duration = Duration::from_secs(2);
 
 /// Look at the terminal again, if the emoji mode follows mosh (D47), the
 /// bubble style follows kitty (D58), or inline images follow mixed/mosh
-/// clients (D78).
+/// clients (D78) or are drawn with a graphics protocol, which a newly
+/// attached tmux client needs measured and sent again (D137).
 fn check_terminal(state: &mut State) -> Vec<Effect> {
     let follows = state.env.emoji.auto
         || state.config.messages.bubble_style == BubbleStyle::Auto
-        || state.config.media.inline_images == InlineImages::Auto;
+        || !matches!(
+            state.config.media.inline_images,
+            InlineImages::Halfblocks | InlineImages::Off
+        );
     let emoji = &mut state.env.emoji;
     let now = Instant::now();
     if !follows || emoji.checked_at.is_some_and(|t| now - t < TERMINAL_RECHECK) {
@@ -793,9 +797,11 @@ fn terminal_checked(state: &mut State, terminal: Terminal) -> Vec<Effect> {
         // Checked afresh on every paste (D91).
         kitty: _,
         graphics_blocker,
+        tmux_clients,
     } = terminal;
     state.env.glyphs = glyphs;
     state.env.graphics_blocker = graphics_blocker;
+    state.env.tmux_clients = tmux_clients;
     if state.env.graphics != graphics {
         state.env.graphics = graphics;
         state.env.repaint = true;

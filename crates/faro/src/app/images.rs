@@ -120,6 +120,10 @@ pub struct Images {
     /// The terminal has been asked (at startup or since, D137); `auto`
     /// asks once graphics become possible if it hasn't.
     asked: bool,
+    /// The tmux clients attached when it was last asked: another set means
+    /// another terminal may be looking, with other cells and none of the
+    /// pictures sent so far (D137).
+    asked_for: Vec<String>,
     active_protocol: Option<ImageProtocol>,
     generation: u64,
     clock: Cell<u64>,
@@ -210,6 +214,7 @@ impl Images {
             detected_protocol,
             queried_font_size: CellSize { width, height },
             asked: false,
+            asked_for: Vec::new(),
             active_protocol: Some(detected_protocol),
             generation: 0,
             clock: Cell::new(0),
@@ -236,19 +241,33 @@ impl Images {
         }
     }
 
-    /// Whether to ask the terminal now (D137): `auto`, graphics have become
-    /// possible (no mosh or other terminal attached any more), and it hasn't
-    /// been asked yet, so pictures replace half-blocks without a restart.
-    pub fn wants_probe(&self, state: &State) -> bool {
-        state.config.media.inline_images == InlineImages::Auto
-            && state.env.graphics == GraphicsSupport::Direct
-            && !self.asked
+    /// The tmux clients attached when the terminal was asked at startup.
+    pub fn asked_for(&mut self, clients: &[String]) {
+        clients.clone_into(&mut self.asked_for);
     }
 
-    /// The terminal answered [`probe::ask`]: use what it said (protocol and
-    /// cell size) and drop every picture so each is encoded again.
-    pub fn adopt(&mut self, answer: probe::Probe) {
+    /// Whether to ask the terminal now (D137): images are drawn with a
+    /// graphics protocol (or `auto`, and graphics have become possible: no
+    /// mosh or other terminal attached any more), and the terminal hasn't
+    /// been asked yet (pictures replace half-blocks without a restart) or
+    /// was asked with other tmux clients attached (reattaching from another
+    /// screen: new cells, and the new terminal has none of the pictures).
+    pub fn wants_probe(&self, state: &State) -> bool {
+        let graphics = match state.config.media.inline_images {
+            InlineImages::Auto => state.env.graphics == GraphicsSupport::Direct,
+            InlineImages::Kitty | InlineImages::Sixel | InlineImages::Iterm2 => true,
+            InlineImages::Halfblocks | InlineImages::Off => false,
+        };
+        graphics && (!self.asked || self.asked_for != state.env.tmux_clients)
+    }
+
+    /// The terminal answered [`probe::ask`] with `clients` attached: use
+    /// what it said (protocol and cell size) and drop every picture so each
+    /// is encoded and sent again.
+    pub fn adopt(&mut self, answer: probe::Probe, clients: Vec<String>) {
         self.asked = true;
+        self.asked_for = clients;
+        self.clear();
         if !answer.answered {
             return;
         }
@@ -264,7 +283,6 @@ impl Images {
             width: cell.width,
             height: cell.height,
         };
-        self.clear();
     }
 
     /// Clear all cached slices and bump the generation so in-flight decodes
@@ -505,6 +523,61 @@ mod tests {
 
         let unknown = with_window_size(guessed, None);
         assert_eq!(unknown.font_size().width, LIBRARY_FONT_SIZE.width);
+    }
+
+    /// When faro asks the terminal again (D137): `auto` once graphics become
+    /// possible, and any graphics mode when other tmux clients attach; never
+    /// twice for the same clients.
+    #[test]
+    fn the_terminal_is_asked_again_when_graphics_or_clients_change() {
+        let mut images = Images::halfblocks();
+        let mut state = crate::fixtures::loaded_state();
+        state.config.media.inline_images = InlineImages::Auto;
+        state.env.graphics = GraphicsSupport::HalfblocksOnly;
+        state.env.tmux_clients = vec!["/dev/ttys011".to_owned(), "/dev/ttys022".to_owned()];
+        images.asked_for(&state.env.tmux_clients);
+        assert!(
+            !images.wants_probe(&state),
+            "a mosh client is still attached"
+        );
+
+        state.env.graphics = GraphicsSupport::Direct;
+        state.env.tmux_clients = vec!["/dev/ttys011".to_owned()];
+        assert!(images.wants_probe(&state), "graphics became possible");
+        let kitty = probe::Probe {
+            protocol: Some(ImageProtocol::Kitty),
+            cell: Some(CellSize {
+                width: 18,
+                height: 38,
+            }),
+            answered: true,
+        };
+        images.adopt(kitty, state.env.tmux_clients.clone());
+        assert!(!images.wants_probe(&state), "asked for these clients");
+        assert_eq!(images.detected_mode(), InlineImages::Kitty);
+        images.prepare_frame(&state);
+        assert_eq!(
+            images.font_size(),
+            CellSize {
+                width: 18,
+                height: 38
+            }
+        );
+
+        state.env.tmux_clients = vec!["/dev/ttys030".to_owned()];
+        assert!(images.wants_probe(&state), "another terminal attached");
+        images.adopt(probe::Probe::default(), state.env.tmux_clients.clone());
+        assert!(!images.wants_probe(&state), "no answer: not asked again");
+
+        state.config.media.inline_images = InlineImages::Kitty;
+        state.env.graphics = GraphicsSupport::HalfblocksOnly;
+        state.env.tmux_clients = vec!["/dev/ttys031".to_owned()];
+        assert!(
+            images.wants_probe(&state),
+            "forced kitty needs the new cells too"
+        );
+        state.config.media.inline_images = InlineImages::Halfblocks;
+        assert!(!images.wants_probe(&state), "half-blocks need nothing");
     }
 
     #[test]

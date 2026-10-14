@@ -153,6 +153,7 @@ pub async fn run<B: Backend + 'static>(
     router.dispatch(configured, &state);
     let mut tui = Tui::enter(state.config.mouse.enabled).context("setting up the terminal")?;
     let mut images = detect_images(&mut state).await;
+    images.asked_for(&state.env.tmux_clients);
     let frame_log = FrameLog::from_env().map(|(log, task)| {
         tui.log_frames(log);
         task
@@ -210,9 +211,9 @@ pub async fn run<B: Backend + 'static>(
             }
             Some(event) = backend_events.recv() => vec![AppEvent::Backend(event)],
             Some(event) = results.recv() => vec![event],
-            Some(answer) = probe_rx.recv() => {
+            Some((answer, clients)) = probe_rx.recv() => {
                 probing = false;
-                images.adopt(answer);
+                images.adopt(answer, clients);
                 state.env.image_protocol = (state.config.media.inline_images
                     == faro_core::config::InlineImages::Auto
                     && state.env.graphics == state::GraphicsSupport::Direct)
@@ -243,14 +244,16 @@ pub async fn run<B: Backend + 'static>(
             dirty |= update::affects_view(&event);
             handle(event, &mut state, &router);
         }
-        // Graphics became possible (the mosh or other client left): ask the
-        // terminal now instead of at the next start (D137).
+        // Graphics became possible (the mosh or other client left), or
+        // another terminal attached: ask the terminal now instead of at the
+        // next start, and send the pictures again (D137).
         if !probing && input.is_some() && images.wants_probe(&state) {
             probing = true;
             input = None;
             let answer = probe_tx.clone();
+            let clients = state.env.tmux_clients.clone();
             tokio::spawn(async move {
-                let _ = answer.send(images::probe::ask().await);
+                let _ = answer.send((images::probe::ask().await, clients));
             });
         }
     }
@@ -322,6 +325,7 @@ fn sense_terminal(state: &mut State, detected: state::Detected) {
     state.env.glyphs = detected.glyphs;
     state.env.graphics = detected.graphics;
     state.env.graphics_blocker = detected.graphics_blocker;
+    state.env.tmux_clients = detected.tmux_clients;
     state.env.colors = ColorDepth::detect(|var| std::env::var(var).ok());
     tracing::info!(colors = ?state.env.colors, "colour depth detected");
 }

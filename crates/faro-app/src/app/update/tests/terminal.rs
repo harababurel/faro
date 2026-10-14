@@ -19,6 +19,7 @@ fn checked(mosh: bool) -> AppEvent {
         },
         kitty: false,
         graphics_blocker: mosh.then_some(GraphicsBlocker::Mosh),
+        tmux_clients: Vec::new(),
     })
 }
 
@@ -119,6 +120,7 @@ fn an_auto_bubble_style_follows_kitty() {
         graphics: GraphicsSupport::Direct,
         kitty: true,
         graphics_blocker: None,
+        tmux_clients: Vec::new(),
     };
     update(&mut state, AppEvent::TerminalChecked(kitty));
     assert_eq!(state.env.glyphs, BlockGlyphs::Native);

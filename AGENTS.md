@@ -172,6 +172,7 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 - 2026-10-13: D136: forced image protocols (`kitty`/`sixel`/`iterm2`) now measure the cell size at startup (query, then `TIOCGWINSZ`), so pictures fill their boxes; measured once, so reattaching from a terminal with different cells still needs a restart.
 - 2026-10-14: D137 stage 1: `GraphicsBlocker` (from `system::graphics_of_clients`, in `Environment::graphics_blocker`) names the tmux client that keeps `auto` on half-blocks; the Inline images note gives its tty and the detach command, and the `auto` value says why.
 - 2026-10-14: D137 stage 2: when graphics become possible mid-session, the app loop pauses input and `images::probe::ask` asks the terminal (ratatui-image's query and parser, read via `clipboard::tty` as in D90); `Images::adopt` switches to pictures without a restart.
+- 2026-10-14: D137 stage 3: a different set of attached tmux clients (`Environment::tmux_clients`) also triggers the probe, for `auto` and forced protocols, and `Images::adopt` drops every cached picture so the new terminal gets them at its cell size.
 
 ### Gotchas found so far
 

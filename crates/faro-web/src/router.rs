@@ -26,6 +26,7 @@ pub const BROWSER: Terminal = Terminal {
     graphics: GraphicsSupport::Direct,
     kitty: false,
     graphics_blocker: None,
+    tmux_clients: Vec::new(),
 };
 
 /// The page's side of the effects: the clipboard, new tabs, the bell.

@@ -277,10 +277,14 @@ async fn terminal_setting(
     let from_cli = cli.is_some();
     let choice = cli.unwrap_or(config.ui.emoji);
     let auto = choice == EmojiChoice::Auto;
+    // Forced graphics protocols too: a new tmux client means measuring
+    // and sending images again (D137).
     let terminal = if auto
         || config.messages.bubble_style == BubbleStyle::Auto
-        || config.media.inline_images == InlineImages::Auto
-    {
+        || !matches!(
+            config.media.inline_images,
+            InlineImages::Halfblocks | InlineImages::Off
+        ) {
         app::system::inspect_terminal().await
     } else {
         app::state::Terminal::default()
@@ -310,5 +314,6 @@ async fn terminal_setting(
         glyphs: terminal.glyphs,
         graphics: terminal.graphics,
         graphics_blocker: terminal.graphics_blocker,
+        tmux_clients: terminal.tmux_clients,
     }
 }

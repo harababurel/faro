@@ -330,6 +330,10 @@ pub struct Environment {
     /// What stops them, when something does (D137): named in the Inline
     /// images note so the user can fix it.
     pub graphics_blocker: Option<GraphicsBlocker>,
+    /// The ttys of the tmux clients attached to faro's session (empty
+    /// outside tmux): when they change, a new terminal may be looking, so
+    /// images are measured and sent again (D137).
+    pub tmux_clients: Vec<String>,
     /// Startup image query result; None when no query was attempted (D84).
     pub image_protocol: Option<InlineImages>,
     /// The colours the terminal shows, guessed at startup (D50); the
@@ -369,6 +373,7 @@ pub struct Detected {
     pub glyphs: BlockGlyphs,
     pub graphics: GraphicsSupport,
     pub graphics_blocker: Option<GraphicsBlocker>,
+    pub tmux_clients: Vec<String>,
 }
 
 /// What faro can find out about the terminals between it and the user.
@@ -386,6 +391,8 @@ pub struct Terminal {
     pub kitty: bool,
     /// Why `graphics` is [`GraphicsSupport::HalfblocksOnly`] (D137).
     pub graphics_blocker: Option<GraphicsBlocker>,
+    /// The attached tmux clients' ttys, sorted (empty outside tmux).
+    pub tmux_clients: Vec<String>,
 }
 
 /// Who draws the glyphs rounded bubbles are made of (D58).
@@ -833,6 +840,7 @@ impl State {
                 glyphs: BlockGlyphs::default(),
                 graphics: GraphicsSupport::default(),
                 graphics_blocker: None,
+                tmux_clients: Vec::new(),
                 image_protocol: None,
                 colors: ColorDepth::default(),
             },
