@@ -157,9 +157,12 @@ pub async fn run<B: Backend + 'static>(
         tui.log_frames(log);
         task
     });
-    // `None` while a clipboard read has the tty (D90).
+    // `None` while a clipboard read or an image probe has the tty (D90).
     let mut input = Some(EventStream::new());
     let mut paste = clipboard::Paste::default();
+    // Asking the terminal about images mid-session (D137).
+    let (probe_tx, mut probe_rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut probing = false;
     router.dispatch(vec![Effect::LoadConversations], &state);
 
     let mut themes = Themes::default();
@@ -200,13 +203,24 @@ pub async fn run<B: Backend + 'static>(
             () = sleep_until(held_until.unwrap_or_else(Instant::now)), if held_until.is_some() => {
                 paste.flush()
             }
-            Some(conversation) = clipboard_requests.recv() => {
+            Some(conversation) = clipboard_requests.recv(), if !probing => {
                 let dir = state.attachments_dir.clone();
                 paste.begin(&mut input, conversation, dir, &router.results);
                 continue;
             }
             Some(event) = backend_events.recv() => vec![AppEvent::Backend(event)],
             Some(event) = results.recv() => vec![event],
+            Some(answer) = probe_rx.recv() => {
+                probing = false;
+                images.adopt(answer);
+                state.env.image_protocol = (state.config.media.inline_images
+                    == faro_core::config::InlineImages::Auto
+                    && state.env.graphics == state::GraphicsSupport::Direct)
+                    .then(|| images.detected_mode());
+                input.get_or_insert_with(EventStream::new);
+                dirty = true;
+                continue;
+            }
             // Decoded off the UI thread (D79): straight into the cache.
             Some(decoded) = images.next_decoded() => {
                 images.insert(decoded);
@@ -228,6 +242,16 @@ pub async fn run<B: Backend + 'static>(
             paste.resume(&mut input, &event);
             dirty |= update::affects_view(&event);
             handle(event, &mut state, &router);
+        }
+        // Graphics became possible (the mosh or other client left): ask the
+        // terminal now instead of at the next start (D137).
+        if !probing && input.is_some() && images.wants_probe(&state) {
+            probing = true;
+            input = None;
+            let answer = probe_tx.clone();
+            tokio::spawn(async move {
+                let _ = answer.send(images::probe::ask().await);
+            });
         }
     }
 

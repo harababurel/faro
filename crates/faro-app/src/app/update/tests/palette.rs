@@ -128,7 +128,11 @@ fn auto_image_notes_explain_detection_and_fallbacks() {
     let level = Level::Setting(Setting::InlineImages);
     state.env.colors = ColorDepth::Truecolor;
     state.env.graphics = GraphicsSupport::Direct;
-    assert!(palette::note(&state, level).unwrap().contains("restart"));
+    assert!(
+        palette::note(&state, level)
+            .unwrap()
+            .contains("asking the terminal")
+    );
     state.env.image_protocol = Some(InlineImages::Kitty);
     assert!(
         palette::note(&state, level)

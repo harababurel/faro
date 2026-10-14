@@ -28,6 +28,8 @@ use super::image_cache::{
     resolve_protocol, visible_rect,
 };
 use super::state::{GraphicsSupport, State};
+
+pub mod probe;
 use crate::theme::ColorDepth;
 
 /// Maximum number of decoded image slices kept in memory (D78).
@@ -115,6 +117,9 @@ pub struct Images {
     halfblocks_picker: Picker,
     detected_protocol: ImageProtocol,
     queried_font_size: CellSize,
+    /// The terminal has been asked (at startup or since, D137); `auto`
+    /// asks once graphics become possible if it hasn't.
+    asked: bool,
     active_protocol: Option<ImageProtocol>,
     generation: u64,
     clock: Cell<u64>,
@@ -168,11 +173,15 @@ impl Images {
                         font_size = ?picker.font_size(),
                         "terminal image protocol detected"
                     );
-                    return Self::with_pickers(picker, halfblocks);
+                    let mut images = Self::with_pickers(picker, halfblocks);
+                    images.asked = true;
+                    return images;
                 }
                 Ok((Err(error), halfblocks)) => {
                     tracing::info!(%error, "terminal image query unsupported; using half-blocks");
-                    return Self::with_pickers(halfblocks.clone(), halfblocks);
+                    let mut images = Self::with_pickers(halfblocks.clone(), halfblocks);
+                    images.asked = true;
+                    return images;
                 }
                 Err(error) => {
                     tracing::warn!(%error, "terminal image query task failed; using half-blocks");
@@ -200,6 +209,7 @@ impl Images {
             halfblocks_picker,
             detected_protocol,
             queried_font_size: CellSize { width, height },
+            asked: false,
             active_protocol: Some(detected_protocol),
             generation: 0,
             clock: Cell::new(0),
@@ -224,6 +234,37 @@ impl Images {
             self.clear();
             self.active_protocol = active;
         }
+    }
+
+    /// Whether to ask the terminal now (D137): `auto`, graphics have become
+    /// possible (no mosh or other terminal attached any more), and it hasn't
+    /// been asked yet, so pictures replace half-blocks without a restart.
+    pub fn wants_probe(&self, state: &State) -> bool {
+        state.config.media.inline_images == InlineImages::Auto
+            && state.env.graphics == GraphicsSupport::Direct
+            && !self.asked
+    }
+
+    /// The terminal answered [`probe::ask`]: use what it said (protocol and
+    /// cell size) and drop every picture so each is encoded again.
+    pub fn adopt(&mut self, answer: probe::Probe) {
+        self.asked = true;
+        if !answer.answered {
+            return;
+        }
+        self.detected_protocol = answer.protocol.unwrap_or(ImageProtocol::Halfblocks);
+        let cell = answer.cell.map_or_else(
+            || window_font_size().unwrap_or(LIBRARY_FONT_SIZE),
+            |cell| FontSize::new(cell.width, cell.height),
+        );
+        let mut picker = sized_picker(cell);
+        picker.set_protocol_type(theirs(self.detected_protocol));
+        self.graphics_picker = picker;
+        self.queried_font_size = CellSize {
+            width: cell.width,
+            height: cell.height,
+        };
+        self.clear();
     }
 
     /// Clear all cached slices and bump the generation so in-flight decodes

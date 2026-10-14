@@ -1280,7 +1280,7 @@ fn inline_images_note(state: &State) -> String {
         return "Auto: halfblocks — mixed or detached tmux clients.".to_owned();
     }
     match state.env.image_protocol {
-        None => "Auto: halfblocks — restart faro to ask the terminal about images.".to_owned(),
+        None => "Auto: halfblocks — asking the terminal about images.".to_owned(),
         Some(InlineImages::Halfblocks | InlineImages::Auto | InlineImages::Off) => {
             "Auto: halfblocks — the terminal didn't offer a graphics protocol.".to_owned()
         }

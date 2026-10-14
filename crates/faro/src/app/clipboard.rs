@@ -12,7 +12,7 @@
 //! reads the rest the same way.
 
 mod guard;
-mod tty;
+pub(super) mod tty;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};

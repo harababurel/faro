@@ -171,6 +171,7 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 - 2026-10-13: website: the demo no longer copies faro's window title into the tab (owner's call); favicon from the app's small lighthouse (`faro-site/src/favicon.rs`, fixed names `favicon.svg`/`favicon.ico`/`apple-touch-icon.png`, linked from every page).
 - 2026-10-13: D136: forced image protocols (`kitty`/`sixel`/`iterm2`) now measure the cell size at startup (query, then `TIOCGWINSZ`), so pictures fill their boxes; measured once, so reattaching from a terminal with different cells still needs a restart.
 - 2026-10-14: D137 stage 1: `GraphicsBlocker` (from `system::graphics_of_clients`, in `Environment::graphics_blocker`) names the tmux client that keeps `auto` on half-blocks; the Inline images note gives its tty and the detach command, and the `auto` value says why.
+- 2026-10-14: D137 stage 2: when graphics become possible mid-session, the app loop pauses input and `images::probe::ask` asks the terminal (ratatui-image's query and parser, read via `clipboard::tty` as in D90); `Images::adopt` switches to pictures without a restart.
 
 ### Gotchas found so far
 
