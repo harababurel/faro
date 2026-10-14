@@ -2,7 +2,7 @@
 
 A terminal client for [Signal](https://signal.org), built for people who live in tmux.
 
-> **Status: v0.1.0, the first release.** Install it with Homebrew, from the AUR or as a `.deb` ([below](#install)). The interface can be tried with **`faro demo`** (fake contacts and messages, no account needed). The real Signal backend (via [presage](https://github.com/whisperfish/presage)) works and is in daily use; for testing it can be limited to an allowlist of who faro may talk to. See the [plan](docs/PLAN.md) for what's next.
+> **Status: v0.1.1.** Install it with Homebrew, from the AUR or as a `.deb` ([below](#install)). The interface can be tried with **`faro demo`** (fake contacts and messages, no account needed). The real Signal backend (via [presage](https://github.com/whisperfish/presage)) works and is in daily use; for testing it can be limited to an allowlist of who faro may talk to. See the [plan](docs/PLAN.md) for what's next.
 
 faro is an unofficial, independent project. It is not affiliated with, endorsed by, or supported by Signal Messenger LLC or the Signal Technology Foundation.
 
