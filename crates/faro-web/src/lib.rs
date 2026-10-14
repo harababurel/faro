@@ -41,6 +41,7 @@ mod paint;
 mod router;
 pub mod session;
 pub mod svg;
+pub mod themes;
 #[cfg(target_arch = "wasm32")]
 mod web;
 

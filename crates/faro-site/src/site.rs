@@ -19,7 +19,6 @@ use crate::keys;
 use crate::placeholders::{self, Problem, Syntax, Values};
 use crate::release;
 use crate::scene;
-use crate::themes;
 
 /// Font extensions: these get content-hashed names like CSS and JS do.
 const FONT_EXTS: [&str; 4] = ["woff", "woff2", "ttf", "otf"];
@@ -170,13 +169,12 @@ fn values(posters: &scene::Posters, og_url: String) -> Result<Values, String> {
         "<div class=\"poster-dark\">{}</div><div class=\"poster-light\">{}</div>",
         posters.dark, posters.light
     );
-    let entries: [(&'static str, String); 8] = [
+    let entries: [(&'static str, String); 7] = [
         ("version", release::version()),
         ("date", release::date()?),
         ("commit", release::commit()?),
         ("source_url", release::source_url()?),
         ("keys", keys::table(&keymap)?),
-        ("themes", themes::chips()),
         ("poster", poster),
         ("og_image", og_url),
     ];

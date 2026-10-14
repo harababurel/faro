@@ -3,7 +3,7 @@
 //! `faro-site <template dir> <out dir> [--demo <pkg dir>]` copies
 //! `<template dir>` to the output recursively, fills the `{{name}}`
 //! placeholders in the `.html` and `.css` files from faro's own code
-//! (version, date, commit, source link, key table, theme chips, poster,
+//! (version, date, commit, source link, key table, poster,
 //! OG image), and rewrites
 //! asset references to content-hashed names. With `--demo`, the output of
 //! `crates/faro-web/build.sh` is copied into `<out>/demo/` the same way
@@ -18,7 +18,6 @@ mod placeholders;
 mod release;
 mod scene;
 mod site;
-mod themes;
 
 use std::path::Path;
 use std::process::ExitCode;

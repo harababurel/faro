@@ -159,6 +159,24 @@ impl Demo {
         array
     }
 
+    /// Every theme as `[name, group]` pairs, for the page's theme menu
+    /// (§4.5): faro's own, then OpenCode's dark and light ones.
+    #[expect(
+        clippy::unused_self,
+        reason = "a method, so the page asks the demo it already holds"
+    )]
+    pub fn themes(&self) -> js_sys::Array {
+        crate::themes::menu()
+            .into_iter()
+            .map(|(name, group)| {
+                let pair = js_sys::Array::new();
+                pair.push(&JsValue::from_str(&name));
+                pair.push(&JsValue::from_str(group));
+                JsValue::from(pair)
+            })
+            .collect()
+    }
+
     /// Draw a whole frame from scratch, as after a resize or a theme switch:
     /// render, diff and paint every row (to measure); returns the
     /// milliseconds it took.

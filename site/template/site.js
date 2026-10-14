@@ -1,4 +1,4 @@
-// getfaro.dev (§6.1): theme toggle, install tabs, copy buttons, analytics.
+// getfaro.dev (§6.1): page theme, install tabs, copy buttons, analytics.
 // Vanilla, no cookies: only the theme choice and the opt-out flag.
 (function () {
   "use strict";
@@ -9,29 +9,47 @@
     if (window.plausible) window.plausible(name, { props: props });
   }
 
-  // theme toggle (§5.1): theme.js re-applies it.
+  // page theme (§5.1): system (the default, nothing stored), light or
+  // dark; theme.js re-applies a stored choice before first paint.
   var THEME_KEY = "faro-site-theme";
-  var toggle = document.getElementById("theme-toggle");
-  if (toggle) {
-    var storedTheme = function () {
-      try { return localStorage.getItem(THEME_KEY); } catch (e) { return null; }
+  var scheme = document.getElementById("scheme");
+  if (scheme) {
+    var choices = Array.prototype.slice.call(scheme.querySelectorAll("[data-scheme]"));
+    var stored = function () {
+      try {
+        var t = localStorage.getItem(THEME_KEY);
+        return t === "light" || t === "dark" ? t : "system";
+      } catch (e) { return "system"; }
     };
-    var currentTheme = function () {
-      var t = storedTheme();
-      if (t === "light" || t === "dark") return t;
-      return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    var paint = function (choice) {
+      choices.forEach(function (b) {
+        var on = b.getAttribute("data-scheme") === choice;
+        b.setAttribute("aria-checked", on ? "true" : "false");
+        b.tabIndex = on ? 0 : -1;
+      });
     };
-    var paintToggle = function () {
-      var next = currentTheme() === "light" ? "dark" : "light";
-      toggle.setAttribute("aria-label", "Switch to the " + next + " theme");
+    var choose = function (choice) {
+      try {
+        if (choice === "system") localStorage.removeItem(THEME_KEY);
+        else localStorage.setItem(THEME_KEY, choice);
+      } catch (e) { /* private mode: this page view only */ }
+      if (choice === "system") root.removeAttribute("data-theme");
+      else root.setAttribute("data-theme", choice);
+      paint(choice);
     };
-    toggle.addEventListener("click", function () {
-      var next = currentTheme() === "light" ? "dark" : "light";
-      root.setAttribute("data-theme", next);
-      try { localStorage.setItem(THEME_KEY, next); } catch (e) { /* private mode */ }
-      paintToggle();
+    choices.forEach(function (b, i) {
+      b.addEventListener("click", function () { choose(b.getAttribute("data-scheme")); });
+      b.addEventListener("keydown", function (e) {
+        var step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1
+          : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+        if (!step) return;
+        e.preventDefault();
+        var next = choices[(i + step + choices.length) % choices.length];
+        next.focus();
+        choose(next.getAttribute("data-scheme"));
+      });
     });
-    paintToggle();
+    paint(stored());
   }
 
   // install tabs (§3.4)

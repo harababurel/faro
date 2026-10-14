@@ -62,6 +62,8 @@ function el(tag) {
     setAttribute: (k, v) => { attrs[k] = String(v); },
     getAttribute: (k) => (k in attrs ? attrs[k] : null),
     appendChild(c) { c.parentElement = node; node.children.push(c); return c; },
+    get firstChild() { return node.children[0] || null; },
+    removeChild(c) { node.children = node.children.filter((x) => x !== c); return c; },
     remove() {
       const p = node.parentElement;
       if (p) p.children = p.children.filter((c) => c !== node);
@@ -87,13 +89,7 @@ function boot({ preload, plausible, storage, failWasmOnce, failManifestOnce, han
   gallery._display = galleryDisplay || "none"; // CSS's phone/desktop call
   panel.appendChild(gallery);
   const tools = el("div");
-  const chips = ["faro-dark", "nord", "gruvbox"].map((name) => {
-    const b = el("button");
-    b.setAttribute("data-theme", name);
-    tools.appendChild(b);
-    return b;
-  });
-  ["themes", "motion", "restart", "fullscreen"].forEach((name) => {
+  ["restart", "fullscreen"].forEach((name) => {
     const b = el("button");
     b.setAttribute("data-tool", name);
     const label = el("span");
@@ -103,6 +99,8 @@ function boot({ preload, plausible, storage, failWasmOnce, failManifestOnce, han
   });
   ["demo-status", "demo-start", "demo-exited", "demo-again", "demo-cta",
     "demo-focus", "demo-controls-status"].forEach((id) => { byId[id] = el("div"); });
+  byId["demo-theme"] = el("select"); // the theme menu (§4.5)
+  byId["demo-theme"].value = "";
   byId["demo-start"].hidden = true; // the template starts it hidden
   const root = el("html");
   const doc = {
@@ -177,6 +175,8 @@ function boot({ preload, plausible, storage, failWasmOnce, failManifestOnce, han
         set_theme: (n) => fake.pick(n),
         configure_reduce_motion() {}, set_reduce_motion() {},
         set_font_size: () => true, open_themes() {}, free() {},
+        themes: () => [["faro-dark", "faro"], ["faro-light", "faro"],
+          ["nord", "OpenCode · dark"], ["gruvbox", "OpenCode · dark"]],
       });
     },
   };
@@ -225,13 +225,17 @@ function boot({ preload, plausible, storage, failWasmOnce, failManifestOnce, han
     return { ok: true, body: { getReader: () => ({ read: async () => ({ done: true }) }) } };
   };
   new Function(SRC)();
+  const sel = byId["demo-theme"];
   return {
+    // the visitor picks a theme in the menu
+    pick: (name) => { sel.value = name; (sel._listeners.change || []).forEach((f) => f({})); },
+    sel,
     fireLoad: () => (win._cbs.load || []).forEach((f) => f()),
     fireResize: () => (win._cbs.resize || []).forEach((f) => f()),
     click: (node) => (node._listeners.click || []).forEach((f) => f({})),
     focusCanvas: () => { doc.activeElement = fake.canvas; fake.canvas.dispatch("focus"); },
     blurCanvas: () => { doc.activeElement = null; fake.canvas.dispatch("blur"); },
-    fake, byId, chips, root, win, light, store, gallery, frame, doc,
+    fake, byId, root, win, light, store, gallery, frame, doc,
     fsBtn: tools.querySelector('[data-tool="fullscreen"]'),
     runIdle: () => (win._idle || []).splice(0).forEach((f) => f()),
   };
@@ -247,6 +251,11 @@ async function run() {
   ok(started.length === 1 && started[0][1] && started[0][1].how === "auto",
     "auto preload: Demo started {how:auto} once");
   ok(calls.filter(([n]) => n === "Demo focused").length === 0, "autostart: no Demo focused");
+  ok(h.byId["demo-cta"].textContent === "▶ Try it here, no install",
+    "a computer that runs the demo: the CTA says Try from the start");
+  ok(h.sel.children.length === 2 && h.sel.children[1].label === "OpenCode · dark" &&
+    h.sel.children[1].children.length === 2, "the theme menu lists the demo's themes in groups");
+  ok(h.sel.value === "faro-dark", "the theme menu shows the theme faro draws");
 
   h.fake.preview("gruvbox"); await tick(); // palette preview: only eff moves
   ok(calls.filter(([n]) => n === "Theme changed").length === 0, "preview: no Theme changed");
@@ -264,12 +273,12 @@ async function run() {
   h.blurCanvas(); h.focusCanvas();
   ok(calls.filter(([n]) => n === "Demo focused").length === 1, "refocus: no second Demo focused");
 
-  h.click(h.chips[1]); await tick(); // nord, prev faro-light
+  h.pick("nord"); await tick(); // nord, prev faro-light
   let th = calls.filter(([n]) => n === "Theme changed");
-  ok(th.length === 1 && th[0][1].theme === "nord", "chip nord: Theme changed {theme:nord} once");
-  h.click(h.chips[1]); await tick();
+  ok(th.length === 1 && th[0][1].theme === "nord", "menu nord: Theme changed {theme:nord} once");
+  h.pick("nord"); await tick();
   ok(calls.filter(([n]) => n === "Theme changed").length === 1,
-    "chip nord again: no event (same theme)");
+    "menu nord again: no event (same theme)");
 
   h.fake.palette("gruvbox");
   th = calls.filter(([n]) => n === "Theme changed");
@@ -285,15 +294,15 @@ async function run() {
   ok(calls.filter(([n]) => n === "Demo focused").length === 1, "restart: no second Demo focused");
 
   h.store.plausible_ignore = "true";
-  h.click(h.chips[0]); await tick(); // would count if not opted out
+  h.pick("faro-dark"); await tick(); // would count if not opted out
   ok(calls.filter(([n]) => n === "Theme changed").length === 2, "opt-out: nothing sent");
   delete h.store.plausible_ignore;
 
   h.win.plausible = () => { throw new Error("tracker down"); };
-  h.click(h.chips[1]); await tick();
+  h.pick("nord"); await tick();
   ok(true, "throwing tracker: no crash");
   h.win.plausible = undefined;
-  h.click(h.chips[0]); await tick();
+  h.pick("faro-dark"); await tick();
   ok(true, "absent tracker: no crash");
 
   ok(calls.every(([n, p]) => NAMES.has(n) &&
@@ -336,7 +345,7 @@ async function run() {
   for (let i = 0; i < 4; i += 1) await tick();
   ok(callsD.length === 0, "initial opt-out: nothing sent");
   delete hd.store.plausible_ignore;
-  hd.click(hd.chips[1]); await tick();
+  hd.pick("nord"); await tick();
   ok(callsD.filter(([n]) => n === "Theme changed").length === 1, "opt-out lifted: counts again");
 
   // --- E: failed auto start, then the visitor starts by button ---
@@ -372,6 +381,7 @@ async function run() {
   for (let i = 0; i < 4; i += 1) await tick();
   ok(globalThis.__manifestN === 0 && globalThis.__fetchN === 0,
     "phone mode at load: no manifest and no wasm fetched");
+  ok(hg.byId["demo-cta"].textContent === "", "phone mode at load: the CTA keeps its See label");
   hg.gallery._display = "none";
   hg.fireResize();
   for (let i = 0; i < 6; i += 1) await tick();

@@ -81,30 +81,31 @@ html.js .js-only { display: inline-flex; align-items: center; gap: .3em; }
 .head-links { display: flex; gap: 1rem; list-style: none; margin: 0 0 0 auto; padding: 0; flex-wrap: wrap; }
 .head-links a { color: var(--fg); text-decoration: none; }
 .head-links a:hover { color: var(--accent); text-decoration: underline; }
-#theme-toggle {
-  background: none; border: 1px solid var(--border); border-radius: 6px;
-  color: var(--fg); padding: .25rem .5rem; cursor: pointer;
+/* page theme: system / light / dark (§5.1); site.js marks the choice */
+.scheme { border: 1px solid var(--border); border-radius: 6px; padding: 1px; gap: 1px; }
+.scheme button {
+  display: grid; place-items: center; background: none; border: 0; border-radius: 4px;
+  color: var(--muted); padding: .25rem .4rem; cursor: pointer;
 }
-#theme-toggle:hover { border-color: var(--accent); color: var(--accent); }
-
-#theme-toggle svg { display: block; }
-#theme-toggle .icon-moon { display: none; }
-@media (prefers-color-scheme: light) {
-  #theme-toggle .icon-sun { display: none; }
-  #theme-toggle .icon-moon { display: block; }
+.scheme button:hover { color: var(--accent); }
+.scheme button[aria-checked="true"] { color: var(--fg); background: var(--panel); }
+.scheme svg { display: block; }
+/* Narrow: the switch sits beside the logo, the links take the next row. */
+@media (max-width: 640px) {
+  .scheme { margin-left: auto; }
+  .head-links { order: 3; width: 100%; margin-left: 0; }
 }
-[data-theme="dark"] #theme-toggle .icon-sun { display: block; }
-[data-theme="dark"] #theme-toggle .icon-moon { display: none; }
-[data-theme="light"] #theme-toggle .icon-sun { display: none; }
-[data-theme="light"] #theme-toggle .icon-moon { display: block; }
 
 main { max-width: 75rem; margin: 0 auto; padding: 0 1.25rem; container-type: inline-size; }
 section { margin: 3rem 0; }
 main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin-right: auto; }
 
 .hero { margin-top: 3.5rem; }
+/* One line wherever 25 monospace characters fit the column (15em, plus a
+   margin); below 2rem it wraps, balanced. */
+.hero h1 { font-size: clamp(2rem, calc((100vw - 2.5rem) / 15.5), 3rem); text-wrap: balance; }
 .subline { font-size: 1.2rem; max-width: 60ch; }
-.cta { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.cta { display: flex; align-items: stretch; gap: 1rem; flex-wrap: wrap; }
 .btn {
   display: inline-flex; align-items: center; gap: .4em; text-decoration: none;
   background: var(--accent); color: var(--bg); font-weight: 700;
@@ -112,7 +113,7 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
 }
 .btn:hover { filter: brightness(1.08); }
 .hero-install { flex: 1 1 22rem; min-width: 0; }
-.facts { color: var(--muted); font-size: .85rem; }
+.facts { color: var(--muted); font-size: .85rem; max-width: none; }
 
 .panel-section { max-width: 75rem; }
 .panel { margin: 0; }
@@ -196,17 +197,23 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
 .demo-exited button:hover { color: var(--accent); }
 
 .demo-canvas { display: none; }
-.frame.live .demo-canvas { display: block; }
-.frame.live .poster-dark, .frame.live .poster-light { display: none !important; }
-.frame.live { width: fit-content; margin-left: auto; margin-right: auto; }
+.frame.live .demo-canvas { display: block; position: relative; animation: demo-in .18s ease-out; }
+@keyframes demo-in { from { opacity: 0; } }
+/* Live, the poster stays under the canvas while it fades in, then goes. */
+.frame.live .poster-dark, .frame.live .poster-light { position: absolute; top: 0; left: 0; }
+.frame.live.settled .poster-dark, .frame.live.settled .poster-light { display: none !important; }
+/* demo.js sizes the poster to the live canvas (.fitted), so the swap moves nothing. */
+.frame.live, .frame.fitted { width: fit-content; margin-left: auto; margin-right: auto; }
 
 .panel figcaption { padding-top: .6rem; }
 .panel figcaption > p { max-width: none; }
 /* Live, the canvas can be narrower than the panel (it's centred): the caption
    keeps to its width. The panel itself stays full width, because demo.js
    measures it to refit the font. */
-.panel:not(:fullscreen):has(.frame.live) { display: grid; justify-content: center; }
-.panel:not(:fullscreen):has(.frame.live) > figcaption { width: 0; min-width: 100%; }
+.panel:not(:fullscreen):has(.frame.live, .frame.fitted) { display: grid; justify-content: center; }
+.panel:not(:fullscreen):has(.frame.live, .frame.fitted) > figcaption { width: 0; min-width: 100%; }
+/* Caption rows the live demo fills, held empty until then. */
+.reserved { visibility: hidden; }
 .hints, .safety { font-size: .9rem; margin: 0 0 .4rem; }
 .hints { display: var(--f); }
 
@@ -217,22 +224,27 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
 .demo-focus[hidden] { display: none; }
 .panel-tools { display: flex; gap: .5rem; flex-wrap: wrap; margin: 0 0 .4rem; }
 .panel-tools[hidden] { display: none; }
-.chips { display: inline-flex; gap: .4rem; flex-wrap: wrap; }
-.chips button, .panel-tools > button {
+.panel-tools { align-items: center; }
+.theme-pick { font-family: var(--mono); font-size: .8rem; display: inline-flex; align-items: center; gap: .4rem; }
+.theme-pick select {
+  font: inherit; color: var(--fg); background: var(--panel);
+  border: 1px solid var(--border); border-radius: 999px; padding: .2rem .6rem; cursor: pointer;
+}
+.theme-pick select:hover { border-color: var(--accent); }
+.theme-pick select[disabled] { opacity: .5; cursor: default; }
+.tool-note { font-size: .8rem; color: var(--muted); margin-right: auto; }
+.panel-tools > button {
   font-family: var(--mono); font-size: .8rem; color: var(--fg);
   background: var(--panel); border: 1px solid var(--border); border-radius: 999px;
   padding: .2rem .7rem; cursor: pointer;
 }
-.chips button:hover, .panel-tools > button:hover { border-color: var(--accent); color: var(--accent); }
-
-.chips button[aria-pressed="true"], .panel-tools > button[aria-pressed="true"] {
+.panel-tools > button:hover { border-color: var(--accent); color: var(--accent); }
+.panel-tools > button[aria-pressed="true"] {
   border-color: var(--accent); color: var(--accent);
   background: color-mix(in srgb, var(--accent) 14%, var(--panel));
 }
-.chips button[disabled], .panel-tools > button[disabled] { opacity: .5; cursor: default; }
-.chips button[disabled]:hover, .panel-tools > button[disabled]:hover {
-  border-color: var(--border); color: var(--fg);
-}
+.panel-tools > button[disabled] { opacity: .5; cursor: default; }
+.panel-tools > button[disabled]:hover { border-color: var(--border); color: var(--fg); }
 
 .demo-controls-status { font-family: var(--mono); font-size: .85rem; margin: 0 0 .4rem; }
 .phone-note { display: var(--h); font-size: .9rem; margin: .4rem 0 0; }
@@ -265,6 +277,11 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
 .codeblock > code { white-space: pre; }
 
 .codeblock .cmt { color: var(--fg); }
+/* The hero's install box: as tall as the button beside it (.cta stretches
+   both), no bottom margin to push it up, and the command a touch smaller so
+   it fits beside the button without scrolling. */
+.codeblock.hero-install { margin: 0; padding-top: .45rem; padding-bottom: .45rem; }
+.codeblock.hero-install > code { font-size: .85em; }
 .copy {
   flex: none;
   background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
@@ -314,7 +331,7 @@ main.legal { max-width: calc(46rem + 2.5rem); }
 .legal h2 { font-size: 1.15rem; margin-top: 2rem; }
 .updated { color: var(--muted); font-size: .9rem; }
 
-a, button, .tab, .copy, .panel .frame { transition: color .12s, border-color .12s; }
+a, button, select, .tab, .copy, .panel .frame { transition: color .12s, border-color .12s; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; }
 }

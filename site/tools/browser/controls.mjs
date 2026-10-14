@@ -1,17 +1,20 @@
-// Panel-control scenarios (WEBSITE.md §4.3/§4.5, 4.6 chunk 2): motion
-// preference and button, the theme palette (previews silent, Enter
-// commits once), the wide→narrow→wide lifecycle (freed, then restored
+// Panel-control scenarios (WEBSITE.md §4.3/§4.5, 4.6 chunk 2): the OS's
+// reduced-motion preference, the seamless swap (the poster already has the
+// canvas's size and the caption its rows), the theme palette (previews
+// silent, Enter commits once), the wide→narrow→wide lifecycle (freed, then restored
 // from the cached module with the visitor's theme), and fullscreen —
 // where headless Chrome's answer is asserted either way, and a denial
 // is reported as a skip, never as a pass.
 import { POINTER_FINE_SHIM } from "./cdp.mjs";
-import { SAFE_INSPECT, TRACKER } from "./common.mjs";
+import { PICK, SAFE_INSPECT, TRACKER } from "./common.mjs";
 
 export function controlScenarios() {
   return [
-    { name: "reduced-motion: honoured from the OS, the button overrides it",
+    { name: "reduced-motion: honoured from the OS",
       viewport: { width: 1440, height: 900 }, init: POINTER_FINE_SHIM,
       media: { "prefers-reduced-motion": "reduce" }, run: motion },
+    { name: "seamless swap: the frame and the caption keep their size, the CTA its label",
+      viewport: { width: 1440, height: 900 }, init: POINTER_FINE_SHIM, run: swap },
     { name: "theme palette: previews tracked nothing, Enter commits once",
       viewport: { width: 1440, height: 900 }, init: POINTER_FINE_SHIM, run: themePalette },
     { name: "wide→narrow→wide: demo freed then restored, one wasm fetch, theme kept",
@@ -33,19 +36,41 @@ async function motion(ctx, sc) {
   await liveOnDesktop(ctx);
   ctx.assert(sc, "demo starts reduced",
     await ctx.page.evaluate("window.demo.reduce_motion()"));
-  ctx.assert(sc, "motion button reads off",
-    (await ctx.page.evaluate(
-      "document.querySelector('[data-tool=motion]').getAttribute('aria-pressed')")) === "false");
-  await ctx.page.click("[data-tool=motion]");
-  await ctx.page.waitFor("window.demo.reduce_motion()", (v) => v === false, {
-    what: "button turns motion on", timeout: 4000,
+}
+
+// What the page shows before and after faro takes over: the frame's box,
+// where the next section starts, and the CTA's label.
+const LAYOUT = `(() => {
+  const r = document.querySelector('.panel .frame').getBoundingClientRect();
+  const next = document.querySelector('.panel-section').nextElementSibling.getBoundingClientRect();
+  return JSON.stringify({ live: document.querySelector('.panel .frame').classList.contains('live'),
+    w: r.width, h: r.height, x: r.left, next: next.top,
+    cta: document.getElementById('demo-cta').textContent });
+})()`;
+
+async function swap(ctx, sc) {
+  await ctx.page.goto(`${ctx.origin}/`);
+  const before = JSON.parse(await ctx.page.evaluate(LAYOUT));
+  await ctx.page.waitFor("window.done === true", (v) => v === true, {
+    what: "demo live", timeout: 25000,
   });
-  // paintTools lands with the faro-settings event, a draw later
-  const pressed = await ctx.page.waitFor(
-    "document.querySelector('[data-tool=motion]').getAttribute('aria-pressed')",
-    (v) => v === "true", { what: "motion button reads on", timeout: 4000 }
-  );
-  ctx.assert(sc, "motion button reads on", pressed === "true");
+  // the fade's settle (250 ms) and a refit frame
+  await ctx.page.waitFor(
+    "document.querySelector('.panel .frame').classList.contains('settled')",
+    (v) => v === true, { what: "poster gone after the fade", timeout: 4000 });
+  const after = JSON.parse(await ctx.page.evaluate(LAYOUT));
+  if (before.live) {
+    ctx.skip(sc, "the demo was already live at the first look: the swap wasn't observed");
+    return;
+  }
+  const near = (a, b) => Math.abs(a - b) <= 1;
+  ctx.assert(sc, "the frame keeps its box",
+    near(before.w, after.w) && near(before.h, after.h) && near(before.x, after.x),
+    JSON.stringify({ before, after }));
+  ctx.assert(sc, "the next section doesn't move", near(before.next, after.next),
+    JSON.stringify({ before: before.next, after: after.next }));
+  ctx.assert(sc, "the CTA says Try from the start, and still does",
+    before.cta === after.cta && after.cta.includes("Try it here"), JSON.stringify([before.cta, after.cta]));
 }
 
 async function themePalette(ctx, sc) {
@@ -53,7 +78,7 @@ async function themePalette(ctx, sc) {
   await ctx.page.click("canvas.demo-canvas");
   await ctx.page.waitFor(SAFE_INSPECT, (s) => s && /focused=true/.test(s), { timeout: 4000 });
   const before = await ctx.page.evaluate("window.demo.configured_theme()");
-  await ctx.page.click('[data-tool="themes"]'); // All…: faro's palette at Themes
+  await ctx.page.evaluate("window.demo.open_themes()"); // faro's palette at Themes
   await ctx.page.waitFor("window.demo.text()", (t) => t.includes("Themes"), {
     what: "palette open at Themes", timeout: 4000,
   });
@@ -89,7 +114,7 @@ async function themePalette(ctx, sc) {
 
 async function resize(ctx, sc) {
   await liveOnDesktop(ctx);
-  await ctx.page.click('[data-theme="nord"]');
+  await ctx.page.evaluate(PICK("nord"));
   await ctx.page.waitFor("window.demo.theme()", (t) => t === "nord", { timeout: 4000 });
   await ctx.page.setViewport(390, 844, { mobile: true });
   await ctx.page.waitFor(

@@ -60,7 +60,7 @@ One page, top to bottom. The demo and the install command are both within the fi
 │ │                                                                      │ │
 │ └──────────────────────────────────────────────────────────────────────┘ │
 │  Ctrl+P palette · Alt+J/K chats · ↑ pick a message · + react · Enter send│  key hints
-│  Theme: [faro-dark] [faro-dusk] [faro-light] [catppuccin] [nord] [gruvbox] … ⛶ ↺ │  theme chips, fullscreen, restart
+│  Theme: [faro-dark ▾]  or Ctrl+P in faro to preview them              ⛶ ↺ │  theme menu, fullscreen, restart
 │  Nothing you type leaves your browser.                                   │
 ├──────────────────────────────────────────────────────────────────────────┤
 │  Why faro                                   (5 short items, 2 columns)   │
@@ -76,14 +76,14 @@ One page, top to bottom. The demo and the install command are both within the fi
 ├──────────────────────────────────────────────────────────────────────────┤
 │  FAQ                                     (<details> items)               │
 ├──────────────────────────────────────────────────────────────────────────┤
-│  footer: source · licence · changelog · disclaimers · contact            │
+│  footer: links · build/licence line · one disclaimer line                │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### 3.1 Hero
 
 - **Headline** and **sub-line** as in §2.
-- **Primary action:** "▶ Try it here, no install". It scrolls to the panel (a few pixels below) and focuses the demo, which is usually already running by then (§4.2). Where the demo didn't preload, it starts it.
+- **Primary action:** "▶ Try it here, no install". It scrolls to the panel (a few pixels below) and focuses the demo, which is usually already running by then (§4.2). Where the demo didn't preload, it starts it. The label is decided once, as the page loads (D140): "Try it here" on a computer that will run the demo, "▶ See it here, no install" with JavaScript off and on phones (where it scrolls to the stills). It never changes in front of the visitor.
 - **Secondary action:** the install command for the visitor's platform with a copy button. The default is Homebrew on macOS and the Linux command matching a coarse user-agent guess; the other methods are a click away in §3.4. Before binaries and packages exist, it shows `cargo install --git …` with the build prerequisites one click away.
 - **Facts line:** "Unofficial · not affiliated with Signal · AGPL-3.0 · v0.1.0 (date)". The version and date are filled in at build time from the release tag. They show the project is alive without needing a social feed.
 
@@ -96,7 +96,7 @@ The panel is wider than the text column, taking the full content width up to abo
 
 Below the panel are three thin rows:
 - **Key hints**, kept short.
-- **Theme chips** that switch the demo's theme live (35+ themes, so the visitor sees one of faro's best features in a second), plus **fullscreen** and **restart** buttons.
+- **A theme menu** that switches the demo's theme live (all 37, grouped: faro's own, OpenCode dark, OpenCode light; D140), with a note that `Ctrl+P` previews them inside faro, plus **fullscreen** and **restart** buttons.
 - **A one-line safety note.**
 
 Details in §4.
@@ -169,12 +169,10 @@ Native `<details>` elements, so no JavaScript is needed. The answers are drafted
 
 ### 3.9 Footer
 
-- Source (GitHub), licence (AGPL-3.0), changelog, releases and a contact link (GitHub issues).
-- "faro is an independent project, not affiliated with, endorsed by, or supported by Signal Messenger LLC or the Signal Technology Foundation."
-- "The demo's cast is an affectionate parody of characters from NBC's *The Office*; faro is not affiliated with NBCUniversal."
-- "No cookies. Visitor numbers come from cookieless analytics on our own server ([Privacy](/privacy))." The footer also states the page weight.
-- Links to **Privacy** and **Terms** (§3.10).
-- The source link for the demo's WebAssembly build. AGPL needs this, and it's honest anyway.
+Short since D140 (owner's request, 2026-10-14):
+- One row of links: Source (GitHub), Contact (GitHub issues), **Privacy** and **Terms** (§3.10), and the analytics opt-out. The changelog is in the header.
+- "Built from faro `<commit>` · AGPL-3.0 · no cookies, no third-party requests." The commit links to the exact source of the page and the demo's WebAssembly build; AGPL needs this, and it's honest anyway.
+- "Not affiliated with Signal or NBCUniversal; the demo's cast is a parody of *The Office*." The longer wording lives in the README and the legal pages; the analytics details and the page weight are on the Privacy page.
 
 ### 3.10 Privacy and Terms pages
 
@@ -209,6 +207,7 @@ It runs entirely in the browser tab. Nothing is sent over the network after the 
   - It doesn't preload on phones and small screens (§4.7), when the browser reports *Save-Data* or a 2G-class connection, or when JavaScript is off. In those cases the poster stays, with a "▶ Start the demo (1.1 MB)" button where it makes sense.
   - The demo files are fetched only after the page has loaded, so they don't count against the first-load budget (§6.6). They are cached, so repeat visits start at once.
   - The hero's "Try it" button scrolls to the panel and focuses it.
+  - **Nothing moves at the handover** (D140). As soon as `demo.js` runs, on a computer that will run the demo, the poster is drawn at exactly the live canvas's size (`fitPoster`: the font size `fontSize()` picks, the cell rounding of `metrics::cell`, the SVG stretched to it with `preserveAspectRatio="none"`), the caption's tools row and *live · click to type* line are reserved (`visibility: hidden`), and the CTA label is set. The canvas then fades in over the poster (0.18 s) and the poster goes.
 - While it loads, the panel keeps the poster and shows a progress line in the footer row (`loading faro · 640 KB / 1.1 MB`). It never shows a blank box.
 - Settings for visitors (D-b): the default activity rate (one event per ~4 s), **no scripted outages**, a fixed seed (the same story every time), a fresh start on every visit. Settings changed inside the demo last for the visit only (D-c).
 
@@ -238,14 +237,13 @@ The web build therefore:
 - Cell metrics come from one bundled monospace webfont (§5.2). Block, octant, Powerline and quarter-circle glyphs (bubbles, logo, waveforms) are **drawn by the renderer itself**, so they're exact whatever the font (§6.3).
 - Emoji use the system's colour emoji font, drawn at the width faro already decided, so alignment can't drift.
 
-### 4.5 Theme chips, restart, fullscreen
+### 4.5 Theme menu, restart, fullscreen
 
-- **Chips:** faro-dark, faro-dusk, faro-light, catppuccin, nord, gruvbox, tokyonight, and "all…" (opens the palette at Themes inside the demo). Clicking one switches the demo's theme live through the same code path as the palette. The demo starts in faro-dark or faro-light, matching the page's colour scheme.
+- **Theme menu** (D140, replacing the chips and "all…"): a native `<select>` filled once from the demo's own list (`Demo::themes()`, `faro_web::themes::menu`: every theme, grouped faro / OpenCode · dark / OpenCode · light), so the page carries no theme names and can't name one the demo lacks. Choosing one switches the demo's theme live through the same code path as the palette; the menu follows the theme faro draws, palette previews included. A note beside it says `Ctrl+P` previews them inside faro. The demo starts in faro-dark or faro-light, matching the page's colour scheme.
 - **Restart (↺):** a fresh demo with the same seed.
 - **Quit inside faro:** a small overlay, "faro exited · ↺ start again".
 
-Panel-control details (D126): chips and motion do not take the keyboard;
-“all…” focuses the palette. Restart retains visitor theme/motion choices for
+Panel-control details (D126): the theme menu takes the keyboard while it's open, like any menu. Restart retains visitor theme/motion choices for
 the visit, while resetting the mock/history/drafts and stopping old audio.
 Fullscreen includes the caption controls, with optional Keyboard Lock excluding
 Escape and released whenever the canvas stops holding the keys. The fixed grid's
@@ -255,7 +253,7 @@ font is re-measured after resize/fullscreen, never made smaller than 13 px.
 
 - The page itself has no animation beyond hover states and a short focus transition.
 - In the demo, motion is the app's own: arriving messages, typing indicators, the lighthouse on the logo screen.
-- With `prefers-reduced-motion`, the demo starts with faro's `reduce_motion = true` (the lighthouse holds still). A "motion: off/on" toggle sits in the footer row, because the visitor may have set the system preference for other reasons.
+- With `prefers-reduced-motion`, the demo starts with faro's `reduce_motion = true` (the lighthouse holds still), and follows the preference if it changes. The "motion: off/on" button was removed (D140): it only moved the lighthouse on the empty screen, which the demo rarely shows; faro's own palette setting remains.
 
 ### 4.7 Phones and small screens
 
@@ -310,7 +308,7 @@ The site uses faro's own built-in themes, so the page and the app look like they
 
 - **One accent.** Amber is for the primary button, links, the focused panel border and the copy-button tick, nothing else.
 - **Contrast:** body text at least 7:1 and everything else at least 4.5:1 (WCAG AA). Muted grey is never used for sentences.
-- A small toggle (◐) in the nav overrides the system scheme. It's remembered in `localStorage` (preference only, no tracking).
+- A three-way switch in the nav (system · light · dark, D140) picks the page's scheme; **system** is the default and stores nothing, light or dark is remembered in `localStorage` (preference only, no tracking).
 
 ### 5.2 Type
 
@@ -422,11 +420,10 @@ These drafts cover what this site actually does: no accounts, self-hosted analyt
 
 ### 6.1 Site
 
-- **Location:** a `site/` directory in the repo. It is plain HTML, CSS and a little vanilla JS (copy buttons, theme toggle, install tabs, demo loader): about 150 lines, with no framework and no bundler.
+- **Location:** a `site/` directory in the repo. It is plain HTML, CSS and a little vanilla JS (copy buttons, page theme switch, install tabs, demo loader): about 150 lines, with no framework and no bundler.
 - **Generation:** a small Rust tool (`cargo xtask site`, or a `site` binary in the workspace) fills a template with:
   - the version, date and release links;
   - the key table from `keymap/defaults.rs`;
-  - the theme list for the chips;
   - the poster SVG, phone frames and OG image (§6.4);
   - the logo SVGs;
   - content-hashed asset names.

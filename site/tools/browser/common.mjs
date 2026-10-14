@@ -7,6 +7,9 @@ export const CANARY = "ci-canary-7f2a9c";
 export const SAFE_INSPECT =
   "(() => { try { return window.demo ? window.demo.inspect() : null; } catch (e) { return null; } })()";
 export const TRACKER = "JSON.stringify(window.__plausibleCaptured || [])";
+// The visitor picks `name` in the panel's theme menu (§4.5).
+export const PICK = (name) => `(() => { const s = document.getElementById("demo-theme");
+  s.value = ${JSON.stringify(name)}; s.dispatchEvent(new Event("change")); })()`;
 
 export const parseInspect = (raw) => {
   if (!raw) return null;

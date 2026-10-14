@@ -13,9 +13,7 @@
   var focusHint = document.getElementById("demo-focus");
   var tools = document.querySelector(".panel-tools");
   var ctlStatus = document.getElementById("demo-controls-status");
-  var chipBtns = tools ? [].slice.call(tools.querySelectorAll("[data-theme]")) : [];
-  var allBtn = tools && tools.querySelector('[data-tool="themes"]');
-  var motionBtn = tools && tools.querySelector('[data-tool="motion"]');
+  var themeSel = document.getElementById("demo-theme");
   var restartBtn = tools && tools.querySelector('[data-tool="restart"]');
   var fsBtn = tools && tools.querySelector('[data-tool="fullscreen"]');
   var fsLabel = fsBtn && fsBtn.querySelector(".sr-only");
@@ -32,7 +30,8 @@
   var visitTheme = null, visitMotion = null; // these survive a restart (D126)
   var fsOn = false, gen = 0, fontSet = null, starting = false;
   var lockTok = 0, lockPending = false;
-  var refitQueued = false;
+  var refitQueued = false, settleTimer = 0;
+  var posters = [].slice.call(frame.querySelectorAll(".poster-dark svg, .poster-light svg"));
   // §6.9: opt-out aware; props only how/theme
   var track = function (name, props) {
     try {
@@ -170,17 +169,60 @@
   };
   // caption controls (§4.5): never Rust in handlers (D125).
   var paintTools = function () {
-    chipBtns.forEach(function (b) {
-      b.setAttribute("aria-pressed", String(b.getAttribute("data-theme") === effTheme));
-    });
-    if (motionBtn) {
-      motionBtn.setAttribute("aria-pressed", String(!reduced));
-      motionBtn.textContent = reduced ? "motion: off" : "motion: on";
-    }
+    if (themeSel && effTheme) themeSel.value = effTheme;
   };
-  var setTools = function (on) { if (tools) tools.hidden = !on; };
+  // the theme menu, once per page, from the demo's own list (§4.5)
+  var fillThemes = function (d) {
+    if (!themeSel || themeSel.getAttribute("data-filled") === "1" || !d.themes) return;
+    var list = d.themes();
+    if (!list || !list.length) return;
+    while (themeSel.firstChild) themeSel.removeChild(themeSel.firstChild);
+    var group = null, label = null;
+    list.forEach(function (pair) {
+      if (pair[1] !== label) {
+        label = pair[1];
+        group = document.createElement("optgroup");
+        group.label = label;
+        themeSel.appendChild(group);
+      }
+      var opt = document.createElement("option");
+      opt.value = opt.textContent = pair[0];
+      group.appendChild(opt);
+    });
+    themeSel.setAttribute("data-filled", "1");
+  };
+  // a computer that can run the demo here (§4.4): the poster, the CTA and
+  // the caption get ready for it from the start, so the swap moves nothing
+  var demoFits = function () { return !phoneMode() && fontSize() !== null; };
+  // live canvas size in CSS px at font `size` (paint.rs / metrics::cell)
+  var liveSize = function (size) {
+    var dpr = window.devicePixelRatio || 1;
+    var font = Math.round(size * dpr);
+    return [COLS * Math.round(font * 0.6) / dpr, ROWS * Math.round(font * 1.2) / dpr];
+  };
+  var fitPoster = function () {
+    if (live) return;
+    var size = phoneMode() ? null : fontSize();
+    frame.classList.toggle("fitted", size !== null);
+    var wh = size === null ? null : liveSize(size);
+    posters.forEach(function (svg) {
+      if (wh) svg.setAttribute("preserveAspectRatio", "none");
+      else if (svg.removeAttribute) svg.removeAttribute("preserveAspectRatio");
+      svg.style.width = wh ? wh[0] + "px" : "";
+      svg.style.height = wh ? wh[1] + "px" : "";
+    });
+  };
+  var unsettle = function () {
+    window.clearTimeout(settleTimer);
+    frame.classList.remove("settled");
+  };
+  var setTools = function (on) {
+    if (!tools) return;
+    tools.hidden = !(on || demoFits());
+    tools.classList.toggle("reserved", !on);
+  };
   var setActions = function (on) {
-    chipBtns.concat([allBtn, motionBtn, restartBtn]).forEach(function (b) {
+    [themeSel, restartBtn].forEach(function (b) {
       if (b) b.disabled = !on;
     });
   };
@@ -225,37 +267,19 @@
     lastReduced = want;
     demo.configure_reduce_motion(want);
   };
-  var noFocus = function (e) { e.preventDefault(); };
-  chipBtns.forEach(function (btn) {
-    btn.addEventListener("mousedown", noFocus);
-    btn.addEventListener("click", function () {
-      if (!demo || dead || loading) return;
-      tell("");
-      var name = btn.getAttribute("data-theme");
-      var prev = cfgTheme;
-      if (demo.pick_theme(name)) {
-        themePinned = true; visitTheme = lastCfg = name;
-        if (name !== prev) track("Theme changed", { theme: name });
-      } else tell("that theme isn't in this demo");
-    });
-  });
-  if (allBtn) allBtn.addEventListener("click", function () {
-    if (!demo || dead || loading) return;
+  if (themeSel) themeSel.addEventListener("change", function () {
+    if (!demo || dead || loading) { paintTools(); return; }
     tell("");
-    canvas.focus();
-    demo.open_themes();
+    var name = themeSel.value;
+    var prev = cfgTheme;
+    if (demo.pick_theme(name)) {
+      themePinned = true; visitTheme = lastCfg = name;
+      if (name !== prev) track("Theme changed", { theme: name });
+    } else {
+      tell("that theme isn't in this demo");
+      paintTools();
+    }
   });
-  if (motionBtn) {
-    motionBtn.addEventListener("mousedown", noFocus);
-    motionBtn.addEventListener("click", function () {
-      if (!demo || dead || loading) return;
-      tell("");
-      var want = !reduced;
-      motionOverridden = true;
-      visitMotion = lastReduced = want;
-      demo.set_reduce_motion(want);
-    });
-  }
   // restart: same seed, choices survive
   var restart = async function () {
     if (loading || !mod || phoneMode()) return;
@@ -273,6 +297,7 @@
     canvas = null;
     live = false; dead = false;
     frame.classList.remove("live");
+    unsettle();
     setTools(false);
     try {
       await startLive(tok);
@@ -400,6 +425,8 @@
     loading = false;
     seeded = false;
     frame.classList.remove("live");
+    unsettle();
+    fitPoster();
     setTools(false);
     tell("");
     if (status) status.hidden = true;
@@ -434,7 +461,8 @@
     if (on && !focusSent) { focusSent = true; track("Demo focused"); }
     frame.classList.toggle("focused", on);
     if (!focusHint) return;
-    if (!live || dead) { focusHint.hidden = true; return; }
+    if (!live || dead) { reserveHint(); return; }
+    focusHint.classList.remove("reserved");
     focusHint.textContent = on
       ? (fsOn ? "keys go to faro · click outside to leave · Esc exits fullscreen"
               : "keys go to faro · click outside or press Esc to leave")
@@ -444,7 +472,14 @@
   };
   var clearFocus = function () {
     frame.classList.remove("focused");
-    if (focusHint) focusHint.hidden = true;
+    reserveHint();
+  };
+  // the hint's line, held empty until faro is live (no shift when it is)
+  var reserveHint = function () {
+    if (!focusHint) return;
+    focusHint.hidden = !demoFits();
+    focusHint.classList.add("reserved");
+    focusHint.textContent = "live · click to type";
   };
   document.addEventListener("visibilitychange", function () {
     if (document.hidden) releaseLock();
@@ -491,6 +526,7 @@
       // a mode flip mid-await: leave no canvas
       if (tok !== gen || phoneMode()) throw new Error("the panel moved on");
       demo = d;
+      fillThemes(d);
       // seed outside faro callbacks
       effTheme = d.theme(); cfgTheme = d.configured_theme();
       reduced = d.reduce_motion();
@@ -512,13 +548,16 @@
       if (demo === d) demo = null;
       seeded = false; live = false;
       frame.classList.remove("live");
+      unsettle();
       c.remove();
       if (canvas === c) canvas = null;
       throw e;
     }
     canvas = c;
     fontSet = size;
+    unsettle();
     frame.classList.add("live");
+    settleTimer = window.setTimeout(function () { frame.classList.add("settled"); }, 250);
     if (status) status.hidden = true;
     live = true;
     dead = false;
@@ -571,4 +610,16 @@
   }
   window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", applyScheme);
   mqMotion.addEventListener("change", followMotion);
+  // Ready for the live demo from the start (§4.2): the poster takes the
+  // canvas's size, the caption keeps its rows, and the CTA says what a
+  // click will do, so nothing moves or changes when faro takes over.
+  var ready = function () {
+    if (live) return;
+    fitPoster();
+    setTools(false);
+    reserveHint();
+  };
+  ready();
+  if (demoFits() && capableNow()) askCta();
+  window.addEventListener("resize", ready);
 })();

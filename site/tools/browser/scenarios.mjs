@@ -1,9 +1,9 @@
 // The desktop core suite (WEBSITE.md §6.8 headless checks, 4.6 chunk 1),
 // one page session in order: autostart unfocused → click to focus → type
 // and send a canary → Esc releases → restart keeps one wasm fetch and
-// dedups the funnel → a theme chip commits once. Every wait is bounded
+// dedups the funnel → a theme menu pick commits once. Every wait is bounded
 // polling; the canary must never reach the tracker stub or any request.
-import { CANARY, SAFE_INSPECT, TRACKER, parseInspect } from "./common.mjs";
+import { CANARY, PICK, SAFE_INSPECT, TRACKER, parseInspect } from "./common.mjs";
 import { foreignOrigins } from "./probe.mjs";
 
 const sleep = (ms) => new Promise((go) => setTimeout(go, ms));
@@ -15,7 +15,7 @@ export function desktopCore() {
     { n: 3, name: "canary send: message sent once, no payload leak, no cookies", run: sendCanary },
     { n: 4, name: "Esc releases focus with the funnel not refired", run: escReleases },
     { n: 5, name: "restart: one wasm fetch, fresh history, no funnel dupes", run: restart },
-    { n: 6, name: "theme chip: committed change tracked once, same choice silent", run: themeChip },
+    { n: 6, name: "theme menu: committed change tracked once, same choice silent", run: themeMenu },
     { n: 7, name: "audit: no console errors or warnings, no network violations", run: audit },
   ];
 }
@@ -130,25 +130,25 @@ async function restart(ctx, sc) {
     ctx.count(tracks, "Demo focused").length === 1, raw);
 }
 
-async function themeChip(ctx, sc) {
+async function themeMenu(ctx, sc) {
   const current = await ctx.page.evaluate("window.demo.theme()");
   const target = current === "nord" ? "faro-dark" : "nord";
-  await ctx.page.click(`[data-theme="${target}"]`);
+  await ctx.page.evaluate(PICK(target));
   await ctx.page.waitFor("window.demo.theme()", (t) => t === target, {
-    what: `chip applies theme ${target}`, timeout: 5000,
+    what: `menu applies theme ${target}`, timeout: 5000,
   });
-  // The chip's aria-pressed is painted from the demo's settings event,
-  // one beat after theme() flips; give it a bounded beat before asserting.
-  const pressed = await ctx.page.waitFor(
-    `document.querySelector('[data-theme="${target}"]').getAttribute("aria-pressed")`,
-    (v) => v === "true",
-    { what: `chip ${target} marked pressed`, timeout: 2000 },
+  // The menu is painted from the demo's settings event, one beat after
+  // theme() flips; give it a bounded beat before asserting.
+  const shown = await ctx.page.waitFor(
+    "document.getElementById('demo-theme').value",
+    (v) => v === target,
+    { what: `menu shows ${target}`, timeout: 2000 },
   ).catch(() => null);
-  ctx.assert(sc, "chip aria-pressed true after commit", pressed === "true", String(pressed));
+  ctx.assert(sc, "menu shows the theme after commit", shown === target, String(shown));
   const changed = ctx.count(await ctx.tracker(), "Theme changed");
   ctx.assert(sc, "Theme changed once with the committed name",
     changed.length === 1 && changed[0].props?.theme === target, JSON.stringify(changed));
-  await ctx.page.click(`[data-theme="${target}"]`); // same choice again
+  await ctx.page.evaluate(PICK(target)); // same choice again
   await sleep(600); // negative check: bounded, not a positive wait
   ctx.assert(sc, "same theme again stays silent",
     ctx.count(await ctx.tracker(), "Theme changed").length === 1);

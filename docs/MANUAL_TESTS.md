@@ -522,11 +522,11 @@ Notes (browser, version, OS, what went wrong):
 Deferred at the owner's request (2026-10-13). Agent/headless checks do not
 replace Chrome, Firefox and Safari checks on a real computer.
 
-- [ ] **Themes:** seven chips switch the app immediately, with the selected chip marked. “all…” focuses the app's Themes palette; preview/select there updates the chips, Escape restores the configured theme. An explicit chip choice survives page light/dark changes. No setting survives a page reload.
+- [ ] **Themes:** the theme menu (D140, was chips) lists all themes in three groups and switches the app immediately; picking in faro's palette (`Ctrl+P`) updates the menu, previews included, and Escape there restores it. An explicit choice survives page light/dark changes. No setting survives a page reload.
 - [ ] **Restart:** toolbar and exit-overlay restart produce a fresh demo with the same cast/scenes. Drafts/history reset, chosen theme/motion stay for the visit; old audio stops and keys still work after repeated restarts.
 - [ ] **Fullscreen:** the entire panel and controls are visible. Enter/exit button and browser Escape work, no clipping at normal laptop sizes, and returning refits the normal panel without stealing focus. Rejected/unsupported fullscreen shows a clear message instead of breaking the demo.
 - [ ] **Keyboard Lock:** Chromium may request permission. Declining still permits ordinary fullscreen; Escape always exits. Clicking a control, switching windows/tabs, quitting or restarting releases any lock, and the page never traps browser shortcuts while the canvas is unfocused. Firefox/Safari work without Keyboard Lock.
-- [ ] **Motion:** a system reduced-motion preference starts with “motion: off” and a still lighthouse; messages/scenes continue. Toggle on/off and change the app's setting in the palette: the toggle stays in sync. The visitor's override wins over later system preference changes until reload.
+- [ ] **Motion:** a system reduced-motion preference starts with a still lighthouse (Esc to the empty screen to see it); messages/scenes continue. There is no motion button any more (D140); the palette setting still works.
 - [ ] **Fallbacks:** no JavaScript, phone/small-screen poster, slow connection and load failure leave unusable controls hidden. After quit only restart/fullscreen-exit remain usable; a failed restart returns to a retryable poster.
 
 Notes (browser, version, OS, what went wrong):
@@ -576,3 +576,15 @@ Owner, 2026-10-13 (Arch server, `sites.d/getfaro.dev.conf` edited by hand): stat
 - [x] **404 (curl part):** status, title and security headers.
 - [ ] **404:** visit `https://getfaro.dev/nope` (and a missing URL at depth, e.g. `/a/b`): the styled page says "Page not found" with the normal header, footer and colours, and a link home that works; `curl -si https://getfaro.dev/nope | head -1` shows `404`. Requesting `/404.html` directly also gives 404 (the location is internal), and the page is not indexed (`robots` meta).
 - [x] **robots and sitemap:** `https://getfaro.dev/robots.txt` loads as plain text and names the sitemap; `https://getfaro.dev/sitemap.xml` loads as XML with a filled `<lastmod>` date, and every `<loc>` opens a real page.
+
+## Website: landing page polish (D140)
+
+Check in Chrome, Firefox and Safari on a computer, after the owner deploys.
+
+- [ ] **No jump at the handover:** load the page and watch the panel for the first few seconds. When the live demo takes over (the clock in the messages starts moving, *live · click to type* appears), the frame keeps its size and place, the theme menu row and the hint line appear in space that was already there, and nothing below the panel moves. At most a short fade. Repeat at a few window widths, at browser zoom 90 % and 110 %, and on a Retina screen.
+- [ ] **CTA label:** on a computer it reads "▶ Try it here, no install" from the first moment and never changes; on a phone, and with JavaScript off, "▶ See it here, no install".
+- [ ] **Hero:** the title is on one line on a laptop and tablet, two balanced lines on a phone; the button and the install box beside it have the same height and line up; the facts line under them is one line on a laptop.
+- [ ] **Page theme switch:** three icons (system, light, dark), system selected on a first visit. Light and dark stick across reloads; system follows the OS when you change its appearance, and stores nothing. The demo follows the page in all three. Arrow keys move between the three when one is focused. On a phone the switch sits beside the logo.
+- [ ] **Footer:** one row of links (Source, Contact, Privacy, Terms, Don't count my visits) and two short lines; the commit link opens the right tree on GitHub.
+
+Notes (browser, version, OS, what went wrong):
