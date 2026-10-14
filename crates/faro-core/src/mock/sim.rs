@@ -49,9 +49,10 @@ const MAX_RUNNING: usize = 2;
 const MENTION_PERCENT: u32 = 25;
 /// Scenes started this recently go to the back of the next shuffled order.
 const RECENT_SCENES: usize = 8;
-/// The chats whose newest backlog messages stay unread, and how many of them
-/// (D134). The rest of the backlog arrives already read on the phone, so the
-/// demo opens like an inbox you keep up with and live messages are what's new.
+/// The chats whose newest backlog messages stay unread, and at most how many
+/// of them (D134; fewer when we replied, D139). The rest of the backlog
+/// arrives already read on the phone, so the demo opens like an inbox you
+/// keep up with and live messages are what's new.
 const UNREAD_AT_START: [(Chat, usize); 2] = [
     (Chat::Group(GroupKey::Branch), 3),
     (Chat::Direct(Who::Jim), 2),
@@ -507,7 +508,9 @@ impl Sim {
             if left == 0 {
                 break;
             }
-            let Some(scene) = self.next_scene_where(|s| s.chat == chat) else {
+            let Some(scene) = self.next_scene_where(|s| {
+                s.chat == chat && s.lines.last().is_some_and(|line| line.who != Who::Me)
+            }) else {
                 continue;
             };
             let lines = SCENES.get(scene).map_or(0, |s| s.lines.len()).min(left);
@@ -576,33 +579,44 @@ impl Sim {
 
     /// The read sync that follows the backlog (D134): in each chat, the
     /// newest incoming message, or in the [`UNREAD_AT_START`] chats the one
-    /// before the messages that stay unread. `None` if nothing is read.
+    /// before the messages that stay unread. Those stop at our own newest
+    /// reply: having answered, we read what came before it (D139). `None`
+    /// if nothing is read.
     fn backlog_read(&self, events: &[(u64, BackendEvent)]) -> Option<BackendEvent> {
         let keep: Vec<(ConversationId, usize)> = UNREAD_AT_START
             .iter()
             .filter_map(|&(chat, unread)| Some((self.world.conversation(chat)?, unread)))
             .collect();
-        // Incoming messages seen per chat, newest first.
-        let mut seen: Vec<(ConversationId, usize)> = Vec::new();
+        // Per chat, newest first: incoming messages seen, how many may stay
+        // unread, and whether the read one is chosen.
+        let mut seen: Vec<(ConversationId, usize, usize, bool)> = Vec::new();
         let mut read = Vec::new();
         for (_, event) in events.iter().rev() {
             let BackendEvent::Message(message) = event else {
                 continue;
             };
-            if message.direction != Direction::Incoming {
+            let id = message.conversation;
+            let index = if let Some(i) = seen.iter().position(|(c, ..)| *c == id) {
+                i
+            } else {
+                let unread = keep.iter().find(|(c, _)| *c == id).map_or(0, |(_, n)| *n);
+                seen.push((id, 0, unread, false));
+                seen.len() - 1
+            };
+            let Some((_, count, unread, done)) = seen.get_mut(index) else {
+                continue;
+            };
+            if *done {
                 continue;
             }
-            let id = message.conversation;
-            let count = if let Some((_, count)) = seen.iter_mut().find(|(c, _)| *c == id) {
+            if message.direction == Direction::Incoming {
                 *count += 1;
-                *count
+                if *count == *unread + 1 {
+                    read.push(message.reference());
+                    *done = true;
+                }
             } else {
-                seen.push((id, 1));
-                1
-            };
-            let unread = keep.iter().find(|(c, _)| *c == id).map_or(0, |(_, n)| *n);
-            if count == unread + 1 {
-                read.push(message.reference());
+                *unread = (*unread).min(*count);
             }
         }
         (!read.is_empty()).then_some(BackendEvent::ReadElsewhere(read))
@@ -1473,6 +1487,50 @@ mod tests {
                 .filter_map(|&(chat, _)| sim.world.conversation(chat))
                 .collect();
             assert_eq!(top, expected, "seed {seed}");
+        }
+    }
+
+    /// The messages left unread never include one of ours after them: having
+    /// replied, we read what came before (D139). Each unread chat keeps at
+    /// least one, at most its [`UNREAD_AT_START`] count.
+    #[test]
+    fn no_reply_among_the_unread() {
+        for seed in 0..16 {
+            let mut config = MockConfig::deterministic(seed);
+            config.activity = None;
+            let mut sim = Sim::new(&config, World::build());
+            let events = sim.pop_due(CONNECT_DELAY);
+            let read: Vec<MessageRef> = events
+                .iter()
+                .find_map(|e| {
+                    if let BackendEvent::ReadElsewhere(refs) = e {
+                        Some(refs.clone())
+                    } else {
+                        None
+                    }
+                })
+                .expect("the backlog ends with a read sync");
+            for &(chat, most) in &UNREAD_AT_START {
+                let id = sim.world.conversation(chat).expect("chat exists");
+                let after: Vec<&Message> = events
+                    .iter()
+                    .filter_map(as_message)
+                    .filter(|m| m.conversation == id)
+                    .skip_while(|m| !read.contains(&m.reference()))
+                    .skip(1)
+                    // Our reply to the read message may follow it.
+                    .skip_while(|m| m.direction != Direction::Incoming)
+                    .collect();
+                assert!(
+                    after.iter().all(|m| m.direction == Direction::Incoming),
+                    "seed {seed}, {chat:?}: a reply among the unread"
+                );
+                assert!(
+                    (1..=most).contains(&after.len()),
+                    "seed {seed}, {chat:?}: {} unread",
+                    after.len()
+                );
+            }
         }
     }
 }

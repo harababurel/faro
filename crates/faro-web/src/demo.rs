@@ -347,7 +347,8 @@ mod tests {
     }
 
     /// The demo starts like an inbox you keep up with (D134): only the branch
-    /// and Jim have a few unread messages; live messages bring the rest.
+    /// and Jim have a few unread messages, the ones after our last reply
+    /// (D139); live messages bring the rest.
     #[tokio::test(start_paused = true)]
     #[expect(
         clippy::disallowed_methods,
@@ -365,8 +366,8 @@ mod tests {
         assert_eq!(
             unread,
             [
-                ("Jim Halpert".to_owned(), 2),
-                ("Scranton Branch 📄".to_owned(), 3)
+                ("Jim Halpert".to_owned(), 1),
+                ("Scranton Branch 📄".to_owned(), 2)
             ],
             "{unread:?}"
         );
