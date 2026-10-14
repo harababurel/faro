@@ -162,7 +162,8 @@ pub async fn run<B: Backend + 'static>(
     let mut input = Some(EventStream::new());
     let mut paste = clipboard::Paste::default();
     // Asking the terminal about images mid-session (D137).
-    let (probe_tx, mut probe_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (probe_tx, mut probe_rx) =
+        tokio::sync::mpsc::unbounded_channel::<(images::probe::Probe, Vec<String>)>();
     let mut probing = false;
     router.dispatch(vec![Effect::LoadConversations], &state);
 
@@ -213,6 +214,15 @@ pub async fn run<B: Backend + 'static>(
             Some(event) = results.recv() => vec![event],
             Some((answer, clients)) = probe_rx.recv() => {
                 probing = false;
+                // Focus reports read with the answer still count (D42).
+                if let Some(gained) = answer.focus {
+                    let focus = if gained {
+                        Event::FocusGained
+                    } else {
+                        Event::FocusLost
+                    };
+                    handle(AppEvent::Terminal(focus), &mut state, &router);
+                }
                 images.adopt(answer, clients);
                 state.env.image_protocol = (state.config.media.inline_images
                     == faro_core::config::InlineImages::Auto

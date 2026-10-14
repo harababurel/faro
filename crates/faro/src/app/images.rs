@@ -551,6 +551,7 @@ mod tests {
                 height: 38,
             }),
             answered: true,
+            focus: None,
         };
         images.adopt(kitty, state.env.tmux_clients.clone());
         assert!(!images.wants_probe(&state), "asked for these clients");

@@ -14,12 +14,14 @@ use super::super::clipboard::tty::{self, Source, Tty};
 use crate::app::image_cache::{CellSize, ImageProtocol};
 
 /// How long the terminal has to answer (it ends with the `ESC [ 0 n` every
-/// terminal and tmux send for the status report at the end).
-const WAIT: Duration = Duration::from_secs(1);
+/// terminal sends for the status report at the end). Real terminals answer
+/// at once; this covers a slow SSH link, where an answer after faro stopped
+/// listening would be read as typed keys.
+const WAIT: Duration = Duration::from_secs(3);
 /// After that, how long to keep reading for a second terminal's answer
 /// (two kittys attached to one tmux session both answer), so it isn't taken
-/// for keys.
-const MORE: Duration = Duration::from_millis(150);
+/// for keys either (as clipboard paste's `MORE_REPLIES`).
+const MORE: Duration = Duration::from_millis(500);
 
 /// What the terminal said.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -29,6 +31,9 @@ pub struct Probe {
     pub cell: Option<CellSize>,
     /// Whether it answered at all.
     pub answered: bool,
+    /// The last focus report that arrived meanwhile (`true`: gained), for
+    /// the reducer (D42), as clipboard paste passes them on (D90).
+    pub focus: Option<bool>,
 }
 
 /// Ask. The caller has dropped its `EventStream` and makes a new one after.
@@ -86,7 +91,11 @@ fn read(source: &mut impl Source) -> Probe {
                 break;
             }
         };
-        for next in String::from_utf8_lossy(&bytes).chars() {
+        let text = String::from_utf8_lossy(&bytes);
+        if let Some(focus) = last_focus(&text) {
+            probe.focus = Some(focus);
+        }
+        for next in text.chars() {
             for response in parser.push(next) {
                 match response {
                     Response::Kitty => kitty = true,
@@ -120,6 +129,18 @@ fn read(source: &mut impl Source) -> Probe {
     probe
 }
 
+/// The last focus report (`ESC [ I` gained, `ESC [ O` lost) in `text`.
+fn last_focus(text: &str) -> Option<bool> {
+    let gained = text.rfind("\x1b[I");
+    let lost = text.rfind("\x1b[O");
+    match (gained, lost) {
+        (Some(g), Some(l)) => Some(g > l),
+        (Some(_), None) => Some(true),
+        (None, Some(_)) => Some(false),
+        (None, None) => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
@@ -151,6 +172,7 @@ mod tests {
                     height: 38
                 }),
                 answered: true,
+                focus: None,
             }
         );
         let mut plain = Script(VecDeque::from(["\x1b[?62;22c\x1b[0n"]));
@@ -159,8 +181,15 @@ mod tests {
             Probe {
                 protocol: None,
                 cell: None,
-                answered: true
+                answered: true,
+                focus: None,
             }
+        );
+        let mut refocused = Script(VecDeque::from(["\x1b[O\x1b[?62c\x1b[I\x1b[0n"]));
+        assert_eq!(
+            read(&mut refocused).focus,
+            Some(true),
+            "the last report wins"
         );
         let mut silent = Script(VecDeque::new());
         assert_eq!(read(&mut silent), Probe::default());
