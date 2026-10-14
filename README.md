@@ -185,6 +185,9 @@ To remove faro from your account, unlink it in Signal › Settings › Linked de
 
 ## Supporting faro
 
+[![Sponsor on GitHub](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?logo=githubsponsors)](https://github.com/sponsors/harababurel)
+[![Donate on Liberapay](https://img.shields.io/badge/Donate-Liberapay-F6C915?logo=liberapay)](https://liberapay.com/harababurel/donate)
+
 If faro is useful to you and you'd like to say thanks, you can sponsor its development on [GitHub Sponsors](https://github.com/sponsors/harababurel) or [Liberapay](https://liberapay.com/harababurel/). It's a thank-you, not a support contract: it doesn't buy priority for issues or features. The money goes to faro's developer, not to Signal; to support Signal itself, [donate to Signal](https://signal.org/donate/).
 
 ## Contributing
