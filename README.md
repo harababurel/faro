@@ -183,6 +183,10 @@ To remove faro from your account, unlink it in Signal › Settings › Linked de
 - Borders out of line, images missing or the wrong colours: see [docs/TERMINALS.md](docs/TERMINALS.md). `Ctrl+L` redraws the screen.
 - Found a bug? [Open an issue](https://github.com/harababurel/faro/issues) with `faro --version`, your terminal, whether you're in tmux, SSH or mosh, and the relevant log lines.
 
+## Supporting faro
+
+If faro is useful to you and you'd like to say thanks, you can sponsor its development on [GitHub Sponsors](https://github.com/sponsors/harababurel) or [Liberapay](https://liberapay.com/harababurel/). It's a thank-you, not a support contract: it doesn't buy priority for issues or features. The money goes to faro's developer, not to Signal; to support Signal itself, [donate to Signal](https://signal.org/donate/).
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for building, the checks every change must pass, and where the design docs are.

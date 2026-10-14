@@ -1372,3 +1372,10 @@ A developer friend of the owner tried getfaro.dev; the owner agreed with all of 
 - **Footer** cut to one row of links and two lines (build/licence/no-cookies; one disclaimer line); the changelog link is in the header, the analytics details and page weight on the Privacy page.
 - Browser suite: not runnable on the agent's machine (every page navigation times out, with corp Chrome and Playwright's Chromium alike; Playwright's `chrome-headless-shell` loads localhost from the command line but still times out under the harness). The scenarios were updated (theme menu, no motion button, a new "seamless swap" check) and run in CI's site job.
 
+
+### D141. Donations: GitHub Sponsors and Liberapay (owner's choice, 2026-10-14)
+
+- **What:** `.github/FUNDING.yml` (GitHub Sponsors and Liberapay, both `harababurel`), a "Supporting faro" section in the README, and a plain "Support faro" link in the site's footer pointing at that section.
+- **Why:** GitHub Sponsors is where developers already are and takes no fee; Liberapay is non-profit and open source, which suits a privacy-minded audience.
+- **Rules:** links only, never an embedded widget or button script (the site makes no third-party requests, `site/check.py`). The README says the money goes to faro's developer, not Signal, buys no priority, and points to Signal's own donation page.
+- **Rejected:** Ko-fi (adds nothing over the two; PayPal/Stripe fees); a FAQ entry on the site (the page is near its size budget).
