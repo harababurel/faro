@@ -271,7 +271,8 @@
     if (!demo || dead || loading) { paintTools(); return; }
     tell("");
     var name = themeSel.value;
-    var prev = cfgTheme;
+    // the page's own last pick: faro confirms it a frame later (onSettings)
+    var prev = lastCfg !== null ? lastCfg : cfgTheme;
     if (demo.pick_theme(name)) {
       themePinned = true; visitTheme = lastCfg = name;
       if (name !== prev) track("Theme changed", { theme: name });

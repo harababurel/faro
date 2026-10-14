@@ -137,8 +137,11 @@ async function themeMenu(ctx, sc) {
   await ctx.page.waitFor("window.demo.theme()", (t) => t === target, {
     what: `menu applies theme ${target}`, timeout: 5000,
   });
-  // The menu is painted from the demo's settings event, one beat after
-  // theme() flips; give it a bounded beat before asserting.
+  // faro confirms the pick a frame later (faro-settings); only then does a
+  // second pick of the same theme test anything.
+  await ctx.page.waitFor("window.demo.configured_theme()", (t) => t === target, {
+    what: `faro confirms ${target}`, timeout: 4000,
+  });
   const shown = await ctx.page.waitFor(
     "document.getElementById('demo-theme').value",
     (v) => v === target,

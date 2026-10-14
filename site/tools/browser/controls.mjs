@@ -50,6 +50,10 @@ const LAYOUT = `(() => {
 
 async function swap(ctx, sc) {
   await ctx.page.goto(`${ctx.origin}/`);
+  // parsed, so demo.js (deferred) has already sized the poster
+  await ctx.page.waitFor("document.readyState", (v) => v !== "loading", {
+    what: "page parsed", timeout: 10000,
+  });
   const before = JSON.parse(await ctx.page.evaluate(LAYOUT));
   await ctx.page.waitFor("window.done === true", (v) => v === true, {
     what: "demo live", timeout: 25000,
