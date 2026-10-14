@@ -25,6 +25,7 @@ pub const BROWSER: Terminal = Terminal {
     glyphs: BlockGlyphs::Native,
     graphics: GraphicsSupport::Direct,
     kitty: false,
+    graphics_blocker: None,
 };
 
 /// The page's side of the effects: the clipboard, new tabs, the bell.

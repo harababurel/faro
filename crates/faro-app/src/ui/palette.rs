@@ -46,8 +46,13 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &
     .then(|| crate::app::palette::note(state, palette.level()))
     .flatten();
     let note = image_note.as_ref().or(palette.note.as_ref());
+    // The note wraps onto a second line if it must (an Inline images note
+    // naming a tmux client and the command to detach it, D137).
+    let note_lines = note.map_or_else(Vec::new, |note| {
+        note_rows(&sanitize(note), usize::from(box_width.saturating_sub(4)))
+    });
     // Borders, the query and the rule, and the note if there is one.
-    let chrome = 4 + u16::from(note.is_some());
+    let chrome = 4 + u16::try_from(note_lines.len()).unwrap_or(0);
     let most_rows = (usable * 3 / 5).saturating_sub(chrome).max(1);
     let wanted = u16::try_from(palette.matches.len().max(1)).unwrap_or(u16::MAX);
     let rows = wanted.min(most_rows);
@@ -82,13 +87,12 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &
         },
     );
     let mut top = inner.y + 2;
-    if let Some(note) = note
-        && inner.height > 3
-    {
-        let room = usize::from(inner.width).saturating_sub(2);
-        let text = format!(" {}", truncate(&sanitize(note), room));
+    for line in &note_lines {
+        if top + 1 >= inner.y + inner.height {
+            break;
+        }
         frame.render_widget(
-            Paragraph::new(Span::styled(text, theme.muted())),
+            Paragraph::new(Span::styled(format!(" {line}"), theme.muted())),
             Rect {
                 y: top,
                 height: 1,
@@ -387,4 +391,57 @@ fn highlighted(
         used += 1;
     }
     (spans, used)
+}
+
+/// `note` in at most two rows of `room` cells, split at spaces; what doesn't
+/// fit in two ends in an ellipsis.
+fn note_rows(note: &str, room: usize) -> Vec<String> {
+    if room == 0 {
+        return Vec::new();
+    }
+    let mut rows: Vec<String> = vec![String::new()];
+    for word in note.split(' ') {
+        let full = rows.len() >= 2;
+        let Some(row) = rows.last_mut() else {
+            break;
+        };
+        let wanted = if row.is_empty() {
+            width(word)
+        } else {
+            width(row) + 1 + width(word)
+        };
+        if wanted <= room || row.is_empty() {
+            if !row.is_empty() {
+                row.push(' ');
+            }
+            row.push_str(word);
+        } else if !full {
+            rows.push(word.to_owned());
+        } else {
+            row.push(' ');
+            row.push_str(word);
+        }
+    }
+    rows.into_iter()
+        .map(|row| truncate(&row, room).into_owned())
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::note_rows;
+
+    #[test]
+    fn a_long_note_wraps_onto_a_second_row_and_no_further() {
+        assert_eq!(note_rows("short note", 20), ["short note"]);
+        assert_eq!(
+            note_rows("Auto: halfblocks — tmux client /dev/ttys022 is on mosh", 30),
+            ["Auto: halfblocks — tmux client", "/dev/ttys022 is on mosh"]
+        );
+        let rows = note_rows("one two three four five six seven", 9);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0], "one two");
+        assert!(rows[1].ends_with('…'), "{rows:?}");
+        assert_eq!(note_rows("anything", 0), Vec::<String>::new());
+    }
 }

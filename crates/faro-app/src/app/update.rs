@@ -792,8 +792,10 @@ fn terminal_checked(state: &mut State, terminal: Terminal) -> Vec<Effect> {
         graphics,
         // Checked afresh on every paste (D91).
         kitty: _,
+        graphics_blocker,
     } = terminal;
     state.env.glyphs = glyphs;
+    state.env.graphics_blocker = graphics_blocker;
     if state.env.graphics != graphics {
         state.env.graphics = graphics;
         state.env.repaint = true;

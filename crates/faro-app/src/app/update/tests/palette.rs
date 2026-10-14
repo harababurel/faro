@@ -83,7 +83,14 @@ fn image_protocols_are_selected_saved_and_explained() {
     assert_eq!(level(&state), Level::Setting(Setting::InlineImages));
     assert_eq!(
         titles(&state),
-        vec!["auto", "kitty", "sixel", "iterm2", "halfblocks", "off"]
+        vec![
+            "auto (halfblocks)",
+            "kitty",
+            "sixel",
+            "iterm2",
+            "halfblocks",
+            "off"
+        ]
     );
     assert!(
         palette::note(&state, level(&state))
@@ -129,6 +136,7 @@ fn auto_image_notes_explain_detection_and_fallbacks() {
             .contains("Auto: kitty")
     );
     state.env.emoji.mosh = true;
+    state.env.graphics_blocker = Some(crate::app::state::GraphicsBlocker::Mosh);
     assert!(palette::note(&state, level).unwrap().contains("mosh"));
     state.env.colors = ColorDepth::Indexed256;
     assert!(
@@ -1421,4 +1429,55 @@ fn ctrl_r_puts_a_setting_back_to_its_default_and_writes_it() {
     update(&mut state, ctrl('u'));
     typed(&mut state, "@bo");
     assert_eq!(update(&mut state, ctrl('r')), vec![]);
+}
+
+/// The owner's case (D137): a forgotten mosh client attached to faro's tmux
+/// session kept `auto` on half-blocks, and the note blamed "mosh" while the
+/// owner was on SSH. The note names the client and how to detach it, and
+/// the row says why in a few words.
+#[test]
+fn auto_images_name_the_tmux_client_in_the_way() {
+    use crate::app::palette;
+    use crate::app::state::{GraphicsBlocker, GraphicsSupport};
+    use faro_core::config::InlineImages;
+
+    let mut state = loaded_state();
+    let level = Level::Setting(Setting::InlineImages);
+    state.env.colors = ColorDepth::Truecolor;
+    state.env.graphics = GraphicsSupport::HalfblocksOnly;
+    state.env.graphics_blocker = Some(GraphicsBlocker::MoshClient("/dev/ttys022".to_owned()));
+    let note = palette::note(&state, level).unwrap();
+    assert!(
+        note.contains("tmux client /dev/ttys022 is connected through mosh"),
+        "{note}"
+    );
+    assert!(
+        note.contains("tmux detach-client -t /dev/ttys022"),
+        "{note}"
+    );
+
+    state.env.graphics_blocker = Some(GraphicsBlocker::OtherClient {
+        tty: "/dev/ttys022".to_owned(),
+        term: "xterm-256color".to_owned(),
+    });
+    let note = palette::note(&state, level).unwrap();
+    assert!(note.contains("another terminal (xterm-256color)"), "{note}");
+
+    palette_open(&mut state, ":Inline images");
+    enter(&mut state);
+    assert_eq!(
+        titles(&state).first().map(String::as_str),
+        Some("auto (halfblocks: another terminal is attached)")
+    );
+
+    state.env.graphics = GraphicsSupport::Direct;
+    state.env.graphics_blocker = None;
+    state.env.image_protocol = Some(InlineImages::Kitty);
+    state.palette = None;
+    palette_open(&mut state, ":Inline images");
+    enter(&mut state);
+    assert_eq!(
+        titles(&state).first().map(String::as_str),
+        Some("auto (kitty)")
+    );
 }

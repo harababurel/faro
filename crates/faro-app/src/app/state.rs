@@ -309,7 +309,7 @@ pub struct Selection {
 }
 
 /// Facts about where faro runs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Environment {
     /// Running over SSH: links are copied instead of opened (a browser would
     /// open on the remote machine, if at all). Read once at startup.
@@ -327,6 +327,9 @@ pub struct Environment {
     /// Whether terminal graphics protocols can reach the user's terminal
     /// (`[media] inline_images = "auto"`, D78).
     pub graphics: GraphicsSupport,
+    /// What stops them, when something does (D137): named in the Inline
+    /// images note so the user can fix it.
+    pub graphics_blocker: Option<GraphicsBlocker>,
     /// Startup image query result; None when no query was attempted (D84).
     pub image_protocol: Option<InlineImages>,
     /// The colours the terminal shows, guessed at startup (D50); the
@@ -360,15 +363,16 @@ pub enum EmojiMode {
 }
 
 /// What the terminal checks found at startup (D47, D58, D78).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Detected {
     pub emoji: EmojiSetting,
     pub glyphs: BlockGlyphs,
     pub graphics: GraphicsSupport,
+    pub graphics_blocker: Option<GraphicsBlocker>,
 }
 
 /// What faro can find out about the terminals between it and the user.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Terminal {
     /// mosh is in the way: it measures emoji the old way (D47).
     pub mosh: bool,
@@ -380,6 +384,8 @@ pub struct Terminal {
     /// A kitty can be reached without mosh: directly, or as at least one of
     /// the clients attached to faro's tmux session (clipboard images, D91).
     pub kitty: bool,
+    /// Why `graphics` is [`GraphicsSupport::HalfblocksOnly`] (D137).
+    pub graphics_blocker: Option<GraphicsBlocker>,
 }
 
 /// Who draws the glyphs rounded bubbles are made of (D58).
@@ -403,6 +409,22 @@ pub enum GraphicsSupport {
     /// mosh is in the way, tmux has no attached client, or tmux clients are
     /// on different terminal types: only Unicode half-blocks are safe.
     HalfblocksOnly,
+}
+
+/// What makes graphics protocols unsafe (D137), named so the user can act:
+/// a forgotten client still attached to faro's tmux session is the usual
+/// one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GraphicsBlocker {
+    /// faro itself runs under mosh (no tmux).
+    Mosh,
+    /// This tmux client (its tty) reaches faro's session through mosh.
+    MoshClient(String),
+    /// The attached tmux clients are different terminals; this one (its
+    /// tty and `TERM`) differs.
+    OtherClient { tty: String, term: String },
+    /// No tmux client is attached to faro's session.
+    NoClient,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -810,6 +832,7 @@ impl State {
                 emoji: EmojiSetting::default(),
                 glyphs: BlockGlyphs::default(),
                 graphics: GraphicsSupport::default(),
+                graphics_blocker: None,
                 image_protocol: None,
                 colors: ColorDepth::default(),
             },

@@ -297,6 +297,7 @@ fn sense_terminal(state: &mut State, detected: state::Detected) {
     state.env.emoji = detected.emoji;
     state.env.glyphs = detected.glyphs;
     state.env.graphics = detected.graphics;
+    state.env.graphics_blocker = detected.graphics_blocker;
     state.env.colors = ColorDepth::detect(|var| std::env::var(var).ok());
     tracing::info!(colors = ?state.env.colors, "colour depth detected");
 }

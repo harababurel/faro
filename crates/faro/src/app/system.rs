@@ -14,7 +14,8 @@ use tokio::sync::mpsc;
 use super::event::AppEvent;
 use super::files::{expand_tilde, split_file_query};
 use super::state::{
-    BlockGlyphs, FileEntry, GraphicsSupport, MAX_ATTACHMENT_SIZE, StagedAttachment, Terminal,
+    BlockGlyphs, FileEntry, GraphicsBlocker, GraphicsSupport, MAX_ATTACHMENT_SIZE,
+    StagedAttachment, Terminal,
 };
 
 /// Copy with OSC 52: the terminal (even over SSH, and through tmux with
@@ -467,19 +468,23 @@ pub async fn inspect_terminal() -> Terminal {
         let mosh = |pid: u32| table.as_ref().is_some_and(|t| under_mosh(t, pid));
         if std::env::var_os("TMUX").is_some() {
             let pane = std::env::var("TMUX_PANE").ok();
-            let mut args = vec!["list-clients", "-F", "#{client_pid} #{client_termname}"];
+            let mut args = vec![
+                "list-clients",
+                "-F",
+                "#{client_pid} #{client_tty} #{client_termname}",
+            ];
             if let Some(pane) = pane.as_deref() {
                 args.extend(["-t", pane]);
             }
             let clients = clients(&run("tmux", &args).await.unwrap_or_default());
-            let any_mosh = clients.iter().any(|(pid, _)| mosh(*pid));
+            let any_mosh = clients.iter().any(|c| mosh(c.pid));
+            let (graphics, graphics_blocker) = graphics_of_clients(&clients, mosh);
             Terminal {
                 mosh: any_mosh,
                 glyphs: glyphs_of_clients(&clients),
-                graphics: graphics_of_clients(&clients, any_mosh),
-                kitty: clients
-                    .iter()
-                    .any(|(pid, term)| is_kitty(term) && !mosh(*pid)),
+                graphics,
+                kitty: clients.iter().any(|c| is_kitty(&c.term) && !mosh(c.pid)),
+                graphics_blocker,
             }
         } else {
             let under_mosh = mosh(std::process::id());
@@ -493,6 +498,7 @@ pub async fn inspect_terminal() -> Terminal {
                 } else {
                     GraphicsSupport::Direct
                 },
+                graphics_blocker: under_mosh.then_some(GraphicsBlocker::Mosh),
             }
         }
     };
@@ -535,8 +541,8 @@ fn glyphs_of_environment(var: impl Fn(&str) -> Option<String>) -> BlockGlyphs {
 }
 
 /// Inside tmux: native only if every attached client is in kitty.
-fn glyphs_of_clients(clients: &[(u32, String)]) -> BlockGlyphs {
-    if !clients.is_empty() && clients.iter().all(|(_, term)| is_kitty(term)) {
+fn glyphs_of_clients(clients: &[Client]) -> BlockGlyphs {
+    if !clients.is_empty() && clients.iter().all(|c| is_kitty(&c.term)) {
         BlockGlyphs::Native
     } else {
         BlockGlyphs::Font
@@ -545,24 +551,61 @@ fn glyphs_of_clients(clients: &[(u32, String)]) -> BlockGlyphs {
 
 /// Inside tmux: terminal graphics protocols are safe only when at least one
 /// client is attached, none is under mosh, and all attached clients share the
-/// same `client_termname` (D78).
-fn graphics_of_clients(clients: &[(u32, String)], mosh: bool) -> GraphicsSupport {
-    let uniform = clients.first().is_some_and(|(_, first)| {
-        !first.is_empty() && clients.iter().all(|(_, term)| term == first)
-    });
-    if !mosh && uniform {
-        GraphicsSupport::Direct
+/// same `client_termname` (D78); otherwise, which client is in the way
+/// (D137). Among different terminals the odd one out is a non-kitty one when
+/// some are kitty (the user's own is likely the kitty), else the first that
+/// differs from the first.
+fn graphics_of_clients(
+    clients: &[Client],
+    mosh: impl Fn(u32) -> bool,
+) -> (GraphicsSupport, Option<GraphicsBlocker>) {
+    let blocker = if let Some(on_mosh) = clients.iter().find(|c| mosh(c.pid)) {
+        Some(GraphicsBlocker::MoshClient(on_mosh.tty.clone()))
+    } else if let Some(first) = clients.first() {
+        let odd = if first.term.is_empty() {
+            Some(first)
+        } else if clients.iter().all(|c| c.term == first.term) {
+            None
+        } else if clients.iter().any(|c| is_kitty(&c.term)) {
+            clients.iter().find(|c| !is_kitty(&c.term))
+        } else {
+            clients.iter().find(|c| c.term != first.term)
+        };
+        odd.map(|c| GraphicsBlocker::OtherClient {
+            tty: c.tty.clone(),
+            term: c.term.clone(),
+        })
     } else {
+        Some(GraphicsBlocker::NoClient)
+    };
+    let graphics = if blocker.is_some() {
         GraphicsSupport::HalfblocksOnly
-    }
+    } else {
+        GraphicsSupport::Direct
+    };
+    (graphics, blocker)
 }
 
-/// `tmux list-clients -F "#{client_pid} #{client_termname}"` output.
-fn clients(text: &str) -> Vec<(u32, String)> {
+/// A tmux client attached to faro's session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Client {
+    pid: u32,
+    /// Its tty, as `tmux detach-client -t` takes it.
+    tty: String,
+    /// Its `TERM` (`client_termname`); empty if tmux doesn't know.
+    term: String,
+}
+
+/// `tmux list-clients -F "#{client_pid} #{client_tty} #{client_termname}"`
+/// output.
+fn clients(text: &str) -> Vec<Client> {
     text.lines()
         .filter_map(|line| {
-            let (pid, term) = line.trim().split_once(' ').unwrap_or((line.trim(), ""));
-            Some((pid.parse().ok()?, term.trim().to_owned()))
+            let mut fields = line.split_whitespace();
+            let pid = fields.next()?.parse().ok()?;
+            let tty = fields.next().unwrap_or_default().to_owned();
+            let term = fields.next().unwrap_or_default().to_owned();
+            Some(Client { pid, tty, term })
         })
         .collect()
 }
@@ -680,31 +723,57 @@ mod mosh_tests {
 
     #[test]
     fn every_tmux_client_must_be_kitty() {
-        let kitty = clients("102 xterm-kitty\n202 xterm-kitty\n");
-        assert_eq!(
-            kitty,
-            [
-                (102, "xterm-kitty".to_owned()),
-                (202, "xterm-kitty".to_owned())
-            ]
-        );
+        let kitty = clients("102 /dev/ttys001 xterm-kitty\n202 /dev/ttys002 xterm-kitty\n");
+        assert_eq!(kitty.len(), 2);
+        assert_eq!(kitty[1].tty, "/dev/ttys002");
         assert_eq!(glyphs_of_clients(&kitty), BlockGlyphs::Native);
-        assert_eq!(graphics_of_clients(&kitty, false), GraphicsSupport::Direct);
-        assert_eq!(
-            graphics_of_clients(&kitty, true),
-            GraphicsSupport::HalfblocksOnly
-        );
-        let mixed = clients("102 xterm-kitty\n202 xterm-256color\n");
+        let mixed = clients("102 /dev/ttys001 xterm-kitty\n202 /dev/ttys002 xterm-256color\n");
         assert_eq!(glyphs_of_clients(&mixed), BlockGlyphs::Font);
-        assert_eq!(
-            graphics_of_clients(&mixed, false),
-            GraphicsSupport::HalfblocksOnly
-        );
         assert_eq!(glyphs_of_clients(&clients("102\n")), BlockGlyphs::Font);
         assert_eq!(glyphs_of_clients(&[]), BlockGlyphs::Font);
+    }
+
+    /// Graphics only with one kind of terminal and no mosh, and otherwise
+    /// the client in the way, so the note can name it (D137).
+    #[test]
+    fn the_client_in_the_way_of_graphics_is_named() {
+        let no_mosh = |_| false;
+        let kitty = clients("102 /dev/ttys001 xterm-kitty\n202 /dev/ttys002 xterm-kitty\n");
         assert_eq!(
-            graphics_of_clients(&[], false),
-            GraphicsSupport::HalfblocksOnly
+            graphics_of_clients(&kitty, no_mosh),
+            (GraphicsSupport::Direct, None)
+        );
+        assert_eq!(
+            graphics_of_clients(&kitty, |pid| pid == 202),
+            (
+                GraphicsSupport::HalfblocksOnly,
+                Some(GraphicsBlocker::MoshClient("/dev/ttys002".to_owned()))
+            )
+        );
+        // The owner's case: a forgotten client in another terminal; the
+        // non-kitty one is named, whichever comes first.
+        let mixed = clients("202 /dev/ttys022 xterm-256color\n102 /dev/ttys011 xterm-kitty\n");
+        assert_eq!(
+            graphics_of_clients(&mixed, no_mosh).1,
+            Some(GraphicsBlocker::OtherClient {
+                tty: "/dev/ttys022".to_owned(),
+                term: "xterm-256color".to_owned()
+            })
+        );
+        let neither = clients("1 /dev/a xterm\n2 /dev/b screen\n");
+        assert_eq!(
+            graphics_of_clients(&neither, no_mosh).1,
+            Some(GraphicsBlocker::OtherClient {
+                tty: "/dev/b".to_owned(),
+                term: "screen".to_owned()
+            })
+        );
+        assert_eq!(
+            graphics_of_clients(&[], no_mosh),
+            (
+                GraphicsSupport::HalfblocksOnly,
+                Some(GraphicsBlocker::NoClient)
+            )
         );
     }
 }

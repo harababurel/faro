@@ -309,5 +309,6 @@ async fn terminal_setting(
         },
         glyphs: terminal.glyphs,
         graphics: terminal.graphics,
+        graphics_blocker: terminal.graphics_blocker,
     }
 }

@@ -22,7 +22,8 @@ use nucleo_matcher::{Config, Matcher, Utf32Str};
 use super::input::Input;
 use super::keymap::{Action, Context, Curate, Keymap};
 use super::state::{
-    ConversationAction, FileEntry, Focus, MUTE_CHOICES, MessageLayout, Section, SidebarView, State,
+    ConversationAction, FileEntry, Focus, GraphicsBlocker, MUTE_CHOICES, MessageLayout, Section,
+    SidebarView, State,
 };
 use crate::theme::{ColorDepth, Theme};
 
@@ -1252,20 +1253,91 @@ fn inline_images_note(state: &State) -> String {
     if state.colors() == ColorDepth::Indexed256 {
         return "Auto: halfblocks — 256 colours (Settings › Colours).".to_owned();
     }
-    if state.env.emoji.mosh {
-        return "Auto: halfblocks — mosh cannot carry terminal graphics.".to_owned();
+    // What's in the way, named so the user can fix it (D137).
+    match &state.env.graphics_blocker {
+        Some(GraphicsBlocker::MoshClient(tty)) => {
+            return format!(
+                "Auto: halfblocks — tmux client {tty} is connected through mosh. \
+                 For images, detach it: tmux detach-client -t {tty}"
+            );
+        }
+        Some(GraphicsBlocker::OtherClient { tty, term }) => {
+            return format!(
+                "Auto: halfblocks — tmux client {tty} is another terminal ({term}). \
+                 For images, detach it: tmux detach-client -t {tty}"
+            );
+        }
+        Some(GraphicsBlocker::NoClient) => {
+            return "Auto: halfblocks — no tmux client was attached when faro last looked."
+                .to_owned();
+        }
+        Some(GraphicsBlocker::Mosh) => {
+            return "Auto: halfblocks — faro runs under mosh, which can't carry images.".to_owned();
+        }
+        None => {}
     }
     if state.env.graphics == super::state::GraphicsSupport::HalfblocksOnly {
         return "Auto: halfblocks — mixed or detached tmux clients.".to_owned();
     }
     match state.env.image_protocol {
-        None => "Auto: halfblocks — restart to query terminal support.".to_owned(),
+        None => "Auto: halfblocks — restart faro to ask the terminal about images.".to_owned(),
         Some(InlineImages::Halfblocks | InlineImages::Auto | InlineImages::Off) => {
-            "Auto: halfblocks — no graphics protocol detected at startup.".to_owned()
+            "Auto: halfblocks — the terminal didn't offer a graphics protocol.".to_owned()
         }
         Some(mode @ (InlineImages::Kitty | InlineImages::Sixel | InlineImages::Iterm2)) => {
             format!("Auto: {} — detected at startup.", mode.name())
         }
+    }
+}
+
+/// Inline images' values: `auto` says what it draws with now and why (D137).
+fn inline_images_values(state: &State) -> Vec<(SettingChoice, String, bool)> {
+    InlineImages::ALL
+        .iter()
+        .map(|&mode| {
+            let title = match mode {
+                InlineImages::Auto => format!("auto ({})", inline_images_auto(state)),
+                InlineImages::Kitty
+                | InlineImages::Sixel
+                | InlineImages::Iterm2
+                | InlineImages::Halfblocks
+                | InlineImages::Off => mode.name().to_owned(),
+            };
+            (
+                SettingChoice::InlineImages(mode),
+                title,
+                state.config.media.inline_images == mode,
+            )
+        })
+        .collect()
+}
+
+/// What `auto` draws with now, and why, in a few words: the Inline images
+/// row says it like Colours says "auto (truecolor detected)" (D137).
+fn inline_images_auto(state: &State) -> String {
+    if state.colors() == ColorDepth::Ansi16 {
+        return "off: 16 colours".to_owned();
+    }
+    if state.colors() == ColorDepth::Indexed256 {
+        return "halfblocks: 256 colours".to_owned();
+    }
+    let why = match &state.env.graphics_blocker {
+        Some(GraphicsBlocker::MoshClient(_)) => Some("a mosh client is attached"),
+        Some(GraphicsBlocker::OtherClient { .. }) => Some("another terminal is attached"),
+        Some(GraphicsBlocker::NoClient) => Some("no client attached"),
+        Some(GraphicsBlocker::Mosh) => Some("mosh"),
+        None => None,
+    };
+    if let Some(why) = why {
+        return format!("halfblocks: {why}");
+    }
+    match state.env.image_protocol {
+        Some(mode @ (InlineImages::Kitty | InlineImages::Sixel | InlineImages::Iterm2))
+            if state.env.graphics == super::state::GraphicsSupport::Direct =>
+        {
+            mode.name().to_owned()
+        }
+        Some(_) | None => "halfblocks".to_owned(),
     }
 }
 
@@ -1426,11 +1498,7 @@ fn values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)>
             SettingChoice::Privacy,
         ),
         Setting::Allowlist => on_off(SettingChoice::Allowlist, state.list.allowlist),
-        Setting::InlineImages => choice_values(
-            InlineImages::ALL,
-            state.config.media.inline_images,
-            SettingChoice::InlineImages,
-        ),
+        Setting::InlineImages => inline_images_values(state),
         Setting::AutoDownload => choice_values(
             AutoDownload::ALL,
             state.config.media.auto_download,

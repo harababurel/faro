@@ -5,7 +5,7 @@ use crate::app::term_event::Event;
 
 use super::*;
 use crate::app::state::Terminal;
-use crate::app::state::{BlockGlyphs, EmojiMode, EmojiSetting, GraphicsSupport};
+use crate::app::state::{BlockGlyphs, EmojiMode, EmojiSetting, GraphicsBlocker, GraphicsSupport};
 use faro_core::config::{BubbleStyle, InlineImages};
 
 fn checked(mosh: bool) -> AppEvent {
@@ -18,6 +18,7 @@ fn checked(mosh: bool) -> AppEvent {
             GraphicsSupport::Direct
         },
         kitty: false,
+        graphics_blocker: mosh.then_some(GraphicsBlocker::Mosh),
     })
 }
 
@@ -117,6 +118,7 @@ fn an_auto_bubble_style_follows_kitty() {
         glyphs: BlockGlyphs::Native,
         graphics: GraphicsSupport::Direct,
         kitty: true,
+        graphics_blocker: None,
     };
     update(&mut state, AppEvent::TerminalChecked(kitty));
     assert_eq!(state.env.glyphs, BlockGlyphs::Native);
