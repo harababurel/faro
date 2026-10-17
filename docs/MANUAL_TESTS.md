@@ -455,6 +455,7 @@ Columns: **direct** = faro straight in kitty; **tmux** = kitty → tmux (with th
 Notes (terminal, versions, what went wrong):
 
 - 2026-10-13, owner: copying a message with `y` over mosh works (pastes on the machine the owner sits at). v0.1.0 installs: Homebrew (`brew install harababurel/tap/faro`) on the Mac mini and `faro-bin` from the AUR on the Arch server both succeeded; `faro` and `faro-git` were each installed at least once while publishing them to the AUR. Not yet tried: the `.deb` and building from source.
+- 2026-10-17, owner: the v0.1.1 `.deb` (`faro_amd64.deb` from the latest release) installed on a Debian server with `sudo apt install ./faro_amd64.deb`, and the demo runs. apt's notice that `_apt` couldn't read the file in the home directory is harmless (apt reads it as root instead). Not yet tried: building from source.
 
 - 2026-10-13, owner's sign-off instead of cell-by-cell marks: weeks of daily use on the real account on the Mac mini (kitty direct; SSH and mosh from kitty on macOS and Blink on iPadOS), and `faro demo` on Arch (orion: tmux and no tmux, SSH and mosh, from the same clients). Nothing wrong noticed. Not covered: Linux direct on a desktop, and terminals other than kitty/Blink (the FAQ says "should work" for those).
 
