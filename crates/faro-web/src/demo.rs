@@ -59,6 +59,17 @@ pub fn visitor_mock() -> MockConfig {
     }
 }
 
+/// The visitor's mock for recording the README demo (`tools/demo_gif`):
+/// everyone answers every message within seconds, so the storyboard's
+/// "write, and Jim answers" beat holds whatever the scenes become.
+#[must_use]
+pub fn recording_mock() -> MockConfig {
+    MockConfig {
+        eager_answers: true,
+        ..visitor_mock()
+    }
+}
+
 /// The same mock with the clock pinned and no live activity, so a frame of it
 /// is byte-identical across runs and days: what the site poster runs (§6.4).
 /// The backlog is dated *relative to the epoch* either way, so the relative

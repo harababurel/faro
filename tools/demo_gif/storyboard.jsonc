@@ -1,0 +1,60 @@
+// The README demo: tools/demo_gif/make.sh records this with record.mjs.
+// JSON with `//` line comments. Steps run in order on the virtual clock; see
+// tools/demo_gif/README.md. Every beat checks the screen (`until`/`expect`),
+// so a change to the demo's scenes fails the recording instead of quietly
+// producing a different GIF.
+[
+  // 1. The poster frame: Scranton Branch open, the list on the left.
+  {"note": "start", "expect": "Scranton Branch", "record": true, "wait": 1500},
+
+  // 2. Switch chats with Alt+J / Alt+K, landing on Jim.
+  {"note": "alt+j", "key": "j", "mods": ["alt"], "wait": 450},
+  {"note": "alt+j again", "key": "j", "mods": ["alt"], "wait": 450},
+  {"note": "back to Jim", "key": "k", "mods": ["alt"], "until": "Message Jim Halpert", "wait": 600},
+
+  // 3. Write and send; Jim reads it, types, answers.
+  {"note": "write", "key": "Enter", "wait": 250},
+  {"note": "type", "type": "count me in 🍮", "cps": 13, "wait": 400},
+  {"note": "send", "key": "Enter", "until": "count me in 🍮", "wait": 900},
+  {"note": "Jim types", "until": "Jim Halpert is typing", "within": 60000, "wait": 300},
+  {"note": "Jim answers", "until": "Jim Halpert is typing", "gone": true, "within": 30000, "wait": 1200},
+
+  // 4. Select his answer and react.
+  {"note": "select", "key": "ArrowUp", "wait": 500},
+  {"note": "react bar", "key": "+", "until": "React", "wait": 700},
+  {"note": "pick 😂", "key": "4", "wait": 1000},
+
+  // 5. The palette: themes, previewed live as the cursor moves.
+  {"note": "palette", "key": "p", "mods": ["ctrl"], "until": "Command palette", "wait": 300},
+  {"note": "search", "type": "theme", "cps": 12, "wait": 300},
+  {"note": "themes", "key": "Enter", "until": "faro-dusk", "wait": 500},
+  {"note": "faro-dusk", "key": "ArrowDown", "wait": 600},
+  {"note": "faro-light", "key": "ArrowDown", "wait": 700},
+  // Then a flip through the bundled themes, resting on dracula.
+  {"note": "system", "key": "ArrowDown", "wait": 170},
+  {"note": "aura", "key": "ArrowDown", "wait": 170},
+  {"note": "ayu", "key": "ArrowDown", "wait": 170},
+  {"note": "carbonfox", "key": "ArrowDown", "wait": 170},
+  {"note": "catppuccin", "key": "ArrowDown", "wait": 170},
+  {"note": "catppuccin-frappe", "key": "ArrowDown", "wait": 170},
+  {"note": "catppuccin-macchiato", "key": "ArrowDown", "wait": 170},
+  {"note": "cobalt2", "key": "ArrowDown", "wait": 170},
+  {"note": "cursor", "key": "ArrowDown", "wait": 170},
+  {"note": "dracula", "key": "ArrowDown", "expect": "dracula", "wait": 900},
+  {"note": "cancel: back to faro-dark", "key": "Escape", "until": "Command palette", "gone": true, "wait": 500},
+
+  // 6. Jump to Andy with the palette and play his voice note.
+  {"note": "palette", "key": "p", "mods": ["ctrl"], "wait": 250},
+  {"note": "find Andy", "type": "@andy", "cps": 12, "until": "Andy Bernard", "wait": 300},
+  {"note": "open", "key": "Enter", "until": "Message Andy Bernard", "wait": 600},
+  {"note": "select", "key": "ArrowUp", "wait": 220},
+  {"note": "up", "key": "ArrowUp", "wait": 220},
+  {"note": "up", "key": "ArrowUp", "wait": 220},
+  {"note": "the voice note", "key": "ArrowUp", "expect": "Rit-dit-dit-doo", "wait": 400},
+  // ■ shows while it plays; anything else (a notice) fails the recording.
+  {"note": "play", "key": "x", "until": "■", "within": 1000, "wait": 2800},
+
+  // 7. Close the chat: the lighthouse, then the loop starts again.
+  {"note": "back", "key": "Escape", "wait": 200},
+  {"note": "close", "key": "Escape", "until": "unofficial Signal client", "wait": 2400}
+]

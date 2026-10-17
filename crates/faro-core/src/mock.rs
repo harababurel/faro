@@ -63,6 +63,11 @@ pub struct MockConfig {
     pub disconnects: bool,
     /// Scripted unsolicited errors (`BackendEvent::Error`).
     pub errors: bool,
+    /// Everyone answers every sent message, within seconds, instead of
+    /// sometimes and after a while: for recording the README demo
+    /// (`tools/demo_gif`), where a beat must not hang on a roll of the dice.
+    /// Off, the generator's draws are exactly those of a mock without it.
+    pub eager_answers: bool,
     pub capabilities: Capabilities,
 }
 
@@ -86,6 +91,7 @@ impl Default for MockConfig {
             backlog: 60,
             disconnects: true,
             errors: true,
+            eager_answers: false,
             capabilities: Capabilities::NONE
                 .with(Capability::Edit)
                 .with(Capability::DeleteForEveryone)
@@ -391,6 +397,37 @@ mod tests {
                 DeliveryStatus::Read
             ]
         );
+    }
+
+    /// Eager answers (the README demo's recording): every seed answers every
+    /// message, typing first, within ten seconds.
+    #[tokio::test(start_paused = true)]
+    async fn eager_answers_always_come_quickly() {
+        for seed in 0..20 {
+            let config = MockConfig {
+                seed,
+                eager_answers: true,
+                ..quiet()
+            };
+            let (backend, mut events) = MockBackend::new(&config);
+            until(&mut events, is_connected).await;
+            let jim = backend.contacts().await.unwrap()[0].service_id;
+            let sent = Instant::now();
+            backend.send(jim.into(), hello(1)).await.unwrap();
+            let seen = until(&mut events, |e| {
+                matches!(e, BackendEvent::Message(m)
+                    if m.conversation == ConversationId::from(jim) && m.sender == jim)
+            })
+            .await;
+            assert!(
+                seen.iter().any(|e| matches!(e, BackendEvent::Typing {
+                    sender, state: TypingState::Started, ..
+                } if *sender == jim)),
+                "seed {seed}: typing first"
+            );
+            let took = sent.elapsed();
+            assert!(took < Duration::from_secs(10), "seed {seed}: {took:?}");
+        }
     }
 
     #[tokio::test(start_paused = true)]

@@ -10,9 +10,9 @@
 
 Website and live demo (no install): **https://getfaro.dev**
 
-<!-- TODO(owner): this image is generated from the app's own renderer (crates/faro-site's poster scene: the first frame of `faro demo`); replace it with a real screenshot or a GIF/WebM whenever you like. A light version is in docs/images/faro-light.png. -->
+<!-- Recorded from the web demo by tools/demo_gif/make.sh (see tools/demo_gif/README.md); regenerate it when the UI or the demo changes. -->
 
-![faro demo in the faro-dark theme: the conversation list on the left, a group chat in bubbles on the right](docs/images/faro-dark.png)
+![faro demo: switching chats, sending a message that gets an answer and a reaction, previewing themes from the command palette, playing a voice note, and the lighthouse logo](docs/images/faro-demo.gif)
 
 > faro is not affiliated with, endorsed by, or supported by Signal Messenger LLC or the Signal Technology Foundation.
 

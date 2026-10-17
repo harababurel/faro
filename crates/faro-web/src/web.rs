@@ -3,12 +3,13 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use faro_core::mock::MockConfig;
 use faro_core::rt;
 use tokio::sync::mpsc;
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 
-use crate::demo::visitor_mock;
+use crate::demo::{recording_mock, visitor_mock};
 use crate::dom::{self, CanvasPage, Listeners};
 use crate::live::{self, Shell};
 use crate::media::Audio;
@@ -47,11 +48,36 @@ pub async fn start(
     columns: u16,
     rows: u16,
 ) -> Result<Demo, JsValue> {
+    launch(&visitor_mock(), canvas, font, size, columns, rows).await
+}
+
+/// [`start`], with the mock the README demo is recorded from
+/// (`tools/demo_gif`): the visitor's, except everyone answers every message
+/// within seconds. Only the test page calls it (`?record`); the site doesn't.
+#[wasm_bindgen]
+pub async fn start_recording(
+    canvas: HtmlCanvasElement,
+    font: String,
+    size: f64,
+    columns: u16,
+    rows: u16,
+) -> Result<Demo, JsValue> {
+    launch(&recording_mock(), canvas, font, size, columns, rows).await
+}
+
+async fn launch(
+    mock: &MockConfig,
+    canvas: HtmlCanvasElement,
+    font: String,
+    size: f64,
+    columns: u16,
+    rows: u16,
+) -> Result<Demo, JsValue> {
     let page = Rc::new(CanvasPage {
         canvas: canvas.clone(),
         audio: Audio::default(),
     });
-    let (session, inbox) = Session::start(&visitor_mock(), page)
+    let (session, inbox) = Session::start(mock, page)
         .await
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
     let painter = Painter::new(canvas.clone(), &font, size)?;

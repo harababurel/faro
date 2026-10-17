@@ -4,7 +4,9 @@
      tools/bundle.py.
      ?cols=120&rows=34  a fixed grid (default: fill the window)
      ?bench             measure frame times (also: await window.bench())
-     ?unfocused         start without the keys (as on the website) -->
+     ?unfocused         start without the keys (as on the website)
+     ?record            the README demo's mock: everyone answers within
+                        seconds (tools/demo_gif) -->
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -26,14 +28,15 @@
 <div id="exited" hidden><button id="again">faro exited · ↺ start again</button></div>
 <div id="stats"></div>
 <script type="module">
-  const { default: init, start } = await import(window.FARO_JS ?? "./pkg/faro_web.js");
+  const { default: init, start, start_recording } = await import(window.FARO_JS ?? "./pkg/faro_web.js");
   await init(window.FARO_WASM ? { module_or_path: window.FARO_WASM } : undefined);
   const q = new URLSearchParams(location.search);
   const font = "JetBrains Mono", size = Number(q.get("size") ?? 14);
   await Promise.all(["", "bold ", "italic "].map((w) => document.fonts.load(`${w}${size}px "${font}"`)));
   const canvas = document.getElementById("faro");
+  const launch = q.has("record") ? start_recording : start;
   const boot = async () => {
-    window.demo = await start(canvas, font, size, Number(q.get("cols") ?? 0), Number(q.get("rows") ?? 0));
+    window.demo = await launch(canvas, font, size, Number(q.get("cols") ?? 0), Number(q.get("rows") ?? 0));
   };
   await boot();
   const demo = window.demo;

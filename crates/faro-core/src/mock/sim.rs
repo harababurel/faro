@@ -182,6 +182,8 @@ pub(super) struct Sim {
     activity: Option<Millis>,
     disconnects: bool,
     errors: bool,
+    /// [`MockConfig::eager_answers`].
+    eager_answers: bool,
     queue: BinaryHeap<Reverse<Entry>>,
     next_seq: u64,
     connection: ConnectionState,
@@ -224,6 +226,7 @@ impl Sim {
             activity: config.activity.map(|d| millis(d).max(1)),
             disconnects: config.disconnects,
             errors: config.errors,
+            eager_answers: config.eager_answers,
             queue: BinaryHeap::new(),
             next_seq: 0,
             connection: ConnectionState::Disconnected,
@@ -344,12 +347,17 @@ impl Sim {
         );
         let read_at = self.schedule_receipts(now, to, target);
 
-        if self.chance(60)
+        // Eager answers skip the roll, so a mock without them draws as before.
+        if (self.eager_answers || self.chance(60))
             && let Some(sender) = self.answerer(to)
         {
             let quote = self.chance(30).then(|| self.quote_of(target)).flatten();
-            let start = read_at + self.rng.u64(1_000..=3_000);
-            self.schedule_answer(start, to, sender, quote);
+            let pause = if self.eager_answers {
+                self.rng.u64(400..=1_000)
+            } else {
+                self.rng.u64(1_000..=3_000)
+            };
+            self.schedule_answer(read_at + pause, to, sender, quote);
         }
         Ok(())
     }
@@ -402,7 +410,12 @@ impl Sim {
         message: MessageRef,
     ) -> Millis {
         let delivered_at = now + self.rng.u64(300..=2_000);
-        let read_at = delivered_at + self.rng.u64(1_000..=20_000);
+        let read_after = if self.eager_answers {
+            self.rng.u64(500..=1_500)
+        } else {
+            self.rng.u64(1_000..=20_000)
+        };
+        let read_at = delivered_at + read_after;
         let by = self.others_in(to).first().copied();
         let delivered = DeliveryStatus::Delivered;
         let delivered_ts = self.wall_clock_at(delivered_at);
@@ -1232,12 +1245,14 @@ impl Sim {
         self.rng.u64(half..=mean + half).max(1)
     }
 
-    /// How long someone types: 1–5 s, shorter in a flood so lines keep up.
+    /// How long someone types: 1–5 s, shorter in a flood so lines keep up,
+    /// and at most 2.5 s with eager answers (a recording can't wait).
     fn typing_time(&mut self) -> Millis {
+        let longest = if self.eager_answers { 2_500 } else { 5_000 };
         let max = self
             .activity
-            .map_or(5_000, |mean| mean.saturating_mul(2))
-            .clamp(2, 5_000);
+            .map_or(longest, |mean| mean.saturating_mul(2))
+            .clamp(2, longest);
         self.rng.u64(max / 5..=max)
     }
 

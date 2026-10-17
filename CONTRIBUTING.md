@@ -31,6 +31,8 @@ cargo run -- demo --activity 5 --no-faults              # flood the UI with mess
 
 `faro demo --help` lists the demo's flags. To test with a real account without messaging everyone, use a separate test account and `--allowlist FILE`: faro then talks only to the people and groups in FILE (`faro ids --username NAME` prints the IDs it needs).
 
+The README's animation is recorded from the web demo: after changing the UI or the demo's scenes, regenerate it with `tools/demo_gif/make.sh --install` ([tools/demo_gif/README.md](tools/demo_gif/README.md)).
+
 ## Checks
 
 Every commit must pass these; CI runs them on Linux and macOS, plus the wasm32 build and the website checks:
