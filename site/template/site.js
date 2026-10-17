@@ -106,6 +106,25 @@
     });
   });
 
+  // tour video (D143): nothing is fetched until it's asked for. Without JS
+  // (or <dialog>) the link opens the file itself.
+  var tourLink = document.getElementById("tour-link");
+  var tour = document.getElementById("tour");
+  var tourVideo = tour && tour.querySelector("video");
+  if (tourLink && tourVideo && tour.showModal) {
+    tourLink.addEventListener("click", function (e) {
+      e.preventDefault();
+      if (!tourVideo.getAttribute("src")) tourVideo.setAttribute("src", tourLink.getAttribute("href"));
+      tour.showModal();
+      var playing = tourVideo.play();
+      if (playing) playing.catch(function () { /* the controls are there */ });
+    });
+    tour.addEventListener("close", function () { tourVideo.pause(); });
+    // a click on the backdrop (the dialog itself, outside its content) closes it
+    tour.addEventListener("click", function (e) { if (e.target === tour) tour.close(); });
+    tour.querySelector(".tour-close").addEventListener("click", function () { tour.close(); });
+  }
+
   // analytics opt-out (§6.9)
   var optLink = document.getElementById("opt-out");
   var optNote = document.getElementById("opt-out-note");

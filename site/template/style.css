@@ -248,6 +248,26 @@ main > section:not(.panel-section) { max-width: 46rem; margin-left: auto; margin
 
 .demo-controls-status { font-family: var(--mono); font-size: .85rem; margin: 0 0 .4rem; }
 .phone-note { display: var(--h); font-size: .9rem; margin: .4rem 0 0; }
+/* The tour (D143): a link (the file itself without JS); site.js opens it in
+   the dialog and only then gives the video its src. */
+.tour-open { font-family: var(--mono); font-size: .9rem; margin: .4rem 0 0; }
+.tour {
+  padding: 0; width: min(1020px, 96vw); max-width: none;
+  color: var(--fg); background: var(--panel);
+  border: 1px solid var(--border); border-radius: 6px;
+}
+.tour::backdrop { background: color-mix(in srgb, var(--bg) 80%, transparent); }
+.tour video { display: block; width: 100%; height: auto; background: #101216; }
+.tour-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: .5rem;
+  max-width: none; margin: 0; padding: .4rem .6rem;
+  font-family: var(--mono); font-size: .8rem; color: var(--muted);
+}
+.tour-close {
+  font: inherit; color: var(--fg); background: var(--panel); cursor: pointer;
+  border: 1px solid var(--border); border-radius: 999px; padding: .2rem .7rem;
+}
+.tour-close:hover { border-color: var(--accent); color: var(--accent); }
 
 /* ⛶ fullscreen (§4.5). */
 .panel:fullscreen {

@@ -588,3 +588,16 @@ Check in Chrome, Firefox and Safari on a computer, after the owner deploys.
 - [ ] **Footer:** one row of links (Source, Contact, Privacy, Terms, Don't count my visits) and two short lines; the commit link opens the right tree on GitHub.
 
 Notes (browser, version, OS, what went wrong):
+
+## Website: tour video (D143)
+
+Check after the owner deploys (with the updated nginx config), in Chrome, Firefox and Safari on a computer, and Safari on an iPhone.
+
+- [ ] **Link:** *▶ Watch a 30-second tour* sits under the panel's caption on a computer and under the phone gallery's note on a phone.
+- [ ] **Nothing early:** in the browser's network panel, no `.mp4` request until the link is clicked.
+- [ ] **Plays:** the click opens a dialog over the page; the video starts at once, muted and looping, with controls; on the iPhone it plays inline (not forced fullscreen) and fullscreen works from its controls.
+- [ ] **Closes:** Esc, the Close button and a click outside the video each close it, and the video stops; opening it again resumes without a second download (network panel).
+- [ ] **No JavaScript:** with JavaScript off, the link opens the MP4 itself.
+- [ ] **Caching:** the MP4's response has `Cache-Control: public, max-age=31536000, immutable`.
+
+Notes (browser, version, OS, what went wrong):

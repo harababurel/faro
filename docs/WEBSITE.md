@@ -266,7 +266,9 @@ the gallery rather than shrinking the text. Labels and keyboard scrolling work
 without JavaScript. Coarse-pointer devices and panels too narrow for the
 120-column live grid receive the same treatment (D129).
 
-A later option is a read-only "watch" mode, where the demo plays its scenes with no keyboard and taps switch chats. It's not in v1.
+Under the gallery, and under the live panel on computers, *▶ Watch a 30-second tour* opens the README demo's recording (D142) in a dialog. Nothing is fetched until it's clicked; without JavaScript the link opens the MP4 itself (D143).
+
+A later option is a guided tour inside the live demo itself: the same storyboard driving the real app while the visitor is idle, handing over on their first click or key (PLAN backlog). A read-only "watch" mode for phones, where the demo plays its scenes and taps switch chats, belongs to the same idea. Neither is in v1.
 
 The three views are generated at 44×24 cells in dark and light from the real app
 state/reducer/exporter (D128). The isolated SVGs outline bundled Latin font glyphs

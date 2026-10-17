@@ -119,8 +119,13 @@
         <p id="demo-controls-status" class="demo-controls-status" role="status" aria-live="polite" hidden></p>
         <p class="safety">Nothing you type leaves your browser.</p>
         <p class="phone-note">faro is a keyboard app. Open this page on a computer to try the live demo.</p>
+        <p class="tour-open"><a id="tour-link" href="media/faro-tour.mp4">▶ Watch a 30-second tour</a></p>
       </figcaption>
     </figure>
+    <dialog id="tour" class="tour" aria-label="A 30-second tour of faro">
+      <video width="1020" height="578" controls muted loop playsinline preload="none"></video>
+      <p class="tour-bar">Recorded from the web demo. <button type="button" class="tour-close">Close</button></p>
+    </dialog>
   </section>
 
   <section class="why" aria-labelledby="why-title">

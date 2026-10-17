@@ -1,6 +1,8 @@
 # The README demo
 
-`docs/images/faro-demo.gif` (the README's animation) is recorded from the real
+`docs/images/faro-demo.gif` (the README's animation) and
+`site/template/media/faro-tour.mp4` (the site's "Watch a 30-second tour", D143)
+are recorded from the real
 web demo (`crates/faro-web`), driven by a storyboard, on a virtual clock. The
 same build and storyboard give the same frames on any machine, at any speed, so
 the GIF can be regenerated whenever the UI, the demo's scenes or the storyboard
@@ -8,11 +10,11 @@ change.
 
 ```sh
 CHROME=<chrome-headless-shell> tools/demo_gif/make.sh            # build, record, encode
-CHROME=<chrome-headless-shell> tools/demo_gif/make.sh --install  # …and copy the GIF to docs/images/
+CHROME=<chrome-headless-shell> tools/demo_gif/make.sh --install  # …and copy the GIF and the MP4 into place
 ```
 
 Output is in `target/demo-gif/`: `faro-demo.gif` (1×, for the README),
-`faro-demo.mp4` and `faro-demo.webm` (2×, for posts and the site) and
+`faro-demo.mp4` (2×, the site's tour and posts), `faro-demo.webm` (2×) and
 `frames/` (the unique frames, `frames.ffconcat` with how long each stays on
 screen, and any stills).
 

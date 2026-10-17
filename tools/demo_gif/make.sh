@@ -5,14 +5,15 @@
 #   CHROME=<chrome-headless-shell> tools/demo_gif/make.sh [--no-build] [--install] [record.mjs flags]
 #
 #   --no-build   reuse crates/faro-web/www/dist/demo.html as it is
-#   --install    copy the GIF to docs/images/faro-demo.gif (what the README shows)
+#   --install    copy the GIF to docs/images/faro-demo.gif (the README) and the
+#                MP4 to site/template/media/faro-tour.mp4 (the site's tour, D143)
 #
 # Needs: the web demo's build tools (crates/faro-web/build.sh), Node 22+,
 # ffmpeg, and chrome-headless-shell (`npx playwright install chromium-headless-shell`
 # puts one in ~/.cache/ms-playwright/): full Chrome has no
 # HeadlessExperimental.beginFrame. Output in target/demo-gif/:
 #   faro-demo.gif   1×, for the README
-#   faro-demo.mp4   2×, H.264 (social posts, Hacker News, the site)
+#   faro-demo.mp4   2×, H.264 (the site's tour, social posts)
 #   faro-demo.webm  2×, VP9
 #   frames/         the recorded frames and stills
 set -euo pipefail
@@ -70,5 +71,6 @@ if (( $(size "$out/faro-demo.gif") > max_gif_bytes )); then
 fi
 if [[ $install == 1 ]]; then
     cp "$out/faro-demo.gif" docs/images/faro-demo.gif
-    echo "installed docs/images/faro-demo.gif"
+    cp "$out/faro-demo.mp4" site/template/media/faro-tour.mp4
+    echo "installed docs/images/faro-demo.gif and site/template/media/faro-tour.mp4"
 fi

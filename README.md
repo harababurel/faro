@@ -12,7 +12,7 @@ Website and live demo (no install): **https://getfaro.dev**
 
 <!-- Recorded from the web demo by tools/demo_gif/make.sh (see tools/demo_gif/README.md); regenerate it when the UI or the demo changes. -->
 
-![faro demo: switching chats, sending a message that gets an answer and a reaction, previewing themes from the command palette, playing a voice note, and the lighthouse logo](docs/images/faro-demo.gif)
+[![faro demo: switching chats, sending a message that gets an answer and a reaction, previewing themes from the command palette, playing a voice note, and the lighthouse logo](docs/images/faro-demo.gif)](https://getfaro.dev)
 
 > faro is not affiliated with, endorsed by, or supported by Signal Messenger LLC or the Signal Technology Foundation.
 

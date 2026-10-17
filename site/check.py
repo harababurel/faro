@@ -30,6 +30,7 @@ BUDGET_PAGE = 48 * 1024  # HTML + CSS + JS, compressed
 BUDGET_FONT = 60 * 1024
 BUDGET_POSTER = 80 * 1024
 BUDGET_PHONE = 80 * 1024  # each §4.7 phone frame, compressed
+BUDGET_TOUR = 4 * 1024 * 1024  # the tour video (D143), fetched only when asked for
 
 failures = []
 warnings = []
@@ -265,6 +266,30 @@ def check_budget(pages):
     print("  note: /js/s.js (Plausible, proxied by nginx) is not in the build and not counted")
 
 
+def check_tour():
+    """The tour video (D143): one content-hashed MP4 under its budget, linked
+    from the page, and never loaded with it: no <video src>/<source> in the
+    HTML (site.js sets the src when the link is clicked) and no preload."""
+    index = os.path.join(ROOT, "index.html")
+    media = os.path.join(ROOT, "media")
+    tours = sorted(n for n in os.listdir(media) if n.endswith(".mp4")) if os.path.isdir(media) else []
+    if len(tours) != 1 or not re.fullmatch(r"faro-tour\.[0-9a-f]{10}\.mp4", tours[0]):
+        fail(f"expected one content-hashed media/faro-tour.<hash>.mp4, found {tours}")
+        return
+    size = os.path.getsize(os.path.join(media, tours[0]))
+    print(f"  {'tour video (on demand, budget ' + str(BUDGET_TOUR) + ')':<48} {size:>8}")
+    if size > BUDGET_TOUR:
+        fail(f"the tour video is {size} bytes, over the {BUDGET_TOUR} budget (D143)")
+    text = read(index) if os.path.isfile(index) else ""
+    if f'href="media/{tours[0]}"' not in text:
+        fail("index.html doesn't link the tour video")
+    if re.search(r"<video[^>]*\ssrc=|<source\b", text, re.I):
+        fail("index.html loads the tour video with the page (it must wait for a click, D143)")
+    for tag in re.findall(r"<video\b[^>]*>", text, re.I):
+        if 'preload="none"' not in tag:
+            fail(f"index.html: {tag} must have preload=\"none\" (D143)")
+
+
 NO_JS_TEXT = ("Signal, in your terminal.", "cargo build --release", "FAQ")
 
 
@@ -438,6 +463,7 @@ def main():
     check_seo()
     check_budget(pages)
     check_demo()
+    check_tour()
     check_no_js()
     if external:
         print("external <a> links (listed, not fetched):")

@@ -23,10 +23,15 @@ use crate::scene;
 /// Font extensions: these get content-hashed names like CSS and JS do.
 const FONT_EXTS: [&str; 4] = ["woff", "woff2", "ttf", "otf"];
 
+/// Media extensions: hashed like fonts (the tour video, D143).
+const MEDIA_EXTS: [&str; 1] = ["mp4"];
+
 /// What happens to a template file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Kind {
     Font,
+    /// Copied unchanged under a content-hashed name, like fonts.
+    Media,
     Css,
     Js,
     Html,
@@ -52,9 +57,9 @@ pub fn generate(template: &Path, out: &Path, pkg: Option<&Path>) -> Result<(), S
     let og_name = assets::hashed_name("og.png", &assets::hash_prefix(&art.og_png));
     let values = values(&art.posters, format!("https://getfaro.dev/{og_name}"))?;
 
-    // Hashed assets, in dependency order: the §4.7 phone frames and the
-    // fonts (content unchanged) first, then CSS — hashed after its font
-    // *and* phone url()s are rewritten — then JS.
+    // Hashed assets, in dependency order: the §4.7 phone frames, the fonts
+    // and the media (content unchanged) first, then CSS — hashed after its
+    // font *and* phone url()s are rewritten — then JS.
     let mut hashed: BTreeMap<String, String> = BTreeMap::new();
     let mut written: BTreeMap<String, Vec<u8>> = BTreeMap::new();
     for frame in &art.phones {
@@ -63,7 +68,7 @@ pub fn generate(template: &Path, out: &Path, pkg: Option<&Path>) -> Result<(), S
         written.insert(new, frame.svg.clone().into_bytes());
     }
     for (rel, bytes) in &contents {
-        if kind(rel) == Kind::Font {
+        if matches!(kind(rel), Kind::Font | Kind::Media) {
             let new = assets::hashed_name(rel, &assets::hash_prefix(bytes));
             hashed.insert(rel.clone(), new.clone());
             written.insert(new, bytes.clone());
@@ -239,6 +244,8 @@ fn kind(rel: &str) -> Kind {
     let ext = ext_of(rel);
     if FONT_EXTS.contains(&ext) {
         Kind::Font
+    } else if MEDIA_EXTS.contains(&ext) {
+        Kind::Media
     } else if ext == "css" {
         Kind::Css
     } else if ext == "js" && dir_of(rel) == "js" {
@@ -449,6 +456,22 @@ mod tests {
         );
         the_phone_frames_are_hashed_into_the_style_sheet(&names, &css_bytes);
 
+        // The tour video (D143): hashed, linked from the page, and never
+        // loaded by it (site.js sets the video's src when it's asked for).
+        let tour = names
+            .iter()
+            .find(|name| name.starts_with("media/faro-tour.") && has_ext(name, "mp4"))
+            .expect("the hashed tour video");
+        assert!(!names.contains(&"media/faro-tour.mp4"));
+        assert!(
+            index.contains(&format!(r#"href="{tour}""#)),
+            "the page links the tour"
+        );
+        assert!(
+            !index.contains("<video src"),
+            "the page doesn't load the tour"
+        );
+
         let _ = fs::remove_dir_all(&out);
         let _ = fs::remove_dir_all(&pkg);
     }
@@ -583,6 +606,7 @@ mod tests {
         assert_eq!(kind("index.html"), Kind::Html);
         assert_eq!(kind("sitemap.xml"), Kind::Xml);
         assert_eq!(kind("fonts/x.woff2"), Kind::Font);
+        assert_eq!(kind("media/faro-tour.mp4"), Kind::Media);
         assert_eq!(kind("fonts/OFL.txt"), Kind::Copy);
         assert_eq!(kind("robots.txt"), Kind::Copy);
     }
