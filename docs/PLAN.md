@@ -398,6 +398,7 @@ Design, copy, server runbook and full task lists: [WEBSITE.md](WEBSITE.md) (§7 
 
 ## Progress
 
+- 2026-10-19: **v0.1.2 released** (tag at `485373b`): transcription settings (D145). GitHub release with 4 archives and 2 debs, Homebrew tap updated; AUR PKGBUILDs bumped in the repo for the owner to push. Release notes added by the owner (the agent's token can't edit releases).
 - 2026-10-19: **Transcription settings** (D145): a *Voice notes* section in the palette with mode-dependent rows (model, command, endpoint, remote model, language: presets plus *Custom…*), local model `small`, separate `transcribe_remote_model`, a background check for the local command with install hints, `auto_transcribe` (off by default) with the length limit as its sub-option, timeouts that grow with the note, and transcripts drawn as one paragraph `❝text❞ [local]`.
 - 2026-10-19: **Security policy** (D144): `SECURITY.md` with GitHub private vulnerability reporting (the owner enables the repository setting), linked from the README and CONTRIBUTING. Also: the config watcher test no longer depends on runner speed (`ea01113`).
 - 2026-10-17: **Tour video on getfaro.dev** (D143): *▶ Watch a 30-second tour* under the panel and the phone gallery opens `media/faro-tour.<hash>.mp4` (the recorder's MP4, copied by `make.sh --install`) in a `<dialog>`; nothing loads before the click (`site/check.py` `check_tour`). nginx caches hashed `.mp4` (deploy the updated `getfaro.dev.conf`). The README GIF links to getfaro.dev. The guided tour inside the live demo is documented in the backlog.
