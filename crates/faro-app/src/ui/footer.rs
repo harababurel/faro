@@ -208,7 +208,7 @@ fn hints(state: &State, geometry: &Geometry) -> Vec<(String, &'static str)> {
             Level::Themes => PREVIEW_HINTS,
             Level::Setting(setting) if setting.previews() => PREVIEW_HINTS,
             Level::Settings => SETTINGS_HINTS,
-            Level::Nickname(_) => NICKNAME_HINTS,
+            Level::Nickname(_) | Level::SettingText(_) => NICKNAME_HINTS,
             Level::Chats
             | Level::Search(_)
             | Level::Setting(_)

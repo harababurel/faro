@@ -109,6 +109,7 @@ async fn run(store: &Store, effect: Effect) -> Result<Option<AppEvent>, StoreErr
         | Effect::StopAudio
         | Effect::SaveToDownloads { .. }
         | Effect::ListFiles(_)
+        | Effect::CheckCommand(_)
         | Effect::StageFile(_)
         | Effect::CheckPaste { .. }
         | Effect::CheckTerminal
@@ -161,6 +162,7 @@ async fn write(store: &Store, effect: Effect) -> Result<(), StoreError> {
         | Effect::StopAudio
         | Effect::SaveToDownloads { .. }
         | Effect::ListFiles(_)
+        | Effect::CheckCommand(_)
         | Effect::StageFile(_)
         | Effect::CheckPaste { .. }
         | Effect::CheckTerminal

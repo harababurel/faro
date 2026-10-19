@@ -1,6 +1,6 @@
 //! Glyphs the renderer draws as shapes instead of taking them from a font
 //! (D106): block elements, octants, sextants, the Unicode 16 quarter circles,
-//! Powerline caps, box drawing, Braille, and the three symbols the webfont
+//! Powerline caps, box drawing, Braille, and the symbols the webfont
 //! (`JetBrains Mono`) lacks (`↳ ✎ ❝`, D107). Fonts draw these slightly differently on every OS
 //! (or not at all); as shapes they line up exactly, as in kitty.
 //!
@@ -69,6 +69,8 @@ pub enum Symbol {
     Pencil,
     /// `❝` two heavy turned commas.
     Quote,
+    /// `❞` two heavy commas: `❝` turned half a circle (D145).
+    CloseQuote,
 }
 
 impl Shape {
@@ -280,6 +282,7 @@ fn symbol_shape(cp: u32) -> Option<Shape> {
         0x21b3 => Symbol::ReturnArrow,
         0x270e => Symbol::Pencil,
         0x275d => Symbol::Quote,
+        0x275e => Symbol::CloseQuote,
         _ => return None,
     }))
 }
@@ -359,6 +362,7 @@ mod tests {
         assert_eq!(shape("⣿"), Some(Shape::Braille(0xff)));
         assert_eq!(shape("↳"), Some(Shape::Symbol(Symbol::ReturnArrow)));
         assert_eq!(shape("❝\u{fe0e}"), Some(Shape::Symbol(Symbol::Quote)));
+        assert_eq!(shape("❞"), Some(Shape::Symbol(Symbol::CloseQuote)));
     }
 
     #[test]

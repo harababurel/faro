@@ -254,7 +254,7 @@ fn prefixes_jump_into_a_category() {
 }
 
 /// `Settings ›` with nothing typed: every setting under its section.
-const SETTINGS_LIST: [&str; 25] = [
+const SETTINGS_LIST: [&str; 33] = [
     "Appearance",
     "Colours",
     "Emoji",
@@ -277,7 +277,15 @@ const SETTINGS_LIST: [&str; 25] = [
     "Media",
     "Inline images",
     "Auto-download media",
-    "Voice note transcription",
+    "Voice notes",
+    "Transcription",
+    "Auto-transcribe",
+    "Auto-transcribe notes up to",
+    "Model",
+    "Command",
+    "Endpoint",
+    "Remote model",
+    "Language",
     "Input",
     "Mouse",
 ];
@@ -355,8 +363,8 @@ fn headers_are_skipped() {
     press(&mut state, KeyCode::Up);
     assert_eq!(
         selected_title(&state),
-        "Voice note transcription",
-        "skips Input"
+        "Transcription",
+        "skips Input and the transcription settings (transcription off)"
     );
     press(&mut state, KeyCode::Down);
     press(&mut state, KeyCode::Down);
@@ -1484,4 +1492,194 @@ fn auto_images_name_the_tmux_client_in_the_way() {
         titles(&state).first().map(String::as_str),
         Some("auto (kitty)")
     );
+}
+
+/// A row of the list shown: its detail and whether it's dimmed.
+fn row(state: &State, title: &str) -> (String, bool) {
+    let palette = state.palette.as_ref().unwrap();
+    let item = palette.items.iter().find(|i| i.title == title).unwrap();
+    (item.detail.clone(), item.disabled)
+}
+
+#[test]
+fn transcription_settings_follow_the_mode() {
+    use faro_core::config::TranscribeMode;
+
+    let mut state = loaded_state();
+    palette_open(&mut state, ":");
+    for title in ["Auto-transcribe", "Model", "Endpoint", "Language"] {
+        assert_eq!(
+            row(&state, title),
+            ("transcription is off".to_owned(), true)
+        );
+    }
+    update(&mut state, key(KeyCode::Esc, KeyModifiers::NONE));
+
+    state.config.voice.transcribe = TranscribeMode::Local;
+    palette_open(&mut state, ":");
+    assert_eq!(row(&state, "Model"), ("small".to_owned(), false));
+    assert!(!row(&state, "Model").1 && !row(&state, "Command").1);
+    assert!(!row(&state, "Auto-transcribe").1 && !row(&state, "Language").1);
+    assert_eq!(row(&state, "Endpoint"), ("remote only".to_owned(), true));
+    assert_eq!(
+        row(&state, "Auto-transcribe notes up to"),
+        ("when transcribing automatically".to_owned(), true)
+    );
+    update(&mut state, key(KeyCode::Esc, KeyModifiers::NONE));
+
+    state.config.voice.transcribe = TranscribeMode::Remote;
+    state.config.voice.auto_transcribe = true;
+    palette_open(&mut state, ":");
+    assert_eq!(row(&state, "Model"), ("local only".to_owned(), true));
+    assert!(!row(&state, "Endpoint").1 && !row(&state, "Remote model").1);
+    assert!(!row(&state, "Auto-transcribe notes up to").1);
+}
+
+#[test]
+fn a_custom_model_is_typed_and_saved() {
+    use crate::app::palette;
+    use faro_core::config::TranscribeMode;
+
+    let mut state = loaded_state();
+    state.config.voice.transcribe = TranscribeMode::Local;
+    palette_open(&mut state, ":Model");
+    enter(&mut state);
+    assert_eq!(level(&state), Level::Setting(Setting::TranscribeModel));
+    assert_eq!(
+        titles(&state),
+        vec!["tiny", "base", "small", "medium", "turbo", "Custom…"]
+    );
+    assert_eq!(selected_title(&state), "small", "opens on the one in use");
+    pick(&mut state, "Custom");
+    assert_eq!(level(&state), Level::SettingText(Setting::TranscribeModel));
+    // The query starts from the value in use, and every item stays.
+    assert_eq!(state.palette.as_ref().unwrap().input.text(), "small");
+    update(&mut state, ctrl('u'));
+    typed(&mut state, "~/models/ggml-large-v3.bin");
+    assert_eq!(titles(&state), vec!["Save as model"]);
+    let effects = enter(&mut state);
+    assert_eq!(
+        state.config.voice.transcribe_model,
+        "~/models/ggml-large-v3.bin"
+    );
+    assert!(effects.contains(&saved(
+        key::VOICE_TRANSCRIBE_MODEL,
+        ConfigValue::Text("~/models/ggml-large-v3.bin".to_owned())
+    )));
+    assert_eq!(level(&state), Level::Settings);
+    assert_eq!(selected_title(&state), "Model");
+    assert_eq!(
+        palette::value_title(&state, Setting::TranscribeModel),
+        "~/models/ggml-large-v3.bin"
+    );
+    // A typed value no preset matches marks Custom… as the one in use.
+    enter(&mut state);
+    assert_eq!(selected_title(&state), "Custom…");
+
+    // Empty changes nothing.
+    pick(&mut state, "");
+    update(&mut state, ctrl('u'));
+    let effects = enter(&mut state);
+    assert_eq!(effects, vec![]);
+    assert_eq!(
+        state.config.voice.transcribe_model,
+        "~/models/ggml-large-v3.bin"
+    );
+}
+
+#[test]
+fn a_new_endpoint_brings_a_model_it_offers() {
+    use crate::app::palette::{self, SettingChoice};
+    use faro_core::config::TranscribeMode;
+
+    let mut state = loaded_state();
+    state.config.voice.transcribe = TranscribeMode::Remote;
+    let groq = palette::TRANSCRIBE_ENDPOINTS[1].0;
+    let effects =
+        crate::app::update::settings::choose(&mut state, SettingChoice::TranscribeEndpoint(groq));
+    assert_eq!(state.config.voice.transcribe_url, groq);
+    assert_eq!(
+        state.config.voice.transcribe_remote_model,
+        "whisper-large-v3-turbo"
+    );
+    assert!(effects.contains(&saved(
+        key::VOICE_TRANSCRIBE_REMOTE_MODEL,
+        ConfigValue::Text("whisper-large-v3-turbo".to_owned())
+    )));
+    // A model the endpoint offers stays.
+    crate::app::update::settings::choose(
+        &mut state,
+        SettingChoice::TranscribeRemoteModel("whisper-large-v3"),
+    );
+    crate::app::update::settings::set_text(&mut state, Setting::TranscribeEndpoint, groq);
+    assert_eq!(
+        state.config.voice.transcribe_remote_model,
+        "whisper-large-v3"
+    );
+    // A typed endpoint keeps the model; one that isn't a URL is refused.
+    crate::app::update::settings::set_text(
+        &mut state,
+        Setting::TranscribeEndpoint,
+        "http://localhost:8000/v1/audio/transcriptions",
+    );
+    assert_eq!(
+        state.config.voice.transcribe_remote_model,
+        "whisper-large-v3"
+    );
+    assert_eq!(
+        palette::value_title(&state, Setting::TranscribeEndpoint),
+        "http://localhost:8000/v1/audio/transcriptions"
+    );
+    assert_eq!(
+        crate::app::update::settings::set_text(
+            &mut state,
+            Setting::TranscribeEndpoint,
+            "localhost"
+        ),
+        vec![]
+    );
+    assert!(state.config.voice.transcribe_url.starts_with("http://"));
+}
+
+#[test]
+fn a_missing_local_command_is_named_with_how_to_install_it() {
+    use crate::app::palette;
+    use faro_core::config::TranscribeMode;
+
+    let mut state = loaded_state();
+    state.config.voice.transcribe = TranscribeMode::Local;
+    // Opening the settings looks for the command.
+    let effects = palette_open_settings(&mut state);
+    assert!(effects.contains(&Effect::CheckCommand("whisper".to_owned())));
+    update(
+        &mut state,
+        AppEvent::CommandChecked {
+            program: "whisper".to_owned(),
+            found: false,
+        },
+    );
+    assert_eq!(state.transcriber_missing(), Some("whisper"));
+    assert_eq!(row(&state, "Transcription").0, "local · whisper not found");
+    let note = palette::note(&state, Level::Setting(Setting::Transcribe)).unwrap();
+    assert!(note.contains("brew install openai-whisper"), "{note}");
+
+    // A command that's there, or another mode, says nothing.
+    update(
+        &mut state,
+        AppEvent::CommandChecked {
+            program: "whisper".to_owned(),
+            found: true,
+        },
+    );
+    assert_eq!(row(&state, "Transcription").0, "local");
+    state.transcriber = Some(("whisper".to_owned(), false));
+    state.config.voice.transcribe = TranscribeMode::Remote;
+    assert_eq!(state.transcriber_missing(), None);
+}
+
+/// Open the palette at Settings (`:` then nothing typed) and return what
+/// that asked for.
+fn palette_open_settings(state: &mut State) -> Vec<Effect> {
+    update(state, ctrl('p'));
+    pick(state, "Settings")
 }

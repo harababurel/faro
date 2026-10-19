@@ -399,14 +399,15 @@ Keys in the message pane: `d` download, `v` view (for an image, else open locall
 - Pressing `x` (or `v` when the attachment is a voice note) plays or stops the selected voice note through an external player (`[voice] player = "auto"`: `afplay` on macOS; `mpv --no-video --really-quiet`, `ffplay -nodisp -autoexit -loglevel quiet`, `pw-play`, `paplay`, `aplay -q` on Linux/Unix, or a custom command). At most one player child runs at a time; a 1 s timer (`AppEvent::PlaybackTick`) advances progress until the child exits (`AppEvent::PlaybackFinished`).
 - **Over SSH or mosh (`State::env.over_ssh || State::env.mosh`):** sound would play on the remote host, so `Play` refuses with a notice pointing to `s` (*Save to Downloads*) and *Copy path* (OSC 52), and the message menu omits *Play*.
 
-**Opt-in Whisper transcription (D82).**
-- Controlled by `[voice] transcribe = "off" | "local" | "remote"` (default `"off"`). Users can transcribe a selected voice note manually (`t` in the message pane, *Transcribe* in the message menu or palette) or automatically for downloaded voice notes in the open conversation up to `[voice] transcribe_max_secs = 300` (5 minutes).
-- **Local (`"local"`):** runs `[voice] transcribe_command` (default `"whisper-cli"`, also trying `whisper-cpp` and `whisper`) with `[voice] transcribe_model` (GGML `.bin` path) and optional `[voice] transcribe_language` (`"auto"` or ISO-639-1 code). Custom commands without a model path or containing `{file}` receive the audio path directly.
-- **Remote (`"remote"`):** posts `multipart/form-data` to `<transcribe_url>/audio/transcriptions` (default `https://api.openai.com/v1`, model `[voice] transcribe_model = "whisper-1"`) via `curl --config -` so the bearer key is passed over stdin, never on the command line. The API key is read from `$FARO_TRANSCRIBE_API_KEY`, `$OPENAI_API_KEY`, or the OS keychain (`security` on macOS, `secret-tool` on Linux), and rejected with a warning if placed in `config.toml`.
+**Opt-in Whisper transcription (D82, settings reworked in D145).**
+- Controlled by `[voice] transcribe = "off" | "local" | "remote"` (default `"off"`). `t` in the message pane (or *Transcribe* in the message menu or palette) transcribes the selected voice note, whatever its length. With `[voice] auto_transcribe = true` (default `false`, D145), downloaded voice notes in the open conversation up to `transcribe_max_secs` (default 300) are transcribed without asking.
+- **Settings in the palette (D145):** `Ctrl+P` › `:` › *Voice notes* lists *Transcription*, *Auto-transcribe*, *Auto-transcribe notes up to*, *Model*, *Command*, *Endpoint*, *Remote model* and *Language*. Rows that do nothing with the current mode are dimmed and skipped, with the reason on the right (`transcription is off`, `local only`, `remote only`, `when transcribing automatically`), as bubble settings are under the IRC layout (D99). Text settings offer presets with a short description each, plus *Custom…* (`Level::SettingText`), where the query is the value and `Enter` saves it.
+- **Local (`"local"`):** runs `[voice] transcribe_command` (default `"whisper"`, OpenAI Whisper; preset `"whisper-cli"`, whisper.cpp) with `[voice] transcribe_model` (default `"small"`, multilingual; presets tiny, base, small, medium, turbo; whisper.cpp needs a model file path) and optional `[voice] transcribe_language` (empty detects it; presets for 17 languages). A command with `{file}`, `{model}`, `{language}` or `{out_dir}` gets those filled in. The timeout grows with the note: 120 s plus 8× its length, at most an hour. faro looks for the command on `PATH` in the background (`Effect::CheckCommand` → `AppEvent::CommandChecked`, `State::transcriber`); when it's missing, the *Transcription* and *Command* rows say so and the note above the values says how to install it.
+- **Remote (`"remote"`):** posts `multipart/form-data` to `[voice] transcribe_url` (the full endpoint URL; presets OpenAI `https://api.openai.com/v1/audio/transcriptions`, the default, and Groq `https://api.groq.com/openai/v1/audio/transcriptions`) with `[voice] transcribe_remote_model` (default `gpt-4o-mini-transcribe`; presets follow the endpoint, and choosing an endpoint that doesn't offer the model in use switches to its first) via `curl --config -` so the bearer key is passed over stdin, never on the command line. The API key is read from `$FARO_TRANSCRIBE_API_KEY`, `$OPENAI_API_KEY`, or the OS keychain (`security` on macOS, `secret-tool` on Linux), and rejected with a warning if placed in `config.toml`. The timeout is 60 s plus twice the note's length, at most 15 minutes. Before D145 one `transcribe_model` served both modes: with `transcribe = "remote"`, a `transcribe_model` and no `transcribe_remote_model`, the value is used as the remote model and a warning asks for it to be renamed.
 - **Consent and per-conversation permission:**
   - Turning on `transcribe = "remote"` or running a remote transcription before consenting opens `Popup::ConfirmRemoteTranscription` naming `transcribe_url`; accepting records `voice.remote_consent = "true"` in `app_state`.
   - Remote transcription is also opt-in per conversation (`ConversationState::remote_transcription`, default `Disallowed`, toggled in the conversation menu, palette, or when confirming `t` on a voice note). Local transcription runs locally and needs neither remote consent nor the per-conversation flag.
-- **Display:** transcripts are stored in `attachments.transcript` + `attachments.transcript_source` (`local` / `remote`), rendered below the voice note row as `❝ <text> [local]` or `❝ <text> [remote]`, and included in `State::readable_body` for *Copy* (`y`) and *Reply* (`r`).
+- **Display:** transcripts are stored in `attachments.transcript` + `attachments.transcript_source` (`local` / `remote`) and rendered below the voice note row as one paragraph in quotes, `❝<text>❞ [local]` (Whisper's line breaks between segments and any other whitespace become single spaces, `domain::transcript_paragraph`, D145). They're included in `State::readable_body` for *Copy* (`y`) and *Reply* (`r`).
 
 ## 8. Notifications
 
@@ -458,11 +459,13 @@ Sketch:
 [voice]
 # player = "auto"                       # "auto" | command (D81)
 # transcribe = "off"                    # "off" | "local" | "remote" (D82)
-# transcribe_command = "whisper-cli"    # local Whisper binary or wrapper script
-# transcribe_model = ""                 # local GGML .bin path, or remote model ("whisper-1")
-# transcribe_url = "https://api.openai.com/v1"
-# transcribe_language = "auto"          # "auto" or ISO-639-1 ("en", "ro", …)
-# transcribe_max_secs = 300             # max duration auto-transcribed (seconds)
+# auto_transcribe = false               # transcribe voice notes in the open chat as they arrive (D145)
+# transcribe_max_secs = 300             # longest note auto-transcribed (seconds)
+# transcribe_command = "whisper"        # local: "whisper", "whisper-cli" or a command with {file}
+# transcribe_model = "small"            # local model name, or a whisper.cpp model file
+# transcribe_url = "https://api.openai.com/v1/audio/transcriptions"
+# transcribe_remote_model = "gpt-4o-mini-transcribe"
+# transcribe_language = ""              # empty detects it, or ISO-639-1 ("en", "ro", …)
 
 [mouse]
 # enabled = true

@@ -843,13 +843,18 @@ fn transcript_lines(
     let Some(transcript) = attachment.transcript.as_deref().filter(|t| !t.is_empty()) else {
         if state.is_transcribing(msg_ref, index) {
             return vec![vec![Span::styled(
-                truncate("❝ transcribing…", max).into_owned(),
+                truncate("❝transcribing…", max).into_owned(),
                 theme.muted().add_modifier(Modifier::ITALIC),
             )]];
         }
         return Vec::new();
     };
-    let quoted = format!("❝ {}", sanitize(transcript));
+    // One paragraph (Whisper puts a line break between segments) in
+    // quotes, the closing one before the tag (D145).
+    let quoted = format!(
+        "❝{}❞",
+        sanitize(&faro_core::domain::transcript_paragraph(transcript))
+    );
     let tag = attachment
         .transcript_source
         .map(|s| format!(" [{}]", s.as_str()))

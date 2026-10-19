@@ -1543,7 +1543,8 @@ fn voice_note_renders_waveform_progress_and_transcript() {
         voice_note: true,
         duration_secs: Some(14),
         waveform: Some(vec![0, 1, 2, 3, 4, 5, 6, 7, 7, 6, 5, 4, 3, 2, 1, 0]),
-        transcript: Some("Meet at the crag at nine.".into()),
+        // Whisper writes one line per segment; they're drawn as one paragraph (D145).
+        transcript: Some(" Meet at the crag\nat nine.\n".into()),
         transcript_source: Some(TranscriptSource::Local),
         ..AttachmentRef::remote("att-vn", "audio/wav")
     }];
@@ -1553,9 +1554,10 @@ fn voice_note_renders_waveform_progress_and_transcript() {
     let idle = snapshot(&draw(&state, 100, 24));
     assert!(idle.contains("▶ 0:14 ▁▂▃▄▅▆▇██▇▆▅▄▃▂▁ · 31.3 KB"), "{idle}");
     assert!(
-        idle.contains("❝ Meet at the crag at nine. [local]"),
+        idle.contains("❝Meet at the crag at nine.❞ [local]"),
         "{idle}"
     );
+    assert!(!idle.contains('\u{fffd}'), "{idle}");
 
     state.playing = Some(PlayingVoiceNote {
         conversation: climbing(),

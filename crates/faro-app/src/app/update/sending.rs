@@ -304,7 +304,7 @@ pub fn extract_mentions(text: &str, known: &[(ServiceId, String)]) -> (String, V
 
 /// Result of `Effect::StageFile` (D77): attach to the open conversation or show
 /// an error notice (e.g. > 100 MB).
-pub fn on_file_staged(state: &mut State, result: Result<StagedAttachment, String>) {
+pub fn on_file_staged(state: &mut State, result: Result<StagedAttachment, String>) -> Vec<Effect> {
     match result {
         Ok(staged) => {
             if let Some(open) = state.open.as_mut() {
@@ -316,6 +316,7 @@ pub fn on_file_staged(state: &mut State, result: Result<StagedAttachment, String
             state.notice = Some(Notice::error(format!("Couldn't attach file: {error}")));
         }
     }
+    vec![]
 }
 
 /// Result of `Effect::CheckPaste` (D77): if the pasted path is a regular file on

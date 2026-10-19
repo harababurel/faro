@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use faro_core::backend::{BackendEvent, Capabilities};
 use faro_core::config::{
-    BubbleStyle, ColorChoice, Config, InlineImages, MessageDensity, TimestampFormat,
+    BubbleStyle, ColorChoice, Config, InlineImages, MessageDensity, TimestampFormat, TranscribeMode,
 };
 use faro_core::domain::{
     AttachmentRef, BodyPart, ConnectionState, Contact, ConversationId, Direction, Group, GroupId,
@@ -185,6 +185,9 @@ pub struct State {
     pub transcribe_when_downloaded: HashSet<(MessageRef, usize)>,
     /// Voice notes currently being transcribed (D82).
     pub transcribing: HashSet<(MessageRef, usize)>,
+    /// Whether the local transcription program was found on the `PATH`
+    /// (`Effect::CheckCommand`, D145): `(program, found)`.
+    pub transcriber: Option<(String, bool)>,
     /// Voice note currently playing in an external audio player (D81).
     pub playing: Option<PlayingVoiceNote>,
     /// When the terminal bell last rang (`BELL_INTERVAL`, D49).
@@ -859,6 +862,7 @@ impl State {
             download_queue: VecDeque::new(),
             save_when_downloaded: HashSet::new(),
             transcribe_when_downloaded: HashSet::new(),
+            transcriber: None,
             transcribing: HashSet::new(),
             playing: None,
             last_bell: None,
@@ -1062,8 +1066,8 @@ impl State {
             .attachments
             .iter()
             .find_map(|a| a.transcript.as_deref())
+            .map(faro_core::domain::transcript_paragraph)
             .filter(|t| !t.is_empty())
-            .map(str::to_owned)
     }
 
     /// A message's text body with mentions written as `@Name`, for editing an
@@ -1346,6 +1350,20 @@ impl State {
     /// transcribed (D82).
     pub fn is_transcribing(&self, message: MessageRef, index: usize) -> bool {
         self.transcribing.contains(&(message, index))
+    }
+
+    /// The local transcription program, if transcription is local and the
+    /// program wasn't found on the `PATH` (D145).
+    pub fn transcriber_missing(&self) -> Option<&str> {
+        let voice = &self.config.voice;
+        match &self.transcriber {
+            Some((program, false))
+                if voice.transcribe == TranscribeMode::Local && program == voice.program() =>
+            {
+                Some(program)
+            }
+            Some(_) | None => None,
+        }
     }
 
     /// Whether faro can play voice notes locally (not over SSH or mosh, D81).

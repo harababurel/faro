@@ -68,8 +68,19 @@ fn apply(
         if !startup && old.media.auto_download != state.config.media.auto_download {
             effects.extend(selection::queue_auto_downloads(state));
         }
-        if !startup && old.voice.transcribe != state.config.voice.transcribe {
+        let voice = &state.config.voice;
+        if !startup
+            && (old.voice.transcribe != voice.transcribe
+                || old.voice.auto_transcribe != voice.auto_transcribe
+                || old.voice.transcribe_max_secs != voice.transcribe_max_secs)
+        {
             effects.extend(selection::queue_auto_transcriptions(state));
+        }
+        if startup
+            || old.voice.transcribe != state.config.voice.transcribe
+            || old.voice.program() != state.config.voice.program()
+        {
+            effects.extend(check_transcriber(state));
         }
         // The mouse, the theme and `reduce_motion` are read from
         // `state.config` by the app loop.
@@ -259,6 +270,13 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
         | SettingChoice::InlineImages(_)
         | SettingChoice::AutoDownload(_)
         | SettingChoice::Transcribe(_) => choose_media_and_notifications(state, choice),
+        SettingChoice::TranscribeAuto(_)
+        | SettingChoice::TranscribeMaxSecs(_)
+        | SettingChoice::TranscribeModel(_)
+        | SettingChoice::TranscribeLanguage(_)
+        | SettingChoice::TranscribeCommand(_)
+        | SettingChoice::TranscribeEndpoint(_)
+        | SettingChoice::TranscribeRemoteModel(_) => choose_transcription(state, choice),
         SettingChoice::Mouse(on)
         | SettingChoice::Bell(on)
         | SettingChoice::Title(on)
@@ -323,6 +341,7 @@ fn choose_media_and_notifications(state: &mut State, choice: SettingChoice) -> V
                 TranscribeMode::Remote => "Voice note transcription: remote API (asks per chat)",
             };
             let mut effects = selection::queue_auto_transcriptions(state);
+            effects.extend(check_transcriber(state));
             effects.extend(save_with_notice(state, key::VOICE_TRANSCRIBE, msg));
             effects
         }
@@ -338,8 +357,217 @@ fn choose_media_and_notifications(state: &mut State, choice: SettingChoice) -> V
         | SettingChoice::Title(_)
         | SettingChoice::ReduceMotion(_)
         | SettingChoice::BubblePadding(_)
+        | SettingChoice::MatchWidths(_)
+        | SettingChoice::TranscribeAuto(_)
+        | SettingChoice::TranscribeMaxSecs(_)
+        | SettingChoice::TranscribeModel(_)
+        | SettingChoice::TranscribeLanguage(_)
+        | SettingChoice::TranscribeCommand(_)
+        | SettingChoice::TranscribeEndpoint(_)
+        | SettingChoice::TranscribeRemoteModel(_) => vec![],
+    }
+}
+
+/// The voice-note settings below the transcription mode (D145).
+fn choose_transcription(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
+    let voice = &mut state.config.voice;
+    match choice {
+        SettingChoice::TranscribeAuto(on) => {
+            voice.auto_transcribe = on;
+            let msg = if on {
+                "Voice notes in the open chat are transcribed as they arrive"
+            } else {
+                "Voice notes are transcribed when you press t"
+            };
+            let mut effects = selection::queue_auto_transcriptions(state);
+            effects.extend(save_with_notice(state, key::VOICE_AUTO_TRANSCRIBE, msg));
+            effects
+        }
+        SettingChoice::TranscribeMaxSecs(secs) => {
+            voice.transcribe_max_secs = secs;
+            let shown = palette::value_title(state, Setting::TranscribeMaxSecs);
+            let mut effects = selection::queue_auto_transcriptions(state);
+            effects.extend(save_with_notice(
+                state,
+                key::VOICE_TRANSCRIBE_MAX_SECS,
+                format!("Notes up to {shown} are transcribed automatically"),
+            ));
+            effects
+        }
+        SettingChoice::TranscribeModel(model) => {
+            model.clone_into(&mut voice.transcribe_model);
+            save_with_notice(
+                state,
+                key::VOICE_TRANSCRIBE_MODEL,
+                format!("Local model: {model}"),
+            )
+        }
+        SettingChoice::TranscribeLanguage(code) => {
+            code.clone_into(&mut voice.transcribe_language);
+            let shown = palette::value_title(state, Setting::TranscribeLanguage);
+            save_with_notice(
+                state,
+                key::VOICE_TRANSCRIBE_LANGUAGE,
+                format!("Transcription language: {shown}"),
+            )
+        }
+        SettingChoice::TranscribeCommand(command) => {
+            command.clone_into(&mut voice.transcribe_command);
+            let mut effects: Vec<Effect> = check_transcriber(state).into_iter().collect();
+            effects.extend(save_with_notice(
+                state,
+                key::VOICE_TRANSCRIBE_COMMAND,
+                format!("Local command: {command}"),
+            ));
+            effects
+        }
+        SettingChoice::TranscribeEndpoint(url) => set_endpoint(state, url),
+        SettingChoice::TranscribeRemoteModel(model) => {
+            model.clone_into(&mut voice.transcribe_remote_model);
+            save_with_notice(
+                state,
+                key::VOICE_TRANSCRIBE_REMOTE_MODEL,
+                format!("Remote model: {model}"),
+            )
+        }
+        SettingChoice::Colors(_)
+        | SettingChoice::Emoji(_)
+        | SettingChoice::Layout(_)
+        | SettingChoice::BubbleStyle(_)
+        | SettingChoice::Density(_)
+        | SettingChoice::Timestamps(_)
+        | SettingChoice::Allowlist(_)
+        | SettingChoice::Desktop(_)
+        | SettingChoice::Privacy(_)
+        | SettingChoice::InlineImages(_)
+        | SettingChoice::AutoDownload(_)
+        | SettingChoice::Transcribe(_)
+        | SettingChoice::Mouse(_)
+        | SettingChoice::Bell(_)
+        | SettingChoice::Title(_)
+        | SettingChoice::ReduceMotion(_)
+        | SettingChoice::BubblePadding(_)
         | SettingChoice::MatchWidths(_) => vec![],
     }
+}
+
+/// A new endpoint; a remote model it doesn't offer gives way to its first
+/// one (a typed endpoint keeps the model: only the user knows what it takes).
+fn set_endpoint(state: &mut State, url: &str) -> Vec<Effect> {
+    url.clone_into(&mut state.config.voice.transcribe_url);
+    let models = palette::remote_models(url);
+    let mut effects = Vec::new();
+    let mut msg = format!(
+        "Endpoint: {}",
+        palette::value_title(state, Setting::TranscribeEndpoint)
+    );
+    if let Some(&(first, _)) = models.first()
+        && !models
+            .iter()
+            .any(|&(model, _)| model == state.config.voice.transcribe_remote_model)
+    {
+        first.clone_into(&mut state.config.voice.transcribe_remote_model);
+        effects.extend(save(state, key::VOICE_TRANSCRIBE_REMOTE_MODEL));
+        msg = format!("{msg}, model {first}");
+    }
+    effects.extend(save_with_notice(state, key::VOICE_TRANSCRIBE_URL, msg));
+    effects
+}
+
+/// A value typed at `Custom…` (D145). Only the language may be empty (it
+/// then detects the language).
+pub fn set_text(state: &mut State, setting: Setting, text: &str) -> Vec<Effect> {
+    let text = text.trim();
+    if text.is_empty() && setting != Setting::TranscribeLanguage {
+        state.notice = Some(Notice::warning(format!(
+            "{} can't be empty; nothing changed",
+            setting.title()
+        )));
+        return vec![];
+    }
+    let voice = &mut state.config.voice;
+    match setting {
+        Setting::TranscribeModel => {
+            text.clone_into(&mut voice.transcribe_model);
+            save_with_notice(
+                state,
+                key::VOICE_TRANSCRIBE_MODEL,
+                format!("Local model: {text}"),
+            )
+        }
+        Setting::TranscribeRemoteModel => {
+            text.clone_into(&mut voice.transcribe_remote_model);
+            save_with_notice(
+                state,
+                key::VOICE_TRANSCRIBE_REMOTE_MODEL,
+                format!("Remote model: {text}"),
+            )
+        }
+        Setting::TranscribeLanguage => {
+            text.to_lowercase()
+                .clone_into(&mut voice.transcribe_language);
+            let shown = palette::value_title(state, Setting::TranscribeLanguage);
+            save_with_notice(
+                state,
+                key::VOICE_TRANSCRIBE_LANGUAGE,
+                format!("Transcription language: {shown}"),
+            )
+        }
+        Setting::TranscribeCommand => {
+            text.clone_into(&mut voice.transcribe_command);
+            let mut effects: Vec<Effect> = check_transcriber(state).into_iter().collect();
+            effects.extend(save_with_notice(
+                state,
+                key::VOICE_TRANSCRIBE_COMMAND,
+                format!("Local command: {text}"),
+            ));
+            effects
+        }
+        Setting::TranscribeEndpoint => {
+            if !text.starts_with("https://") && !text.starts_with("http://") {
+                state.notice = Some(Notice::warning(
+                    "The endpoint must be an http:// or https:// URL; nothing changed",
+                ));
+                return vec![];
+            }
+            set_endpoint(state, text)
+        }
+        Setting::Colors
+        | Setting::Emoji
+        | Setting::Layout
+        | Setting::BubbleStyle
+        | Setting::BubblePadding
+        | Setting::MatchWidths
+        | Setting::Density
+        | Setting::Timestamps
+        | Setting::ReduceMotion
+        | Setting::Bell
+        | Setting::Title
+        | Setting::Desktop
+        | Setting::Privacy
+        | Setting::Allowlist
+        | Setting::InlineImages
+        | Setting::AutoDownload
+        | Setting::Transcribe
+        | Setting::TranscribeAuto
+        | Setting::TranscribeMaxSecs
+        | Setting::Mouse => vec![],
+    }
+}
+
+/// Look for the local transcription command on `PATH` (D145), so the
+/// palette can say it's missing before a voice note fails.
+pub fn check_transcriber(state: &State) -> Option<Effect> {
+    (state.config.voice.transcribe == TranscribeMode::Local)
+        .then(|| Effect::CheckCommand(state.config.voice.program().to_owned()))
+}
+
+/// The answer to `check_transcriber`: kept, and the palette redrawn if
+/// it's showing settings.
+pub fn on_command_checked(state: &mut State, program: String, found: bool) -> Vec<Effect> {
+    state.transcriber = Some((program, found));
+    super::palette::refresh_settings(state);
+    vec![]
 }
 
 fn choose_toggle(state: &mut State, choice: SettingChoice, on: bool) -> Vec<Effect> {
@@ -410,7 +638,14 @@ fn choose_toggle(state: &mut State, choice: SettingChoice, on: bool) -> Vec<Effe
         | SettingChoice::Allowlist(_)
         | SettingChoice::InlineImages(_)
         | SettingChoice::AutoDownload(_)
-        | SettingChoice::Transcribe(_) => vec![],
+        | SettingChoice::Transcribe(_)
+        | SettingChoice::TranscribeAuto(_)
+        | SettingChoice::TranscribeMaxSecs(_)
+        | SettingChoice::TranscribeModel(_)
+        | SettingChoice::TranscribeLanguage(_)
+        | SettingChoice::TranscribeCommand(_)
+        | SettingChoice::TranscribeEndpoint(_)
+        | SettingChoice::TranscribeRemoteModel(_) => vec![],
     }
 }
 

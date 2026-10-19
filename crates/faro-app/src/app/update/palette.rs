@@ -149,6 +149,7 @@ fn selected_setting(palette: &Palette) -> Option<Setting> {
             | ItemKind::Key
             | ItemKind::SetNickname(_)
             | ItemKind::ClearNickname(_)
+            | ItemKind::SetText(_)
             | ItemKind::EnterDir(_)
             | ItemKind::AttachFile(_)
             | ItemKind::SearchHit { .. }
@@ -190,20 +191,25 @@ pub fn paste(state: &mut State, text: &str) -> Vec<Effect> {
 }
 
 /// Populate `Level::AttachFile` when off-thread directory listing finishes (D77).
-pub fn on_files_listed(state: &mut State, query: &str, entries: &[crate::app::state::FileEntry]) {
+pub fn on_files_listed(
+    state: &mut State,
+    query: &str,
+    entries: &[crate::app::state::FileEntry],
+) -> Vec<Effect> {
     let Some(palette) = state.palette.as_mut() else {
-        return;
+        return vec![];
     };
     if palette.level() != Level::AttachFile {
-        return;
+        return vec![];
     }
     let (cur_dir, cur_file) = crate::app::files::split_file_query(palette.input.text());
     let (listed_dir, listed_file) = crate::app::files::split_file_query(query);
     if cur_dir != listed_dir || cur_file.starts_with('.') != listed_file.starts_with('.') {
-        return;
+        return vec![];
     }
     palette.items = palette::file_items(entries);
     palette.refilter();
+    vec![]
 }
 
 /// Populate `Level::Search` when SQLite search results arrive (M12).
@@ -319,6 +325,7 @@ fn up(state: &mut State) {
         | Level::Keys
         | Level::People
         | Level::Nickname(_)
+        | Level::SettingText(_)
         | Level::AttachFile
         | Level::ChatLinks
         | Level::ForwardTo(_) => ItemKind::Level(level),
@@ -410,6 +417,12 @@ fn choose(state: &mut State) -> Vec<Effect> {
         .as_ref()
         .map(|p| p.input.text().trim().to_owned())
         .unwrap_or_default();
+    if let ItemKind::SetText(setting) = kind {
+        let effects = settings::set_text(state, setting, &typed);
+        up(state);
+        up(state);
+        return effects;
+    }
     state.palette = None;
     match kind {
         ItemKind::Conversation(id) => show_conversation(state, id),
@@ -453,6 +466,7 @@ fn choose(state: &mut State) -> Vec<Effect> {
         | ItemKind::Setting(_)
         | ItemKind::Theme(_)
         | ItemKind::Switch(_)
+        | ItemKind::SetText(_)
         | ItemKind::Header => vec![],
     }
 }
@@ -467,6 +481,7 @@ fn choose_level(state: &mut State, level: Level) -> Vec<Effect> {
     let query = match level {
         Level::Nickname(id) => state.nicknames.get(&id).cloned().unwrap_or_default(),
         Level::AttachFile => "~/".to_owned(),
+        Level::SettingText(setting) => palette::typed_value(state, setting),
         Level::Root
         | Level::Chats
         | Level::Search(_)
@@ -482,6 +497,11 @@ fn choose_level(state: &mut State, level: Level) -> Vec<Effect> {
     enter(state, level, &query);
     if level == Level::AttachFile {
         return vec![Effect::ListFiles(query)];
+    }
+    if let Level::Settings | Level::Setting(Setting::Transcribe | Setting::TranscribeCommand) =
+        level
+    {
+        return settings::check_transcriber(state).into_iter().collect();
     }
     vec![]
 }
@@ -616,6 +636,20 @@ const fn setting_row_kind(setting: Setting) -> ItemKind {
 
 /// Rebuild the current palette level's items in place, keeping the query,
 /// scroll offset, and selecting `select`.
+/// The settings list or a setting's values drawn again where they stand
+/// (a check came back, D145). Other levels are left alone.
+pub fn refresh_settings(state: &mut State) {
+    let Some(palette) = state.palette.as_ref() else {
+        return;
+    };
+    if !matches!(palette.level(), Level::Settings | Level::Setting(_)) {
+        return;
+    }
+    if let Some(select) = palette.selected_item().map(|item| item.kind.clone()) {
+        refresh_in_place(state, &select);
+    }
+}
+
 fn refresh_in_place(state: &mut State, select: &ItemKind) {
     let level = state
         .palette

@@ -91,7 +91,8 @@ fn settings_are_read() {
          [messages]\nlayout = \"irc\"\ndensity = \"compact\"\ntimestamps = \"relative\"\n\
          [media]\nauto_download = \"all\"\ninline_images = \"halfblocks\"\n\
          [voice]\nplayer = \"mpv\"\ntranscribe = \"local\"\ntranscribe_command = \"whisper-cli\"\n\
-         transcribe_model = \"small\"\ntranscribe_language = \"en\"\ntranscribe_max_secs = 180\n\
+         transcribe_model = \"medium\"\ntranscribe_language = \"en\"\ntranscribe_max_secs = 180\n\
+         auto_transcribe = true\ntranscribe_remote_model = \"whisper-1\"\n\
          [notifications]\nbell = false\ndesktop = \"osc\"\nprivacy = \"preview\"\n\
          [mouse]\nenabled = false\n",
     );
@@ -108,13 +109,54 @@ fn settings_are_read() {
     assert_eq!(c.voice.player, "mpv");
     assert_eq!(c.voice.transcribe, TranscribeMode::Local);
     assert_eq!(c.voice.transcribe_command, "whisper-cli");
-    assert_eq!(c.voice.transcribe_model, "small");
+    assert_eq!(c.voice.transcribe_model, "medium");
     assert_eq!(c.voice.transcribe_language, "en");
     assert_eq!(c.voice.transcribe_max_secs, 180);
+    assert!(c.voice.auto_transcribe);
+    assert_eq!(c.voice.transcribe_remote_model, "whisper-1");
     assert!(!c.notifications.bell);
     assert_eq!(c.notifications.desktop, DesktopNotifications::Osc);
     assert_eq!(c.notifications.privacy, NotificationPrivacy::Preview);
     assert!(!c.mouse.enabled);
+}
+
+/// D145: transcription is asked for (`t`) unless switched to automatic,
+/// and the local model is multilingual `small`.
+#[test]
+fn transcription_defaults() {
+    let voice = Config::default().voice;
+    assert!(!voice.auto_transcribe);
+    assert_eq!(voice.transcribe_model, "small");
+    assert_eq!(voice.transcribe_remote_model, "gpt-4o-mini-transcribe");
+}
+
+/// Before D145 one `transcribe_model` served both modes: in remote mode it
+/// meant the endpoint's model, so it moves there (with a warning), and the
+/// local model is the default again.
+#[test]
+fn a_remote_transcribe_model_moves_to_transcribe_remote_model() {
+    let parsed =
+        parse_fresh("[voice]\ntranscribe = \"remote\"\ntranscribe_model = \"whisper-1\"\n");
+    assert_eq!(parsed.config.voice.transcribe_remote_model, "whisper-1");
+    assert_eq!(parsed.config.voice.transcribe_model, "small");
+    assert_eq!(parsed.problems.len(), 1, "{:?}", parsed.problems);
+    assert!(
+        parsed.problems[0]
+            .text
+            .contains("transcribe_remote_model = \"whisper-1\"")
+    );
+
+    // Local mode, or both models written: nothing moves.
+    let local = parse_fresh("[voice]\ntranscribe = \"local\"\ntranscribe_model = \"turbo\"\n");
+    assert_eq!(local.config.voice.transcribe_model, "turbo");
+    assert_eq!(local.problems, vec![]);
+    let both = parse_fresh(
+        "[voice]\ntranscribe = \"remote\"\ntranscribe_model = \"turbo\"\n\
+         transcribe_remote_model = \"whisper-1\"\n",
+    );
+    assert_eq!(both.config.voice.transcribe_model, "turbo");
+    assert_eq!(both.config.voice.transcribe_remote_model, "whisper-1");
+    assert_eq!(both.problems, vec![]);
 }
 
 #[test]

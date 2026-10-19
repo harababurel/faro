@@ -269,11 +269,32 @@ pub struct Media {
 pub struct Voice {
     pub player: String,
     pub transcribe: TranscribeMode,
+    /// Transcribe voice notes in the open conversation without being asked
+    /// (D145; off by default: `t` transcribes one).
+    pub auto_transcribe: bool,
     pub transcribe_command: String,
+    /// The model local transcription runs (D145).
     pub transcribe_model: String,
+    /// The model remote transcription asks the endpoint for (D145).
+    pub transcribe_remote_model: String,
     pub transcribe_url: String,
     pub transcribe_language: String,
+    /// The longest voice note transcribed automatically, in seconds.
     pub transcribe_max_secs: u32,
+}
+
+/// The local model when none is set: multilingual, and a fair trade of
+/// accuracy for speed on a CPU (D145).
+pub const DEFAULT_LOCAL_MODEL: &str = "small";
+
+impl Voice {
+    /// The program local transcription runs: the command's first word.
+    pub fn program(&self) -> &str {
+        self.transcribe_command
+            .split_whitespace()
+            .next()
+            .unwrap_or("whisper")
+    }
 }
 
 impl Default for Voice {
@@ -281,8 +302,10 @@ impl Default for Voice {
         Self {
             player: "auto".to_owned(),
             transcribe: TranscribeMode::default(),
+            auto_transcribe: false,
             transcribe_command: "whisper".to_owned(),
-            transcribe_model: "base".to_owned(),
+            transcribe_model: DEFAULT_LOCAL_MODEL.to_owned(),
+            transcribe_remote_model: "gpt-4o-mini-transcribe".to_owned(),
             transcribe_url: "https://api.openai.com/v1/audio/transcriptions".to_owned(),
             transcribe_language: String::new(),
             transcribe_max_secs: 300,
@@ -354,8 +377,10 @@ pub mod key {
     pub const INLINE_IMAGES: &str = "media.inline_images";
     pub const VOICE_PLAYER: &str = "voice.player";
     pub const VOICE_TRANSCRIBE: &str = "voice.transcribe";
+    pub const VOICE_AUTO_TRANSCRIBE: &str = "voice.auto_transcribe";
     pub const VOICE_TRANSCRIBE_COMMAND: &str = "voice.transcribe_command";
     pub const VOICE_TRANSCRIBE_MODEL: &str = "voice.transcribe_model";
+    pub const VOICE_TRANSCRIBE_REMOTE_MODEL: &str = "voice.transcribe_remote_model";
     pub const VOICE_TRANSCRIBE_URL: &str = "voice.transcribe_url";
     pub const VOICE_TRANSCRIBE_LANGUAGE: &str = "voice.transcribe_language";
     pub const VOICE_TRANSCRIBE_MAX_SECS: &str = "voice.transcribe_max_secs";
@@ -584,7 +609,7 @@ pub static SETTINGS: &[Setting] = &[
         path: key::VOICE_TRANSCRIBE,
         help: "Voice-note transcription: \"off\", \"local\" (runs voice.transcribe_command on \
                this machine) or \"remote\" (sends audio to voice.transcribe_url after asking \
-               per conversation).",
+               per conversation). `t` transcribes the selected voice note.",
         get: |c| text(c.voice.transcribe),
         set: |c, v| {
             c.voice.transcribe = choice(v)?;
@@ -592,9 +617,30 @@ pub static SETTINGS: &[Setting] = &[
         },
     },
     Setting {
+        path: key::VOICE_AUTO_TRANSCRIBE,
+        help: "Transcribe voice notes in the open conversation without being asked (up to \
+               voice.transcribe_max_secs long). Off, `t` transcribes one.",
+        get: |c| ConfigValue::Bool(c.voice.auto_transcribe),
+        set: |c, v| {
+            c.voice.auto_transcribe = boolean(v)?;
+            Ok(())
+        },
+    },
+    Setting {
+        path: key::VOICE_TRANSCRIBE_MAX_SECS,
+        help: "The longest voice note (in seconds) transcribed automatically; `t` \
+               transcribes any length.",
+        get: |c| ConfigValue::Uint(c.voice.transcribe_max_secs),
+        set: |c, v| {
+            c.voice.transcribe_max_secs = uint32(v)?;
+            Ok(())
+        },
+    },
+    Setting {
         path: key::VOICE_TRANSCRIBE_COMMAND,
-        help: "Command for local transcription: \"whisper\" (or a custom command; supports \
-               {file}, {model}, {language} and {out_dir} placeholders).",
+        help: "Command for local transcription: \"whisper\" (OpenAI Whisper), \"whisper-cli\" \
+               (whisper.cpp) or your own, with {file}, {model}, {language} and {out_dir} \
+               filled in.",
         get: |c| ConfigValue::Text(c.voice.transcribe_command.clone()),
         set: |c, v| {
             c.voice.transcribe_command = string(v)?;
@@ -603,8 +649,9 @@ pub static SETTINGS: &[Setting] = &[
     },
     Setting {
         path: key::VOICE_TRANSCRIBE_MODEL,
-        help: "Whisper model name passed to local or remote transcription (e.g. \"base\", \
-               \"small\", \"whisper-1\").",
+        help: "Model for local transcription: \"tiny\", \"base\", \"small\", \"medium\" or \
+               \"turbo\" (all multilingual; larger is more accurate and slower), or the path \
+               to a model file for whisper.cpp.",
         get: |c| ConfigValue::Text(c.voice.transcribe_model.clone()),
         set: |c, v| {
             c.voice.transcribe_model = string(v)?;
@@ -613,8 +660,9 @@ pub static SETTINGS: &[Setting] = &[
     },
     Setting {
         path: key::VOICE_TRANSCRIBE_URL,
-        help: "OpenAI-compatible transcription endpoint for remote mode. Set the API key in \
-               $FARO_TRANSCRIBE_API_KEY or $OPENAI_API_KEY (never in this file).",
+        help: "OpenAI-compatible transcription endpoint for remote mode (OpenAI, Groq or your \
+               own). Set the API key in $FARO_TRANSCRIBE_API_KEY or $OPENAI_API_KEY (never in \
+               this file).",
         get: |c| ConfigValue::Text(c.voice.transcribe_url.clone()),
         set: |c, v| {
             c.voice.transcribe_url = string(v)?;
@@ -622,20 +670,22 @@ pub static SETTINGS: &[Setting] = &[
         },
     },
     Setting {
-        path: key::VOICE_TRANSCRIBE_LANGUAGE,
-        help: "ISO-639-1 language hint for transcription (e.g. \"en\"); empty auto-detects.",
-        get: |c| ConfigValue::Text(c.voice.transcribe_language.clone()),
+        path: key::VOICE_TRANSCRIBE_REMOTE_MODEL,
+        help: "Model the remote endpoint runs (e.g. \"gpt-4o-mini-transcribe\", \
+               \"whisper-1\", or \"whisper-large-v3-turbo\" on Groq).",
+        get: |c| ConfigValue::Text(c.voice.transcribe_remote_model.clone()),
         set: |c, v| {
-            c.voice.transcribe_language = string(v)?;
+            c.voice.transcribe_remote_model = string(v)?;
             Ok(())
         },
     },
     Setting {
-        path: key::VOICE_TRANSCRIBE_MAX_SECS,
-        help: "Maximum voice-note duration (seconds) to transcribe.",
-        get: |c| ConfigValue::Uint(c.voice.transcribe_max_secs),
+        path: key::VOICE_TRANSCRIBE_LANGUAGE,
+        help: "Language of voice notes as a two-letter code (e.g. \"en\", \"ro\"); empty \
+               detects it. A hint helps most with short notes.",
+        get: |c| ConfigValue::Text(c.voice.transcribe_language.clone()),
         set: |c, v| {
-            c.voice.transcribe_max_secs = uint32(v)?;
+            c.voice.transcribe_language = string(v)?;
             Ok(())
         },
     },
@@ -851,6 +901,7 @@ pub fn parse(text: &str, previous: &Config) -> Parsed {
         }
     }
     renamed(&doc, &mut config, &mut problems);
+    split_transcribe_model(&doc, &mut config, &mut problems);
     config.keybindings = keybindings(&doc, &mut problems);
     unknown_keys(&doc, &mut problems);
     Parsed { config, problems }
@@ -921,6 +972,28 @@ fn renamed(doc: &DocumentMut, config: &mut Config, problems: &mut Vec<Problem>) 
             )),
         });
     }
+}
+
+/// `voice.transcribe_model` named the model for both local and remote
+/// transcription until D145 split it. A file in remote mode that sets it and
+/// not `transcribe_remote_model` meant it for the endpoint: use it there, and
+/// say how to write it.
+fn split_transcribe_model(doc: &DocumentMut, config: &mut Config, problems: &mut Vec<Problem>) {
+    if config.voice.transcribe != TranscribeMode::Remote
+        || item(doc, key::VOICE_TRANSCRIBE_REMOTE_MODEL).is_some()
+        || item(doc, key::VOICE_TRANSCRIBE_MODEL).is_none()
+    {
+        return;
+    }
+    let model = std::mem::replace(
+        &mut config.voice.transcribe_model,
+        DEFAULT_LOCAL_MODEL.to_owned(),
+    );
+    problems.push(Problem::warning(format!(
+        "voice.transcribe_model is for local transcription now: write \
+         transcribe_remote_model = \"{model}\" for the endpoint"
+    )));
+    config.voice.transcribe_remote_model = model;
 }
 
 /// "line 3: invalid string" from `toml_edit`'s multi-line report.

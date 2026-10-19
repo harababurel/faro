@@ -521,20 +521,36 @@ impl Painter {
                 ctx.close_path();
                 ctx.fill();
             }
-            Symbol::Quote => {
-                // Two heavy turned commas: a dot with a tail rising to the right.
+            Symbol::Quote | Symbol::CloseQuote => {
+                // Two heavy turned commas: a dot with a tail rising to the
+                // right. The closing quote is the same turned half a circle
+                // about the middle of the pair.
+                let r = w * 0.15;
+                let (mid_x, mid_y) = (x0 + w * 0.46, h.mul_add(0.42, y0) - r * 0.9);
+                let turned = symbol == Symbol::CloseQuote;
+                let at = |x: f64, y: f64| {
+                    if turned {
+                        (2.0 * mid_x - x, 2.0 * mid_y - y)
+                    } else {
+                        (x, y)
+                    }
+                };
                 for offset in [0.08, 0.5] {
                     let cx = x0 + w * (offset + 0.17);
                     let cy = y0 + h * 0.42;
-                    let r = w * 0.15;
+                    let (dot_x, dot_y) = at(cx, cy);
                     ctx.begin_path();
-                    let _ = ctx.arc(cx, cy, r, 0.0, TAU);
+                    let _ = ctx.arc(dot_x, dot_y, r, 0.0, TAU);
                     ctx.fill();
+                    let start = at(cx - r, cy);
+                    let (c1, p1) = (at(cx - r, cy - r * 2.4), at(cx + r * 0.9, cy - r * 2.8));
+                    let p2 = at(cx + r * 0.6, cy - r * 2.1);
+                    let (c3, p3) = (at(cx, cy - r * 1.6), at(cx + r, cy));
                     ctx.begin_path();
-                    ctx.move_to(cx - r, cy);
-                    ctx.quadratic_curve_to(cx - r, cy - r * 2.4, cx + r * 0.9, cy - r * 2.8);
-                    ctx.line_to(cx + r * 0.6, cy - r * 2.1);
-                    ctx.quadratic_curve_to(cx, cy - r * 1.6, cx + r, cy);
+                    ctx.move_to(start.0, start.1);
+                    ctx.quadratic_curve_to(c1.0, c1.1, p1.0, p1.1);
+                    ctx.line_to(p2.0, p2.1);
+                    ctx.quadratic_curve_to(c3.0, c3.1, p3.0, p3.1);
                     ctx.close_path();
                     ctx.fill();
                 }

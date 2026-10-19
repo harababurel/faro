@@ -426,6 +426,10 @@ impl Router {
                 system::list_files(query, self.results.clone());
                 true
             }
+            Effect::CheckCommand(program) => {
+                system::check_command(program, self.results.clone());
+                true
+            }
             Effect::StageFile(path) => {
                 system::stage_file(path, self.results.clone());
                 true

@@ -157,6 +157,7 @@ fn draw_query(frame: &mut Frame<'_>, area: Rect, palette: &Palette, view: &View<
         | Level::Keys
         | Level::People
         | Level::Nickname(_)
+        | Level::SettingText(_)
         | Level::AttachFile
         | Level::ChatLinks
         | Level::ForwardTo(_) => BACK_HINT,
@@ -278,7 +279,8 @@ fn result_line(
             | ItemKind::Header
             | ItemKind::Key
             | ItemKind::SetNickname(_)
-            | ItemKind::ClearNickname(_),
+            | ItemKind::ClearNickname(_)
+            | ItemKind::SetText(_),
             None,
         ) => "  ",
     };

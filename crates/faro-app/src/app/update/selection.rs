@@ -1352,6 +1352,7 @@ fn start_transcription(
     let Some(path) = att.local_path().map(PathBuf::from) else {
         return vec![];
     };
+    let duration_secs = att.duration_secs;
     if !state.transcribing.insert((target, index)) {
         if announce {
             state.notice = Some(Notice::info("Voice note is already transcribing…"));
@@ -1368,14 +1369,16 @@ fn start_transcription(
         message: target,
         index,
         path,
+        duration_secs,
         voice,
     })]
 }
 
 /// Queue auto-transcriptions for downloaded, untranscribed voice notes in the
-/// open conversation when `state.config.voice.transcribe` is `local` or `remote` (D82).
+/// open conversation when `state.config.voice.transcribe` is `local` or `remote` (D82)
+/// and `auto_transcribe` is on (D145).
 pub fn queue_auto_transcriptions(state: &mut State) -> Vec<Effect> {
-    if state.config.voice.transcribe == TranscribeMode::Off {
+    if state.config.voice.transcribe == TranscribeMode::Off || !state.config.voice.auto_transcribe {
         return vec![];
     }
     let max_secs = state.config.voice.transcribe_max_secs;

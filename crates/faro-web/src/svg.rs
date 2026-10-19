@@ -482,7 +482,7 @@ impl<'a> Page<'a> {
         }
     }
 
-    /// The three symbols the webfont lacks (D107), as in `paint.rs`.
+    /// The symbols the webfont lacks (D107, D145), as in `paint.rs`.
     fn symbol(&self, symbol: Symbol, x0: f32, y0: f32, out: &mut String) {
         let (cw, ch, base) = (self.cw, self.ch, self.base);
         match symbol {
@@ -513,23 +513,33 @@ impl<'a> Page<'a> {
                 tip.push_str(" Z");
                 filled(out, &tip);
             }
-            Symbol::Quote => {
+            Symbol::Quote | Symbol::CloseQuote => {
+                // `❞` is `❝` turned half a circle about the pair's middle.
+                let radius = cw * 0.15;
+                let (mid_x, mid_y) = (x0 + cw * 0.46, ch.mul_add(0.42, y0) - radius * 0.9);
+                let turned = symbol == Symbol::CloseQuote;
+                let at = |x: f32, y: f32| {
+                    if turned {
+                        (2.0 * mid_x - x, 2.0 * mid_y - y)
+                    } else {
+                        (x, y)
+                    }
+                };
                 for offset in [0.08, 0.5] {
                     let cx = x0 + cw * (offset + 0.17);
                     let cy = y0 + ch * 0.42;
-                    let radius = cw * 0.15;
-                    circle(out, cx, cy, radius);
+                    let (dot_x, dot_y) = at(cx, cy);
+                    circle(out, dot_x, dot_y, radius);
+                    let start = at(cx - radius, cy);
+                    let c1 = at(cx - radius, cy - radius * 2.4);
+                    let p1 = at(cx + radius * 0.9, cy - radius * 2.8);
+                    let p2 = at(cx + radius * 0.6, cy - radius * 2.1);
+                    let (c3, p3) = (at(cx, cy - radius * 1.6), at(cx + radius, cy));
                     let mut tail = String::new();
-                    point(&mut tail, 'M', cx - radius, cy);
-                    curve(
-                        &mut tail,
-                        cx - radius,
-                        cy - radius * 2.4,
-                        cx + radius * 0.9,
-                        cy - radius * 2.8,
-                    );
-                    point(&mut tail, 'L', cx + radius * 0.6, cy - radius * 2.1);
-                    curve(&mut tail, cx, cy - radius * 1.6, cx + radius, cy);
+                    point(&mut tail, 'M', start.0, start.1);
+                    curve(&mut tail, c1.0, c1.1, p1.0, p1.1);
+                    point(&mut tail, 'L', p2.0, p2.1);
+                    curve(&mut tail, c3.0, c3.1, p3.0, p3.1);
                     tail.push_str(" Z");
                     filled(out, &tail);
                 }

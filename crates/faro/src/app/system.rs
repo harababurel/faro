@@ -269,6 +269,34 @@ async fn run_audio_player(path: &Path, player: &str) -> Result<(), String> {
     }
 }
 
+/// Whether `program` can be run (D145): a path is checked as it is, a
+/// bare name looked up on `PATH`. Off the UI thread.
+pub fn check_command(program: String, results: mpsc::UnboundedSender<AppEvent>) {
+    tokio::spawn(async move {
+        let name = program.clone();
+        let found = tokio::task::spawn_blocking(move || command_exists(&name))
+            .await
+            .unwrap_or(false);
+        let _ = results.send(AppEvent::CommandChecked { program, found });
+    });
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "file metadata is read inside spawn_blocking off the UI thread"
+)]
+fn command_exists(program: &str) -> bool {
+    use std::os::unix::fs::PermissionsExt as _;
+    let runnable = |path: &std::path::Path| {
+        std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    };
+    if program.contains('/') {
+        return runnable(&expand_tilde(program));
+    }
+    std::env::var_os("PATH")
+        .is_some_and(|path| std::env::split_paths(&path).any(|dir| runnable(&dir.join(program))))
+}
+
 /// Read directory entries for the palette's `Level::AttachFile` off the UI thread (D77).
 pub fn list_files(query: String, results: mpsc::UnboundedSender<AppEvent>) {
     tokio::spawn(async move {
@@ -784,5 +812,20 @@ mod mosh_tests {
                 Some(GraphicsBlocker::NoClient)
             )
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn commands_are_found_on_the_path_or_by_path() {
+        assert!(command_exists("sh"));
+        assert!(command_exists("/bin/sh"));
+        assert!(!command_exists("faro-no-such-command"));
+        assert!(!command_exists("/nonexistent/whisper"));
+        // A file that isn't executable isn't a command.
+        assert!(!command_exists("/etc/hosts"));
     }
 }

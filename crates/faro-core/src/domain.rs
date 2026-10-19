@@ -14,6 +14,7 @@ pub use ids::{
 pub use message::{
     AttachmentId, AttachmentRef, AttachmentStatus, BodyPart, DeliveryStatus, Direction, Mention,
     Message, Quote, Reaction, TranscriptSource, format_byte_size, mention_parts,
+    transcript_paragraph,
 };
 pub use people::{Contact, Group};
 pub use presence::{ConnectionState, TypingState};

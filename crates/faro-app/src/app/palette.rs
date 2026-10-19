@@ -41,6 +41,79 @@ pub const INACTIVE_CHOICES: [(u32, &str); 4] = [
     (365, "1 year"),
 ];
 
+/// Local Whisper models (D145): name, and what to expect. All multilingual.
+pub const LOCAL_MODELS: &[(&str, &str)] = &[
+    ("tiny", "fastest, roughest · 75 MB"),
+    ("base", "fast · 140 MB"),
+    ("small", "balanced · 460 MB"),
+    ("medium", "accurate, slow · 1.5 GB"),
+    ("turbo", "most accurate · 1.6 GB, best with a GPU"),
+];
+
+/// Local transcription commands (D145).
+pub const TRANSCRIBE_COMMANDS: &[(&str, &str)] = &[
+    ("whisper", "OpenAI Whisper"),
+    ("whisper-cli", "whisper.cpp: the model is a file"),
+];
+
+const OPENAI_URL: &str = "https://api.openai.com/v1/audio/transcriptions";
+const GROQ_URL: &str = "https://api.groq.com/openai/v1/audio/transcriptions";
+
+/// OpenAI-compatible transcription endpoints (D145): URL, name, host.
+pub const TRANSCRIBE_ENDPOINTS: &[(&str, &str, &str)] = &[
+    (OPENAI_URL, "OpenAI", "api.openai.com"),
+    (GROQ_URL, "Groq", "api.groq.com"),
+];
+
+/// The models an endpoint offers, best first (D145); none for one faro
+/// doesn't know (`Custom…` types it).
+pub fn remote_models(url: &str) -> &'static [(&'static str, &'static str)] {
+    match url {
+        OPENAI_URL => &[
+            ("gpt-4o-mini-transcribe", "accurate, cheapest"),
+            ("gpt-4o-transcribe", "most accurate"),
+            ("whisper-1", "the original Whisper"),
+        ],
+        GROQ_URL => &[
+            ("whisper-large-v3-turbo", "fast, cheap"),
+            ("whisper-large-v3", "most accurate"),
+        ],
+        _ => &[],
+    }
+}
+
+/// Languages to hint at (D145): ISO 639-1 code (empty: detect), name.
+pub const TRANSCRIBE_LANGUAGES: &[(&str, &str)] = &[
+    ("", "auto-detect"),
+    ("ar", "Arabic"),
+    ("zh", "Chinese"),
+    ("nl", "Dutch"),
+    ("en", "English"),
+    ("fr", "French"),
+    ("de", "German"),
+    ("hi", "Hindi"),
+    ("it", "Italian"),
+    ("ja", "Japanese"),
+    ("ko", "Korean"),
+    ("pl", "Polish"),
+    ("pt", "Portuguese"),
+    ("ro", "Romanian"),
+    ("ru", "Russian"),
+    ("es", "Spanish"),
+    ("tr", "Turkish"),
+    ("uk", "Ukrainian"),
+];
+
+/// The longest voice note transcribed automatically (D145), in seconds.
+pub const TRANSCRIBE_MAX_SECS: &[(u32, &str)] = &[
+    (30, "30 s"),
+    (60, "1 min"),
+    (120, "2 min"),
+    (300, "5 min"),
+    (600, "10 min"),
+    (1800, "30 min"),
+];
+
 /// A level of the palette's tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Level {
@@ -60,6 +133,8 @@ pub enum Level {
     People,
     /// Typing a nickname for someone: the query is the name (D65).
     Nickname(ServiceId),
+    /// Typing a setting's value (`Custom…`): the query is the value (D145).
+    SettingText(Setting),
     /// Browsing a directory to attach a file to the open conversation (D77).
     AttachFile,
     /// Shared links and files in the open conversation (M12).
@@ -78,6 +153,8 @@ pub enum SettingsGroup {
     Notifications,
     Conversations,
     Media,
+    /// Transcription: what applies depends on the mode (D145).
+    VoiceNotes,
     Input,
 }
 
@@ -102,6 +179,13 @@ pub enum Setting {
     InlineImages,
     AutoDownload,
     Transcribe,
+    TranscribeAuto,
+    TranscribeMaxSecs,
+    TranscribeModel,
+    TranscribeLanguage,
+    TranscribeCommand,
+    TranscribeEndpoint,
+    TranscribeRemoteModel,
     Mouse,
 }
 
@@ -131,6 +215,7 @@ impl Level {
             Self::Keys => "Keys",
             Self::People => "Nicknames",
             Self::Nickname(_) => "Nickname",
+            Self::SettingText(_) => "Custom",
             Self::AttachFile => "Send a file",
             Self::ChatLinks => "Links & files",
             Self::ForwardTo(_) => "Forward to",
@@ -150,6 +235,7 @@ impl Level {
             | Self::Setting(_)
             | Self::People
             | Self::Nickname(_)
+            | Self::SettingText(_)
             | Self::AttachFile
             | Self::ChatLinks
             | Self::ForwardTo(_) => None,
@@ -165,13 +251,14 @@ impl Level {
 }
 
 impl SettingsGroup {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Appearance,
         Self::Messages,
         Self::Bubbles,
         Self::Notifications,
         Self::Conversations,
         Self::Media,
+        Self::VoiceNotes,
         Self::Input,
     ];
 
@@ -183,6 +270,7 @@ impl SettingsGroup {
             Self::Notifications => "Notifications",
             Self::Conversations => "Conversations",
             Self::Media => "Media",
+            Self::VoiceNotes => "Voice notes",
             Self::Input => "Input",
         }
     }
@@ -206,10 +294,16 @@ impl SettingsGroup {
                 Setting::Privacy,
             ],
             Self::Conversations => &[Setting::Allowlist],
-            Self::Media => &[
-                Setting::InlineImages,
-                Setting::AutoDownload,
+            Self::Media => &[Setting::InlineImages, Setting::AutoDownload],
+            Self::VoiceNotes => &[
                 Setting::Transcribe,
+                Setting::TranscribeAuto,
+                Setting::TranscribeMaxSecs,
+                Setting::TranscribeModel,
+                Setting::TranscribeCommand,
+                Setting::TranscribeEndpoint,
+                Setting::TranscribeRemoteModel,
+                Setting::TranscribeLanguage,
             ],
             Self::Input => &[Setting::Mouse],
         }
@@ -235,7 +329,14 @@ impl Setting {
             Self::Allowlist => "Allowlist mode",
             Self::InlineImages => "Inline images",
             Self::AutoDownload => "Auto-download media",
-            Self::Transcribe => "Voice note transcription",
+            Self::Transcribe => "Transcription",
+            Self::TranscribeAuto => "Auto-transcribe",
+            Self::TranscribeMaxSecs => "Auto-transcribe notes up to",
+            Self::TranscribeModel => "Model",
+            Self::TranscribeLanguage => "Language",
+            Self::TranscribeCommand => "Command",
+            Self::TranscribeEndpoint => "Endpoint",
+            Self::TranscribeRemoteModel => "Remote model",
             Self::Mouse => "Mouse",
         }
     }
@@ -260,6 +361,13 @@ impl Setting {
             Self::InlineImages => key::INLINE_IMAGES,
             Self::AutoDownload => key::AUTO_DOWNLOAD,
             Self::Transcribe => key::VOICE_TRANSCRIBE,
+            Self::TranscribeAuto => key::VOICE_AUTO_TRANSCRIBE,
+            Self::TranscribeMaxSecs => key::VOICE_TRANSCRIBE_MAX_SECS,
+            Self::TranscribeModel => key::VOICE_TRANSCRIBE_MODEL,
+            Self::TranscribeLanguage => key::VOICE_TRANSCRIBE_LANGUAGE,
+            Self::TranscribeCommand => key::VOICE_TRANSCRIBE_COMMAND,
+            Self::TranscribeEndpoint => key::VOICE_TRANSCRIBE_URL,
+            Self::TranscribeRemoteModel => key::VOICE_TRANSCRIBE_REMOTE_MODEL,
             Self::Mouse => key::MOUSE,
         }
     }
@@ -270,11 +378,38 @@ impl Setting {
         state.config.value(self.key()) != faro_core::config::Config::default().value(self.key())
     }
 
-    /// Whether it only changes the bubbles layout (dimmed and skipped in the
-    /// settings list while the IRC layout is in use, D99).
-    pub const fn bubbles_only(self) -> bool {
+    /// Why it does nothing with the other settings as they are, if it
+    /// doesn't: dimmed and skipped in the settings list with this reason on
+    /// the right. Bubble settings under the IRC layout (D99); transcription
+    /// settings for the other mode, or with transcription off (D145).
+    pub fn unavailable(self, state: &State) -> Option<&'static str> {
+        let mode = state.config.voice.transcribe;
         match self {
-            Self::BubbleStyle | Self::BubblePadding | Self::MatchWidths | Self::Density => true,
+            Self::BubbleStyle | Self::BubblePadding | Self::MatchWidths | Self::Density => {
+                (state.message_layout() != MessageLayout::Bubbles).then_some("bubbles layout only")
+            }
+            Self::TranscribeAuto | Self::TranscribeLanguage => {
+                (mode == TranscribeMode::Off).then_some("transcription is off")
+            }
+            Self::TranscribeMaxSecs => {
+                if mode == TranscribeMode::Off {
+                    Some("transcription is off")
+                } else if !state.config.voice.auto_transcribe {
+                    Some("when transcribing automatically")
+                } else {
+                    None
+                }
+            }
+            Self::TranscribeModel | Self::TranscribeCommand => match mode {
+                TranscribeMode::Off => Some("transcription is off"),
+                TranscribeMode::Remote => Some("local only"),
+                TranscribeMode::Local => None,
+            },
+            Self::TranscribeEndpoint | Self::TranscribeRemoteModel => match mode {
+                TranscribeMode::Off => Some("transcription is off"),
+                TranscribeMode::Local => Some("remote only"),
+                TranscribeMode::Remote => None,
+            },
             Self::Colors
             | Self::Emoji
             | Self::Layout
@@ -288,6 +423,37 @@ impl Setting {
             | Self::InlineImages
             | Self::AutoDownload
             | Self::Transcribe
+            | Self::Mouse => None,
+        }
+    }
+
+    /// Whether its value can be typed (`Custom…`) besides chosen from a list.
+    pub const fn takes_text(self) -> bool {
+        match self {
+            Self::TranscribeModel
+            | Self::TranscribeLanguage
+            | Self::TranscribeCommand
+            | Self::TranscribeEndpoint
+            | Self::TranscribeRemoteModel => true,
+            Self::Colors
+            | Self::Emoji
+            | Self::Layout
+            | Self::BubbleStyle
+            | Self::BubblePadding
+            | Self::MatchWidths
+            | Self::Density
+            | Self::Timestamps
+            | Self::ReduceMotion
+            | Self::Bell
+            | Self::Title
+            | Self::Desktop
+            | Self::Privacy
+            | Self::Allowlist
+            | Self::InlineImages
+            | Self::AutoDownload
+            | Self::Transcribe
+            | Self::TranscribeAuto
+            | Self::TranscribeMaxSecs
             | Self::Mouse => false,
         }
     }
@@ -301,6 +467,7 @@ impl Setting {
             | Self::Bell
             | Self::Title
             | Self::Allowlist
+            | Self::TranscribeAuto
             | Self::Mouse => true,
             Self::Colors
             | Self::Emoji
@@ -312,7 +479,13 @@ impl Setting {
             | Self::Privacy
             | Self::InlineImages
             | Self::AutoDownload
-            | Self::Transcribe => false,
+            | Self::Transcribe
+            | Self::TranscribeMaxSecs
+            | Self::TranscribeModel
+            | Self::TranscribeLanguage
+            | Self::TranscribeCommand
+            | Self::TranscribeEndpoint
+            | Self::TranscribeRemoteModel => false,
         }
     }
 
@@ -337,6 +510,13 @@ impl Setting {
             | Self::InlineImages
             | Self::AutoDownload
             | Self::Transcribe
+            | Self::TranscribeAuto
+            | Self::TranscribeMaxSecs
+            | Self::TranscribeModel
+            | Self::TranscribeLanguage
+            | Self::TranscribeCommand
+            | Self::TranscribeEndpoint
+            | Self::TranscribeRemoteModel
             | Self::Mouse => false,
         }
     }
@@ -390,6 +570,14 @@ pub enum SettingChoice {
     InlineImages(InlineImages),
     AutoDownload(AutoDownload),
     Transcribe(TranscribeMode),
+    TranscribeAuto(bool),
+    TranscribeMaxSecs(u32),
+    /// A preset; typed values go through `ItemKind::SetText` (D145).
+    TranscribeModel(&'static str),
+    TranscribeLanguage(&'static str),
+    TranscribeCommand(&'static str),
+    TranscribeEndpoint(&'static str),
+    TranscribeRemoteModel(&'static str),
     Mouse(bool),
     Bell(bool),
     Title(bool),
@@ -417,6 +605,8 @@ pub enum ItemKind {
     SetNickname(ServiceId),
     /// Take this person's nickname away.
     ClearNickname(ServiceId),
+    /// Save what's typed as this setting's value (`Level::SettingText`, D145).
+    SetText(Setting),
     /// Enter a subdirectory in `Level::AttachFile` by setting the query to this path.
     EnterDir(String),
     /// Stage a file for sending from `Level::AttachFile` (D77).
@@ -645,7 +835,7 @@ impl Palette {
     /// Match the query again; back to the best result.
     pub fn refilter(&mut self) {
         // Typing a nickname or searching messages: the query is the input, every item stays.
-        if let Level::Nickname(_) | Level::Search(_) = self.level() {
+        if let Level::Nickname(_) | Level::Search(_) | Level::SettingText(_) = self.level() {
             self.matches = (0..self.items.len())
                 .map(|item| Match {
                     item,
@@ -817,6 +1007,7 @@ pub fn items(state: &State, level: Level, recent: &[PaletteCommand]) -> Vec<Item
         Level::Keys => keybindings(&state.keymap),
         Level::People => people(state),
         Level::Nickname(id) => nickname_actions(state, id),
+        Level::SettingText(setting) => setting_text_actions(setting),
         Level::AttachFile => Vec::new(),
         Level::ChatLinks => chat_links_and_files(state),
         Level::ForwardTo(target) => forward_destinations(state, target),
@@ -1028,6 +1219,7 @@ fn categories(state: &State) -> Vec<Item> {
                 | Level::Keys
                 | Level::People
                 | Level::Nickname(_)
+                | Level::SettingText(_)
                 | Level::AttachFile
                 | Level::ChatLinks
                 | Level::ForwardTo(_) => level.prefix().map(String::from).unwrap_or_default(),
@@ -1182,12 +1374,17 @@ fn setting_item(state: &State, setting: Setting) -> Item {
     } else {
         ItemKind::Level(Level::Setting(setting))
     };
-    if setting.bubbles_only() && state.message_layout() != MessageLayout::Bubbles {
+    if let Some(reason) = setting.unavailable(state) {
         return Item {
             disabled: true,
-            ..Item::new(kind, setting.title()).detail("bubbles layout only")
+            ..Item::new(kind, setting.title()).detail(reason)
         };
     }
+    let value = match (setting, state.transcriber_missing()) {
+        (Setting::Transcribe, Some(program)) => format!("{value} · {program} not found"),
+        (Setting::TranscribeCommand, Some(_)) => format!("{value} · not found"),
+        _ => value,
+    };
     Item {
         changed: setting.changed(state),
         ..Item::new(kind, setting.title()).detail(value)
@@ -1199,8 +1396,15 @@ pub fn value_title(state: &State, setting: Setting) -> String {
     values(state, setting)
         .into_iter()
         .find(|(_, _, current)| *current)
-        .map(|(_, title, _)| title)
-        .unwrap_or_default()
+        .map_or_else(|| typed_value(state, setting), |(_, title, _)| title)
+}
+
+/// A text setting's value as written, for one no preset matches (D145).
+pub fn typed_value(state: &State, setting: Setting) -> String {
+    match state.config.value(setting.key()) {
+        Some(faro_core::config::ConfigValue::Text(text)) => text,
+        Some(_) | None => String::new(),
+    }
 }
 
 /// The value an on/off `setting` changes to: the one not in use.
@@ -1347,6 +1551,9 @@ pub fn note(state: &State, level: Level) -> Option<String> {
     if level == Level::Setting(Setting::InlineImages) {
         return Some(inline_images_note(state));
     }
+    if let Some(note) = transcription_note(state, level) {
+        return Some(note);
+    }
     if let Level::Nickname(id) = level {
         let theirs = state
             .contacts
@@ -1392,20 +1599,186 @@ pub fn note(state: &State, level: Level) -> Option<String> {
     }
 }
 
+/// What to know at a transcription setting (D145): above all, a missing
+/// local command and how to install it.
+fn transcription_note(state: &State, level: Level) -> Option<String> {
+    let missing = state.transcriber_missing().map(|program| {
+        let install = match program {
+            "whisper" => ": brew install openai-whisper (macOS) or pipx install openai-whisper",
+            "whisper-cli" => ": brew install whisper-cpp (macOS) or build whisper.cpp",
+            _ => " on your PATH",
+        };
+        format!("{program} isn't installed{install}")
+    });
+    let key_note = "The API key comes from $FARO_TRANSCRIBE_API_KEY, $OPENAI_API_KEY or the \
+                    system keychain, never the config file. Each chat asks first.";
+    let note = match level {
+        Level::Setting(Setting::TranscribeCommand) => missing.unwrap_or_else(|| {
+            "Custom… runs your own command with {file}, {model}, {language} and {out_dir} \
+             filled in."
+                .to_owned()
+        }),
+        Level::Setting(Setting::Transcribe) => missing.unwrap_or_else(|| {
+            "Local runs Whisper on this computer; remote sends the audio to an API. t \
+             transcribes the selected voice note."
+                .to_owned()
+        }),
+        Level::Setting(Setting::TranscribeModel) => {
+            if state.config.voice.program() == "whisper-cli" {
+                "whisper.cpp needs a model file: Custom… and its path (e.g. \
+                 ~/models/ggml-small.bin)."
+                    .to_owned()
+            } else {
+                "All are multilingual; larger is more accurate but slower. The first use \
+                 downloads the model."
+                    .to_owned()
+            }
+        }
+        Level::Setting(Setting::TranscribeEndpoint | Setting::TranscribeRemoteModel) => {
+            key_note.to_owned()
+        }
+        Level::Setting(Setting::TranscribeLanguage) => {
+            "A hint helps most with short notes; auto-detect guesses from the first seconds."
+                .to_owned()
+        }
+        Level::Setting(Setting::TranscribeMaxSecs) => "Longer voice notes wait for t.".to_owned(),
+        Level::SettingText(setting) => match setting {
+            Setting::TranscribeModel => "Type a model name, or the path to a whisper.cpp \
+                                         model file."
+                .to_owned(),
+            Setting::TranscribeRemoteModel => {
+                "Type the model name the endpoint expects.".to_owned()
+            }
+            Setting::TranscribeLanguage => "Type a two-letter language code (e.g. ro); empty \
+                                            detects the language."
+                .to_owned(),
+            Setting::TranscribeCommand => "Type a command; {file}, {model}, {language} and \
+                                           {out_dir} are filled in."
+                .to_owned(),
+            Setting::TranscribeEndpoint => "Type the URL of an OpenAI-compatible \
+                                            /audio/transcriptions endpoint."
+                .to_owned(),
+            Setting::Colors
+            | Setting::Emoji
+            | Setting::Layout
+            | Setting::BubbleStyle
+            | Setting::BubblePadding
+            | Setting::MatchWidths
+            | Setting::Density
+            | Setting::Timestamps
+            | Setting::ReduceMotion
+            | Setting::Bell
+            | Setting::Title
+            | Setting::Desktop
+            | Setting::Privacy
+            | Setting::Allowlist
+            | Setting::InlineImages
+            | Setting::AutoDownload
+            | Setting::Transcribe
+            | Setting::TranscribeAuto
+            | Setting::TranscribeMaxSecs
+            | Setting::Mouse => return None,
+        },
+        Level::Root
+        | Level::Chats
+        | Level::Search(_)
+        | Level::Themes
+        | Level::Settings
+        | Level::Setting(_)
+        | Level::Commands
+        | Level::Keys
+        | Level::People
+        | Level::Nickname(_)
+        | Level::AttachFile
+        | Level::ChatLinks
+        | Level::ForwardTo(_) => return None,
+    };
+    Some(note)
+}
+
+/// At `SettingText`: save what's typed (D145).
+fn setting_text_actions(setting: Setting) -> Vec<Item> {
+    vec![
+        Item::new(
+            ItemKind::SetText(setting),
+            format!("Save as {}", setting.title().to_lowercase()),
+        )
+        .detail("enter"),
+    ]
+}
+
 /// `setting`'s values as items, the one in use marked.
 fn setting_values(state: &State, setting: Setting) -> Vec<Item> {
     let overridden = state.env.emoji.from_cli && setting == Setting::Emoji;
-    values(state, setting)
+    let values = values(state, setting);
+    let preset = values.iter().any(|(_, _, current)| *current);
+    let mut items: Vec<Item> = values
         .into_iter()
         .map(|(choice, title, current)| {
             let item = Item::new(ItemKind::Setting(choice), title).current(current);
             if overridden {
                 item.detail("--emoji decides for now")
             } else {
-                item
+                item.detail(value_detail(state, choice))
             }
         })
-        .collect()
+        .collect();
+    if setting.takes_text() {
+        let typed = if preset {
+            String::new()
+        } else {
+            typed_value(state, setting)
+        };
+        items.push(
+            Item::new(ItemKind::Level(Level::SettingText(setting)), "Custom…")
+                .current(!preset)
+                .detail(typed),
+        );
+    }
+    items
+}
+
+/// What a preset value means, shown beside it (D145).
+fn value_detail(state: &State, choice: SettingChoice) -> &'static str {
+    let lookup = |list: &[(&'static str, &'static str)], key: &str| {
+        list.iter().find(|(k, _)| *k == key).map_or("", |(_, d)| *d)
+    };
+    match choice {
+        SettingChoice::TranscribeModel(model) => lookup(LOCAL_MODELS, model),
+        SettingChoice::TranscribeCommand(command) => lookup(TRANSCRIBE_COMMANDS, command),
+        SettingChoice::TranscribeEndpoint(url) => TRANSCRIBE_ENDPOINTS
+            .iter()
+            .find(|(u, _, _)| *u == url)
+            .map_or("", |(_, _, host)| *host),
+        SettingChoice::TranscribeRemoteModel(model) => {
+            lookup(remote_models(&state.config.voice.transcribe_url), model)
+        }
+        SettingChoice::TranscribeLanguage(code) => code,
+        SettingChoice::Transcribe(mode) => match mode {
+            TranscribeMode::Off => "t does nothing",
+            TranscribeMode::Local => "Whisper on this computer",
+            TranscribeMode::Remote => "an API you choose; each chat asks first",
+        },
+        SettingChoice::Colors(_)
+        | SettingChoice::Layout(_)
+        | SettingChoice::BubbleStyle(_)
+        | SettingChoice::BubblePadding(_)
+        | SettingChoice::MatchWidths(_)
+        | SettingChoice::Density(_)
+        | SettingChoice::Timestamps(_)
+        | SettingChoice::Allowlist(_)
+        | SettingChoice::Emoji(_)
+        | SettingChoice::Desktop(_)
+        | SettingChoice::Privacy(_)
+        | SettingChoice::InlineImages(_)
+        | SettingChoice::AutoDownload(_)
+        | SettingChoice::TranscribeAuto(_)
+        | SettingChoice::TranscribeMaxSecs(_)
+        | SettingChoice::Mouse(_)
+        | SettingChoice::Bell(_)
+        | SettingChoice::Title(_)
+        | SettingChoice::ReduceMotion(_) => "",
+    }
 }
 
 fn choice_values<C: faro_core::config::Choice + Copy + PartialEq>(
@@ -1415,6 +1788,17 @@ fn choice_values<C: faro_core::config::Choice + Copy + PartialEq>(
 ) -> Vec<(SettingChoice, String, bool)> {
     all.iter()
         .map(|&v| (make(v), v.name().into(), v == current))
+        .collect()
+}
+
+/// Text presets as values: the name is the title (D145).
+fn presets(
+    list: &[(&'static str, &'static str)],
+    current: &str,
+    make: fn(&'static str) -> SettingChoice,
+) -> Vec<(SettingChoice, String, bool)> {
+    list.iter()
+        .map(|&(name, _)| (make(name), name.to_owned(), name == current))
         .collect()
 }
 
@@ -1509,7 +1893,87 @@ fn values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)>
             state.config.voice.transcribe,
             SettingChoice::Transcribe,
         ),
+        Setting::TranscribeAuto => on_off(
+            SettingChoice::TranscribeAuto,
+            state.config.voice.auto_transcribe,
+        ),
+        Setting::TranscribeMaxSecs
+        | Setting::TranscribeModel
+        | Setting::TranscribeCommand
+        | Setting::TranscribeRemoteModel
+        | Setting::TranscribeEndpoint
+        | Setting::TranscribeLanguage => transcription_values(state, setting),
         Setting::Mouse => on_off(SettingChoice::Mouse, state.config.mouse.enabled),
+    }
+}
+
+/// The preset values of the transcription settings below the mode (D145).
+fn transcription_values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)> {
+    match setting {
+        Setting::TranscribeMaxSecs => TRANSCRIBE_MAX_SECS
+            .iter()
+            .map(|&(secs, title)| {
+                (
+                    SettingChoice::TranscribeMaxSecs(secs),
+                    title.to_owned(),
+                    secs == state.config.voice.transcribe_max_secs,
+                )
+            })
+            .collect(),
+        Setting::TranscribeModel => presets(
+            LOCAL_MODELS,
+            &state.config.voice.transcribe_model,
+            SettingChoice::TranscribeModel,
+        ),
+        Setting::TranscribeCommand => presets(
+            TRANSCRIBE_COMMANDS,
+            &state.config.voice.transcribe_command,
+            SettingChoice::TranscribeCommand,
+        ),
+        Setting::TranscribeRemoteModel => presets(
+            remote_models(&state.config.voice.transcribe_url),
+            &state.config.voice.transcribe_remote_model,
+            SettingChoice::TranscribeRemoteModel,
+        ),
+        Setting::TranscribeEndpoint => TRANSCRIBE_ENDPOINTS
+            .iter()
+            .map(|&(url, name, _)| {
+                (
+                    SettingChoice::TranscribeEndpoint(url),
+                    name.to_owned(),
+                    url == state.config.voice.transcribe_url,
+                )
+            })
+            .collect(),
+        Setting::TranscribeLanguage => TRANSCRIBE_LANGUAGES
+            .iter()
+            .map(|&(code, name)| {
+                (
+                    SettingChoice::TranscribeLanguage(code),
+                    name.to_owned(),
+                    code == state.config.voice.transcribe_language,
+                )
+            })
+            .collect(),
+        Setting::Colors
+        | Setting::Emoji
+        | Setting::Layout
+        | Setting::BubbleStyle
+        | Setting::BubblePadding
+        | Setting::MatchWidths
+        | Setting::Density
+        | Setting::Timestamps
+        | Setting::ReduceMotion
+        | Setting::Bell
+        | Setting::Title
+        | Setting::Desktop
+        | Setting::Privacy
+        | Setting::Allowlist
+        | Setting::InlineImages
+        | Setting::AutoDownload
+        | Setting::Transcribe
+        | Setting::TranscribeAuto
+        | Setting::Mouse => Vec::new(),
     }
 }
 

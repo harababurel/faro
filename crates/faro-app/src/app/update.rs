@@ -68,6 +68,7 @@ pub fn affects_view(event: &AppEvent) -> bool {
         | AppEvent::Fetched { .. }
         | AppEvent::SavedToDownloads(_)
         | AppEvent::FilesListed { .. }
+        | AppEvent::CommandChecked { .. }
         | AppEvent::FileStaged(_)
         | AppEvent::PasteChecked { .. }
         | AppEvent::ClipboardImage { .. }
@@ -142,14 +143,13 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
             result,
         } => selection::on_fetched(state, conversation, message, index, result),
         AppEvent::SavedToDownloads(result) => selection::on_saved_to_downloads(state, result),
+        AppEvent::CommandChecked { program, found } => {
+            settings::on_command_checked(state, program, found)
+        }
         AppEvent::FilesListed { query, entries } => {
-            palette::on_files_listed(state, &query, &entries);
-            vec![]
+            palette::on_files_listed(state, &query, &entries)
         }
-        AppEvent::FileStaged(result) => {
-            sending::on_file_staged(state, result);
-            vec![]
-        }
+        AppEvent::FileStaged(result) => sending::on_file_staged(state, result),
         AppEvent::PasteChecked { raw, staged } => sending::on_paste_checked(state, &raw, staged),
         AppEvent::ClipboardImage {
             conversation,

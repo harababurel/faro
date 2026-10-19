@@ -1715,6 +1715,7 @@ fn voice_note_local_transcription() {
             message,
             index: 0,
             path,
+            duration_secs: Some(6),
             voice,
         }) if *conversation == climbing()
             && *message == target
@@ -1745,6 +1746,41 @@ fn voice_note_local_transcription() {
 }
 
 #[test]
+fn voice_notes_are_transcribed_automatically_only_when_asked() {
+    use crate::app::palette::SettingChoice;
+    use faro_core::config::{AutoDownload, TranscribeMode};
+    use faro_core::domain::{AttachmentRef, AttachmentStatus};
+    use std::path::PathBuf;
+
+    let transcribes = |effects: &[Effect]| {
+        effects
+            .iter()
+            .any(|e| matches!(e, Effect::Backend(Command::Transcribe { .. })))
+    };
+    let mut state = loaded_state();
+    state.config.media.auto_download = AutoDownload::Off;
+    state.config.voice.transcribe = TranscribeMode::Local;
+    let mut msg = text(climbing(), BOB, fixtures::NOW_MS + 45, "");
+    msg.body = None;
+    msg.attachments = vec![AttachmentRef {
+        status: AttachmentStatus::Downloaded(PathBuf::from("/tmp/faro-test/voice-a.wav")),
+        voice_note: true,
+        duration_secs: Some(400),
+        ..AttachmentRef::remote("att-vna", "audio/wav")
+    }];
+    let target = msg.reference();
+    // Off by default (D145): t transcribes it.
+    let effects = update(&mut state, AppEvent::Backend(BackendEvent::Message(msg)));
+    assert!(!transcribes(&effects));
+    // Turned on, notes up to the limit (5 min by default) are; this one's longer.
+    let effects = super::settings::choose(&mut state, SettingChoice::TranscribeAuto(true));
+    assert!(!transcribes(&effects));
+    let effects = super::settings::choose(&mut state, SettingChoice::TranscribeMaxSecs(600));
+    assert!(transcribes(&effects));
+    assert!(state.is_transcribing(target, 0));
+}
+
+#[test]
 fn voice_note_remote_consent_flow() {
     use faro_core::config::{AutoDownload, TranscribeMode};
     use faro_core::domain::{AttachmentRef, AttachmentStatus};
@@ -1754,6 +1790,7 @@ fn voice_note_remote_consent_flow() {
     let mut state = loaded_state();
     state.config.media.auto_download = AutoDownload::Off;
     state.config.voice.transcribe = TranscribeMode::Remote;
+    state.config.voice.auto_transcribe = true;
     let voice_path = PathBuf::from("/tmp/faro-test/voice-r.wav");
     let mut msg = text(climbing(), BOB, fixtures::NOW_MS + 50, "");
     msg.body = None;

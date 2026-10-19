@@ -92,6 +92,11 @@ impl Router {
                     self.page.release_focus();
                     true
                 }
+                // The demo's transcription is canned, so its command is there.
+                Effect::CheckCommand(program) => self.answer(AppEvent::CommandChecked {
+                    program,
+                    found: true,
+                }),
                 // A pasted path is just text here.
                 Effect::CheckPaste { raw, .. } => {
                     self.answer(AppEvent::PasteChecked { raw, staged: None })

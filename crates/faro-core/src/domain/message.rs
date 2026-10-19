@@ -195,6 +195,13 @@ impl TranscriptSource {
     }
 }
 
+/// A transcript as one paragraph: Whisper writes each timing segment on a
+/// line of its own (often mid-sentence), so every run of whitespace becomes
+/// one space (D145).
+pub fn transcript_paragraph(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// Metadata about an attachment; the content is fetched on demand (D75, D80–D82).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AttachmentRef {
@@ -423,5 +430,15 @@ mod tests {
         assert!(sticker.is_image() && sticker.is_sticker());
         let doc = AttachmentRef::remote("d", "application/pdf");
         assert!(!doc.is_image());
+    }
+
+    #[test]
+    fn a_transcript_reads_as_one_paragraph() {
+        let whisper = " Bună ziua, salutări.\nVă transmit un mesaj vocal\n\n pentru  funcția de\ttranscriere.\n";
+        assert_eq!(
+            transcript_paragraph(whisper),
+            "Bună ziua, salutări. Vă transmit un mesaj vocal pentru funcția de transcriere."
+        );
+        assert_eq!(transcript_paragraph(" \n "), "");
     }
 }

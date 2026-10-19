@@ -13,6 +13,7 @@ use faro_core::backend::{Backend, BackendError, OutgoingMessage};
 use faro_core::config::{TranscribeMode, Voice};
 use faro_core::domain::{
     AttachmentRef, AttachmentStatus, MessageRef, ServiceId, Timestamp, TranscriptSource,
+    transcript_paragraph,
 };
 use faro_core::paths;
 use tokio::sync::mpsc;
@@ -92,13 +93,16 @@ async fn run<B: Backend + 'static>(
             message,
             index,
             path,
+            duration_secs,
             voice,
         } = command
         {
             let dir = attachments_dir.clone();
             let tx = results.clone();
             in_flight.spawn(tokio::task::spawn_local(async move {
-                let result = transcribe(&dir, message, index, &path, &voice).await;
+                let result = transcribe(&dir, message, index, &path, duration_secs, &voice)
+                    .await
+                    .map(|(text, source)| (transcript_paragraph(&text), source));
                 if let Err(error) = &result {
                     tracing::warn!(%error, %conversation, "voice note transcription failed");
                 }
@@ -216,18 +220,35 @@ pub async fn transcribe(
     message: MessageRef,
     index: usize,
     path: &Path,
+    duration_secs: Option<u32>,
     voice: &Voice,
 ) -> Result<(String, TranscriptSource), String> {
+    let secs = u64::from(duration_secs.unwrap_or(0));
     match voice.transcribe {
         TranscribeMode::Remote => {
-            let text = transcribe_remote(path, voice).await?;
+            let text = transcribe_remote(path, voice, remote_timeout(secs)).await?;
             Ok((text, TranscriptSource::Remote))
         }
         TranscribeMode::Local | TranscribeMode::Off => {
-            let text = transcribe_local(attachments_dir, message, index, path, voice).await?;
+            let timeout = local_timeout(secs);
+            let text =
+                transcribe_local(attachments_dir, message, index, path, voice, timeout).await?;
             Ok((text, TranscriptSource::Local))
         }
     }
+}
+
+/// How long local Whisper may take for a note of `secs` seconds (D145): two
+/// minutes to load the model, then up to 8× real time (slow CPUs, larger
+/// models), at most an hour.
+fn local_timeout(secs: u64) -> u64 {
+    (120 + 8 * secs).min(3600)
+}
+
+/// How long a remote endpoint may take (D145): a minute, plus twice the
+/// note's length for the upload and the work, at most 15 minutes.
+fn remote_timeout(secs: u64) -> u64 {
+    (60 + 2 * secs).min(900)
 }
 
 async fn transcribe_local(
@@ -236,6 +257,7 @@ async fn transcribe_local(
     index: usize,
     path: &Path,
     voice: &Voice,
+    timeout_secs: u64,
 ) -> Result<String, String> {
     use std::process::Stdio;
     let work_dir = attachments_dir.join(format!(
@@ -254,7 +276,7 @@ async fn transcribe_local(
         .stdin(Stdio::null())
         .kill_on_drop(true)
         .output();
-    let run_res = tokio::time::timeout(std::time::Duration::from_secs(120), fut).await;
+    let run_res = tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), fut).await;
 
     let dir_for_cleanup = work_dir.clone();
     let file_text = tokio::task::spawn_blocking(move || finish_transcribe_dir(&dir_for_cleanup))
@@ -263,7 +285,7 @@ async fn transcribe_local(
         .flatten();
 
     let output = run_res
-        .map_err(|_| format!("'{program}' timed out after 120s"))?
+        .map_err(|_| format!("'{program}' timed out after {timeout_secs}s"))?
         .map_err(|e| format!("failed to run '{program}': {e}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
@@ -376,7 +398,11 @@ fn finish_transcribe_dir(dir: &Path) -> Option<String> {
     found
 }
 
-async fn transcribe_remote(path: &Path, voice: &Voice) -> Result<String, String> {
+async fn transcribe_remote(
+    path: &Path,
+    voice: &Voice,
+    timeout_secs: u64,
+) -> Result<String, String> {
     use std::process::Stdio;
     use tokio::io::AsyncWriteExt;
 
@@ -385,13 +411,13 @@ async fn transcribe_remote(path: &Path, voice: &Voice) -> Result<String, String>
         "-sS".to_owned(),
         "--fail-with-body".to_owned(),
         "--max-time".to_owned(),
-        "60".to_owned(),
+        timeout_secs.to_string(),
         "--config".to_owned(),
         "-".to_owned(),
         "-F".to_owned(),
         format!("file=@{}", path.display()),
         "-F".to_owned(),
-        format!("model={}", voice.transcribe_model),
+        format!("model={}", voice.transcribe_remote_model),
         "-F".to_owned(),
         "response_format=json".to_owned(),
     ];
@@ -416,10 +442,13 @@ async fn transcribe_remote(path: &Path, voice: &Voice) -> Result<String, String>
         let _ = stdin.write_all(cfg.as_bytes()).await;
     }
 
-    let output = tokio::time::timeout(std::time::Duration::from_secs(65), child.wait_with_output())
-        .await
-        .map_err(|_| "remote transcription timed out after 60s".to_owned())?
-        .map_err(|e| format!("waiting for 'curl': {e}"))?;
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(timeout_secs + 5),
+        child.wait_with_output(),
+    )
+    .await
+    .map_err(|_| format!("remote transcription timed out after {timeout_secs}s"))?
+    .map_err(|e| format!("waiting for 'curl': {e}"))?;
 
     if !output.status.success() {
         if let Err(api_err) = faro_core::audio::parse_whisper_json(&output.stdout)
@@ -571,6 +600,16 @@ fn copy_attachment_file(src: &Path, dest: &Path, remove_source: bool) -> Result<
 mod tests {
     use super::*;
 
+    #[test]
+    fn timeouts_grow_with_the_note() {
+        assert_eq!(local_timeout(0), 120);
+        assert_eq!(local_timeout(60), 600);
+        assert_eq!(local_timeout(3 * 3600), 3600);
+        assert_eq!(remote_timeout(0), 60);
+        assert_eq!(remote_timeout(60), 180);
+        assert_eq!(remote_timeout(3600), 900);
+    }
+
     #[tokio::test]
     #[expect(
         clippy::disallowed_methods,
@@ -601,7 +640,7 @@ mod tests {
             transcribe_command: format!("{} {{out_dir}} {{file}}", script1.display()),
             ..Voice::default()
         };
-        let (text, source) = transcribe(dir.path(), msg_ref, 0, &audio, &voice)
+        let (text, source) = transcribe(dir.path(), msg_ref, 0, &audio, Some(3), &voice)
             .await
             .unwrap();
         assert_eq!(text, "Belay is on");
@@ -616,7 +655,7 @@ mod tests {
         .unwrap();
         std::fs::set_permissions(&script2, std::fs::Permissions::from_mode(0o700)).unwrap();
         voice.transcribe_command = format!("{} {{file}}", script2.display());
-        let (text, source) = transcribe(dir.path(), msg_ref, 0, &audio, &voice)
+        let (text, source) = transcribe(dir.path(), msg_ref, 0, &audio, Some(3), &voice)
             .await
             .unwrap();
         assert_eq!(text, "On belay, climb when ready");

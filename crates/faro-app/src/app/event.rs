@@ -88,6 +88,11 @@ pub enum AppEvent {
     },
     /// Copying a downloaded attachment to `~/Downloads/` finished (D75).
     SavedToDownloads(Result<PathBuf, String>),
+    /// Whether the local transcription command is installed (D145).
+    CommandChecked {
+        program: String,
+        found: bool,
+    },
     /// Directory entries read for the palette's file picker (`Level::AttachFile`, D77).
     FilesListed {
         query: String,
@@ -224,6 +229,9 @@ pub enum Effect {
     /// List a directory for the palette's file picker (`Level::AttachFile`, D77).
     /// Answered with `AppEvent::FilesListed`.
     ListFiles(String),
+    /// Look for a program on `PATH` (the local transcription command, D145).
+    /// Answered with `AppEvent::CommandChecked`.
+    CheckCommand(String),
     /// Inspect and stage a local file to send in the open conversation (D77).
     /// Answered with `AppEvent::FileStaged`.
     StageFile(PathBuf),
@@ -298,6 +306,8 @@ pub enum Command {
         message: MessageRef,
         index: usize,
         path: PathBuf,
+        /// How long the note is, if known: the local timeout grows with it (D145).
+        duration_secs: Option<u32>,
         voice: Voice,
     },
     /// Read receipts for messages that have been seen (D42). No answer;

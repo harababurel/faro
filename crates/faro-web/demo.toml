@@ -6,6 +6,7 @@
 # recognition, nothing sent anywhere).
 [voice]
 transcribe = "local"
+auto_transcribe = true
 
 # The cast writes far more often than real contacts, so the bell (the
 # panel's flashing border) would go off constantly. Alt+N turns it on.
