@@ -398,6 +398,7 @@ Design, copy, server runbook and full task lists: [WEBSITE.md](WEBSITE.md) (§7 
 
 ## Progress
 
+- 2026-10-19: **Issue forms** (D146): bug report and feature request forms, contact links for security reports and Signal support.
 - 2026-10-19: **v0.1.2 released** (tag at `485373b`): transcription settings (D145). GitHub release with 4 archives and 2 debs, Homebrew tap updated; AUR PKGBUILDs bumped in the repo for the owner to push. Release notes added by the owner (the agent's token can't edit releases).
 - 2026-10-19: **Transcription settings** (D145): a *Voice notes* section in the palette with mode-dependent rows (model, command, endpoint, remote model, language: presets plus *Custom…*), local model `small`, separate `transcribe_remote_model`, a background check for the local command with install hints, `auto_transcribe` (off by default) with the length limit as its sub-option, timeouts that grow with the note, and transcripts drawn as one paragraph `❝text❞ [local]`.
 - 2026-10-19: **Security policy** (D144): `SECURITY.md` with GitHub private vulnerability reporting (the owner enables the repository setting), linked from the README and CONTRIBUTING. Also: the config watcher test no longer depends on runner speed (`ea01113`).

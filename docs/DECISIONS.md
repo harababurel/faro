@@ -1418,3 +1418,13 @@ A developer friend of the owner tried getfaro.dev; the owner agreed with all of 
 - **One quoted paragraph (owner's choice):** `domain::transcript_paragraph` collapses all whitespace, including Whisper's line breaks between segments, into single spaces. It's applied when a transcript arrives, when it's drawn and in `readable_body`. Drawn as `❝text❞ [local]`: no space after the opening quote, and a closing quote before the tag so the end of the quote is clear. The web demo draws `❞` as `❝` turned half a circle (`Symbol::CloseQuote`), since its webfont lacks both.
 - **Titles that don't steal searches (Judgement):** *Auto-transcribe* and *Auto-transcribe notes up to*, not "Transcribe automatically": the longer title fuzzy-matched `:bell`.
 - **Rejected:** showing the options only in the config file (the reason for this change); one model setting for both modes (a local name sent to an API fails, and the reverse too); a "no limit" choice for automatic transcription (`config::uint32` rejects 0, and 30 minutes is plenty); keeping Whisper's line breaks (the owner prefers one paragraph, and a line per segment is an artefact of how Whisper splits audio, not of what was said).
+
+### D146. GitHub issue forms (owner's request, 2026-10-19)
+
+- **Why:** before visitors arrive in numbers, bug reports should come with what's needed to act on them; until now only CONTRIBUTING and the README listed it, and a blank issue asked for nothing.
+- **What:** `.github/ISSUE_TEMPLATE/`:
+  - `bug_report.yml` (label `bug`): what happened and steps (pointing to `faro demo` for reproducing), then required `faro --version`, install method (Homebrew, AUR, `.deb`, release archive, source, the web demo), OS and terminal, plus tmux, GNU screen, SSH and mosh checkboxes and a log field that says where the log is and that it never holds message text or phone numbers.
+  - `feature_request.yml` (label `enhancement`): what you'd like to do (required), how it could work, what you do today. It names the known gaps and links the site's list of them.
+  - `config.yml`: contact links to private security reporting (D144) and to Signal support for problems with Signal itself.
+- **Blank issues stay allowed (Judgement):** a report that fits neither form (a packaging question, a typo on the site) shouldn't be forced into one, and the forms are the default choice anyway.
+- **Checked:** all three validate against SchemaStore's `github-issue-forms` and `github-issue-config` schemas. CONTRIBUTING and the README link the bug form directly.

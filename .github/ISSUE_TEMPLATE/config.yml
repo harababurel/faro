@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security problem
+    url: https://github.com/harababurel/faro/security/advisories/new
+    about: Anything that could expose keys, messages or files, or let a message attack your terminal. Reported privately, never as a public issue.
+  - name: A problem with Signal itself
+    url: https://support.signal.org/
+    about: The Signal apps, your account, or Signal's servers. faro is unofficial, so Signal can't help with faro, and faro can't help with Signal.

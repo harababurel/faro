@@ -1,0 +1,25 @@
+name: Feature request
+description: An idea for something faro could do, or do better.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Some things are known to be missing: calls, stories, Windows, history from before linking, and encryption at rest ([what faro doesn't do yet](https://getfaro.dev/#limits-title)). If an issue for your idea already exists, a 👍 on it helps decide what comes next.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would you like to do?
+      description: The situation and what's missing, in your own words. What you're trying to get done matters more than how faro should do it.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How could it work?
+      description: Keys, palette commands, settings, how it would look. Optional.
+  - type: textarea
+    id: today
+    attributes:
+      label: What do you do today?
+      description: A workaround, or how another client (Signal Desktop, gurk, signal-cli…) handles it. Optional.

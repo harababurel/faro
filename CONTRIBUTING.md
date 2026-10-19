@@ -4,7 +4,7 @@ Bug reports, ideas and pull requests are welcome. For anything bigger than a sma
 
 ## Reporting a bug
 
-[Open an issue](https://github.com/harababurel/faro/issues) with:
+[Open a bug report](https://github.com/harababurel/faro/issues/new?template=bug_report.yml); the form asks for:
 
 - `faro --version`
 - your OS and terminal, and whether faro runs in tmux, over SSH or through mosh

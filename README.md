@@ -182,7 +182,7 @@ To remove faro from your account, unlink it in Signal › Settings › Linked de
 
 - The log is `~/.local/share/faro/logs/faro.log`. Run `FARO_LOG=debug faro` for more detail.
 - Borders out of line, images missing or the wrong colours: see [docs/TERMINALS.md](docs/TERMINALS.md). `Ctrl+L` redraws the screen.
-- Found a bug? [Open an issue](https://github.com/harababurel/faro/issues) with `faro --version`, your terminal, whether you're in tmux, SSH or mosh, and the relevant log lines.
+- Found a bug? [Open a bug report](https://github.com/harababurel/faro/issues/new?template=bug_report.yml); the form asks for `faro --version`, your terminal, whether you're in tmux, SSH or mosh, and the relevant log lines.
 - Found a security problem? Please report it privately instead: see [SECURITY.md](SECURITY.md).
 
 ## Supporting faro

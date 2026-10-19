@@ -1,0 +1,79 @@
+name: Bug report
+description: Something in faro doesn't work as it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting it. Most display problems can be reproduced in `faro demo`, which needs no Signal account and makes them much easier to fix.
+
+        **Security problems** (anything that could expose keys, messages or files, or let a message attack your terminal) go through [private reporting](https://github.com/harababurel/faro/security/advisories/new), not here.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead. A screenshot helps with anything on screen.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: If you can, starting from `faro demo`.
+      placeholder: |
+        1. Run `faro demo`
+        2. Open "Scranton Branch"
+        3. …
+  - type: input
+    id: version
+    attributes:
+      label: faro version
+      description: The output of `faro --version` (or "web demo").
+      placeholder: faro 0.1.2 (485373b 2026-10-19)
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install faro?
+      options:
+        - Homebrew
+        - AUR (faro, faro-bin or faro-git)
+        - .deb package
+        - Prebuilt archive from GitHub Releases
+        - Built from source
+        - "Not installed: the web demo on getfaro.dev"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: macOS 15.4, Debian 13, Arch…
+    validations:
+      required: true
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal
+      description: The terminal app and, if you know it, its version. For the web demo, your browser.
+      placeholder: kitty 0.42, iTerm2 3.5, Alacritty, GNOME Terminal…
+    validations:
+      required: true
+  - type: checkboxes
+    id: between
+    attributes:
+      label: Between faro and the terminal
+      description: Tick everything faro runs inside. Many display problems depend on these.
+      options:
+        - label: tmux
+        - label: GNU screen
+        - label: SSH
+        - label: mosh
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log lines
+      description: |
+        The relevant lines from `~/.local/share/faro/logs/faro.log` (`<data dir>/logs/faro.log` with `--data-dir`). Run `FARO_LOG=debug faro` for more detail. The log never contains message text or phone numbers, but please look it over before posting.
+      render: text
