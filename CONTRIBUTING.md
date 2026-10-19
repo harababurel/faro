@@ -13,6 +13,8 @@ Bug reports, ideas and pull requests are welcome. For anything bigger than a sma
 
 Rendering bugs are easiest to fix with a screenshot. Most can be reproduced in `faro demo`, which needs no account.
 
+Security problems (anything that could expose keys, messages or files, or let a message attack your terminal) go through [private reporting](SECURITY.md), not public issues.
+
 ## Building
 
 Install Rust with [rustup](https://rustup.rs) (the toolchain, including the wasm32 target for the web demo, is pinned in `rust-toolchain.toml`) and the build dependencies:

@@ -398,6 +398,7 @@ Design, copy, server runbook and full task lists: [WEBSITE.md](WEBSITE.md) (§7 
 
 ## Progress
 
+- 2026-10-19: **Security policy** (D144): `SECURITY.md` with GitHub private vulnerability reporting (the owner enables the repository setting), linked from the README and CONTRIBUTING. Also: the config watcher test no longer depends on runner speed (`ea01113`).
 - 2026-10-17: **Tour video on getfaro.dev** (D143): *▶ Watch a 30-second tour* under the panel and the phone gallery opens `media/faro-tour.<hash>.mp4` (the recorder's MP4, copied by `make.sh --install`) in a `<dialog>`; nothing loads before the click (`site/check.py` `check_tour`). nginx caches hashed `.mp4` (deploy the updated `getfaro.dev.conf`). The README GIF links to getfaro.dev. The guided tour inside the live demo is documented in the backlog.
 - 2026-10-17: **README demo GIF** (D142): `tools/demo_gif/` records the web demo from a storyboard on CDP virtual time (`make.sh`: build, record, encode GIF/MP4/WebM); `docs/images/faro-demo.gif` replaces the poster PNG in the README. `MockConfig::eager_answers` (wasm `start_recording`, test page `?record`) makes the "Jim answers" beat certain; visitors are unchanged.
 - 2026-10-13: **The demo starts mostly read** (D134): only Scranton Branch (3) and Jim (2) start with unread messages; the rest of the backlog arrives read on the phone, so live messages are what's new. Website: the footer and legal pages share the text column, the notes under the demo are trimmed to one line and follow the demo's width.
