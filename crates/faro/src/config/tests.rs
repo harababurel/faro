@@ -217,23 +217,58 @@ async fn changes_to_the_file_are_read_after_a_pause() {
     std::fs::write(&path, "").unwrap();
     let (results, mut events) = mpsc::unbounded_channel();
     let _watch = watch(&path, results).unwrap();
-    // Two quick writes are read once, with the last text.
     tokio::fs::write(&path, "[mouse]\nenabled = true\n")
         .await
         .unwrap();
-    tokio::fs::write(&path, "[mouse]\nenabled = false\n")
-        .await
-        .unwrap();
-    let event = tokio::time::timeout(Duration::from_secs(10), events.recv())
-        .await
-        .expect("a reload within 10 s");
-    let Some(AppEvent::ConfigRead(Ok(text))) = event else {
-        panic!("expected ConfigRead, got {event:?}");
-    };
-    assert_eq!(text, "[mouse]\nenabled = false\n");
+    let last = "[mouse]\nenabled = false\n";
+    tokio::fs::write(&path, last).await.unwrap();
+    // The last text is read. Not necessarily first: a busy machine can split
+    // the burst, or even read a write half done (`write` empties the file
+    // before writing it). That a burst is read once is `debounce`'s own test.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let event = tokio::time::timeout_at(deadline, events.recv())
+            .await
+            .expect("the last text read within 10 s");
+        let Some(AppEvent::ConfigRead(Ok(text))) = event else {
+            panic!("expected ConfigRead, got {event:?}");
+        };
+        if text == last {
+            break;
+        }
+    }
     // Reading it (as above) isn't a change.
     let again = tokio::time::timeout(DEBOUNCE * 3, events.recv()).await;
     assert!(again.is_err(), "no second reload: {again:?}");
+}
+
+/// A burst of changes is read once, a quiet `DEBOUNCE` after the last of
+/// them; a later change is read again. On tokio's paused clock, so the
+/// timing is exact whatever the machine's load.
+#[tokio::test(start_paused = true)]
+async fn a_burst_of_changes_is_read_once() {
+    let (ping, pings) = mpsc::unbounded_channel();
+    let mut settled = debounce(pings);
+    let start = tokio::time::Instant::now();
+    // Changes at 0, 100 and 200 ms.
+    for _ in 0..3 {
+        ping.send(()).unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    settled.recv().await.expect("one ping for the burst");
+    let at = start.elapsed();
+    let due = Duration::from_millis(200) + DEBOUNCE;
+    assert!(
+        at >= due && at < due + Duration::from_millis(10),
+        "read at {at:?}, due at {due:?}"
+    );
+    let again = tokio::time::timeout(DEBOUNCE * 3, settled.recv()).await;
+    assert!(again.is_err(), "the burst is read once: {again:?}");
+
+    ping.send(()).unwrap();
+    settled.recv().await.expect("a later change is read again");
+    drop(ping);
+    assert_eq!(settled.recv().await, None, "no watcher, no pings");
 }
 
 #[tokio::test]
