@@ -196,6 +196,8 @@ If faro is useful to you and you'd like to say thanks, you can sponsor its devel
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for building, the checks every change must pass, and where the design docs are.
 
+faro is built with AI coding agents under my direction: I make the design decisions (recorded in [docs/DECISIONS.md](docs/DECISIONS.md)), test it by hand and use it daily. [AGENTS.md](AGENTS.md) is the guide the agents work from.
+
 ## License
 
 [AGPL-3.0](LICENSE). The bundled OpenCode themes are MIT-licensed; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
