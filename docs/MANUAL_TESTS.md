@@ -608,10 +608,10 @@ Notes (browser, version, OS, what went wrong):
 
 ## presage bump (D147)
 
-On the test account (`--data-dir ~/.local/share/faro-test --allowlist ~/.local/share/faro-test/allowlist.toml`), with a release build of the bump:
+On the test account (`--data-dir ~/.local/share/faro-test --allowlist ~/.local/share/faro-test/allowlist.toml`), or your own account, with a release build of the bump. Owner, 2026-10-21: all pass on the personal account on the Mac mini (branch `presage-bump`, `95ef28c`).
 
-- [ ] faro starts and connects (footer `connected`); the existing history and contacts are still there (no store migration).
-- [ ] A message from the phone's contact on the allowlist arrives in faro; a reply from faro arrives on the phone.
-- [ ] A message sent from the phone to an allowed chat shows in faro as ours (sync transcript).
-- [ ] Reading a chat on the phone clears its unread count in faro (read sync).
-- [ ] The log has no `dropped a sync message that isn't from this account` line during these checks (our own sync messages still pass).
+- [x] faro starts and connects (footer `connected`); the existing history and contacts are still there (no store migration).
+- [x] A message from the phone's contact on the allowlist arrives in faro; a reply from faro arrives on the phone.
+- [x] A message sent from the phone to an allowed chat shows in faro as ours (sync transcript).
+- [x] Reading a chat on the phone clears its unread count in faro (read sync).
+- [x] The log has no `dropped a sync message that isn't from this account` line during these checks (our own sync messages still pass).
