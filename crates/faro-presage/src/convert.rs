@@ -94,7 +94,14 @@ pub fn events(content: &Content, me: ServiceId) -> Vec<BackendEvent> {
             u64::try_from(content.metadata.client_timestamp.timestamp_millis()).unwrap_or(0),
         ),
         ContentBody::EditMessage(edit) => edited(edit, sender, direct).into_iter().collect(),
-        ContentBody::SynchronizeMessage(sync) => synced(sync, me),
+        // Sync messages come only from this account's own devices; one from
+        // anyone else is forged (GHSA-wjhx-4prr-c426 let them through
+        // libsignal-service on the PNI path), so it's dropped.
+        ContentBody::SynchronizeMessage(sync) if sender == me => synced(sync, me),
+        ContentBody::SynchronizeMessage(_) => {
+            tracing::warn!(%sender, "dropped a sync message that isn't from this account");
+            vec![]
+        }
         ContentBody::ReceiptMessage(receipt) => receipts(
             receipt,
             sender,

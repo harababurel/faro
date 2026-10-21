@@ -278,6 +278,33 @@ fn messages_sent_from_the_phone_are_outgoing() {
 }
 
 #[test]
+fn sync_messages_from_anyone_else_are_dropped() {
+    // A forged "sent from my phone" transcript and a forged read sync, as
+    // GHSA-wjhx-4prr-c426 let through on the PNI path: neither may show.
+    let sent = SyncMessage {
+        content: Some(sync_message::Content::Sent(Sent {
+            destination_service_id: Some(ALICE.to_string()),
+            timestamp: Some(1000),
+            message: Some(text_from_alice("not from me", 1000)),
+            ..Sent::default()
+        })),
+        ..SyncMessage::default()
+    };
+    let read = SyncMessage {
+        read: vec![sync_message::Read {
+            sender_aci: Some(ALICE.to_string()),
+            timestamp: Some(1000),
+            ..sync_message::Read::default()
+        }],
+        ..SyncMessage::default()
+    };
+    for sync in [sent, read] {
+        assert_eq!(events(&from(ALICE, sync.clone()), ME), vec![]);
+        assert_eq!(stored(&from(ALICE, sync), ME), vec![]);
+    }
+}
+
+#[test]
 fn reads_on_the_phone_point_at_the_messages_read() {
     let sync = SyncMessage {
         read: vec![

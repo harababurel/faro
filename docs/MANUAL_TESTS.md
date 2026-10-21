@@ -605,3 +605,13 @@ Check after the owner deploys (with the updated nginx config), in Chrome, Firefo
 - [ ] **Caching:** the MP4's response has `Cache-Control: public, max-age=31536000, immutable`.
 
 Notes (browser, version, OS, what went wrong):
+
+## presage bump (D147)
+
+On the test account (`--data-dir ~/.local/share/faro-test --allowlist ~/.local/share/faro-test/allowlist.toml`), with a release build of the bump:
+
+- [ ] faro starts and connects (footer `connected`); the existing history and contacts are still there (no store migration).
+- [ ] A message from the phone's contact on the allowlist arrives in faro; a reply from faro arrives on the phone.
+- [ ] A message sent from the phone to an allowed chat shows in faro as ours (sync transcript).
+- [ ] Reading a chat on the phone clears its unread count in faro (read sync).
+- [ ] The log has no `dropped a sync message that isn't from this account` line during these checks (our own sync messages still pass).
