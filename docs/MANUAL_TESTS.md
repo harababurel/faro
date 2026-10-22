@@ -615,3 +615,19 @@ On the test account (`--data-dir ~/.local/share/faro-test --allowlist ~/.local/s
 - [x] A message sent from the phone to an allowed chat shows in faro as ours (sync transcript).
 - [x] Reading a chat on the phone clears its unread count in faro (read sync).
 - [x] The log has no `dropped a sync message that isn't from this account` line during these checks (our own sync messages still pass).
+
+## Update checks (D148)
+
+With a release build, a scratch `--data-dir` and `--config` (or your own; the check never touches Signal data). `FARO_LOG=debug` shows each check in the log.
+
+- [ ] **Off by default:** with a fresh config, `Ctrl+P › Settings` shows *Updates › Check for updates* off, and the log has no `update check` lines (nothing is sent).
+- [ ] **On asks now:** flipping it on shows "Update checks on…", the config file gets `[updates] check = true`, and the log says `update check done` with the latest release within seconds.
+- [ ] **Up to date:** on the latest release nothing else changes: no notice, no `↑` in the footer.
+- [ ] **Newer release:** with a build whose version is older than the latest release (e.g. set `version = "0.1.0"` in the workspace `Cargo.toml` and build), the footer says "faro x.y.z is available (you have 0.1.0)…" for about 10 s, then `↑ x.y.z` stays after the connection status; the logo screen and About show "faro x.y.z is available".
+- [ ] **Once per run:** restarting within 12 hours shows the notice again at launch without a new request (no `update check done` line); leaving faro running doesn't repeat the notice.
+- [ ] **Release notes:** `Ctrl+P › Commands › Release notes for faro x.y.z` opens the tag's GitHub page (over SSH: copies the link).
+- [ ] **Off hides it:** flipping it off removes the `↑` marker, the logo line and the palette item at once.
+- [ ] **Offline:** with the network down, turning it on shows no error; the log has `update check failed` at debug level.
+- [ ] **Demo:** in `faro demo` the switch is dimmed with "not in the demo".
+
+Notes (version, OS, what went wrong):

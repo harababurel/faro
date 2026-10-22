@@ -40,7 +40,7 @@ Only the latest release gets security fixes. Packages (Homebrew, the AUR, the `.
 - Local data: account keys, history, attachments or logs readable by other users, or message text or phone numbers ending up in the logs
 - Terminal output: messages, names or file names that can inject escape sequences into your terminal, change its title or clipboard, or forge what faro shows
 - Files and programs: saving or opening attachments outside where they should go, or running external programs (players, openers, transcription) unsafely
-- Data leaving your machine other than to Signal's servers, such as remote transcription without your consent
+- Data leaving your machine other than to Signal's servers, such as remote transcription without your consent, or an update check you didn't turn on
 - Sending messages, read receipts or typing indicators you didn't ask for
 - getfaro.dev and its in-browser demo (for example, cross-site scripting, or anything typed into the demo leaving the browser)
 

@@ -470,6 +470,9 @@ Sketch:
 [mouse]
 # enabled = true
 
+[updates]
+# check = false              # ask GitHub for the latest release at start and every 12 h (D148)
+
 [keybindings.global]          # also: input, conversations, messages (D43)
 # "ctrl+p" = "palette.open"
 # "alt+j" = "none"            # unbind
@@ -517,6 +520,7 @@ Sketch:
 - Encryption at rest is deferred until after v0.1 (D18); store-opening code should accept a key later. Options: presage store passphrase, SQLCipher, OS keychain / Secret Service.
 - Logs (`tracing`, to `<data dir>/logs/faro.log`, filter via `FARO_LOG`; D26) **never include message bodies or phone numbers** unless an explicit debug flag is set. Enforced by type: `MessageBody` and `PhoneNumber` redact in `Debug` and have no `Display`; the value is read with `.expose()` (D29).
 - Notification privacy defaults to sender only.
+- **Network:** faro talks only to Signal's servers, except for two opt-in features: remote voice transcription (D82, asks per chat) and update checks (D148: `GET api.github.com/repos/harababurel/faro/releases/latest`, at most every 12 hours, `User-Agent: faro/<version>` and nothing else; notify only, never installs).
 - Device name shown in the phone's linked-devices list defaults to `faro (<hostname>)`.
 
 ## 13. Packaging and distribution

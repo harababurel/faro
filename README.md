@@ -172,7 +172,7 @@ set -g focus-events on                 # read receipts and the bell know whether
 
 - faro implements no cryptography of its own: it talks to Signal through [presage](https://github.com/whisperfish/presage), which builds on libsignal, Signal's own protocol library.
 - Your data stays on your machine, in files readable only by you. It is **not encrypted at rest yet**.
-- No telemetry: faro talks only to Signal's servers. The one exception is remote voice transcription, which is off by default and asks first. Logs never contain message text or phone numbers.
+- No telemetry: faro talks only to Signal's servers. The exceptions are remote voice transcription and update checks, both off by default: transcription asks before each chat's first note, and update checks ask GitHub for the latest release, sending nothing but faro's version (`[updates] check`, or Ctrl+P › Settings › Updates). Logs never contain message text or phone numbers.
 - Not yet: voice or video calls, stories, Windows, history from before linking. It can't be your only device: you need Signal on a phone.
 - It's unofficial: a change on Signal's servers can break it until faro catches up.
 
