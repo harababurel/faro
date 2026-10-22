@@ -13,3 +13,4 @@ pub mod storage;
 pub mod term_event;
 pub mod timeline;
 pub mod update;
+pub mod updates;

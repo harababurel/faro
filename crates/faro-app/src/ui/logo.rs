@@ -111,6 +111,8 @@ impl Tier {
 enum Note {
     /// What's going on: loading, or nothing to open.
     Status(&'static str),
+    /// A newer faro is out (D148).
+    Update(String),
     /// A key and what it does.
     Hint(String, &'static str),
 }
@@ -205,6 +207,12 @@ fn notes(state: &State, geometry: &Geometry) -> Vec<Note> {
         notes.push(Note::Status("Loading…"));
     } else if empty {
         notes.push(Note::Status("No conversations yet"));
+    }
+    if let Some(release) = state.update_available() {
+        notes.push(Note::Update(format!(
+            "faro {} is available",
+            release.version
+        )));
     }
     let keymap = &state.keymap;
     let mut hint = |actions: &[Action], focus, label| {
@@ -324,7 +332,7 @@ fn draw_notes(buffer: &mut Buffer, area: Rect, top: u16, notes: &[Note], theme: 
         .iter()
         .filter_map(|note| match note {
             Note::Hint(key, label) => Some((key.as_str(), *label)),
-            Note::Status(_) => None,
+            Note::Status(_) | Note::Update(_) => None,
         })
         .collect();
     let keys = hints.iter().map(|(k, _)| width_of(k)).max().unwrap_or(0);
@@ -340,6 +348,16 @@ fn draw_notes(buffer: &mut Buffer, area: Rect, top: u16, notes: &[Note], theme: 
                     y,
                     text,
                     theme.muted(),
+                );
+            }
+            Note::Update(text) => {
+                draw_text(
+                    buffer,
+                    area,
+                    centred(area, width_of(text)),
+                    y,
+                    text,
+                    Style::new().fg(theme.accent),
                 );
             }
             Note::Hint(key, label) => {

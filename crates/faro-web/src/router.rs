@@ -62,7 +62,10 @@ impl Router {
                 Effect::Backend(command) => self.commands.send(command).is_ok(),
                 Effect::CheckTerminal => self.answer(AppEvent::TerminalChecked(BROWSER)),
                 // Settings last for the visit (D-c): the state already has them.
-                Effect::SaveSetting(_) | Effect::DesktopNotify { .. } => true,
+                // The demo never checks for updates (D148).
+                Effect::SaveSetting(_) | Effect::DesktopNotify { .. } | Effect::CheckForUpdate => {
+                    true
+                }
                 Effect::StopAudio => {
                     self.page.stop();
                     true
@@ -127,6 +130,8 @@ impl Router {
                 | Effect::SaveConversationState(..)
                 | Effect::SaveNickname(..)
                 | Effect::SaveRecentReactions(_)
+                | Effect::LoadUpdateState
+                | Effect::SaveUpdateState { .. }
                 | Effect::RememberOpen(_)) => self.effects.send(store).is_ok(),
             };
             if !delivered {

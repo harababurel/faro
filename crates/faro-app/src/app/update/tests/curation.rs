@@ -38,6 +38,9 @@ fn saved(effects: &[Effect], id: ConversationId) -> Option<ConversationState> {
         | Effect::RememberOpen(_)
         | Effect::SaveNickname(..)
         | Effect::SaveRecentReactions(_)
+        | Effect::LoadUpdateState
+        | Effect::SaveUpdateState { .. }
+        | Effect::CheckForUpdate
         | Effect::SaveSetting(_)
         | Effect::Backend(_)
         | Effect::Copy(_)

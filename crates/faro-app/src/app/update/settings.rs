@@ -7,7 +7,7 @@ use faro_core::config::{
     MessageDensity, NotificationPrivacy, Problem, Severity, TimestampFormat, TranscribeMode, key,
 };
 
-use super::{check_terminal, curation, selection};
+use super::{check_terminal, curation, selection, updates};
 use crate::app::event::Effect;
 use crate::app::keymap::Keymap;
 use crate::app::palette::{self, Setting, SettingChoice};
@@ -81,6 +81,11 @@ fn apply(
             || old.voice.program() != state.config.voice.program()
         {
             effects.extend(check_transcriber(state));
+        }
+        if startup {
+            effects.extend(updates::start(state));
+        } else {
+            effects.extend(updates::on_setting_changed(state, old.updates.check));
         }
         // The mouse, the theme and `reduce_motion` are read from
         // `state.config` by the app loop.
@@ -282,7 +287,8 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
         | SettingChoice::Title(on)
         | SettingChoice::ReduceMotion(on)
         | SettingChoice::BubblePadding(on)
-        | SettingChoice::MatchWidths(on) => choose_toggle(state, choice, on),
+        | SettingChoice::MatchWidths(on)
+        | SettingChoice::UpdateCheck(on) => choose_toggle(state, choice, on),
     }
 }
 
@@ -358,6 +364,7 @@ fn choose_media_and_notifications(state: &mut State, choice: SettingChoice) -> V
         | SettingChoice::ReduceMotion(_)
         | SettingChoice::BubblePadding(_)
         | SettingChoice::MatchWidths(_)
+        | SettingChoice::UpdateCheck(_)
         | SettingChoice::TranscribeAuto(_)
         | SettingChoice::TranscribeMaxSecs(_)
         | SettingChoice::TranscribeModel(_)
@@ -447,7 +454,8 @@ fn choose_transcription(state: &mut State, choice: SettingChoice) -> Vec<Effect>
         | SettingChoice::Title(_)
         | SettingChoice::ReduceMotion(_)
         | SettingChoice::BubblePadding(_)
-        | SettingChoice::MatchWidths(_) => vec![],
+        | SettingChoice::MatchWidths(_)
+        | SettingChoice::UpdateCheck(_) => vec![],
     }
 }
 
@@ -551,7 +559,8 @@ pub fn set_text(state: &mut State, setting: Setting, text: &str) -> Vec<Effect> 
         | Setting::Transcribe
         | Setting::TranscribeAuto
         | Setting::TranscribeMaxSecs
-        | Setting::Mouse => vec![],
+        | Setting::Mouse
+        | Setting::UpdateCheck => vec![],
     }
 }
 
@@ -626,6 +635,18 @@ fn choose_toggle(state: &mut State, choice: SettingChoice, on: bool) -> Vec<Effe
                 "Compact bubbles keep their own widths"
             };
             save_with_notice(state, key::MATCH_WIDTHS, msg)
+        }
+        SettingChoice::UpdateCheck(_) => {
+            let was_on = state.config.updates.check;
+            state.config.updates.check = on;
+            let msg = if on {
+                "Update checks on: faro asks GitHub at start and every 12 hours"
+            } else {
+                "Update checks off: faro talks only to Signal's servers"
+            };
+            let mut effects = save_with_notice(state, key::UPDATES_CHECK, msg);
+            effects.extend(updates::on_setting_changed(state, was_on));
+            effects
         }
         SettingChoice::Colors(_)
         | SettingChoice::Emoji(_)

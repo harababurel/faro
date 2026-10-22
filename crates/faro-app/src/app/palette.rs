@@ -25,6 +25,7 @@ use super::state::{
     ConversationAction, FileEntry, Focus, GraphicsBlocker, MUTE_CHOICES, MessageLayout, Section,
     SidebarView, State,
 };
+use super::updates::Unavailable;
 use crate::theme::{ColorDepth, Theme};
 
 /// How many recently used commands are remembered (and ranked higher).
@@ -156,6 +157,8 @@ pub enum SettingsGroup {
     /// Transcription: what applies depends on the mode (D145).
     VoiceNotes,
     Input,
+    /// Update checks (D148).
+    Updates,
 }
 
 /// A setting: on/off ones flip where they are, the others list their
@@ -187,6 +190,7 @@ pub enum Setting {
     TranscribeEndpoint,
     TranscribeRemoteModel,
     Mouse,
+    UpdateCheck,
 }
 
 impl Level {
@@ -251,7 +255,7 @@ impl Level {
 }
 
 impl SettingsGroup {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Appearance,
         Self::Messages,
         Self::Bubbles,
@@ -260,6 +264,7 @@ impl SettingsGroup {
         Self::Media,
         Self::VoiceNotes,
         Self::Input,
+        Self::Updates,
     ];
 
     pub const fn title(self) -> &'static str {
@@ -272,6 +277,7 @@ impl SettingsGroup {
             Self::Media => "Media",
             Self::VoiceNotes => "Voice notes",
             Self::Input => "Input",
+            Self::Updates => "Updates",
         }
     }
 
@@ -306,6 +312,7 @@ impl SettingsGroup {
                 Setting::TranscribeLanguage,
             ],
             Self::Input => &[Setting::Mouse],
+            Self::Updates => &[Setting::UpdateCheck],
         }
     }
 }
@@ -338,6 +345,7 @@ impl Setting {
             Self::TranscribeEndpoint => "Endpoint",
             Self::TranscribeRemoteModel => "Remote model",
             Self::Mouse => "Mouse",
+            Self::UpdateCheck => "Check for updates",
         }
     }
 
@@ -369,6 +377,7 @@ impl Setting {
             Self::TranscribeEndpoint => key::VOICE_TRANSCRIBE_URL,
             Self::TranscribeRemoteModel => key::VOICE_TRANSCRIBE_REMOTE_MODEL,
             Self::Mouse => key::MOUSE,
+            Self::UpdateCheck => key::UPDATES_CHECK,
         }
     }
 
@@ -410,6 +419,7 @@ impl Setting {
                 TranscribeMode::Local => Some("remote only"),
                 TranscribeMode::Remote => None,
             },
+            Self::UpdateCheck => state.update_checks_unavailable().map(Unavailable::reason),
             Self::Colors
             | Self::Emoji
             | Self::Layout
@@ -454,7 +464,8 @@ impl Setting {
             | Self::Transcribe
             | Self::TranscribeAuto
             | Self::TranscribeMaxSecs
-            | Self::Mouse => false,
+            | Self::Mouse
+            | Self::UpdateCheck => false,
         }
     }
 
@@ -468,7 +479,8 @@ impl Setting {
             | Self::Title
             | Self::Allowlist
             | Self::TranscribeAuto
-            | Self::Mouse => true,
+            | Self::Mouse
+            | Self::UpdateCheck => true,
             Self::Colors
             | Self::Emoji
             | Self::Layout
@@ -517,7 +529,8 @@ impl Setting {
             | Self::TranscribeCommand
             | Self::TranscribeEndpoint
             | Self::TranscribeRemoteModel
-            | Self::Mouse => false,
+            | Self::Mouse
+            | Self::UpdateCheck => false,
         }
     }
 }
@@ -550,6 +563,9 @@ pub enum PaletteCommand {
     ShowKeys,
     /// Show `Popup::About` (D94).
     About,
+    /// Open (or copy, over SSH) the notes of the release update checks
+    /// found (D148).
+    ReleaseNotes,
 }
 
 /// A value for a setting (D48); choosing it applies it and saves it to the
@@ -582,6 +598,7 @@ pub enum SettingChoice {
     Bell(bool),
     Title(bool),
     ReduceMotion(bool),
+    UpdateCheck(bool),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1326,6 +1343,13 @@ fn commands(state: &State) -> Vec<Item> {
         "Show keybindings",
         key(Action::Help, Focus::Input),
     ));
+    if let Some(release) = state.update_available() {
+        items.push(command(
+            PaletteCommand::ReleaseNotes,
+            format!("Release notes for faro {}", release.version),
+            None,
+        ));
+    }
     items.push(command(PaletteCommand::About, "About faro", None));
     items.push(global(Action::Quit, "Quit"));
     items
@@ -1677,7 +1701,8 @@ fn transcription_note(state: &State, level: Level) -> Option<String> {
             | Setting::Transcribe
             | Setting::TranscribeAuto
             | Setting::TranscribeMaxSecs
-            | Setting::Mouse => return None,
+            | Setting::Mouse
+            | Setting::UpdateCheck => return None,
         },
         Level::Root
         | Level::Chats
@@ -1777,7 +1802,8 @@ fn value_detail(state: &State, choice: SettingChoice) -> &'static str {
         | SettingChoice::Mouse(_)
         | SettingChoice::Bell(_)
         | SettingChoice::Title(_)
-        | SettingChoice::ReduceMotion(_) => "",
+        | SettingChoice::ReduceMotion(_)
+        | SettingChoice::UpdateCheck(_) => "",
     }
 }
 
@@ -1860,17 +1886,6 @@ fn values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)>
             state.config.messages.timestamps,
             SettingChoice::Timestamps,
         ),
-        Setting::ReduceMotion => on_off(SettingChoice::ReduceMotion, state.config.reduce_motion),
-        Setting::BubblePadding => on_off(
-            SettingChoice::BubblePadding,
-            state.config.messages.bubble_padding,
-        ),
-        Setting::MatchWidths => on_off(
-            SettingChoice::MatchWidths,
-            state.config.messages.match_widths,
-        ),
-        Setting::Bell => on_off(SettingChoice::Bell, state.config.notifications.bell),
-        Setting::Title => on_off(SettingChoice::Title, state.config.notifications.title),
         Setting::Desktop => choice_values(
             DesktopNotifications::ALL,
             state.config.notifications.desktop,
@@ -1903,8 +1918,57 @@ fn values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)>
         | Setting::TranscribeRemoteModel
         | Setting::TranscribeEndpoint
         | Setting::TranscribeLanguage => transcription_values(state, setting),
-        Setting::Mouse => on_off(SettingChoice::Mouse, state.config.mouse.enabled),
+        Setting::ReduceMotion
+        | Setting::BubblePadding
+        | Setting::MatchWidths
+        | Setting::Bell
+        | Setting::Title
+        | Setting::Mouse
+        | Setting::UpdateCheck => switch_values(state, setting),
     }
+}
+
+/// `on` and `off` for the plain on/off settings.
+fn switch_values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)> {
+    let config = &state.config;
+    let (make, current): (fn(bool) -> SettingChoice, bool) = match setting {
+        Setting::ReduceMotion => (SettingChoice::ReduceMotion, config.reduce_motion),
+        Setting::BubblePadding => (SettingChoice::BubblePadding, config.messages.bubble_padding),
+        Setting::MatchWidths => (SettingChoice::MatchWidths, config.messages.match_widths),
+        Setting::Bell => (SettingChoice::Bell, config.notifications.bell),
+        Setting::Title => (SettingChoice::Title, config.notifications.title),
+        Setting::Mouse => (SettingChoice::Mouse, config.mouse.enabled),
+        Setting::UpdateCheck => (SettingChoice::UpdateCheck, config.updates.check),
+        Setting::Colors
+        | Setting::Emoji
+        | Setting::Layout
+        | Setting::BubbleStyle
+        | Setting::Density
+        | Setting::Timestamps
+        | Setting::Desktop
+        | Setting::Privacy
+        | Setting::Allowlist
+        | Setting::InlineImages
+        | Setting::AutoDownload
+        | Setting::Transcribe
+        | Setting::TranscribeAuto
+        | Setting::TranscribeMaxSecs
+        | Setting::TranscribeModel
+        | Setting::TranscribeLanguage
+        | Setting::TranscribeCommand
+        | Setting::TranscribeEndpoint
+        | Setting::TranscribeRemoteModel => return Vec::new(),
+    };
+    [true, false]
+        .into_iter()
+        .map(|on| {
+            (
+                make(on),
+                if on { "on" } else { "off" }.into(),
+                on == current,
+            )
+        })
+        .collect()
 }
 
 /// The preset values of the transcription settings below the mode (D145).
@@ -1973,7 +2037,8 @@ fn transcription_values(state: &State, setting: Setting) -> Vec<(SettingChoice, 
         | Setting::AutoDownload
         | Setting::Transcribe
         | Setting::TranscribeAuto
-        | Setting::Mouse => Vec::new(),
+        | Setting::Mouse
+        | Setting::UpdateCheck => Vec::new(),
     }
 }
 

@@ -42,6 +42,11 @@ notify = "8.2.0"
 qrcode = { version = "0.14", default-features = false }
 # v4: kitty's per-run clipboard password and request ids (D91).
 uuid = { version = "1.27.0", features = ["v4"] }
+# Update checks (D148), behind the `update-check` feature. The same reqwest
+# and rustls (ring) libsignal-service already builds, so nothing new compiles.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"], optional = true }
+rustls = { version = "0.23", default-features = false, features = ["ring"], optional = true }
+serde_json = { version = "1.0.151", optional = true }
 
 # Linux only, off by default; see the `vendored-openssl` feature below. On
 # macOS SQLCipher uses Apple's CommonCrypto, so the feature does nothing there.
@@ -49,6 +54,11 @@ uuid = { version = "1.27.0", features = ["v4"] }
 libsqlite3-sys = { workspace = true, optional = true, features = ["bundled-sqlcipher-vendored-openssl"] }
 
 [features]
+default = ["update-check"]
+# Opt-in update checks (D148): `[updates] check = true` asks GitHub for the
+# latest release. Distro packages that don't want the code at all can build
+# with `--no-default-features`; the setting then says "not in this build".
+update-check = ["dep:reqwest", "dep:rustls", "dep:serde_json"]
 # Release builds (D133): build OpenSSL from source and link it statically
 # into the bundled SQLCipher, so prebuilt Linux binaries need no system
 # libcrypto. Distro packages (AUR `faro`/`faro-git`) leave this off and

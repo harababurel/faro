@@ -302,6 +302,14 @@ fn about(frame: &mut Frame<'_>, state: &State, view: &View<'_>) {
             Style::new().fg(theme.primary).add_modifier(Modifier::BOLD),
         ),
         (super::logo::TAGLINE.to_owned(), theme.muted()),
+    ];
+    if let Some(release) = state.update_available() {
+        rows.push((
+            format!("faro {} is available", release.version),
+            Style::new().fg(theme.accent),
+        ));
+    }
+    rows.extend([
         (String::new(), theme.muted()),
         (
             "https://getfaro.dev".to_owned(),
@@ -321,7 +329,7 @@ fn about(frame: &mut Frame<'_>, state: &State, view: &View<'_>) {
             "Themes: faro's own and OpenCode's (MIT)".to_owned(),
             theme.muted(),
         ),
-    ];
+    ]);
     let config_path = state.config_path.display().to_string();
     if !config_path.is_empty() {
         rows.push((format!("Config: {}", sanitize(&config_path)), theme.muted()));

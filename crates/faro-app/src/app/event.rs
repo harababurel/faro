@@ -14,6 +14,7 @@ use faro_core::domain::{
 use faro_core::store::{ConversationState, ConversationSummary, RecipientReceipt, SearchHit};
 
 use super::state::{Geometry, Notice};
+use super::updates::Release;
 use crate::theme::ThemeText;
 
 #[derive(Debug)]
@@ -145,10 +146,25 @@ pub enum AppEvent {
     /// counts in the store by this much (D70); answers
     /// `Effect::ReadElsewhere`.
     UnreadCleared(Vec<(ConversationId, u32)>),
+    /// Update checks (D148).
+    Updates(UpdateEvent),
     /// A deadline from `State::next_deadline` passed.
     Tick,
     /// SIGTERM or SIGHUP (e.g. the tmux pane was closed), or the terminal went away.
     Shutdown,
+}
+
+/// What update checks hear back (D148).
+#[derive(Debug)]
+pub enum UpdateEvent {
+    /// What the last run knew (`Effect::LoadUpdateState`): when GitHub was
+    /// last asked (seconds since the epoch) and the newest release it named.
+    StateLoaded {
+        checked_at: Option<i64>,
+        latest: Option<Release>,
+    },
+    /// GitHub's answer to `Effect::CheckForUpdate`; the error is safe to log.
+    Checked(Result<Release, String>),
 }
 
 /// Work the reducer asks for; run by the effects worker (`effects.rs`, store
@@ -199,6 +215,18 @@ pub enum Effect {
     SaveNickname(ServiceId, Option<String>),
     /// Store the reactions last sent from here, most recent first (D104).
     SaveRecentReactions(Vec<String>),
+    /// Read what the last run knew about updates (D148); answered with
+    /// `UpdateEvent::StateLoaded`.
+    LoadUpdateState,
+    /// Remember a successful update check (D148): when (seconds since the
+    /// epoch) and the release GitHub named.
+    SaveUpdateState {
+        checked_at: i64,
+        latest: Release,
+    },
+    /// Ask GitHub for the latest release (D148); answered with
+    /// `UpdateEvent::Checked`. Only the terminal app does this.
+    CheckForUpdate,
     /// Write a setting to the config file (D48); routed to the config writer.
     SaveSetting(SettingEdit),
     /// Ask the backend to do something; routed to the command task.

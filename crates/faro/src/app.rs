@@ -24,6 +24,7 @@ pub mod commands;
 mod effects;
 pub mod images;
 pub mod system;
+pub mod updates;
 
 // The shared app (state, reducer, key map, palette), as if it were here.
 pub use faro_app::app::{event, files, image_cache, keymap, state, term_event, update};
@@ -103,6 +104,7 @@ fn initial_state(directory: Directory, detected: state::Detected, startup: &mut 
         state.guard = state::Guard::On;
     }
     state.profile = startup.profile;
+    state.updates.built = updates::BUILT;
     state.attachments_dir.clone_from(&startup.attachments_dir);
     state.config_path.clone_from(&startup.path);
     sense_terminal(&mut state, detected);
@@ -460,6 +462,10 @@ impl Router {
                 );
                 true
             }
+            Effect::CheckForUpdate => {
+                updates::check(&self.results);
+                true
+            }
             Effect::SaveSetting(edit) => self.config.send(edit).is_ok(),
             store @ (Effect::LoadConversations
             | Effect::LoadMessages(_)
@@ -474,6 +480,8 @@ impl Router {
             | Effect::SaveConversationState(..)
             | Effect::SaveNickname(..)
             | Effect::SaveRecentReactions(_)
+            | Effect::LoadUpdateState
+            | Effect::SaveUpdateState { .. }
             | Effect::RememberOpen(_)) => self.effects.send(store).is_ok(),
         }
     }

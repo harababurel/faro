@@ -2461,3 +2461,4 @@ mod people;
 mod presence;
 mod settings;
 mod terminal;
+mod updates;

@@ -31,6 +31,7 @@ mod presence;
 pub(crate) mod selection;
 mod sending;
 mod settings;
+mod updates;
 
 pub use curation::mentions_toggle;
 pub use navigation::mouse_affects_view;
@@ -83,6 +84,7 @@ pub fn affects_view(event: &AppEvent) -> bool {
         | AppEvent::SettingNotSaved(_)
         | AppEvent::StoreFailed(_)
         | AppEvent::UnreadCleared(_)
+        | AppEvent::Updates(_)
         | AppEvent::Tick
         | AppEvent::Shutdown => true,
     }
@@ -184,6 +186,7 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
         AppEvent::Drawn(geometry) => on_drawn(state, geometry),
         AppEvent::StoreFailed(error) => notice_err(state, "Storage problem", Err(error)),
         AppEvent::UnreadCleared(cleared) => on_unread_cleared(state, &cleared),
+        AppEvent::Updates(event) => updates::on_event(state, event),
         AppEvent::Tick => on_tick(state),
         AppEvent::Shutdown => quit(state),
     }
@@ -228,6 +231,7 @@ fn on_tick(state: &mut State) -> Vec<Effect> {
     if draft_due {
         effects.extend(save_draft(state));
     }
+    effects.extend(updates::on_tick(state, now));
     effects
 }
 

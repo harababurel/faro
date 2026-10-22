@@ -7,14 +7,20 @@
 use faro_core::domain::ConversationId;
 use faro_core::store::{Store, StoreError};
 
-use super::event::{AppEvent, Effect};
+use super::event::{AppEvent, Effect, UpdateEvent};
 use super::update::PAGE;
+use super::updates::Release;
 
 /// `app_state` key of the conversation to reopen on start.
 const LAST_OPEN: &str = "ui.last_open_conversation";
 /// `app_state` key of the reactions last sent from here, most recent first,
 /// separated by spaces (D104).
 const RECENT_REACTIONS: &str = "ui.recent_reactions";
+/// `app_state` key of the last successful update check, in seconds since
+/// the epoch (D148).
+const UPDATES_CHECKED_AT: &str = "updates.checked_at";
+/// `app_state` key of the newest release it found: `"<version> <published_at>"`.
+const UPDATES_LATEST: &str = "updates.latest";
 
 /// Run one store effect; what the app loop should hear back, if anything. A
 /// failure is logged and reported as `AppEvent::StoreFailed`. Effects that
@@ -91,17 +97,20 @@ async fn run(store: &Store, effect: Effect) -> Result<Option<AppEvent>, StoreErr
             let cleared = store.read_elsewhere(messages).await?;
             (!cleared.is_empty()).then_some(AppEvent::UnreadCleared(cleared))
         }
+        Effect::LoadUpdateState => Some(load_update_state(store).await?),
         Effect::Persist(_)
         | Effect::SaveAttachment { .. }
         | Effect::SaveConversationState(..)
         | Effect::MarkRead(_)
         | Effect::RememberOpen(_)
         | Effect::SaveNickname(..)
-        | Effect::SaveRecentReactions(_) => {
+        | Effect::SaveRecentReactions(_)
+        | Effect::SaveUpdateState { .. } => {
             write(store, effect).await?;
             None
         }
         Effect::Backend(_)
+        | Effect::CheckForUpdate
         | Effect::Copy(_)
         | Effect::OpenUrl(_)
         | Effect::OpenFile(_)
@@ -122,6 +131,21 @@ async fn run(store: &Store, effect: Effect) -> Result<Option<AppEvent>, StoreErr
             None
         }
     })
+}
+
+/// What the last run knew about updates (D148).
+async fn load_update_state(store: &Store) -> Result<AppEvent, StoreError> {
+    Ok(AppEvent::Updates(UpdateEvent::StateLoaded {
+        checked_at: store
+            .app_state(UPDATES_CHECKED_AT)
+            .await?
+            .and_then(|t| t.trim().parse().ok()),
+        latest: store
+            .app_state(UPDATES_LATEST)
+            .await?
+            .as_deref()
+            .and_then(Release::from_stored),
+    }))
 }
 
 async fn write(store: &Store, effect: Effect) -> Result<(), StoreError> {
@@ -147,7 +171,17 @@ async fn write(store: &Store, effect: Effect) -> Result<(), StoreError> {
                 .set_app_state(RECENT_REACTIONS, &recent.join(" "))
                 .await
         }
+        Effect::SaveUpdateState { checked_at, latest } => {
+            store
+                .set_app_state(UPDATES_CHECKED_AT, &checked_at.to_string())
+                .await?;
+            store
+                .set_app_state(UPDATES_LATEST, &latest.to_stored())
+                .await
+        }
         Effect::LoadConversations
+        | Effect::LoadUpdateState
+        | Effect::CheckForUpdate
         | Effect::LoadMessages(_)
         | Effect::LoadOlder { .. }
         | Effect::LoadMessagesAround { .. }

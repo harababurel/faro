@@ -217,6 +217,7 @@ pub struct Config {
     pub voice: Voice,
     pub notifications: Notifications,
     pub mouse: Mouse,
+    pub updates: Updates,
     /// `[keybindings.<context>]` entries in file order, unchecked.
     pub keybindings: Vec<Keybinding>,
 }
@@ -327,6 +328,14 @@ pub struct Mouse {
     pub enabled: bool,
 }
 
+/// Update checks (D148).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Updates {
+    /// Ask GitHub for the latest release. Off by default: faro talks only to
+    /// Signal's servers unless asked to.
+    pub check: bool,
+}
+
 /// `[keybindings.<context>] "<key>" = "<action>"`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Keybinding {
@@ -355,6 +364,7 @@ impl Default for Config {
                 privacy: NotificationPrivacy::default(),
             },
             mouse: Mouse { enabled: true },
+            updates: Updates::default(),
             keybindings: Vec::new(),
         }
     }
@@ -389,6 +399,7 @@ pub mod key {
     pub const TITLE: &str = "notifications.title";
     pub const DESKTOP: &str = "notifications.desktop";
     pub const PRIVACY: &str = "notifications.privacy";
+    pub const UPDATES_CHECK: &str = "updates.check";
 }
 
 /// A setting's value, as written in the file.
@@ -734,6 +745,17 @@ pub static SETTINGS: &[Setting] = &[
         get: |c| ConfigValue::Bool(c.mouse.enabled),
         set: |c, v| {
             c.mouse.enabled = boolean(v)?;
+            Ok(())
+        },
+    },
+    Setting {
+        path: key::UPDATES_CHECK,
+        help: "Tell me when a new faro release is out: faro asks GitHub (api.github.com) for \
+               the latest release at start and every 12 hours, sending nothing but its \
+               version. Off: faro talks only to Signal's servers.",
+        get: |c| ConfigValue::Bool(c.updates.check),
+        set: |c, v| {
+            c.updates.check = boolean(v)?;
             Ok(())
         },
     },

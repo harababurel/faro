@@ -726,6 +726,7 @@ fn run(state: &mut State, command: PaletteCommand) -> Vec<Effect> {
             state.popup = Some(crate::app::state::Popup::About);
             vec![]
         }
+        (PaletteCommand::ReleaseNotes, _) => super::updates::release_notes(state),
     }
 }
 

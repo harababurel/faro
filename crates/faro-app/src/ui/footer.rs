@@ -163,6 +163,14 @@ pub fn render(
         left.push(Span::styled(" · ", theme.muted()));
         left.push(Span::styled(BELL_OFF, Style::new().fg(theme.warning)));
     }
+    if let Some(release) = state.update_available() {
+        // A newer release (D148): quiet, after the notice at launch.
+        left.push(Span::styled(" · ", theme.muted()));
+        left.push(Span::styled(
+            format!("↑ {}", release.version),
+            Style::new().fg(theme.accent),
+        ));
+    }
     let unread = state.unread_total(view.now_timestamp());
     if unread > 0 {
         left.push(Span::styled(" · ", theme.muted()));

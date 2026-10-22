@@ -254,7 +254,7 @@ fn prefixes_jump_into_a_category() {
 }
 
 /// `Settings ›` with nothing typed: every setting under its section.
-const SETTINGS_LIST: [&str; 33] = [
+const SETTINGS_LIST: [&str; 35] = [
     "Appearance",
     "Colours",
     "Emoji",
@@ -288,6 +288,8 @@ const SETTINGS_LIST: [&str; 33] = [
     "Language",
     "Input",
     "Mouse",
+    "Updates",
+    "Check for updates",
 ];
 
 #[test]

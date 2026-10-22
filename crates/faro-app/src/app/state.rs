@@ -203,6 +203,8 @@ pub struct State {
     pub profile: Profile,
     /// Optional backend features supported by the active backend.
     pub capabilities: Capabilities,
+    /// Update checks (D148): what's known, and when to ask next.
+    pub updates: crate::app::updates::Updates,
 }
 
 #[derive(Debug)]
@@ -871,6 +873,7 @@ impl State {
             guard: Guard::Off,
             profile: Profile::Signal,
             capabilities: Capabilities::all(),
+            updates: crate::app::updates::Updates::default(),
         };
         state.recount_names();
         state
@@ -1381,8 +1384,8 @@ impl State {
     }
 
     /// When the reducer next needs a `Tick` (a typing indicator expiring, a
-    /// draft to save, a notice to clear, "stopped typing" to send, or voice
-    /// note playback progress).
+    /// draft to save, a notice to clear, "stopped typing" to send, voice
+    /// note playback progress, or the next update check, D148).
     pub fn next_deadline(&self) -> Option<Instant> {
         let typing = self
             .typing
@@ -1409,6 +1412,7 @@ impl State {
             .chain(notice)
             .chain(typing_sent)
             .chain(playing)
+            .chain(self.updates.next_check)
             .min()
     }
 }
