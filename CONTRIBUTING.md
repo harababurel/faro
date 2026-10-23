@@ -48,6 +48,8 @@ cargo test
 
 Clippy runs with pedantic lints and project rules: no panics (`unwrap`, `expect`, indexing), no blocking calls on the UI thread, no `print!`. An exception needs `#[expect(lint, reason = "…")]` with a real reason.
 
+CI also runs `cargo deny check` (install with `cargo install cargo-deny --locked`): known vulnerabilities, licences and where crates come from, configured in [deny.toml](deny.toml). If it fails on a vulnerability, `cargo update -p <crate>` usually fixes it; a new dependency with a licence that isn't listed needs a look before it's added. Dependabot opens a grouped update PR each week; merge it once CI passes.
+
 Changes to how faro draws on screen (layout, colours, emoji, images, mouse, keys) can't be fully checked by tests. Say how you checked them, and add a step to [docs/MANUAL_TESTS.md](docs/MANUAL_TESTS.md) if it's worth repeating.
 
 ## Ground rules

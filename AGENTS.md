@@ -186,6 +186,7 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 - 2026-10-14: D140 (owner's choices after a visitor's feedback): getfaro.dev polish. The poster is sized to the live canvas from the start (`demo.js` `fitPoster`, `.frame.fitted`), caption rows reserved (`.reserved`), canvas fades in (`.settled`); CTA label set once at load; theme chips → `<select id="demo-theme">` filled from `Demo::themes()` (`faro_web::themes`), `faro-site` `themes.rs` removed; motion button removed; page theme is a system/light/dark switch (`#scheme`, `site.js`); hero title/CTA/facts fixes; short footer. The browser suite doesn't run on the agent's machine (navigation timeouts; CI runs it). Not deployed.
 - 2026-10-14: D141 (owner's choice): donations via GitHub Sponsors and Liberapay (`harababurel` on both): `.github/FUNDING.yml`, README "Supporting faro", site footer link "Support faro" (link only, no widget). Both profiles live; pushed.
 - 2026-10-21: D148 (owner's choices): opt-in update checks. `[updates] check` (default off; README/site "No telemetry" lines name it as the second exception); reducer side in `app/update/updates.rs` (`Effect::{LoadUpdateState, SaveUpdateState, CheckForUpdate}`, `AppEvent::Updates`, `State::updates`/`update_available`), request in the binary's `app/updates.rs` behind the default `update-check` feature (reqwest/rustls already in the tree). Never in the demo or pre-release builds. Owner's hands-on checks pending (MANUAL_TESTS "Update checks").
+- 2026-10-23: D149 (owner's choices): `cargo deny` in CI (`deny.toml`, job `deny`; push/PR only), weekly grouped Dependabot PRs (`.github/dependabot.yml`, lockfile-only, presage ignored), every Action pinned to a commit SHA (re-pin `release.yml` by hand after a dist upgrade), protoc zips checked against pinned SHA-256s, release attestations (`github-attestations`, inserted by hand into `release.yml`). The first `cargo deny` run found 7 advisories (rustls, rustls-webpki, webpki-root-certs, ctutils), fixed by patch updates; released as 0.1.5. The owner turns on Dependabot security updates in the repository settings.
 
 ### Gotchas found so far
 
@@ -278,6 +279,7 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 | `docs/MANUAL_TESTS.md` | Hands-on checklist for things agents can't verify (rule 10) |
 | `packaging/aur/faro-git/` | AUR PKGBUILD for the development version (D85); test on Arch with `makepkg -si`, check with `namcap` |
 | `.github/workflows/ci.yml` | fmt, clippy `-D warnings`, test on ubuntu + macos (`--locked`); `wasm32` job: clippy faro-core (`--no-default-features`), faro-app and faro-web, then `crates/faro-web/build.sh` and a 1.5 MB gzipped size budget (D119) |
+| `deny.toml`, `.github/dependabot.yml` | Dependency policy (D149): cargo-deny advisories/licences/sources; weekly grouped Dependabot PRs for `Cargo.lock` and Actions |
 
 ## Rules
 
