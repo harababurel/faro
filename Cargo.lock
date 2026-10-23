@@ -1213,7 +1213,7 @@ dependencies = [
 
 [[package]]
 name = "faro"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -1247,7 +1247,7 @@ dependencies = [
 
 [[package]]
 name = "faro-app"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "bitflags 2.13.2",
  "faro-core",
@@ -1264,7 +1264,7 @@ dependencies = [
 
 [[package]]
 name = "faro-core"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "base64 0.22.1",
  "etcetera",
@@ -1285,7 +1285,7 @@ dependencies = [
 
 [[package]]
 name = "faro-presage"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "faro-core",
  "futures",
@@ -1302,7 +1302,7 @@ dependencies = [
 
 [[package]]
 name = "faro-site"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "faro-app",
  "faro-core",
@@ -1319,7 +1319,7 @@ dependencies = [
 
 [[package]]
 name = "faro-web"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "faro-app",
  "faro-core",
