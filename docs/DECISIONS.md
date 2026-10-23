@@ -1491,3 +1491,4 @@ A developer friend of the owner tried getfaro.dev; the owner agreed with all of 
   - Preferring the system clipboard over the terminal locally: one rule everywhere is easier to explain, and the terminal's prompt stays where the terminal offers one.
   - Off by default: most Ghostty users would never find the setting.
   - Paste events (`CSI ? 5522 h`, Ghostty supports them on macOS): still D89 Phase 3, with its tmux risks.
+- **Released in 0.1.6** (2026-10-23).
