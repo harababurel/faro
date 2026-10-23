@@ -1,0 +1,65 @@
+# cargo-deny (D149): run in CI on every push and pull request.
+# `cargo deny check` locally (install: `cargo install cargo-deny --locked`).
+#
+# Any exception added here needs a comment saying why.
+
+[graph]
+all-features = true
+
+[advisories]
+# Vulnerable or yanked crates fail the check. Unmaintained crates fail only
+# when faro depends on them directly; deep in presage/libsignal there's
+# nothing faro can do about them, and GitHub's Dependabot alerts still
+# report new advisories between pushes.
+unmaintained = "workspace"
+yanked = "deny"
+ignore = []
+
+[licenses]
+# faro is AGPL-3.0-only. Everything here is compatible with it; a crate
+# offering several licences (e.g. "Apache-2.0 OR GPL-2.0-only") passes when
+# one of them is listed.
+allow = [
+    "0BSD",
+    "AGPL-3.0-only",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-1-Clause",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+confidence-threshold = 0.93
+
+[licenses.private]
+# faro's own crates aren't published (publish = false).
+ignore = true
+
+[bans]
+# Duplicate versions aren't checked: libsignal pins its own crypto crates
+# and Windows-only crates come in several versions, so dozens of warnings
+# would bury real findings and none of them would be actionable.
+multiple-versions = "allow"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+# Signal's own crates and the whisperfish projects faro builds on (D4, D63),
+# always pinned to a commit in Cargo.toml.
+allow-git = [
+    "https://github.com/signalapp/libsignal",
+    "https://github.com/signalapp/SparsePostQuantumRatchet.git",
+    "https://github.com/whisperfish/libsignal-service-rs",
+    "https://github.com/whisperfish/presage",
+    "https://github.com/whisperfish/rusqlite",
+]

@@ -26,7 +26,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       # Installs the toolchain pinned in rust-toolchain.toml (with rustfmt and clippy).
       - name: Install Rust
@@ -40,7 +40,7 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install protobuf
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Format
         run: cargo fmt --all --check
@@ -51,18 +51,37 @@ jobs:
       - name: Test
         run: cargo test --locked
 
+  # Dependencies (D149): known vulnerabilities, licences, and where crates
+  # come from, against the committed Cargo.lock. Config in deny.toml.
+  deny:
+    name: cargo deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      # Installs the toolchain pinned in rust-toolchain.toml (cargo metadata).
+      - name: Install Rust
+        run: rustup toolchain install && rustc --version
+
+      - uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2.87.30
+        with:
+          tool: cargo-deny@0.20.2
+
+      - name: cargo deny
+        run: cargo deny --locked check
+
   # The shared code builds for the browser (M13): no protoc needed, nothing native.
   wasm:
     name: wasm32
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       # Installs the toolchain and the wasm32 target pinned in rust-toolchain.toml.
       - name: Install Rust
         run: rustup toolchain install && rustc --version
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Clippy (faro-core, wasm32)
         run: cargo clippy -p faro-core --target wasm32-unknown-unknown --no-default-features --locked -- -D warnings
@@ -80,7 +99,7 @@ jobs:
         id: bindgen
         run: echo "version=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/version = |"/, ""); print; exit }' Cargo.lock)" >> "$GITHUB_OUTPUT"
 
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2.87.30
         with:
           tool: wasm-bindgen@${{ steps.bindgen.outputs.version }}
 
@@ -104,11 +123,11 @@ jobs:
     # the suite itself budgets 180 s (GitHub runners are slower than local); 30 min is the job's safety margin.
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       # The site checks include Node harnesses (analytics regression,
       # browser_test.mjs): Node 22 for its built-in WebSocket/fetch.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
 
@@ -118,7 +137,7 @@ jobs:
       - name: Install Rust
         run: rustup toolchain install && rustc --version
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       # site/build.sh runs crates/faro-web/build.sh, which needs
       # wasm-bindgen-cli at the wasm-bindgen crate's version.
@@ -126,7 +145,7 @@ jobs:
         id: bindgen
         run: echo "version=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/version = |"/, ""); print; exit }' Cargo.lock)" >> "$GITHUB_OUTPUT"
 
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2.87.30
         with:
           tool: wasm-bindgen@${{ steps.bindgen.outputs.version }}
 
@@ -170,7 +189,7 @@ jobs:
       # the report; warn (not fail) when the folder is absent.
       - name: Upload browser artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: browser-report
           path: ${{ runner.temp }}/browser/

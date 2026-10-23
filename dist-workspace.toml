@@ -14,6 +14,9 @@ cargo-dist-version = "0.33.0"
 allow-dirty = ["ci"]
 # CI backends to support
 ci = "github"
+# Signed build provenance for the archives (D149); verify with
+# `gh attestation verify <archive> -R harababurel/faro`.
+github-attestations = true
 # Where to host releases
 hosting = "github"
 # Only the faro binary ships. The workspace crates are publish = false,

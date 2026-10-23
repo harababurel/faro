@@ -1,0 +1,42 @@
+# Dependabot version updates (D149): one grouped PR per week for crates and
+# one for GitHub Actions. CI runs on each; nothing merges by itself.
+# Security fixes come separately, as soon as an advisory has one (the
+# repository's Dependabot security updates setting).
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    # Only Cargo.lock moves, within the ranges in Cargo.toml: no breaking
+    # bumps (majors, and 0.x "minor" ones). Those are done by hand.
+    versioning-strategy: lockfile-only
+    # A release must be a few days old before it's proposed, so a
+    # compromised one that gets yanked quickly never reaches a PR.
+    cooldown:
+      default-days: 3
+    allow:
+      - dependency-type: all
+    ignore:
+      # Pinned to commits and bumped by hand after reading upstream and
+      # testing with a real account (D147).
+      - dependency-name: presage
+      - dependency-name: presage-store-sqlite
+      - dependency-name: libsqlite3-sys
+    groups:
+      crates:
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    # Actions are pinned to commit SHAs; Dependabot moves the SHA and the
+    # version comment together.
+    cooldown:
+      default-days: 3
+    groups:
+      actions:
+        patterns: ["*"]
