@@ -1,9 +1,8 @@
 //! Terminal setup and teardown. The terminal is always restored: on drop, and
-//! from a panic hook (otherwise a panic would leave the shell in raw mode with
-//! mouse reporting on). That includes the window title (D49).
+//! from the panic hook in `crash.rs` (otherwise a panic would leave the shell
+//! in raw mode with mouse reporting on). That includes the window title (D49).
 
 use std::io::{self, Stdout, Write as _, stdout};
-use std::sync::Once;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crossterm::event::{
@@ -45,7 +44,7 @@ static TITLED: AtomicBool = AtomicBool::new(false);
 impl Tui {
     /// Raw mode, alternate screen, mouse capture if `mouse` (DESIGN.md §7.5).
     pub fn enter(mouse: bool) -> io::Result<Self> {
-        install_panic_hook();
+        crate::crash::install(restore);
         let setup = || -> io::Result<Self> {
             enable_raw_mode()?;
             // Bracketed paste: a multi-line paste arrives as one event, not as
@@ -227,17 +226,6 @@ fn restore() {
         LeaveAlternateScreen,
         cursor::Show
     );
-}
-
-fn install_panic_hook() {
-    static ONCE: Once = Once::new();
-    ONCE.call_once(|| {
-        let previous = std::panic::take_hook();
-        std::panic::set_hook(Box::new(move |info| {
-            restore();
-            previous(info);
-        }));
-    });
 }
 
 #[cfg(test)]

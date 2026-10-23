@@ -1,6 +1,7 @@
 mod app;
 mod cli;
 mod config;
+mod crash;
 mod frames;
 mod logging;
 mod signal;
@@ -48,7 +49,7 @@ fn main() -> anyhow::Result<()> {
     paths
         .ensure_data_dirs()
         .with_context(|| format!("creating data directory {}", paths.data_dir().display()))?;
-    let (_log_guard, _log_file) = logging::init(&paths.log_dir())?;
+    let (_log_guard, log_file) = logging::init(&paths.log_dir())?;
     // Reads TZ or /etc/localtime once, before the UI; falls back to UTC.
     let tz = jiff::tz::TimeZone::system();
     let config_file = paths.config_file().to_owned();
@@ -119,6 +120,12 @@ fn main() -> anyhow::Result<()> {
         };
         store.close().await.context("closing the database")?;
         tracing::info!("faro exiting");
+        if crash::crashed() {
+            anyhow::bail!(
+                "faro stopped after an internal error; the details are in {}",
+                log_file.display()
+            );
+        }
         result
     })
 }

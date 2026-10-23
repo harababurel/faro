@@ -356,10 +356,13 @@ impl Images {
             let tx = self.decoded_tx.clone();
             tokio::spawn(async move {
                 let k = key.clone();
-                let protocol = tokio::task::spawn_blocking(move || decode_and_slice(&picker, &k))
-                    .await
-                    .ok()
-                    .flatten();
+                // Someone else's picture: a decoder panic mustn't stop faro (D151).
+                let protocol = tokio::task::spawn_blocking(move || {
+                    crate::crash::contained(|| decode_and_slice(&picker, &k)).flatten()
+                })
+                .await
+                .ok()
+                .flatten();
                 let _ = tx.send(DecodedImage {
                     key,
                     generation,

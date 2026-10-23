@@ -67,6 +67,11 @@ disallowed_methods = "warn"
 [patch.crates-io]
 libsqlite3-sys = { git = "https://github.com/whisperfish/rusqlite", rev = "2a42b3354c9194700d08aa070f70a131a470e7dc" }
 
+# A contact list from another linked presage client could panic the receive
+# loop (D151). Fixed on our fork until upstream merges it; drop this then.
+[patch."https://github.com/whisperfish/libsignal-service-rs"]
+libsignal-service = { git = "https://github.com/harababurel/libsignal-service-rs", rev = "7a8c7fa4f3b3c88d0ea385fc88033d2742a99d8d" }
+
 [profile.release]
 lto = "thin"
 strip = true

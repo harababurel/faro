@@ -146,10 +146,14 @@ async fn fetch<B: Backend>(
         && (attachment.duration_secs.is_none() || attachment.waveform.is_none());
     let (path, dims, wav_info, fallback_waveform) = tokio::task::spawn_blocking(move || {
         let dims = if needs_dims {
-            image::ImageReader::new(std::io::Cursor::new(&bytes))
-                .with_guessed_format()
-                .ok()
-                .and_then(|r| r.into_dimensions().ok())
+            // Someone else's picture: a decoder panic mustn't stop faro (D151).
+            crate::crash::contained(|| {
+                image::ImageReader::new(std::io::Cursor::new(&bytes))
+                    .with_guessed_format()
+                    .ok()
+                    .and_then(|r| r.into_dimensions().ok())
+            })
+            .flatten()
         } else {
             None
         };

@@ -62,4 +62,6 @@ allow-git = [
     "https://github.com/whisperfish/libsignal-service-rs",
     "https://github.com/whisperfish/presage",
     "https://github.com/whisperfish/rusqlite",
+    # Our fork, for the contact-list fix (D151) until upstream merges it.
+    "https://github.com/harababurel/libsignal-service-rs",
 ]

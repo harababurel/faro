@@ -645,3 +645,13 @@ With a release build, a scratch `--data-dir` and `--config` (or your own; the ch
 - [ ] **Demo:** in `faro demo` the switch is dimmed with "not in the demo".
 
 Notes (version, OS, what went wrong):
+
+## Contact sync between faro instances (D151)
+
+Two machines linked to the same account, both on a build with the fix.
+
+- [ ] Start faro on machine A, then on machine B. Neither crashes; B's log has `contacts synced from the phone` twice (the phone's list and A's), and maybe `contact avatar runs past the end of the contact list` for A's.
+- [ ] Restart A while B runs: same, the other way round.
+- [ ] Contacts and their names are unchanged on both (A's list never overwrites the phone's with junk).
+
+Notes (version, OS, what went wrong):

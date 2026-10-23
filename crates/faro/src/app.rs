@@ -212,6 +212,9 @@ pub async fn run<B: Backend + 'static>(
                 paste.begin(&mut input, request, dir, &router.results);
                 continue;
             }
+            // A panic elsewhere already gave the terminal back: leave now,
+            // before another frame lands on the shell (D151).
+            () = crate::crash::stopped() => break,
             Some(event) = backend_events.recv() => vec![AppEvent::Backend(event)],
             Some(event) = results.recv() => vec![event],
             Some((answer, clients)) = probe_rx.recv() => {
