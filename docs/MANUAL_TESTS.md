@@ -648,10 +648,10 @@ Notes (version, OS, what went wrong):
 
 ## Contact sync between faro instances (D151)
 
-Two machines linked to the same account, both on a build with the fix.
+Two machines linked to the same account, both on a build with the fix. Owner, 2026-10-23: all pass with 0.1.7 on the Mac mini and the Linux home server.
 
-- [ ] Start faro on machine A, then on machine B. Neither crashes; B's log has `contacts synced from the phone` twice (the phone's list and A's), and maybe `contact avatar runs past the end of the contact list` for A's.
-- [ ] Restart A while B runs: same, the other way round.
-- [ ] Contacts and their names are unchanged on both (A's list never overwrites the phone's with junk).
+- [x] Start faro on machine A, then on machine B. Neither crashes; B's log has `contacts synced from the phone` twice (the phone's list and A's), and maybe `contact avatar runs past the end of the contact list` for A's.
+- [x] Restart A while B runs: same, the other way round.
+- [x] Contacts and their names are unchanged on both (A's list never overwrites the phone's with junk).
 
 Notes (version, OS, what went wrong):
