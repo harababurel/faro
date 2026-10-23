@@ -291,9 +291,100 @@ fn picks_the_best_image_type() {
         best_image_type(&types(&["image/webp", "image/gif"])),
         Some("image/gif")
     );
-    assert_eq!(best_image_type(&types(&["text/plain", "image/tiff"])), None);
+    assert_eq!(
+        best_image_type(&types(&["text/plain", "image/tiff"])),
+        Some("image/tiff")
+    );
+    assert_eq!(
+        best_image_type(&types(&["image/tiff", "image/png"])),
+        Some("image/png")
+    );
+    assert_eq!(best_image_type(&types(&["text/plain"])), None);
     assert_eq!(image_extension("image/jpeg"), Some("jpg"));
+    assert_eq!(image_extension("image/tiff"), Some("tiff"));
     assert_eq!(image_extension("text/plain"), None);
+}
+
+/// Ghostty's type list (D150): the empty one has no payload, a full one ends
+/// with a newline.
+#[test]
+fn reads_ghosttys_type_lists() {
+    let mut empty = Reader::new(MB, Some("faro-1"));
+    empty.feed(b"\x1b]5522;type=read:status=OK:id=faro-1\x1b\\");
+    empty.feed(b"\x1b]5522;type=read:status=DATA:id=faro-1:mime=Lg==\x1b\\");
+    empty.feed(b"\x1b]5522;type=read:status=DONE:id=faro-1\x1b\\");
+    assert_eq!(empty.finish().map(|c| c.types()), Ok(vec![]));
+
+    let mut full = Reader::new(MB, Some("faro-1"));
+    full.feed(b"\x1b]5522;type=read:status=OK:id=faro-1\x1b\\");
+    full.feed(&packet(
+        "status=DATA:id=faro-1:mime=Lg==",
+        Some(b"text/plain image/tiff\n"),
+    ));
+    full.feed(b"\x1b]5522;type=read:status=DONE:id=faro-1\x1b\\");
+    let types = full.finish().map(|c| c.types());
+    assert_eq!(
+        types,
+        Ok(vec!["text/plain".to_owned(), "image/tiff".to_owned()])
+    );
+}
+
+#[test]
+fn support_answers_say_yes_no_or_nothing() {
+    // Ghostty tip on macOS (mode known, reset), then the status report.
+    let mut yes = SupportReader::default();
+    yes.feed(b"\x1b[?5522;2$y\x1b[0n");
+    assert!(yes.supported());
+    assert_eq!(yes.answered(), 1);
+
+    // Ghostty 1.3.1, Ghostty on Linux: mode unknown.
+    let mut no = SupportReader::default();
+    no.feed(b"\x1b[?5522;0$y\x1b[0n");
+    assert!(!no.supported());
+    assert_eq!(no.answered(), 1);
+
+    // A terminal that ignores the mode query, answered byte by byte, with a
+    // focus report in between and a stray key.
+    let mut silent = SupportReader::default();
+    for byte in b"x\x1b[I\x1b[0n" {
+        silent.feed(&[*byte]);
+    }
+    assert!(!silent.supported());
+    assert_eq!(silent.answered(), 1);
+    assert_eq!(silent.take_focus(), vec![Focus::Gained]);
+
+    // Permanently reset counts as no; under tmux one yes among two answers
+    // is enough.
+    let mut two = SupportReader::default();
+    two.feed(b"\x1b[?5522;4$y\x1b[0n");
+    assert!(!two.supported());
+    two.feed(b"\x1b[?5522;1$y\x1b[0n");
+    assert!(two.supported());
+    assert_eq!(two.answered(), 2);
+
+    // Nothing yet: not answered.
+    let mut nothing = SupportReader::default();
+    nothing.feed(b"\x1b[?55");
+    assert_eq!(nothing.answered(), 0);
+}
+
+/// Rule 9 (D27): random input never panics or grows the buffer unbounded.
+#[test]
+fn support_reader_survives_random_input() {
+    let mut rng = fastrand::Rng::with_seed(7);
+    let mut reader = SupportReader::default();
+    for _ in 0..2_000 {
+        let bytes: Vec<u8> = (0..rng.usize(0..64))
+            .map(|_| match rng.u8(0..8) {
+                0 => ESC,
+                1 => b'[',
+                2 => b']',
+                _ => rng.u8(..),
+            })
+            .collect();
+        reader.feed(&bytes);
+        assert!(reader.buf.len() <= MAX_PACKET + 64);
+    }
 }
 
 /// Rule 9 (D27): whatever arrives, the reader never panics, never stores more

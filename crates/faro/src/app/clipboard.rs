@@ -1,6 +1,9 @@
-//! Pasting an image from the clipboard (D89, D90, D91): `Ctrl+V` asks kitty
-//! for the clipboard over OSC 5522 and stages the image like a pasted file. It
-//! is never sent without the user pressing Enter.
+//! Pasting an image from the clipboard (D89, D90, D91, D150): `Ctrl+V` asks
+//! the terminal for the clipboard over OSC 5522 (kitty, or any terminal that
+//! says it knows the protocol, such as newer Ghostty) or, when it can't and
+//! faro runs on the user's computer, reads that computer's clipboard
+//! ([`system`]). The image is staged like a pasted file and never sent
+//! without the user pressing Enter.
 //!
 //! How the reply is read (D90): the app loop drops its `EventStream` before
 //! calling [`start`], this module waits for crossterm's reader to let go
@@ -12,6 +15,7 @@
 //! reads the rest the same way.
 
 mod guard;
+mod system;
 pub(super) mod tty;
 
 use std::io::Write;
@@ -27,12 +31,29 @@ use tokio::sync::mpsc;
 use self::guard::{Filtered, LateGuard};
 use self::tty::{Failure, Tty};
 use super::event::{AppEvent, ClipboardError};
-use super::state::StagedAttachment;
+use super::state::{StagedAttachment, Terminal};
 use super::term_event::Event;
 
 /// The largest image faro takes from the clipboard (owner, D91): the same as
 /// the automatic image download limit.
 pub const MAX_IMAGE: usize = 25 * 1024 * 1024;
+/// TIFF is uncompressed, so it may arrive this large; the PNG it becomes
+/// must still fit [`MAX_IMAGE`] (D150).
+const MAX_TIFF: usize = 100 * 1024 * 1024;
+
+/// The most taken of `mime` before converting it.
+fn limit_for(mime: &str) -> usize {
+    if mime == protocol::TIFF {
+        MAX_TIFF
+    } else {
+        MAX_IMAGE
+    }
+}
+
+/// How long the terminal has to answer whether it knows OSC 5522 (it always
+/// answers the status report at once; this covers slow SSH links and tmux
+/// without `allow-passthrough`, which drops the question).
+const SUPPORT_WAIT: Duration = Duration::from_secs(3);
 
 /// How long kitty has to answer the type list (no prompt; covers slow SSH).
 const LIST_WAIT: Duration = Duration::from_secs(5);
@@ -82,6 +103,14 @@ impl Cancel {
     }
 }
 
+/// `Effect::ReadClipboardImage`, for the app loop.
+#[derive(Debug, Clone, Copy)]
+pub struct Request {
+    pub conversation: ConversationId,
+    /// The computer's own clipboard may be read (D150).
+    pub system: bool,
+}
+
 /// The app loop's side of pasting (D90, D91): pausing and resuming input,
 /// the late-reply guard, cancelling at exit.
 #[derive(Default)]
@@ -96,18 +125,13 @@ impl Paste {
     pub fn begin(
         &mut self,
         input: &mut Option<EventStream>,
-        conversation: ConversationId,
+        request: Request,
         attachments_dir: PathBuf,
         results: &mpsc::UnboundedSender<AppEvent>,
     ) {
         *input = None;
         self.guard.arm();
-        self.cancel = start(
-            &mut self.session,
-            conversation,
-            attachments_dir,
-            results.clone(),
-        );
+        self.cancel = start(&mut self.session, request, attachments_dir, results.clone());
     }
 
     /// A terminal event, through the late-reply guard.
@@ -159,15 +183,20 @@ impl Paste {
     }
 }
 
-/// Start reading the clipboard for `conversation`. The app loop has already
-/// dropped its `EventStream`; [`AppEvent::ClipboardImage`] always comes back
-/// (after any focus reports), so the loop knows when to make a new one.
+/// Start reading the clipboard for the request's conversation. The app loop
+/// has already dropped its `EventStream`; [`AppEvent::ClipboardImage`] always
+/// comes back (after any focus reports), so the loop knows when to make a
+/// new one.
 pub fn start(
     session: &mut Session,
-    conversation: ConversationId,
+    request: Request,
     attachments_dir: PathBuf,
     results: mpsc::UnboundedSender<AppEvent>,
 ) -> Option<Cancel> {
+    let Request {
+        conversation,
+        system,
+    } = request;
     let finish = move |results: &mpsc::UnboundedSender<AppEvent>, result| {
         let _ = results.send(AppEvent::ClipboardImage {
             conversation,
@@ -186,7 +215,14 @@ pub fn start(
     let credentials = session.credentials.clone();
     tokio::spawn(async move {
         let mut focus = Vec::new();
-        let result = read(tty, ids, credentials, attachments_dir, &mut focus).await;
+        let read = Read {
+            ids,
+            credentials,
+            dir: attachments_dir,
+            system,
+            results: results.clone(),
+        };
+        let result = read.run(tty, &mut focus).await;
         send_focus(&results, focus);
         finish(&results, result);
     });
@@ -235,17 +271,6 @@ fn send_focus(results: &mpsc::UnboundedSender<AppEvent>, focus: Vec<Focus>) {
     }
 }
 
-/// Whether kitty can be reached: directly, or as one of the clients attached
-/// to faro's tmux session (D91 asks every one of them), and not over mosh.
-async fn reachable() -> Result<(), ClipboardError> {
-    let terminal = super::system::inspect_terminal().await;
-    match (terminal.kitty, terminal.mosh) {
-        (true, _) => Ok(()),
-        (false, true) => Err(ClipboardError::Mosh),
-        (false, false) => Err(ClipboardError::NotKitty),
-    }
-}
-
 /// Run `work` on a blocking thread.
 async fn blocking<T: Send + 'static>(
     work: impl FnOnce() -> T + Send + 'static,
@@ -255,54 +280,137 @@ async fn blocking<T: Send + 'static>(
         .map_err(|error| ClipboardError::Failed(error.to_string()))
 }
 
-async fn read(
-    tty: Tty,
-    (list_id, data_id): (String, String),
+/// One `Ctrl+V`.
+struct Read {
+    ids: (String, String),
     credentials: Credentials,
     dir: PathBuf,
+    /// The computer's own clipboard may be read (D150).
+    system: bool,
+    results: mpsc::UnboundedSender<AppEvent>,
+}
+
+/// Where the image comes from.
+enum Route {
+    /// The terminal shares its clipboard (OSC 5522).
+    Terminal(Tty),
+    /// faro reads the computer's clipboard itself.
+    System,
+}
+
+impl Read {
+    /// D150: mosh stops everything; kitty is asked as before; any other
+    /// terminal is asked whether it knows OSC 5522; failing that, the
+    /// computer's own clipboard when faro runs on it.
+    async fn run(
+        self,
+        tty: Tty,
+        focus: &mut Vec<Focus>,
+    ) -> Result<StagedAttachment, ClipboardError> {
+        let terminal = super::system::inspect_terminal().await;
+        if terminal.mosh && !terminal.kitty {
+            return Err(ClipboardError::Mosh);
+        }
+        let in_tmux = std::env::var_os("TMUX").is_some();
+        blocking(tty::barrier)
+            .await?
+            .map_err(|error| ClipboardError::Failed(error.to_string()))?;
+        let route = choose(tty, &terminal, in_tmux, self.system, focus).await?;
+        let (mime, data) = match route {
+            Route::Terminal(tty) => self.via_terminal(tty, &terminal, in_tmux, focus).await?,
+            Route::System => {
+                let image = system::read().await?;
+                (image.mime.to_owned(), image.data)
+            }
+        };
+        let dir = self.dir;
+        blocking(move || stage(&dir, &mime, data)).await?
+    }
+
+    /// OSC 5522: the type list (no prompt), then the best image type.
+    async fn via_terminal(
+        &self,
+        tty: Tty,
+        terminal: &Terminal,
+        in_tmux: bool,
+        focus: &mut Vec<Focus>,
+    ) -> Result<(String, Vec<u8>), ClipboardError> {
+        let (list_id, data_id) = self.ids.clone();
+        write_request(&protocol::list_request(Some(&list_id)), in_tmux)?;
+        let (tty, listed) = blocking(move || {
+            let mut tty = tty;
+            let listed = tty::list(&mut tty, &list_id);
+            (tty, listed)
+        })
+        .await?;
+        focus.extend(listed.focus);
+        let types = listed.result.map_err(|failure| match failure {
+            Failure::Read(ReadError::NoReply) => ClipboardError::NoAnswer,
+            Failure::Read(error) => ClipboardError::Read(error),
+            Failure::Io(error) => ClipboardError::Failed(error.to_string()),
+        })?;
+        let mime = protocol::best_image_type(&types).ok_or(ClipboardError::NoImage)?;
+
+        let _ = self.results.send(AppEvent::ClipboardPrompt(terminal.name));
+        write_request(
+            &protocol::read_request(&[mime], Some(&data_id), Some(&self.credentials)),
+            in_tmux,
+        )?;
+        let (_tty, read) = blocking(move || {
+            let mut tty = tty;
+            let read = tty::data(&mut tty, &data_id, limit_for(mime));
+            (tty, read)
+        })
+        .await?;
+        focus.extend(read.focus);
+        let contents = read.result.map_err(|failure| match failure {
+            Failure::Read(ReadError::NoReply) => ClipboardError::PromptTimedOut,
+            Failure::Read(error) => ClipboardError::Read(error),
+            Failure::Io(error) => ClipboardError::Failed(error.to_string()),
+        })?;
+        let entry = contents.take(mime).ok_or(ClipboardError::NoImage)?;
+        Ok((entry.mime, entry.data))
+    }
+}
+
+/// Which way to read (D150). kitty is asked without the question (older
+/// kittys read the clipboard but don't know the mode).
+async fn choose(
+    tty: Tty,
+    terminal: &Terminal,
+    in_tmux: bool,
+    system: bool,
     focus: &mut Vec<Focus>,
-) -> Result<StagedAttachment, ClipboardError> {
-    reachable().await?;
-    let in_tmux = std::env::var_os("TMUX").is_some();
-    blocking(tty::barrier)
-        .await?
-        .map_err(|error| ClipboardError::Failed(error.to_string()))?;
-
-    write_request(&protocol::list_request(Some(&list_id)), in_tmux)?;
-    let (tty, listed) = blocking(move || {
+) -> Result<Route, ClipboardError> {
+    if terminal.kitty {
+        return Ok(Route::Terminal(tty));
+    }
+    write_request(protocol::SUPPORT_QUERY, in_tmux)?;
+    let several = terminal.tmux_clients.len() > 1;
+    let (tty, asked) = blocking(move || {
         let mut tty = tty;
-        let listed = tty::list(&mut tty, &list_id);
-        (tty, listed)
+        let asked = tty::support(&mut tty, several);
+        (tty, asked)
     })
     .await?;
-    focus.extend(listed.focus);
-    let types = listed.result.map_err(|failure| match failure {
-        Failure::Read(ReadError::NoReply) => ClipboardError::NoAnswer,
-        Failure::Read(error) => ClipboardError::Read(error),
-        Failure::Io(error) => ClipboardError::Failed(error.to_string()),
-    })?;
-    let mime = protocol::best_image_type(&types).ok_or(ClipboardError::NoImage)?;
-
-    write_request(
-        &protocol::read_request(&[mime], Some(&data_id), Some(&credentials)),
-        in_tmux,
-    )?;
-    let (_tty, read) = blocking(move || {
-        let mut tty = tty;
-        let read = tty::data(&mut tty, &data_id, MAX_IMAGE);
-        (tty, read)
-    })
-    .await?;
-    focus.extend(read.focus);
-    let contents = read.result.map_err(|failure| match failure {
-        Failure::Read(ReadError::NoReply) => ClipboardError::PromptTimedOut,
-        Failure::Read(error) => ClipboardError::Read(error),
-        Failure::Io(error) => ClipboardError::Failed(error.to_string()),
-    })?;
-    let entry = contents.take(mime).ok_or(ClipboardError::NoImage)?;
-    blocking(move || save(&dir, &entry.mime, &entry.data))
-        .await?
-        .map_err(ClipboardError::Failed)
+    focus.extend(asked.focus);
+    let support = asked
+        .result
+        .map_err(|failure| ClipboardError::Failed(format!("{failure:?}")))?;
+    tracing::info!(?support, name = ?terminal.name, remote = terminal.remote, "asked the terminal about OSC 5522");
+    if support.supported {
+        Ok(Route::Terminal(tty))
+    } else if terminal.remote {
+        Err(if terminal.mosh {
+            ClipboardError::Mosh
+        } else {
+            ClipboardError::OverSsh
+        })
+    } else if system {
+        Ok(Route::System)
+    } else {
+        Err(ClipboardError::SystemOff)
+    }
 }
 
 /// Write a request to the terminal, wrapped for tmux passthrough inside tmux
@@ -362,6 +470,33 @@ fn sweep_blocking(dir: &Path) -> usize {
 
 /// The start of every pasted image's file name.
 const PASTED_PREFIX: &str = "clipboard-";
+
+/// Make the image sendable (TIFF becomes PNG, D150), then save it.
+fn stage(dir: &Path, mime: &str, data: Vec<u8>) -> Result<StagedAttachment, ClipboardError> {
+    let (mime, data) = sendable(mime, data)?;
+    save(dir, mime, &data).map_err(ClipboardError::Failed)
+}
+
+/// TIFF is converted to PNG, which must fit [`MAX_IMAGE`]; other images are
+/// taken as they are.
+fn sendable(mime: &str, data: Vec<u8>) -> Result<(&str, Vec<u8>), ClipboardError> {
+    if mime != protocol::TIFF {
+        return Ok((mime, data));
+    }
+    let image = image::load_from_memory_with_format(&data, image::ImageFormat::Tiff)
+        .map_err(|error| ClipboardError::Failed(format!("converting the TIFF image: {error}")))?;
+    drop(data);
+    let mut png = Vec::new();
+    image
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .map_err(|error| ClipboardError::Failed(format!("converting the TIFF image: {error}")))?;
+    if png.len() > MAX_IMAGE {
+        return Err(ClipboardError::Read(ReadError::TooLarge {
+            limit: MAX_IMAGE,
+        }));
+    }
+    Ok(("image/png", png))
+}
 
 /// Save the image as `<attachments>/clipboard-<local time>.<ext>` (`0600`,
 /// written atomically) and describe it for the staged bar.

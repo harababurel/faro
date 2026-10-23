@@ -1,10 +1,19 @@
 #!/usr/bin/env python3
-"""End-to-end check of clipboard image paste (D89-D91): a real `faro demo` in a
-pty, with this script playing kitty (it answers OSC 5522 requests with a PNG of
-your choice, and the status report that ends faro's startup image query).
+"""End-to-end check of clipboard image paste (D89-D91, D150): a real `faro
+demo` in a pty, with this script playing kitty (it answers OSC 5522 requests
+with a PNG of your choice, and the status report that ends faro's startup image
+query).
 
     cargo build
     python3 tools/clipboard/e2e.py target/debug/faro some.png <scratch dir> [--tmux]
+        [--ghostty | --system]
+
+--ghostty plays a Ghostty that says it knows OSC 5522 (`CSI ? 5522 ; 2 $ y`;
+TERM=xterm-ghostty, or xterm-256color inside tmux, as Ghostty's ssh wrapper
+sets it). --system plays a terminal that doesn't, with faro on the user's own
+computer: a stand-in `wl-paste` serves the image and a stand-in `ps` hides any
+SSH session around this script; no OSC 5522 request may be sent. A TIFF image
+(by its magic bytes) is listed as image/tiff and must be staged as a PNG.
 
 It opens the highlighted chat, presses Ctrl+V, checks that the image was saved
 intact (`0600`) and, with --tmux (a private tmux server with allow-passthrough,
@@ -15,7 +24,7 @@ copied under the message's name (D93). Prints PASS or FAIL. Needs Python 3 (and 
 import base64, fcntl, glob, os, pty, re, select, shutil, struct, subprocess, sys, termios, time
 
 REQUEST = re.compile(rb"\x1b\]5522;([^\x1b\x07]*)(?:\x1b\\|\x07)")
-TYPES = b"image/png text/html"
+SUPPORT = b"\x1b[?5522$p"
 
 
 def packet(meta, payload=None):
@@ -40,7 +49,12 @@ def reply_for(payload_b64, image):
 
 faro, png, scratch = sys.argv[1:4]
 use_tmux = "--tmux" in sys.argv
+ghostty = "--ghostty" in sys.argv
+system = "--system" in sys.argv
 image = open(png, "rb").read()
+tiff = image[:4] in (b"II*\x00", b"MM\x00*")
+MIME = b"image/tiff" if tiff else b"image/png"
+TYPES = MIME + b" text/html"
 demo = os.path.join(scratch, "demo")
 shutil.rmtree(scratch, ignore_errors=True)
 os.makedirs(scratch)
@@ -51,7 +65,26 @@ elif "--no-images" in sys.argv:
     open(cfg, "w").write("[media]\ninline_images = \"off\"\n")
 env = {k: v for k, v in os.environ.items() if k not in ("TMUX", "TMUX_PANE")}
 env["TERM"] = "xterm-kitty"
+if ghostty:
+    env["TERM"] = "xterm-256color" if use_tmux else "xterm-ghostty"
+if system:
+    env["TERM"] = "xterm-256color"
+    for var in ("SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY", "DISPLAY"):
+        env.pop(var, None)
+    env["WAYLAND_DISPLAY"] = "e2e"
+    fake = os.path.join(scratch, "bin")
+    os.makedirs(fake)
+    with open(os.path.join(fake, "ps"), "w") as f:
+        f.write("#!/bin/sh\nexit 0\n")
+    with open(os.path.join(fake, "wl-paste"), "w") as f:
+        f.write('#!/bin/sh\nif [ "$1" = --list-types ]; then printf "text/plain\\n%s\\n" "%s"; '
+                'else cat "%s"; fi\n' % ("%s", MIME.decode(), os.path.abspath(png)))
+    for tool in ("ps", "wl-paste"):
+        os.chmod(os.path.join(fake, tool), 0o755)
+    env["PATH"] = fake + os.pathsep + env["PATH"]
 cmd = [os.path.abspath(faro), "--config", cfg, "demo", "--dir", demo, "--fresh", "--no-faults"]
+if system:  # a tmux pane's login shell would reset PATH and lose the stand-ins
+    cmd = ["env", "PATH=" + env["PATH"]] + cmd
 if use_tmux:
     conf = os.path.join(scratch, "tmux.conf")
     open(conf, "w").write("set -g allow-passthrough on\nset -g status off\n")
@@ -85,8 +118,11 @@ def pump(seconds):
         if not data:
             return
         out.extend(data)
+        # Ghostty knows OSC 5522; the --system terminal doesn't (D150).
+        for _ in range(data.count(SUPPORT)):
+            os.write(fd, b"\x1b[?5522;2$y" if ghostty else b"\x1b[?5522;0$y")
         # Like every terminal: answer the status report that ends faro's
-        # startup image query (ratatui-image).
+        # startup image query (ratatui-image) and the D150 question.
         for _ in range(data.count(b"\x1b[5n")):
             os.write(fd, b"\x1b[0n")
         for m in REQUEST.finditer(out, seen):
@@ -120,12 +156,21 @@ os.write(fd, b"\x16")     # Ctrl+V
 pump(4)
 print("--- after ctrl+v ---\n" + screen())
 saved = sorted(glob.glob(os.path.join(demo, "attachments", "clipboard-*")))
-ok = bool(saved) and open(saved[-1], "rb").read() == image
+data = open(saved[-1], "rb").read() if saved else b""
+if tiff:
+    ok = data.startswith(b"\x89PNG") and saved[-1].endswith(".png")
+    image = data  # the sent copy is the PNG
+else:
+    ok = bool(saved) and data == image
 mode = oct(os.stat(saved[-1]).st_mode & 0o777) if saved else "-"
+ok &= mode == "0o600"
 print("requests:", requests)
-for word in [b"Pasting images", b"Waiting for kitty", b"No image", b"Image pasted", b"Couldn"]:
+if system:
+    ok &= requests == []
+    print("no OSC 5522 request (system clipboard):", requests == [])
+for word in [b"Pasting images", b"Waiting for", b"No image", b"Image pasted", b"Couldn"]:
     print(word, word in out)
-print("saved:", saved, "mode", mode, "identical" if ok else "NOT IDENTICAL")
+print("saved:", saved, "mode", mode, "ok" if ok else "NOT OK (missing, different or not 0600)")
 os.write(fd, b"hello")    # input works again
 pump(1)
 text = screen()

@@ -17,8 +17,19 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 /// without a permission prompt.
 pub const LIST: &str = ".";
 
-/// Image types faro can send, best first.
-pub const IMAGE_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+/// Image types faro takes, best first. TIFF comes last: it's converted to PNG
+/// before staging (D150), for apps that put nothing else on the clipboard.
+pub const IMAGE_TYPES: [&str; 5] = ["image/png", "image/jpeg", "image/gif", "image/webp", TIFF];
+
+/// TIFF, taken only when nothing better is there (D150).
+pub const TIFF: &str = "image/tiff";
+
+/// Asks whether the terminal knows OSC 5522 (its paste-events mode, which
+/// kitty ≥ 0.44.1 and Ghostty know only where they can serve clipboard
+/// reads), then for a status report that every terminal answers, so a
+/// terminal that ignores the first question costs one round trip, not a
+/// timeout (D150). Both are answered in order.
+pub const SUPPORT_QUERY: &str = "\x1b[?5522$p\x1b[5n";
 
 /// Longest packet kept while waiting for its end. A 4096-byte chunk is 5,464
 /// bytes of base64; the rest is metadata.
@@ -106,7 +117,80 @@ pub fn image_extension(mime: &str) -> Option<&'static str> {
         "image/jpeg" => Some("jpg"),
         "image/gif" => Some("gif"),
         "image/webp" => Some("webp"),
+        TIFF => Some("tiff"),
         _ => None,
+    }
+}
+
+/// The answers to [`SUPPORT_QUERY`], fed in pieces of any size. Under tmux
+/// every attached terminal answers: one yes is enough.
+#[derive(Debug, Default)]
+pub struct SupportReader {
+    buf: Vec<u8>,
+    supported: bool,
+    statuses: usize,
+    focus: Vec<Focus>,
+}
+
+impl SupportReader {
+    pub fn feed(&mut self, bytes: &[u8]) {
+        self.buf.extend_from_slice(bytes);
+        let buf = std::mem::take(&mut self.buf);
+        let mut pos = 0;
+        while let Some(rest) = buf.get(pos..) {
+            let Some(esc) = rest.iter().position(|&b| b == ESC) else {
+                pos = buf.len();
+                break;
+            };
+            pos += esc;
+            let rest = buf.get(pos..).unwrap_or_default();
+            match sequence(rest) {
+                Sequence::Wait => break,
+                Sequence::Focus(focus, n) => {
+                    self.focus.push(focus);
+                    pos += n;
+                }
+                Sequence::Skip(n) | Sequence::Overflow(n) => {
+                    self.answer(rest.get(..n).unwrap_or_default());
+                    pos += n;
+                }
+                Sequence::Packet { len, .. } => pos += len,
+            }
+        }
+        self.buf = buf;
+        self.buf.drain(..pos.min(self.buf.len()));
+        if self.buf.len() > MAX_PACKET {
+            self.buf.clear();
+        }
+    }
+
+    /// `ESC [ ? 5522 ; Ps $ y`: 1–3 (set, reset, always set) mean the
+    /// terminal knows the mode; 0 (unknown) and 4 (always reset) don't.
+    /// `ESC [ 0 n` (or `3 n`, "not OK"): the status report.
+    fn answer(&mut self, sequence: &[u8]) {
+        if let Some(value) = sequence
+            .strip_prefix(b"\x1b[?5522;")
+            .and_then(|rest| rest.strip_suffix(b"$y"))
+        {
+            self.supported |= matches!(value, b"1" | b"2" | b"3");
+        } else if matches!(sequence, b"\x1b[0n" | b"\x1b[3n") {
+            self.statuses += 1;
+        }
+    }
+
+    /// Some terminal said it knows OSC 5522.
+    pub fn supported(&self) -> bool {
+        self.supported
+    }
+
+    /// How many status reports have come (one per terminal that answered).
+    pub fn answered(&self) -> usize {
+        self.statuses
+    }
+
+    /// Focus reports seen since the last call, in order.
+    pub fn take_focus(&mut self) -> Vec<Focus> {
+        std::mem::take(&mut self.focus)
     }
 }
 

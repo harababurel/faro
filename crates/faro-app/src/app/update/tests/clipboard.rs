@@ -1,5 +1,5 @@
-//! Pasting an image from the clipboard (D91): `Ctrl+V` asks the app loop for
-//! a read, the result is staged (never sent), `Ctrl+O` shows it.
+//! Pasting an image from the clipboard (D91, D150): `Ctrl+V` asks the app
+//! loop for a read, the result is staged (never sent), `Ctrl+O` shows it.
 
 use std::path::PathBuf;
 
@@ -7,7 +7,7 @@ use faro_core::clipboard::ReadError;
 
 use super::*;
 use crate::app::event::ClipboardError;
-use crate::app::state::{Popup, StagedAttachment};
+use crate::app::state::{Popup, StagedAttachment, TerminalName};
 
 fn ctrl(c: char) -> AppEvent {
     key(KeyCode::Char(c), KeyModifiers::CONTROL)
@@ -31,11 +31,46 @@ fn ctrl_v_asks_for_the_clipboard_and_says_so() {
     let effects = update(&mut state, ctrl('v'));
     assert_eq!(
         effects,
-        vec![Effect::ReadClipboardImage { conversation: open }]
+        vec![Effect::ReadClipboardImage {
+            conversation: open,
+            system: true,
+        }]
     );
     assert_eq!(state.pasting, Some(open));
     let notice = state.notice.as_ref().expect("a notice");
-    assert!(notice.text.contains("Waiting for kitty"), "{}", notice.text);
+    assert_eq!(notice.text, "Reading the clipboard…");
+    // The terminal is about to prompt: name it (D150).
+    update(&mut state, AppEvent::ClipboardPrompt(TerminalName::Ghostty));
+    let notice = state.notice.as_ref().expect("a notice");
+    assert_eq!(
+        notice.text,
+        "Waiting for Ghostty… allow the clipboard prompt"
+    );
+}
+
+/// D150: with `[media] paste_from_system = false` the app loop is told not
+/// to read the computer's clipboard.
+#[test]
+fn the_system_clipboard_setting_reaches_the_app_loop() {
+    let mut state = loaded_state();
+    state.config.media.paste_from_system = false;
+    let open = state.open.as_ref().unwrap().id;
+    assert_eq!(
+        update(&mut state, ctrl('v')),
+        vec![Effect::ReadClipboardImage {
+            conversation: open,
+            system: false,
+        }]
+    );
+}
+
+/// A prompt notice that comes after the read is over changes nothing.
+#[test]
+fn a_late_prompt_notice_is_ignored() {
+    let mut state = loaded_state();
+    state.notice = None;
+    update(&mut state, AppEvent::ClipboardPrompt(TerminalName::Kitty));
+    assert_eq!(state.notice, None);
 }
 
 #[test]
@@ -80,7 +115,18 @@ fn failures_become_notices() {
     let mut state = loaded_state();
     let open = state.open.as_ref().unwrap().id;
     for (error, text) in [
-        (ClipboardError::NotKitty, "Pasting images needs kitty"),
+        (
+            ClipboardError::OverSsh,
+            "Pasting images over SSH needs kitty or a newer Ghostty",
+        ),
+        (
+            ClipboardError::NeedsTool,
+            "Install wl-clipboard (or xclip) to paste images",
+        ),
+        (
+            ClipboardError::Read(ReadError::Unavailable),
+            "The terminal can't share its clipboard here",
+        ),
         (
             ClipboardError::Mosh,
             "Pasting images doesn't work over mosh",
@@ -88,7 +134,7 @@ fn failures_become_notices() {
         (ClipboardError::NoImage, "No image on the clipboard"),
         (
             ClipboardError::Read(ReadError::Denied),
-            "Clipboard access denied in kitty",
+            "Clipboard access denied",
         ),
     ] {
         update(&mut state, ctrl('v'));

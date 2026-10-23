@@ -17,7 +17,7 @@ use crate::app::event::Command;
 use crate::app::event::Effect;
 use crate::app::input::Input;
 use crate::app::keymap::Action;
-use crate::app::state::{Focus, Notice, Popup, StagedAttachment, State};
+use crate::app::state::{Focus, Notice, Popup, StagedAttachment, State, TerminalName};
 
 /// Signal's object-replacement placeholder for an inline mention (D72).
 const MENTION_PLACEHOLDER: char = '\u{FFFC}';
@@ -337,8 +337,9 @@ pub fn on_paste_checked(
     super::presence::on_edited(state)
 }
 
-/// `Ctrl+V` (D91): ask kitty for the clipboard's image. The app loop pauses
-/// input while it waits (D90), so this can't be pressed twice.
+/// `Ctrl+V` (D91, D150): ask the terminal for the clipboard's image, or read
+/// the computer's own clipboard. The app loop pauses input while it waits
+/// (D90), so this can't be pressed twice.
 pub fn paste_image(state: &mut State) -> Vec<Effect> {
     let Some(open) = state.open.as_ref() else {
         state.notice = Some(Notice::info("Open a conversation to paste an image"));
@@ -349,10 +350,22 @@ pub fn paste_image(state: &mut State) -> Vec<Effect> {
     }
     let conversation = open.id;
     state.pasting = Some(conversation);
-    state.notice = Some(Notice::warning(
-        "Waiting for kitty… allow the clipboard prompt",
-    ));
-    vec![Effect::ReadClipboardImage { conversation }]
+    state.notice = Some(Notice::warning("Reading the clipboard…"));
+    vec![Effect::ReadClipboardImage {
+        conversation,
+        system: state.config.media.paste_from_system,
+    }]
+}
+
+/// The terminal is about to ask the user for the clipboard (D150).
+pub fn on_clipboard_prompt(state: &mut State, terminal: TerminalName) -> Vec<Effect> {
+    if state.pasting.is_some() {
+        state.notice = Some(Notice::warning(format!(
+            "Waiting for {}… allow the clipboard prompt",
+            terminal.label()
+        )));
+    }
+    vec![]
 }
 
 /// The clipboard read is over: stage the image (never send it, D91), or say
@@ -361,20 +374,20 @@ pub fn on_clipboard_image(
     state: &mut State,
     conversation: ConversationId,
     result: Result<StagedAttachment, ClipboardError>,
-) {
+) -> Vec<Effect> {
     state.pasting = None;
     let staged = match result {
         Ok(staged) => staged,
         Err(error) => {
             state.notice = Some(error.notice());
-            return;
+            return vec![];
         }
     };
     let Some(open) = state.open.as_mut().filter(|open| open.id == conversation) else {
         state.notice = Some(Notice::warning(
             "The pasted image was dropped: the conversation changed",
         ));
-        return;
+        return vec![];
     };
     open.staged_attachment = Some(staged);
     state.focus = Focus::Input;
@@ -386,6 +399,7 @@ pub fn on_clipboard_image(
     state.notice = Some(Notice::info(format!(
         "Image pasted: {view}Enter sends it, Esc removes it"
     )));
+    vec![]
 }
 
 /// `Ctrl+O` (D91): the staged image, full size.

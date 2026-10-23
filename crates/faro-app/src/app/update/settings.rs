@@ -283,6 +283,7 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
         | SettingChoice::TranscribeEndpoint(_)
         | SettingChoice::TranscribeRemoteModel(_) => choose_transcription(state, choice),
         SettingChoice::Mouse(on)
+        | SettingChoice::PasteFromSystem(on)
         | SettingChoice::Bell(on)
         | SettingChoice::Title(on)
         | SettingChoice::ReduceMotion(on)
@@ -359,6 +360,7 @@ fn choose_media_and_notifications(state: &mut State, choice: SettingChoice) -> V
         | SettingChoice::Timestamps(_)
         | SettingChoice::Allowlist(_)
         | SettingChoice::Mouse(_)
+        | SettingChoice::PasteFromSystem(_)
         | SettingChoice::Bell(_)
         | SettingChoice::Title(_)
         | SettingChoice::ReduceMotion(_)
@@ -450,6 +452,7 @@ fn choose_transcription(state: &mut State, choice: SettingChoice) -> Vec<Effect>
         | SettingChoice::AutoDownload(_)
         | SettingChoice::Transcribe(_)
         | SettingChoice::Mouse(_)
+        | SettingChoice::PasteFromSystem(_)
         | SettingChoice::Bell(_)
         | SettingChoice::Title(_)
         | SettingChoice::ReduceMotion(_)
@@ -560,6 +563,7 @@ pub fn set_text(state: &mut State, setting: Setting, text: &str) -> Vec<Effect> 
         | Setting::TranscribeAuto
         | Setting::TranscribeMaxSecs
         | Setting::Mouse
+        | Setting::PasteFromSystem
         | Setting::UpdateCheck => vec![],
     }
 }
@@ -589,6 +593,15 @@ fn choose_toggle(state: &mut State, choice: SettingChoice, on: bool) -> Vec<Effe
                 "Mouse off: the terminal selects text (Ctrl+P, \"mouse\" turns it back on)"
             };
             save_with_notice(state, key::MOUSE, msg)
+        }
+        SettingChoice::PasteFromSystem(_) => {
+            state.config.media.paste_from_system = on;
+            let msg = if on {
+                "Ctrl+V reads this computer's clipboard when the terminal can't share its own"
+            } else {
+                "Ctrl+V asks only the terminal for images (kitty, newer Ghostty)"
+            };
+            save_with_notice(state, key::PASTE_FROM_SYSTEM, msg)
         }
         SettingChoice::Bell(_) => {
             state.config.notifications.bell = on;

@@ -26,7 +26,7 @@ faro-core = { workspace = true, features = ["sqlite"] }
 faro-presage.workspace = true
 gethostname = "1.0"
 futures-util = "0.3.34"
-image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp", "tiff"] }
 jiff = "0.2.38"
 # Reading the tty while crossterm is paused (D90): readiness like crossterm's, `FIONREAD`.
 mio = { version = "1.2.4", features = ["os-poll", "os-ext"] }

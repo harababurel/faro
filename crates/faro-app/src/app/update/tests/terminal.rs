@@ -5,7 +5,9 @@ use crate::app::term_event::Event;
 
 use super::*;
 use crate::app::state::Terminal;
-use crate::app::state::{BlockGlyphs, EmojiMode, EmojiSetting, GraphicsBlocker, GraphicsSupport};
+use crate::app::state::{
+    BlockGlyphs, EmojiMode, EmojiSetting, GraphicsBlocker, GraphicsSupport, TerminalName,
+};
 use faro_core::config::{BubbleStyle, InlineImages};
 
 fn checked(mosh: bool) -> AppEvent {
@@ -20,6 +22,8 @@ fn checked(mosh: bool) -> AppEvent {
         kitty: false,
         graphics_blocker: mosh.then_some(GraphicsBlocker::Mosh),
         tmux_clients: Vec::new(),
+        name: TerminalName::Other,
+        remote: mosh,
     })
 }
 
@@ -121,6 +125,8 @@ fn an_auto_bubble_style_follows_kitty() {
         kitty: true,
         graphics_blocker: None,
         tmux_clients: Vec::new(),
+        name: TerminalName::Kitty,
+        remote: false,
     };
     update(&mut state, AppEvent::TerminalChecked(kitty));
     assert_eq!(state.env.glyphs, BlockGlyphs::Native);

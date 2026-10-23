@@ -207,9 +207,9 @@ pub async fn run<B: Backend + 'static>(
             () = sleep_until(held_until.unwrap_or_else(Instant::now)), if held_until.is_some() => {
                 paste.flush()
             }
-            Some(conversation) = clipboard_requests.recv(), if !probing => {
+            Some(request) = clipboard_requests.recv(), if !probing => {
                 let dir = state.attachments_dir.clone();
-                paste.begin(&mut input, conversation, dir, &router.results);
+                paste.begin(&mut input, request, dir, &router.results);
                 continue;
             }
             Some(event) = backend_events.recv() => vec![AppEvent::Backend(event)],
@@ -352,7 +352,7 @@ struct Router {
     results: mpsc::UnboundedSender<AppEvent>,
     audio: std::cell::RefCell<system::AudioPlayer>,
     /// Clipboard reads go to the app loop, which owns the terminal input (D90).
-    clipboard: mpsc::UnboundedSender<ConversationId>,
+    clipboard: mpsc::UnboundedSender<clipboard::Request>,
 }
 
 impl Router {
@@ -362,7 +362,7 @@ impl Router {
         effects: mpsc::UnboundedSender<Effect>,
         config: mpsc::UnboundedSender<faro_core::config::SettingEdit>,
         results: mpsc::UnboundedSender<AppEvent>,
-    ) -> (Self, mpsc::UnboundedReceiver<ConversationId>) {
+    ) -> (Self, mpsc::UnboundedReceiver<clipboard::Request>) {
         let (clipboard, requests) = mpsc::unbounded_channel();
         let router = Self {
             commands,
@@ -373,6 +373,23 @@ impl Router {
             clipboard,
         };
         (router, requests)
+    }
+
+    /// Clipboard reads go to the app loop, which owns the input (D90).
+    fn read_clipboard(&self, effect: &Effect) -> bool {
+        let &Effect::ReadClipboardImage {
+            conversation,
+            system,
+        } = effect
+        else {
+            return false;
+        };
+        self.clipboard
+            .send(clipboard::Request {
+                conversation,
+                system,
+            })
+            .is_ok()
     }
 
     fn dispatch(&self, list: Vec<Effect>, state: &State) {
@@ -444,9 +461,7 @@ impl Router {
                 system::check_terminal(self.results.clone());
                 true
             }
-            Effect::ReadClipboardImage { conversation } => {
-                self.clipboard.send(conversation).is_ok()
-            }
+            effect @ Effect::ReadClipboardImage { .. } => self.read_clipboard(&effect),
             Effect::Bell => {
                 system::bell();
                 true

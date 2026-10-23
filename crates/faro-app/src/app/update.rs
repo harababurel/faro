@@ -73,6 +73,7 @@ pub fn affects_view(event: &AppEvent) -> bool {
         | AppEvent::FileStaged(_)
         | AppEvent::PasteChecked { .. }
         | AppEvent::ClipboardImage { .. }
+        | AppEvent::ClipboardPrompt(_)
         | AppEvent::ClipboardDrained
         | AppEvent::PlaybackFinished { .. }
         | AppEvent::Transcribed { .. }
@@ -156,10 +157,8 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
         AppEvent::ClipboardImage {
             conversation,
             result,
-        } => {
-            sending::on_clipboard_image(state, conversation, result);
-            vec![]
-        }
+        } => sending::on_clipboard_image(state, conversation, result),
+        AppEvent::ClipboardPrompt(terminal) => sending::on_clipboard_prompt(state, terminal),
         AppEvent::ClipboardDrained => vec![],
         AppEvent::PlaybackFinished {
             message,
@@ -798,8 +797,10 @@ fn terminal_checked(state: &mut State, terminal: Terminal) -> Vec<Effect> {
         mosh,
         glyphs,
         graphics,
-        // Checked afresh on every paste (D91).
+        // Checked afresh on every paste (D91, D150).
         kitty: _,
+        name: _,
+        remote: _,
         graphics_blocker,
         tmux_clients,
     } = terminal;

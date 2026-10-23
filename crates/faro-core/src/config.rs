@@ -260,10 +260,23 @@ impl Default for Messages {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Media {
     pub auto_download: AutoDownload,
     pub inline_images: InlineImages,
+    /// `Ctrl+V` may read the computer's own clipboard when the terminal
+    /// can't share its own and faro runs on that computer (D150).
+    pub paste_from_system: bool,
+}
+
+impl Default for Media {
+    fn default() -> Self {
+        Self {
+            auto_download: AutoDownload::default(),
+            inline_images: InlineImages::default(),
+            paste_from_system: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -385,6 +398,7 @@ pub mod key {
     pub const TIMESTAMPS: &str = "messages.timestamps";
     pub const AUTO_DOWNLOAD: &str = "media.auto_download";
     pub const INLINE_IMAGES: &str = "media.inline_images";
+    pub const PASTE_FROM_SYSTEM: &str = "media.paste_from_system";
     pub const VOICE_PLAYER: &str = "voice.player";
     pub const VOICE_TRANSCRIBE: &str = "voice.transcribe";
     pub const VOICE_AUTO_TRANSCRIBE: &str = "voice.auto_transcribe";
@@ -603,6 +617,18 @@ pub static SETTINGS: &[Setting] = &[
         get: |c| text(c.media.inline_images),
         set: |c, v| {
             c.media.inline_images = choice(v)?;
+            Ok(())
+        },
+    },
+    Setting {
+        path: key::PASTE_FROM_SYSTEM,
+        help: "When the terminal can't share its clipboard (only kitty and newer Ghostty can), \
+               Ctrl+V reads an image from this computer's clipboard instead (macOS: osascript; \
+               Linux: wl-paste or xclip), only when faro runs on it, not over SSH. Only when you \
+               press Ctrl+V, images only, and nothing is sent until you press Enter.",
+        get: |c| ConfigValue::Bool(c.media.paste_from_system),
+        set: |c, v| {
+            c.media.paste_from_system = boolean(v)?;
             Ok(())
         },
     },

@@ -249,15 +249,106 @@ fn draining_reads_to_the_end_of_a_reply_that_started_mid_packet() {
     assert_eq!(drained.bytes, rest.len());
 }
 
+/// D150: Ghostty on macOS says yes; one round trip either way.
+#[test]
+fn asks_whether_the_terminal_knows_the_protocol() {
+    let mut yes = Script::new([b"\x1b[?5522;2$y".to_vec(), b"\x1b[0n".to_vec()]);
+    let asked = tty::support(&mut yes, false);
+    assert_eq!(
+        asked.result.expect("an answer"),
+        tty::Support {
+            answered: true,
+            supported: true
+        }
+    );
+    // Ghostty 1.3.1 or on Linux: the mode is unknown.
+    let mut no = Script::new([b"\x1b[?5522;0$y\x1b[0n".to_vec()]);
+    let asked = tty::support(&mut no, false).result.expect("an answer");
+    assert!(asked.answered && !asked.supported);
+    // A terminal that ignores the question still answers the status report,
+    // with a focus report on the way.
+    let mut silent = Script::new([b"\x1b[I\x1b[0n".to_vec()]);
+    let asked = tty::support(&mut silent, false);
+    assert_eq!(asked.focus, [Focus::Gained]);
+    assert!(!asked.result.expect("an answer").supported);
+    // Nothing at all (tmux without allow-passthrough).
+    let asked = tty::support(&mut Script::new([]), false)
+        .result
+        .expect("ok");
+    assert!(!asked.answered);
+}
+
+/// Under tmux with several clients, one that says yes after another said no
+/// is still heard; with one client faro stops at the first status report.
+#[test]
+fn several_tmux_clients_get_a_moment_to_say_yes() {
+    let chunks = || {
+        [
+            b"\x1b[?5522;0$y\x1b[0n".to_vec(),
+            b"\x1b[?5522;2$y\x1b[0n".to_vec(),
+        ]
+    };
+    let several = tty::support(&mut Script::new(chunks()), true);
+    assert!(several.result.expect("an answer").supported);
+    let one = tty::support(&mut Script::new(chunks()), false);
+    assert!(!one.result.expect("an answer").supported);
+}
+
+/// D150: a TIFF becomes a PNG of the same size before staging; other types
+/// are kept as they are.
+#[test]
+fn tiff_is_converted_to_png() {
+    let mut tiff = Vec::new();
+    image::RgbImage::from_pixel(4, 3, image::Rgb([200, 10, 10]))
+        .write_to(
+            &mut std::io::Cursor::new(&mut tiff),
+            image::ImageFormat::Tiff,
+        )
+        .expect("encode");
+    let (mime, png) = sendable("image/tiff", tiff).expect("converted");
+    assert_eq!(mime, "image/png");
+    assert_eq!(
+        image::guess_format(&png).expect("a format"),
+        image::ImageFormat::Png
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let staged = stage(dir.path(), "image/tiff", {
+        let mut again = Vec::new();
+        image::RgbImage::new(4, 3)
+            .write_to(
+                &mut std::io::Cursor::new(&mut again),
+                image::ImageFormat::Tiff,
+            )
+            .expect("encode");
+        again
+    })
+    .expect("staged");
+    assert_eq!(staged.content_type, "image/png");
+    assert_eq!(staged.path.extension(), Some("png".as_ref()));
+    assert_eq!((staged.width, staged.height), (Some(4), Some(3)));
+    // Not a TIFF after all: an error, not a panic.
+    assert!(matches!(
+        sendable("image/tiff", b"nope".to_vec()),
+        Err(ClipboardError::Failed(_))
+    ));
+    // Other types pass through untouched.
+    assert_eq!(
+        sendable("image/png", vec![1, 2, 3]).expect("kept"),
+        ("image/png", vec![1, 2, 3])
+    );
+    assert_eq!(limit_for("image/tiff"), MAX_TIFF);
+    assert_eq!(limit_for("image/png"), MAX_IMAGE);
+}
+
 #[test]
 fn notices_say_what_went_wrong() {
     assert_eq!(
-        ClipboardError::NotKitty.notice().text,
-        "Pasting images needs kitty"
+        ClipboardError::OverSsh.notice().text,
+        "Pasting images over SSH needs kitty or a newer Ghostty"
     );
     assert_eq!(
         ClipboardError::Read(ReadError::Denied).notice().text,
-        "Clipboard access denied in kitty"
+        "Clipboard access denied"
     );
     assert_eq!(
         ClipboardError::Read(ReadError::TooLarge { limit: MAX_IMAGE })

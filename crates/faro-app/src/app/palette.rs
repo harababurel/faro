@@ -190,6 +190,8 @@ pub enum Setting {
     TranscribeEndpoint,
     TranscribeRemoteModel,
     Mouse,
+    /// `[media] paste_from_system` (D150).
+    PasteFromSystem,
     UpdateCheck,
 }
 
@@ -300,7 +302,11 @@ impl SettingsGroup {
                 Setting::Privacy,
             ],
             Self::Conversations => &[Setting::Allowlist],
-            Self::Media => &[Setting::InlineImages, Setting::AutoDownload],
+            Self::Media => &[
+                Setting::InlineImages,
+                Setting::AutoDownload,
+                Setting::PasteFromSystem,
+            ],
             Self::VoiceNotes => &[
                 Setting::Transcribe,
                 Setting::TranscribeAuto,
@@ -345,6 +351,7 @@ impl Setting {
             Self::TranscribeEndpoint => "Endpoint",
             Self::TranscribeRemoteModel => "Remote model",
             Self::Mouse => "Mouse",
+            Self::PasteFromSystem => "Paste from the system clipboard",
             Self::UpdateCheck => "Check for updates",
         }
     }
@@ -377,6 +384,7 @@ impl Setting {
             Self::TranscribeEndpoint => key::VOICE_TRANSCRIBE_URL,
             Self::TranscribeRemoteModel => key::VOICE_TRANSCRIBE_REMOTE_MODEL,
             Self::Mouse => key::MOUSE,
+            Self::PasteFromSystem => key::PASTE_FROM_SYSTEM,
             Self::UpdateCheck => key::UPDATES_CHECK,
         }
     }
@@ -433,7 +441,8 @@ impl Setting {
             | Self::InlineImages
             | Self::AutoDownload
             | Self::Transcribe
-            | Self::Mouse => None,
+            | Self::Mouse
+            | Self::PasteFromSystem => None,
         }
     }
 
@@ -465,6 +474,7 @@ impl Setting {
             | Self::TranscribeAuto
             | Self::TranscribeMaxSecs
             | Self::Mouse
+            | Self::PasteFromSystem
             | Self::UpdateCheck => false,
         }
     }
@@ -480,6 +490,7 @@ impl Setting {
             | Self::Allowlist
             | Self::TranscribeAuto
             | Self::Mouse
+            | Self::PasteFromSystem
             | Self::UpdateCheck => true,
             Self::Colors
             | Self::Emoji
@@ -530,6 +541,7 @@ impl Setting {
             | Self::TranscribeEndpoint
             | Self::TranscribeRemoteModel
             | Self::Mouse
+            | Self::PasteFromSystem
             | Self::UpdateCheck => false,
         }
     }
@@ -595,6 +607,7 @@ pub enum SettingChoice {
     TranscribeEndpoint(&'static str),
     TranscribeRemoteModel(&'static str),
     Mouse(bool),
+    PasteFromSystem(bool),
     Bell(bool),
     Title(bool),
     ReduceMotion(bool),
@@ -1702,6 +1715,7 @@ fn transcription_note(state: &State, level: Level) -> Option<String> {
             | Setting::TranscribeAuto
             | Setting::TranscribeMaxSecs
             | Setting::Mouse
+            | Setting::PasteFromSystem
             | Setting::UpdateCheck => return None,
         },
         Level::Root
@@ -1800,6 +1814,7 @@ fn value_detail(state: &State, choice: SettingChoice) -> &'static str {
         | SettingChoice::TranscribeAuto(_)
         | SettingChoice::TranscribeMaxSecs(_)
         | SettingChoice::Mouse(_)
+        | SettingChoice::PasteFromSystem(_)
         | SettingChoice::Bell(_)
         | SettingChoice::Title(_)
         | SettingChoice::ReduceMotion(_)
@@ -1924,6 +1939,7 @@ fn values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)>
         | Setting::Bell
         | Setting::Title
         | Setting::Mouse
+        | Setting::PasteFromSystem
         | Setting::UpdateCheck => switch_values(state, setting),
     }
 }
@@ -1938,6 +1954,10 @@ fn switch_values(state: &State, setting: Setting) -> Vec<(SettingChoice, String,
         Setting::Bell => (SettingChoice::Bell, config.notifications.bell),
         Setting::Title => (SettingChoice::Title, config.notifications.title),
         Setting::Mouse => (SettingChoice::Mouse, config.mouse.enabled),
+        Setting::PasteFromSystem => (
+            SettingChoice::PasteFromSystem,
+            config.media.paste_from_system,
+        ),
         Setting::UpdateCheck => (SettingChoice::UpdateCheck, config.updates.check),
         Setting::Colors
         | Setting::Emoji
@@ -2038,6 +2058,7 @@ fn transcription_values(state: &State, setting: Setting) -> Vec<(SettingChoice, 
         | Setting::Transcribe
         | Setting::TranscribeAuto
         | Setting::Mouse
+        | Setting::PasteFromSystem
         | Setting::UpdateCheck => Vec::new(),
     }
 }

@@ -11,11 +11,11 @@ use std::os::fd::AsRawFd;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use faro_core::clipboard::{self as protocol, Contents, Focus, ReadError, Reader};
+use faro_core::clipboard::{self as protocol, Contents, Focus, ReadError, Reader, SupportReader};
 use mio::unix::SourceFd;
 use mio::{Events, Interest, Poll, Token, Waker};
 
-use super::{BETWEEN_PACKETS, LIST_LIMIT, LIST_WAIT, MORE_REPLIES, PROMPT_WAIT};
+use super::{BETWEEN_PACKETS, LIST_LIMIT, LIST_WAIT, MORE_REPLIES, PROMPT_WAIT, SUPPORT_WAIT};
 
 /// How long crossterm's reader gets to let go of the tty.
 const BARRIER: Duration = Duration::from_millis(20);
@@ -130,6 +130,47 @@ pub enum Failure {
 pub struct Outcome<T> {
     pub result: Result<T, Failure>,
     pub focus: Vec<Focus>,
+}
+
+/// The answers to [`protocol::SUPPORT_QUERY`] (D150): whether some terminal
+/// knows OSC 5522. Stops at the first status report, or [`MORE_REPLIES`]
+/// after it when several tmux clients may answer and none has said yes yet;
+/// [`SUPPORT_WAIT`] if nothing comes (tmux without `allow-passthrough`).
+pub fn support(source: &mut impl Source, several: bool) -> Outcome<Support> {
+    let mut deadline = Instant::now() + SUPPORT_WAIT;
+    let mut reader = SupportReader::default();
+    loop {
+        if reader.answered() > 0 {
+            if reader.supported() || !several {
+                break;
+            }
+            deadline = deadline.min(Instant::now() + MORE_REPLIES);
+        }
+        match source.read(deadline) {
+            Ok(Some(bytes)) => reader.feed(&bytes),
+            Ok(None) => break,
+            Err(error) => {
+                return Outcome {
+                    result: Err(Failure::Io(error)),
+                    focus: reader.take_focus(),
+                };
+            }
+        }
+    }
+    Outcome {
+        result: Ok(Support {
+            answered: reader.answered() > 0,
+            supported: reader.supported(),
+        }),
+        focus: reader.take_focus(),
+    }
+}
+
+/// What the terminal said about OSC 5522.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Support {
+    pub answered: bool,
+    pub supported: bool,
 }
 
 /// The types on the clipboard. Every kitty attached to faro's tmux session

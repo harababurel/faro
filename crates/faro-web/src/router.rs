@@ -7,7 +7,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use faro_app::app::event::{AppEvent, Command, Effect};
-use faro_app::app::state::{BlockGlyphs, GraphicsSupport, State, Terminal};
+use faro_app::app::state::{BlockGlyphs, GraphicsSupport, State, Terminal, TerminalName};
 use faro_core::domain::MessageRef;
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -27,6 +27,8 @@ pub const BROWSER: Terminal = Terminal {
     kitty: false,
     graphics_blocker: None,
     tmux_clients: Vec::new(),
+    name: TerminalName::Other,
+    remote: false,
 };
 
 /// The page's side of the effects: the clipboard, new tabs, the bell.

@@ -114,6 +114,9 @@ pub enum AppEvent {
         conversation: ConversationId,
         result: Result<super::state::StagedAttachment, ClipboardError>,
     },
+    /// The clipboard has an image and the terminal is about to ask the user
+    /// for permission: say whose prompt to answer (D150).
+    ClipboardPrompt(super::state::TerminalName),
     /// A late clipboard reply was drained (D90); input resumes.
     ClipboardDrained,
     /// External audio playback finished or failed (D81).
@@ -272,10 +275,13 @@ pub enum Effect {
     /// Look at the terminal (mosh, kitty); answered with
     /// `AppEvent::TerminalChecked` (D47, D58).
     CheckTerminal,
-    /// Read an image from the clipboard for `conversation` (D91). The app
-    /// loop pauses input and answers with `AppEvent::ClipboardImage`.
+    /// Read an image from the clipboard for `conversation` (D91, D150). The
+    /// app loop pauses input and answers with `AppEvent::ClipboardImage`.
+    /// `system`: the computer's own clipboard may be read when the terminal
+    /// can't share its own (`[media] paste_from_system`).
     ReadClipboardImage {
         conversation: ConversationId,
+        system: bool,
     },
     /// Ring the terminal bell (D49).
     Bell,
@@ -351,9 +357,16 @@ pub enum Command {
 /// Why no image was staged.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClipboardError {
-    /// No kitty between faro and the user (directly, or attached to faro's
-    /// tmux session).
-    NotKitty,
+    /// faro runs over SSH and the terminal can't share its clipboard (D150).
+    OverSsh,
+    /// The terminal can't share its clipboard and reading the computer's own
+    /// is turned off (`[media] paste_from_system = false`, D150).
+    SystemOff,
+    /// No `wl-paste` or `xclip` to read the computer's clipboard with.
+    NeedsTool,
+    /// No desktop session (no Wayland or X11 display) to read a clipboard
+    /// from.
+    NoDesktop,
     /// mosh relays the screen, not the bytes: the request never arrives.
     Mosh,
     /// The clipboard has no image type faro can send.
@@ -371,15 +384,25 @@ impl ClipboardError {
     /// What the footer says.
     pub fn notice(&self) -> Notice {
         match self {
-            Self::NotKitty => Notice::warning("Pasting images needs kitty"),
+            Self::OverSsh => {
+                Notice::warning("Pasting images over SSH needs kitty or a newer Ghostty")
+            }
+            Self::SystemOff => Notice::warning(
+                "This terminal can't paste images (Settings › Paste from the system clipboard is off)",
+            ),
+            Self::NeedsTool => Notice::warning("Install wl-clipboard (or xclip) to paste images"),
+            Self::NoDesktop => Notice::warning("No desktop clipboard to paste images from"),
             Self::Mosh => Notice::warning("Pasting images doesn't work over mosh"),
             Self::NoImage => Notice::info("No image on the clipboard"),
             Self::NoAnswer => Notice::warning("No answer from the terminal"),
             Self::PromptTimedOut => {
-                Notice::warning("No answer from kitty: the prompt wasn't answered")
+                Notice::warning("No answer: the clipboard prompt wasn't answered")
             }
-            Self::Read(ReadError::Denied) => Notice::info("Clipboard access denied in kitty"),
+            Self::Read(ReadError::Denied) => Notice::info("Clipboard access denied"),
             Self::Read(ReadError::Busy) => Notice::warning("The clipboard is busy; try again"),
+            Self::Read(ReadError::Unavailable) => {
+                Notice::warning("The terminal can't share its clipboard here")
+            }
             Self::Read(ReadError::TooLarge { limit }) => Notice::warning(format!(
                 "Image too large (over {})",
                 faro_core::domain::format_byte_size(u64::try_from(*limit).unwrap_or(u64::MAX))

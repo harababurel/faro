@@ -398,6 +398,31 @@ pub struct Terminal {
     pub graphics_blocker: Option<GraphicsBlocker>,
     /// The attached tmux clients' ttys, sorted (empty outside tmux).
     pub tmux_clients: Vec<String>,
+    /// Which terminal the user has, for wording (clipboard paste, D150).
+    pub name: TerminalName,
+    /// Someone reaches faro over SSH or mosh (inside tmux: any attached
+    /// client), so the computer's own clipboard isn't theirs (D150).
+    pub remote: bool,
+}
+
+/// Which terminal the user has, as far as faro can tell (D150).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TerminalName {
+    Kitty,
+    Ghostty,
+    #[default]
+    Other,
+}
+
+impl TerminalName {
+    /// As said in a sentence ("Waiting for Ghostty…").
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Kitty => "kitty",
+            Self::Ghostty => "Ghostty",
+            Self::Other => "the terminal",
+        }
+    }
 }
 
 /// Who draws the glyphs rounded bubbles are made of (D58).

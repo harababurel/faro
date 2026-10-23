@@ -15,7 +15,7 @@ use super::event::AppEvent;
 use super::files::{expand_tilde, split_file_query};
 use super::state::{
     BlockGlyphs, FileEntry, GraphicsBlocker, GraphicsSupport, MAX_ATTACHMENT_SIZE,
-    StagedAttachment, Terminal,
+    StagedAttachment, Terminal, TerminalName,
 };
 
 /// Copy with OSC 52: the terminal (even over SSH, and through tmux with
@@ -494,6 +494,7 @@ pub async fn inspect_terminal() -> Terminal {
             .await
             .map(|ps| processes(&ps));
         let mosh = |pid: u32| table.as_ref().is_some_and(|t| under_mosh(t, pid));
+        let sshd = |pid: u32| table.as_ref().is_some_and(|t| under_sshd(t, pid));
         if std::env::var_os("TMUX").is_some() {
             let pane = std::env::var("TMUX_PANE").ok();
             let mut args = vec![
@@ -514,6 +515,14 @@ pub async fn inspect_terminal() -> Terminal {
                 kitty: clients.iter().any(|c| is_kitty(&c.term) && !mosh(c.pid)),
                 graphics_blocker,
                 tmux_clients: ttys(&clients),
+                name: name_of_clients(&clients),
+                // Who is attached now: the tmux server's own environment
+                // says where it was started, not who uses it (D150).
+                remote: if table.is_some() {
+                    clients.is_empty() || clients.iter().any(|c| mosh(c.pid) || sshd(c.pid))
+                } else {
+                    over_ssh()
+                },
             }
         } else {
             let under_mosh = mosh(std::process::id());
@@ -529,6 +538,8 @@ pub async fn inspect_terminal() -> Terminal {
                 },
                 graphics_blocker: under_mosh.then_some(GraphicsBlocker::Mosh),
                 tmux_clients: Vec::new(),
+                name: name_of_environment(|var| std::env::var(var).ok()),
+                remote: over_ssh() || under_mosh || sshd(std::process::id()),
             }
         }
     };
@@ -536,7 +547,10 @@ pub async fn inspect_terminal() -> Terminal {
         found
     } else {
         tracing::warn!("checking the terminal took too long; assuming no mosh and no kitty");
-        Terminal::default()
+        Terminal {
+            remote: over_ssh(),
+            ..Terminal::default()
+        }
     }
 }
 
@@ -568,6 +582,37 @@ fn glyphs_of_environment(var: impl Fn(&str) -> Option<String>) -> BlockGlyphs {
     } else {
         BlockGlyphs::Font
     }
+}
+
+/// Outside tmux: which terminal, as far as the environment says (for
+/// wording, D150).
+fn name_of_environment(var: impl Fn(&str) -> Option<String>) -> TerminalName {
+    if glyphs_of_environment(&var) == BlockGlyphs::Native {
+        TerminalName::Kitty
+    } else if var("TERM").is_some_and(|t| is_ghostty(&t))
+        || var("TERM_PROGRAM").is_some_and(|t| t.eq_ignore_ascii_case("ghostty"))
+    {
+        TerminalName::Ghostty
+    } else {
+        TerminalName::Other
+    }
+}
+
+/// Inside tmux: kitty if any client is (D91 asks every one), else Ghostty if
+/// any client is.
+fn name_of_clients(clients: &[Client]) -> TerminalName {
+    if clients.iter().any(|c| is_kitty(&c.term)) {
+        TerminalName::Kitty
+    } else if clients.iter().any(|c| is_ghostty(&c.term)) {
+        TerminalName::Ghostty
+    } else {
+        TerminalName::Other
+    }
+}
+
+/// Whether `term` (a `TERM` value) is Ghostty's (`xterm-ghostty`).
+fn is_ghostty(term: &str) -> bool {
+    term.contains("ghostty")
 }
 
 /// Inside tmux: native only if every attached client is in kitty.
@@ -680,12 +725,27 @@ fn processes(ps: &str) -> std::collections::HashMap<u32, (u32, String)> {
 
 /// Whether `pid` or one of its ancestors is a mosh server (`mosh-server`,
 /// `gmosh-server`…).
-fn under_mosh(table: &std::collections::HashMap<u32, (u32, String)>, mut pid: u32) -> bool {
+fn under_mosh(table: &std::collections::HashMap<u32, (u32, String)>, pid: u32) -> bool {
+    has_ancestor(table, pid, "mosh-server")
+}
+
+/// Whether `pid` or one of its ancestors is an SSH server (`sshd`,
+/// `sshd-session`, `/usr/sbin/sshd`): someone logged in from elsewhere (D150).
+fn under_sshd(table: &std::collections::HashMap<u32, (u32, String)>, pid: u32) -> bool {
+    has_ancestor(table, pid, "sshd")
+}
+
+/// Whether `pid` or one of its ancestors runs a command containing `name`.
+fn has_ancestor(
+    table: &std::collections::HashMap<u32, (u32, String)>,
+    mut pid: u32,
+    name: &str,
+) -> bool {
     for _ in 0..64 {
         let Some((parent, command)) = table.get(&pid) else {
             return false;
         };
-        if command.contains("mosh-server") {
+        if command.contains(name) {
             return true;
         }
         if *parent == pid || *parent == 0 {
@@ -725,6 +785,63 @@ mod mosh_tests {
     fn commands_with_spaces_are_kept_whole() {
         let table = processes(PS);
         assert_eq!(table.get(&102), Some(&(101, "tmux: client".to_owned())));
+    }
+
+    /// D150: a client under `sshd` (any spelling) is someone from elsewhere.
+    #[test]
+    fn finds_sshd_among_the_ancestors() {
+        let table = processes(
+            "    1     0 launchd\n\
+             50     1 /usr/sbin/sshd\n\
+             51    50 sshd-session\n\
+             52    51 -fish\n\
+             53    52 tmux\n\
+             60     1 /Applications/Ghostty.app/Contents/MacOS/ghostty\n\
+             61    60 -zsh\n\
+             62    61 tmux\n",
+        );
+        assert!(under_sshd(&table, 53));
+        assert!(!under_sshd(&table, 62), "a local Ghostty");
+        assert!(!under_mosh(&table, 53));
+        let linux = processes(PS);
+        assert!(under_sshd(&linux, 202));
+        assert!(!under_sshd(&linux, 102));
+    }
+
+    #[test]
+    fn ghostty_is_named_for_the_clipboard_notices() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |var: &str| {
+                pairs
+                    .iter()
+                    .find(|(k, _)| *k == var)
+                    .map(|(_, v)| (*v).to_owned())
+            }
+        };
+        assert_eq!(
+            name_of_environment(env(&[("TERM", "xterm-ghostty")])),
+            TerminalName::Ghostty
+        );
+        assert_eq!(
+            name_of_environment(env(&[
+                ("TERM", "xterm-256color"),
+                ("TERM_PROGRAM", "ghostty")
+            ])),
+            TerminalName::Ghostty
+        );
+        assert_eq!(
+            name_of_environment(env(&[("TERM", "xterm-kitty")])),
+            TerminalName::Kitty
+        );
+        assert_eq!(
+            name_of_environment(env(&[("TERM", "xterm-256color")])),
+            TerminalName::Other
+        );
+        let mixed = clients("102 /dev/ttys001 xterm-ghostty\n202 /dev/ttys002 xterm-kitty\n");
+        assert_eq!(name_of_clients(&mixed), TerminalName::Kitty);
+        let ghostty = clients("102 /dev/ttys001 xterm-ghostty\n");
+        assert_eq!(name_of_clients(&ghostty), TerminalName::Ghostty);
+        assert_eq!(name_of_clients(&[]), TerminalName::Other);
     }
 
     #[test]
