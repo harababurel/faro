@@ -345,10 +345,24 @@ In kitty, with an image copied on the machine you type on (e.g. *Copy Image* in 
 - [x] **Too large:** an image over 25 MB: "Image too large (over 25.0 MB)", and typing works afterwards. On a Mac: `sips -z 10000 10000 <photo> --out /tmp/big.png` (check it's over 25 MB), then `osascript -e 'set the clipboard to (read (POSIX file "/tmp/big.png") as «class PNGf»)'`. Copying a TIFF from Preview doesn't work for this: macOS hands faro a PNG made on the spot (faro asks for PNG/JPEG/GIF/WebP), which can be well under the limit.
 - [ ] **Two kitty windows attached** to the same tmux session (as on the Mac mini): `Ctrl+V` in one stages the image from that machine's clipboard; the other screen may show a kitty prompt. Answering it later (allow or deny) changes nothing in faro and types nothing.
 - [x] **Late answer:** `Ctrl+V` and leave kitty's prompt unanswered for over 2 minutes. The prompt covers faro, so you won't see "No answer from kitty…" until it's gone. Then allow: nothing is staged, nothing is typed into faro, and keys keep working. (A demo fault notice may replace the footer meanwhile; use `faro demo --no-faults` to avoid it.)
-- [x] **Elsewhere:** in a terminal that isn't kitty, `Ctrl+V` says "Pasting images needs kitty" at once.
+- [x] **Elsewhere:** in a terminal that isn't kitty, `Ctrl+V` says "Pasting images needs kitty" at once. *(Superseded by D150: see "Clipboard images beyond kitty" below.)*
 - [x] **Over mosh:** from kitty through mosh, `Ctrl+V` says "Pasting images doesn't work over mosh".
 - [x] **No leftovers:** after sending a pasted image, `ls <data dir>/attachments/clipboard-*` finds nothing (the sent copy has the message's name); paste one, remove it with `Esc`, restart faro: it's gone too.
 - [x] **Esc after a paste:** a lone `Esc` still dismisses things normally (it can be held back for up to 50 ms after the first paste; that shouldn't be noticeable).
+
+## Clipboard images beyond kitty (D150)
+
+`faro demo --no-faults`, a chat open, an image copied on the machine you type on. The footer says "Reading the clipboard…" first in every case. Ghostty's own version: `ghostty +version`.
+
+- [ ] **Ghostty nightly (tip) on macOS, directly:** `Ctrl+V`: the footer says "Waiting for Ghostty… allow the clipboard prompt" and Ghostty shows its clipboard window with a preview of the image; allow. The image is staged (`📎 clipboard-….png …`) and not sent. Deny instead: "Clipboard access denied". Tick Ghostty's "remember" option once: the next `Ctrl+V` stages with no window; after restarting faro, Ghostty asks again.
+- [ ] **Ghostty nightly → SSH → tmux** (`allow-passthrough on`): the same, with faro on the other machine. Also with Ghostty's ssh wrapper giving `TERM=xterm-256color` on the server: it still works (faro asks the terminal; the footer then says "Waiting for the terminal…").
+- [ ] **Ghostty 1.3.1 on macOS, faro on the same Mac:** `Ctrl+V` stages the image at once with no window (faro reads the Mac's clipboard itself). Note whether macOS shows its own "allow paste" alert for `osascript`, and say what it looks like.
+- [ ] **Ghostty on Linux (or any terminal), faro on the same machine:** under Wayland with `wl-clipboard` installed, `Ctrl+V` stages the image at once; under X11 with `xclip`, the same. Without either: "Install wl-clipboard (or xclip) to paste images".
+- [ ] **Over SSH in a terminal that can't share its clipboard** (Ghostty 1.3.1, Terminal.app, GNOME Terminal…): "Pasting images over SSH needs kitty or a newer Ghostty", at once, and typing works afterwards. Nothing from the server's own clipboard is read.
+- [ ] **Off switch:** `Ctrl+P` › Settings › Media › Paste from the system clipboard off: in Ghostty 1.3.1 locally `Ctrl+V` now says "This terminal can't paste images (Settings › Paste from the system clipboard is off)". On again: it works again. `config.toml` has `paste_from_system = false` / `true` under `[media]`.
+- [ ] **Text only on the clipboard:** with the system clipboard path, copy some text and `Ctrl+V`: "No image on the clipboard", and the text isn't pasted anywhere.
+- [ ] **TIFF:** on a Mac, copy an image from an app that offers only TIFF (or `osascript -e 'set the clipboard to (read (POSIX file "/tmp/x.tiff") as TIFF picture)'`), `Ctrl+V` (in kitty, Ghostty nightly, or locally in any terminal): a `clipboard-….png` is staged with the right size, and sends as a PNG.
+- [ ] **kitty unchanged:** every item in "Clipboard images" above still behaves the same in kitty (the footer now says "Waiting for kitty…" only once kitty is about to prompt).
 
 ## Bubble shapes (D98)
 

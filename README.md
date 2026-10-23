@@ -86,7 +86,7 @@ Press **`F1`** for every key, or search them in the palette. Every key can be re
 | `Enter` | Send (`Alt+Enter` or `Shift+Enter`: new line) |
 | `↑` on an empty input | Select a message: `r` reply, `+` react, `e` edit, `y` copy, `Enter` for everything else |
 | `Ctrl+F` | Search messages, in this chat or all of them |
-| `Ctrl+V` | Paste an image from the clipboard (kitty) |
+| `Ctrl+V` | Paste an image from the clipboard ([where it works](docs/TERMINALS.md#images)) |
 | `Alt+N` | Do not disturb: bell off / on |
 | `Esc` | Back; then close the open chat |
 | `Ctrl+Q` | Quit |
@@ -173,6 +173,7 @@ set -g focus-events on                 # read receipts and the bell know whether
 - faro implements no cryptography of its own: it talks to Signal through [presage](https://github.com/whisperfish/presage), which builds on libsignal, Signal's own protocol library.
 - Your data stays on your machine, in files readable only by you. It is **not encrypted at rest yet**.
 - No telemetry: faro talks only to Signal's servers. The exceptions are remote voice transcription and update checks, both off by default: transcription asks before each chat's first note, and update checks ask GitHub for the latest release, sending nothing but faro's version (`[updates] check`, or Ctrl+P › Settings › Updates). Logs never contain message text or phone numbers.
+- The clipboard is read only when you press `Ctrl+V`, and only for an image. In kitty (and newer Ghostty) the terminal asks first; elsewhere, when faro runs on your own computer, faro reads that computer's clipboard itself (`[media] paste_from_system`, on by default; turn it off in Ctrl+P › Settings › Media). A pasted image is never sent until you press Enter.
 - Not yet: voice or video calls, stories, Windows, history from before linking. It can't be your only device: you need Signal on a phone.
 - It's unofficial: a change on Signal's servers can break it until faro catches up.
 

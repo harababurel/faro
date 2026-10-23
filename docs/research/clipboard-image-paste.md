@@ -1,6 +1,6 @@
 # Pasting images from the clipboard over SSH (research, 2026-10-09)
 
-Status: **Phases 0–2 done** (D90, D91; see "Phase 0 results" below); Phase 3 later. This note keeps the investigation, the owner's hands-on experiment and an implementation plan, so the feature can be picked up later without redoing the work.
+Status: **Phases 0–2 done** (D90, D91; see "Phase 0 results" below); Phase 3 later. **Beyond kitty (Ghostty, and the computer's own clipboard): D150**, which also records how Ghostty's OSC 5522 differs from kitty's. This note keeps the investigation, the owner's hands-on experiment and an implementation plan, so the feature can be picked up later without redoing the work.
 
 ## Summary
 

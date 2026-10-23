@@ -32,7 +32,13 @@ JPEG, PNG, GIF and WebP (including stickers) are drawn as still images; `v` open
 
 **Reattaching from another screen.** When the set of attached tmux clients changes, faro asks the terminal again and redraws every picture for its cell size, so pictures fit their box on a different screen or scale too.
 
-**Pasting an image:** press `Ctrl+V` in a chat. This works in kitty, directly or over SSH, and inside tmux (with `allow-passthrough on`), but not through mosh. kitty asks for permission; choose "allow all" to stop it asking until faro restarts. The image waits above the input with its size: `Ctrl+O` shows it, `Enter` sends it (with what you typed as a caption), `Esc` removes it. `Cmd+V` stays kitty's text paste.
+**Pasting an image:** press `Ctrl+V` in a chat. The image waits above the input with its size: `Ctrl+O` shows it, `Enter` sends it (with what you typed as a caption), `Esc` removes it. Nothing is sent before you press `Enter`. Where the image comes from:
+
+- **kitty**, and terminals that can share their clipboard the same way (newer Ghostty; for now its macOS nightly builds): directly, over SSH, and inside tmux (with `allow-passthrough on`), but not through mosh. The terminal asks for permission; choose "allow all" (kitty) or "remember" (Ghostty) to stop it asking until faro restarts. `Cmd+V` stays the terminal's text paste.
+- **Any other terminal, when faro runs on your own computer:** faro reads that computer's clipboard itself (macOS: `osascript`; Linux: `wl-paste` from wl-clipboard under Wayland, or `xclip` under X11). There's no permission window: pressing `Ctrl+V` is the request. faro asks only for images, never text, and only when you press `Ctrl+V`. Turn it off with `[media] paste_from_system = false` or `Ctrl+P` › Settings › Media.
+- **Over SSH in other terminals:** not possible; faro says so. Dragging an image file into the terminal works when faro runs on the same computer; otherwise use `Ctrl+P` › *Send a file…* for files on the machine faro runs on.
+
+Images that are only on the clipboard as TIFF (some macOS apps) are converted to PNG.
 
 ## mosh and emoji
 
