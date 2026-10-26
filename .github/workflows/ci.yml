@@ -63,7 +63,7 @@ jobs:
       - name: Install Rust
         run: rustup toolchain install && rustc --version
 
-      - uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2.87.30
+      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
         with:
           tool: cargo-deny@0.20.2
 
@@ -99,7 +99,7 @@ jobs:
         id: bindgen
         run: echo "version=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/version = |"/, ""); print; exit }' Cargo.lock)" >> "$GITHUB_OUTPUT"
 
-      - uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2.87.30
+      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
         with:
           tool: wasm-bindgen@${{ steps.bindgen.outputs.version }}
 
@@ -145,7 +145,7 @@ jobs:
         id: bindgen
         run: echo "version=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/version = |"/, ""); print; exit }' Cargo.lock)" >> "$GITHUB_OUTPUT"
 
-      - uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2.87.30
+      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
         with:
           tool: wasm-bindgen@${{ steps.bindgen.outputs.version }}
 
