@@ -1503,3 +1503,11 @@ A developer friend of the owner tried getfaro.dev; the owner agreed with all of 
 - **Not done (owner agreed):** the writer fix in presage (stop announcing avatars it doesn't send), to be offered upstream; asking for contacts less often than once per run.
 - **Rejected:** `panic = "abort"` (no clean shutdown, no log flush, and a picture's decoder panic would kill faro); restarting the receive loop after a panic (hides bugs, and a redelivered message would loop); a vendored copy of libsignal-service instead of a fork (much larger diff to carry).
 - **Released in 0.1.7** (2026-10-23).
+
+### D152. The FreeBSD port is listed as an install method (2026-11-01)
+
+- **What happened:** a FreeBSD ports committer added `net-im/faro` (0.1.7, 2026-10-31; https://www.freshports.org/net-im/faro/). It builds the release tarball with every crate pinned, including our libsignal-service fork (D151), and installs `bin/faro`.
+- **Owner's choice:** list it beside the other methods: `pkg install faro` in the README and on getfaro.dev (copy button `method` `pkg`), and "FreeBSD (pkg or ports)" in the bug form's install dropdown.
+- **Judgement, wording:** called community-maintained, and the README and SECURITY.md say it may lag a release behind: we don't control its updates.
+- **Not tested by us:** faro has never been run on FreeBSD. Likely differences: terminal/SSH detection (parses `ps` output), the config watcher (`notify` on kqueue), audio players and clipboard tools. Treat FreeBSD reports as new-platform bugs.
+- **Release note:** if the `[patch]` on the libsignal-service fork is dropped, tell the port maintainer, since their distinfo lists the fork.

@@ -26,7 +26,7 @@ Please give a fix a reasonable time (up to 90 days) before disclosing it publicl
 
 ## Supported versions
 
-Only the latest release gets security fixes. Packages (Homebrew, the AUR, the `.deb`) follow the releases.
+Only the latest release gets security fixes. Packages (Homebrew, the AUR, the `.deb`) follow the releases; the FreeBSD port is maintained outside this project and may lag behind.
 
 | Version | Supported |
 |---|---|

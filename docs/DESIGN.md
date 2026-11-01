@@ -530,6 +530,7 @@ Sketch:
 - **Homebrew:** own tap first (`harababurel/tap`, repo `harababurel/homebrew-tap`, created and empty, D86), homebrew-core later.
 - **Arch (D86):** AUR `faro-git` (PKGBUILD in `packaging/aur/faro-git/`, ready, uploaded once the repo is public), then `faro` (release from source) and `faro-bin` (pre-built) with the first release; all `provides`/`conflicts` `faro`. Runtime depends: `glibc`, `libgcc`, `openssl` (SQLCipher). Official repos only if a packager adopts it.
 - **Debian/Ubuntu:** `.deb` via `cargo-deb` attached to releases.
+- **FreeBSD (D152):** `net-im/faro` in the ports tree, maintained outside the project (added 2026-10-31 at 0.1.7). Listed in the README, the site and the bug form; FreeBSD itself is untested by us.
 - **Nix:** flake in the repo.
 - **Names (D85):** `faro` everywhere (repo, command, Homebrew, AUR, `.deb`, Nix); `faro-chat` only on crates.io. Website: `getfaro.dev`, designed in [WEBSITE.md](WEBSITE.md) (D105); the web demo draws with a custom Canvas 2D renderer (D106) and JetBrains Mono (D107).
 

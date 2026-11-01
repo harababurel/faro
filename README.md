@@ -30,6 +30,7 @@ Website and live demo (no install): **https://getfaro.dev**
 ```sh
 brew install harababurel/tap/faro            # macOS / Linux (Homebrew)
 yay -S faro-bin                              # Arch (AUR); also `faro` (from source) and `faro-git`
+pkg install faro                             # FreeBSD (net-im/faro, community-maintained)
 ```
 
 Debian / Ubuntu (`faro_arm64.deb` on ARM):
@@ -39,7 +40,7 @@ curl -LO https://github.com/harababurel/faro/releases/latest/download/faro_amd64
 sudo apt install ./faro_amd64.deb
 ```
 
-Prebuilt archives for macOS (Apple silicon, Intel) and Linux (x86_64, ARM64), with checksums, are on the [releases page](https://github.com/harababurel/faro/releases/latest). To upgrade, use the same tool again (`brew upgrade`, your AUR helper, or the latest `.deb`).
+Prebuilt archives for macOS (Apple silicon, Intel) and Linux (x86_64, ARM64), with checksums, are on the [releases page](https://github.com/harababurel/faro/releases/latest). To upgrade, use the same tool again (`brew upgrade`, your AUR helper, `pkg upgrade`, or the latest `.deb`). The FreeBSD port is maintained outside this project, so it may lag a release behind.
 
 <details>
 <summary>Building from source</summary>

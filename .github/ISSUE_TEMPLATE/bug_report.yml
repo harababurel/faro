@@ -40,6 +40,7 @@ body:
         - Homebrew
         - AUR (faro, faro-bin or faro-git)
         - .deb package
+        - FreeBSD (pkg or ports)
         - Prebuilt archive from GitHub Releases
         - Built from source
         - "Not installed: the web demo on getfaro.dev"

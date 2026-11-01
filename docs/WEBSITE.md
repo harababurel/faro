@@ -629,7 +629,7 @@ Ways to stay inside the budget:
 | `Demo focused` | — | How many visitors *use* the demo (the key number) |
 | `Demo message sent` | — (once per visit) | How far they go |
 | `Theme changed` | `theme` | Which themes interest people |
-| `Install copied` | `method`: `brew` \| `aur` \| `deb` \| `nix` \| `cargo` \| `binary` | Which install methods matter |
+| `Install copied` | `method`: `brew` \| `aur` \| `deb` \| `pkg` \| `nix` \| `cargo` \| `binary` | Which install methods matter |
 | Outbound links | (Plausible's built-in outbound tracking) | Clicks to GitHub, docs, releases |
 
 **Opting out:** a "Don't count my visits" link in the footer sets Plausible's `plausible_ignore` flag in local storage. Use it in your own browsers too.
