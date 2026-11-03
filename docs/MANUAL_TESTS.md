@@ -655,3 +655,12 @@ Two machines linked to the same account, both on a build with the fix. Owner, 20
 - [x] Contacts and their names are unchanged on both (A's list never overwrites the phone's with junk).
 
 Notes (version, OS, what went wrong):
+
+## Input box wraps on words (D153)
+
+- [ ] **Words move down whole:** in a chat, type a sentence longer than the input box. A word that doesn't fit moves to the next line whole instead of being cut; the cursor follows it, and the line above keeps its trailing space (no line starts with a space).
+- [ ] **Cursor at the edge:** with a word ending exactly at the box's right edge followed by a space, move the cursor onto that space with `←`/`→`: it sits just past the text, inside the box (never on the border), and typing there works.
+- [ ] **Long words and links:** paste a URL wider than the box: it is split between characters (nothing hidden); a shorter URL after some words moves to its own line whole. Emoji and CJK text wrap without stray characters, directly and inside tmux.
+- [ ] **Resize:** with a long draft, resize the terminal narrower and wider; the draft rewraps on words each time and the cursor stays on the character it was on.
+
+Notes (version, OS, what went wrong):

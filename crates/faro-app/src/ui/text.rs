@@ -226,6 +226,48 @@ fn wrap_ranges(text: &str, max: usize) -> Vec<Range<usize>> {
     lines
 }
 
+/// Where an editable paragraph (no line breaks, not sanitised) wraps to lines
+/// of `max` cells: the byte offset where each line after the first starts
+/// (D153). Words break where [`wrap_ranges`] breaks them, but nothing is left
+/// out, so a cursor can sit after any character: the space at a break hangs
+/// at the end of the line before it, at most one cell past `max` (the input
+/// box's padding); more spaces go on to the next line. Words wider than a
+/// line are split between graphemes.
+pub fn edit_breaks(text: &str, max: usize) -> Vec<usize> {
+    /// Put `w` cells starting at byte `at` on the line, first breaking before
+    /// them if they don't fit in `room` cells.
+    fn place(breaks: &mut Vec<usize>, used: &mut usize, at: usize, w: usize, room: usize) {
+        if *used + w > room && *used > 0 {
+            breaks.push(at);
+            *used = 0;
+        }
+        *used += w;
+    }
+    let max = max.max(1);
+    let mut breaks = Vec::new();
+    let mut used = 0;
+    for (at, word) in words(text) {
+        if word.chars().all(char::is_whitespace) {
+            for (offset, g) in word.grapheme_indices(true) {
+                place(&mut breaks, &mut used, at + offset, g.width(), max + 1);
+            }
+            continue;
+        }
+        let w = width(word);
+        if w <= max {
+            // The whole word moves down if it doesn't fit.
+            place(&mut breaks, &mut used, at, w, max);
+            continue;
+        }
+        // Wider than a line: split it, starting on a line of its own.
+        place(&mut breaks, &mut used, at, 0, 0);
+        for (offset, g) in word.grapheme_indices(true) {
+            place(&mut breaks, &mut used, at + offset, g.width(), max);
+        }
+    }
+    breaks
+}
+
 /// A buffer's text: one line per row, a wide character once (its hidden
 /// cells aren't printed).
 pub fn grid(buffer: &Buffer) -> String {
@@ -250,6 +292,30 @@ pub fn grid(buffer: &Buffer) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn edit_breaks_match_message_wrapping() {
+        let texts = [
+            "the quick brown fox jumps over the lazy dog",
+            "see this: https://example.org/a/long/path, ok",
+            "one/two/three/four and a supercalifragilistic word",
+            "ok 🧗🧗🧗 日本語です done",
+        ];
+        for text in texts {
+            // From 2: on a 1-cell line a wide emoji already overflows, so the
+            // space after it can't hang and takes a line of its own.
+            for max in 2..=24 {
+                let breaks = edit_breaks(text, max);
+                let starts = std::iter::once(0).chain(breaks.iter().copied());
+                let ends = breaks.iter().copied().chain(std::iter::once(text.len()));
+                let lines: Vec<&str> = starts
+                    .zip(ends)
+                    .map(|(s, e)| text.get(s..e).unwrap_or_default().trim_end())
+                    .collect();
+                assert_eq!(lines, wrap(text, max), "{text:?} at {max}");
+            }
+        }
+    }
 
     #[test]
     fn links_move_to_a_line_of_their_own_instead_of_splitting() {

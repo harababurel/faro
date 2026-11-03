@@ -9,7 +9,7 @@ use ratatui::widgets::{Block, BorderType, Clear, Padding, Paragraph};
 use unicode_segmentation::UnicodeSegmentation as _;
 use unicode_width::UnicodeWidthStr as _;
 
-use super::text::{one_line, sanitize, truncate};
+use super::text::{edit_breaks, one_line, sanitize, truncate};
 use super::{View, bubbles, focused, logo, messages};
 use crate::app::input::Input;
 use crate::app::keymap::Action;
@@ -401,10 +401,9 @@ fn render_input(
     let cursor_row = row - skip;
     let cursor_col = column;
     frame.render_widget(Paragraph::new(shown), inner);
-    let x = inner.x
-        + u16::try_from(cursor_col)
-            .unwrap_or(0)
-            .min(inner.width.saturating_sub(1));
+    // A space hanging at a break (D153) puts the cursor one cell past the
+    // text, in the box's right padding.
+    let x = inner.x + u16::try_from(cursor_col).unwrap_or(0).min(inner.width);
     let y = inner.y + u16::try_from(cursor_row).unwrap_or(0);
     if focused {
         frame.set_cursor_position(Position::new(x, y));
@@ -590,14 +589,21 @@ struct InputLayout {
     cursor: (usize, usize),
 }
 
-/// Hard-wrap input between graphemes, keeping every character (including
-/// trailing spaces) so the cursor can sit after any of them. A cursor at the
-/// end of a full line moves to an extra empty line.
+/// Wrap input on words, as messages are (`text::edit_breaks`, D153), keeping
+/// every character (including trailing spaces) so the cursor can sit after any
+/// of them. A cursor at the end of a full line moves to an extra empty line.
 fn layout_input(input: &Input, width: usize) -> InputLayout {
     let width = width.max(1);
     // `Input` holds no control characters besides `\n` (see `insert_str`), so
     // byte offsets match the cursor.
     let text = input.text();
+    let mut breaks = Vec::new();
+    let mut start = 0;
+    for paragraph in text.split('\n') {
+        breaks.extend(edit_breaks(paragraph, width).into_iter().map(|b| start + b));
+        start += paragraph.len() + 1;
+    }
+    let mut breaks = breaks.into_iter().peekable();
     let mut lines = vec![String::new()];
     let mut used = 0;
     let mut cursor = None;
@@ -610,8 +616,11 @@ fn layout_input(input: &Input, width: usize) -> InputLayout {
             used = 0;
             continue;
         }
-        let w = g.width();
-        if used + w > width {
+        let mut wraps = false;
+        while breaks.next_if(|&b| b <= at).is_some() {
+            wraps = true;
+        }
+        if wraps {
             lines.push(String::new());
             used = 0;
         }
@@ -621,7 +630,7 @@ fn layout_input(input: &Input, width: usize) -> InputLayout {
         if let Some(line) = lines.last_mut() {
             line.push_str(g);
         }
-        used += w;
+        used += g.width();
     }
     let cursor = cursor.unwrap_or_else(|| {
         if used >= width {
@@ -649,6 +658,53 @@ mod tests {
         assert_eq!(lines("abcdefg", 3), vec!["abc", "def", "g"]);
         assert_eq!(lines("abc", 3), vec!["abc", ""]);
         assert_eq!(lines("a\nb", 5), vec!["a", "b"]);
+    }
+
+    #[test]
+    fn input_wraps_whole_words() {
+        assert_eq!(lines("hello world", 8), vec!["hello ", "world"]);
+        assert_eq!(
+            lines("aaa bbb\nccc ddd", 4),
+            vec!["aaa ", "bbb", "ccc ", "ddd"]
+        );
+        // The space at the break hangs one cell past the edge…
+        assert_eq!(lines("hello world", 5), vec!["hello ", "world", ""]);
+        // …and further spaces go on to the next line, so none is lost.
+        assert_eq!(lines("a    b", 3), vec!["a   ", " b"]);
+        // Only a word wider than the box is split.
+        assert_eq!(lines("hi abcdefghi", 4), vec!["hi ", "abcd", "efgh", "i"]);
+        // Breaks after punctuation, between emoji and between ideographs.
+        assert_eq!(lines("one/two/three", 9), vec!["one/two/", "three"]);
+        assert_eq!(lines("ok 🧗🧗", 5), vec!["ok 🧗", "🧗"]);
+        assert_eq!(lines("日本語です", 6), vec!["日本語", "です"]);
+        // A link stays whole when it fits on a line.
+        assert_eq!(
+            lines("see https://example.org/x ok", 22),
+            vec!["see ", "https://example.org/x ", "ok"]
+        );
+    }
+
+    #[test]
+    fn cursor_follows_a_word_to_the_next_line() {
+        let mut input = Input::new("hello world");
+        assert_eq!(layout_input(&input, 8).cursor, (1, 5), "at the end");
+        input.home();
+        for _ in 0..6 {
+            input.right();
+        }
+        assert_eq!(layout_input(&input, 8).cursor, (1, 0), "before `world`");
+        input.left();
+        assert_eq!(
+            layout_input(&input, 5).cursor,
+            (0, 5),
+            "on the hanging space"
+        );
+        let input = Input::new("hello ");
+        assert_eq!(
+            layout_input(&input, 5).cursor,
+            (1, 0),
+            "after the hanging space"
+        );
     }
 
     #[test]

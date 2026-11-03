@@ -242,7 +242,7 @@ presage keeps its own store for keys, sessions and protocol state; faro never to
 ```
 
 - **Left sidebar:** conversations (sections: pinned, recent; archived behind a toggle). Unread counts, mute markers, typing indicator.
-- **Main pane:** message list + **input box** rendered as a distinct panel with its own background colour (OpenCode style).
+- **Main pane:** message list + **input box** rendered as a distinct panel with its own background colour (OpenCode style). The input wraps on words like the messages do; only a word wider than the box is split (D153).
 - **Read receipts and typing (D42):** a message is read only once it's actually seen (terminal focused, view at the bottom); only then are receipts sent and the unread count cleared. Reading a chat on the phone clears its count here too (D70). Typing indicators: "started" on the first edit and every 10 s, "stopped" after 3 s idle, on an empty input, or on leaving the conversation.
 - **Right sidebar (optional):** conversation info, members, safety number, shared links/files.
 - **Footer:** connection status, unread total, mode, and **context-sensitive key hints** (change with focus).

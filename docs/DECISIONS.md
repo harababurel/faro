@@ -1511,3 +1511,11 @@ A developer friend of the owner tried getfaro.dev; the owner agreed with all of 
 - **Judgement, wording:** called community-maintained, and the README and SECURITY.md say it may lag a release behind: we don't control its updates.
 - **Not tested by us:** faro has never been run on FreeBSD. Likely differences: terminal/SSH detection (parses `ps` output), the config watcher (`notify` on kqueue), audio players and clipboard tools. Treat FreeBSD reports as new-platform bugs.
 - **Release note:** if the `[patch]` on the libsignal-service fork is dropped, tell the port maintainer, since their distinfo lists the fork.
+
+### D153. The input box wraps on words (2026-11-03)
+
+- **What happened (owner's report):** a long message being typed wrapped in the middle of words, which looked unnatural. Messages in the history already wrapped on words (`text::wrap_pieces`); only the input box (`layout_input` in `ui/conversation.rs`) cut between graphemes.
+- **Owner's choice:** wrap the input the way messages are wrapped: a word that doesn't fit moves to the next line whole, and only a word wider than the box is split.
+- **How:** `text::edit_breaks(paragraph, max)` returns where each line after the first starts, using the same break points as messages (`text::words`: Unicode word boundaries, so after spaces and punctuation, between emoji and between CJK characters; links kept whole). Unlike `wrap_ranges` it keeps every character, because the cursor must be able to sit after any of them: the space at a break hangs at the end of the line before it, at most one cell past the edge (into the box's right padding, where the cursor may now go); further spaces go on to the next line. A test checks that, trimmed, its lines match message wrapping.
+- **Judgement:** `↑`/`↓` still move between the text's own lines, not wrapped rows (unchanged).
+- **Rejected:** hyphenation (e-reader style). It needs per-language dictionaries and knowing which language a message is in; chat text mixes languages, slang, emoji and links; and a hyphen that isn't in the text would confuse cursor movement and deletion. With whole-word wrapping, only words wider than the whole box are still split, mostly links and junk strings, where a hyphen wouldn't help.
