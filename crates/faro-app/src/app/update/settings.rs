@@ -4,7 +4,8 @@
 
 use faro_core::config::{
     self, AutoDownload, BubbleStyle, Config, DesktopNotifications, EmojiChoice, InlineImages,
-    MessageDensity, NotificationPrivacy, Problem, Severity, TimestampFormat, TranscribeMode, key,
+    MessageDensity, NotificationPrivacy, Problem, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN, Severity,
+    TimestampFormat, TranscribeMode, key,
 };
 
 use super::{check_terminal, curation, selection, updates};
@@ -290,6 +291,7 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
         | SettingChoice::BubblePadding(on)
         | SettingChoice::MatchWidths(on)
         | SettingChoice::UpdateCheck(on) => choose_toggle(state, choice, on),
+        SettingChoice::SidebarWidth(width) => super::resize::set_width(state, width),
         SettingChoice::Previews(on) => choose_preview(state, key::PREVIEWS, on),
         SettingChoice::PreviewTime(on) => choose_preview(state, key::PREVIEW_TIME, on),
         SettingChoice::PreviewActivity(on) => choose_preview(state, key::PREVIEW_ACTIVITY, on),
@@ -362,6 +364,7 @@ fn choose_media_and_notifications(state: &mut State, choice: SettingChoice) -> V
         | SettingChoice::Density(_)
         | SettingChoice::Timestamps(_)
         | SettingChoice::Allowlist(_)
+        | SettingChoice::SidebarWidth(_)
         | SettingChoice::Previews(_)
         | SettingChoice::PreviewTime(_)
         | SettingChoice::PreviewActivity(_)
@@ -452,6 +455,7 @@ fn choose_transcription(state: &mut State, choice: SettingChoice) -> Vec<Effect>
         | SettingChoice::Density(_)
         | SettingChoice::Timestamps(_)
         | SettingChoice::Allowlist(_)
+        | SettingChoice::SidebarWidth(_)
         | SettingChoice::Previews(_)
         | SettingChoice::PreviewTime(_)
         | SettingChoice::PreviewActivity(_)
@@ -504,6 +508,20 @@ pub fn set_text(state: &mut State, setting: Setting, text: &str) -> Vec<Effect> 
             setting.title()
         )));
         return vec![];
+    }
+    if setting == Setting::SidebarWidth {
+        return match text.parse::<u16>() {
+            Ok(width) if (SIDEBAR_WIDTH_MIN..=SIDEBAR_WIDTH_MAX).contains(&width) => {
+                super::resize::set_width(state, width)
+            }
+            Ok(_) | Err(_) => {
+                state.notice = Some(Notice::warning(format!(
+                    "The sidebar width is a number from {SIDEBAR_WIDTH_MIN} to \
+                     {SIDEBAR_WIDTH_MAX}; nothing changed"
+                )));
+                vec![]
+            }
+        };
     }
     let voice = &mut state.config.voice;
     match setting {
@@ -566,6 +584,7 @@ pub fn set_text(state: &mut State, setting: Setting, text: &str) -> Vec<Effect> 
         | Setting::Desktop
         | Setting::Privacy
         | Setting::Allowlist
+        | Setting::SidebarWidth
         | Setting::Previews
         | Setting::PreviewTime
         | Setting::PreviewActivity
@@ -682,6 +701,7 @@ fn choose_toggle(state: &mut State, choice: SettingChoice, on: bool) -> Vec<Effe
         | SettingChoice::Density(_)
         | SettingChoice::Timestamps(_)
         | SettingChoice::Allowlist(_)
+        | SettingChoice::SidebarWidth(_)
         | SettingChoice::Previews(_)
         | SettingChoice::PreviewTime(_)
         | SettingChoice::PreviewActivity(_)
@@ -761,7 +781,11 @@ pub fn reset(state: &mut State, setting: Setting) -> Vec<Effect> {
     effects
 }
 
-fn save_with_notice(state: &mut State, path: &'static str, text: impl Into<String>) -> Vec<Effect> {
+pub(super) fn save_with_notice(
+    state: &mut State,
+    path: &'static str,
+    text: impl Into<String>,
+) -> Vec<Effect> {
     state.notice = Some(Notice::info(text));
     save(state, path)
 }

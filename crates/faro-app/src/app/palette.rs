@@ -12,7 +12,8 @@ use std::path::PathBuf;
 
 use faro_core::config::{
     AutoDownload, BubbleStyle, Choice as _, ColorChoice, DesktopNotifications, EmojiChoice,
-    InlineImages, MessageDensity, NotificationPrivacy, TimestampFormat, TranscribeMode, key,
+    InlineImages, MessageDensity, NotificationPrivacy, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN,
+    TimestampFormat, TranscribeMode, key,
 };
 use faro_core::domain::{ConversationId, MessageRef, ServiceId};
 use faro_core::store::{NotifyLevel, RemoteTranscription, SearchHit};
@@ -106,6 +107,14 @@ pub const TRANSCRIBE_LANGUAGES: &[(&str, &str)] = &[
 ];
 
 /// The longest voice note transcribed automatically (D145), in seconds.
+/// The sidebar widths offered (D156); `Custom…` takes any other.
+pub const SIDEBAR_WIDTHS: &[(u16, &str)] = &[
+    (24, "24 (narrow)"),
+    (30, "30 (default)"),
+    (40, "40 (wide)"),
+    (50, "50 (wider)"),
+];
+
 pub const TRANSCRIBE_MAX_SECS: &[(u32, &str)] = &[
     (30, "30 s"),
     (60, "1 min"),
@@ -167,6 +176,8 @@ pub enum SettingsGroup {
 pub enum Setting {
     Colors,
     Emoji,
+    /// `[ui] sidebar_width` (D156).
+    SidebarWidth,
     Layout,
     BubbleStyle,
     BubblePadding,
@@ -291,7 +302,12 @@ impl SettingsGroup {
     /// root, not a row here (D60).
     const fn settings(self) -> &'static [Setting] {
         match self {
-            Self::Appearance => &[Setting::Colors, Setting::Emoji, Setting::ReduceMotion],
+            Self::Appearance => &[
+                Setting::Colors,
+                Setting::Emoji,
+                Setting::SidebarWidth,
+                Setting::ReduceMotion,
+            ],
             Self::Messages => &[Setting::Layout, Setting::Timestamps],
             Self::Bubbles => &[
                 Setting::BubbleStyle,
@@ -337,6 +353,7 @@ impl Setting {
         match self {
             Self::Colors => "Colours",
             Self::Emoji => "Emoji",
+            Self::SidebarWidth => "Sidebar width",
             Self::Layout => "Message layout",
             Self::BubbleStyle => "Bubble style",
             Self::BubblePadding => "Bubble padding",
@@ -373,6 +390,7 @@ impl Setting {
         match self {
             Self::Colors => key::COLORS,
             Self::Emoji => key::EMOJI,
+            Self::SidebarWidth => key::SIDEBAR_WIDTH,
             Self::Layout => key::LAYOUT,
             Self::BubbleStyle => key::BUBBLE_STYLE,
             Self::BubblePadding => key::BUBBLE_PADDING,
@@ -456,6 +474,7 @@ impl Setting {
             | Self::Desktop
             | Self::Privacy
             | Self::Allowlist
+            | Self::SidebarWidth
             | Self::Previews
             | Self::InlineImages
             | Self::AutoDownload
@@ -472,7 +491,8 @@ impl Setting {
             | Self::TranscribeLanguage
             | Self::TranscribeCommand
             | Self::TranscribeEndpoint
-            | Self::TranscribeRemoteModel => true,
+            | Self::TranscribeRemoteModel
+            | Self::SidebarWidth => true,
             Self::Colors
             | Self::Emoji
             | Self::Layout
@@ -519,6 +539,7 @@ impl Setting {
             | Self::UpdateCheck => true,
             Self::Colors
             | Self::Emoji
+            | Self::SidebarWidth
             | Self::Layout
             | Self::BubbleStyle
             | Self::Density
@@ -543,9 +564,12 @@ impl Setting {
     /// at the terminal.
     pub const fn previews(self) -> bool {
         match self {
-            Self::Colors | Self::Layout | Self::BubbleStyle | Self::Density | Self::Timestamps => {
-                true
-            }
+            Self::Colors
+            | Self::SidebarWidth
+            | Self::Layout
+            | Self::BubbleStyle
+            | Self::Density
+            | Self::Timestamps => true,
             Self::Emoji
             | Self::BubblePadding
             | Self::MatchWidths
@@ -613,6 +637,8 @@ pub enum PaletteCommand {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingChoice {
     Colors(ColorChoice),
+    /// Columns (D156); typed values go through `ItemKind::SetText`.
+    SidebarWidth(u16),
     Layout(MessageLayout),
     BubbleStyle(BubbleStyle),
     BubblePadding(bool),
@@ -1471,6 +1497,7 @@ pub fn value_title(state: &State, setting: Setting) -> String {
 pub fn typed_value(state: &State, setting: Setting) -> String {
     match state.config.value(setting.key()) {
         Some(faro_core::config::ConfigValue::Text(text)) => text,
+        Some(faro_core::config::ConfigValue::Uint(number)) => number.to_string(),
         Some(_) | None => String::new(),
     }
 }
@@ -1622,6 +1649,9 @@ pub fn note(state: &State, level: Level) -> Option<String> {
     if let Some(note) = transcription_note(state, level) {
         return Some(note);
     }
+    if let Some(note) = sidebar_width_note(level) {
+        return Some(note);
+    }
     if let Level::Nickname(id) = level {
         let theirs = state
             .contacts
@@ -1669,6 +1699,32 @@ pub fn note(state: &State, level: Level) -> Option<String> {
 
 /// What to know at a transcription setting (D145): above all, a missing
 /// local command and how to install it.
+/// How else the list's width changes, and what a typed one may be (D156).
+fn sidebar_width_note(level: Level) -> Option<String> {
+    match level {
+        Level::Setting(Setting::SidebarWidth) => Some(
+            "Or drag the list's right border with the mouse, or press Alt+, and Alt+.".to_owned(),
+        ),
+        Level::SettingText(Setting::SidebarWidth) => Some(format!(
+            "Type a width from {SIDEBAR_WIDTH_MIN} to {SIDEBAR_WIDTH_MAX} columns."
+        )),
+        Level::Root
+        | Level::Chats
+        | Level::Search(_)
+        | Level::Themes
+        | Level::Settings
+        | Level::Setting(_)
+        | Level::Commands
+        | Level::Keys
+        | Level::People
+        | Level::Nickname(_)
+        | Level::SettingText(_)
+        | Level::AttachFile
+        | Level::ChatLinks
+        | Level::ForwardTo(_) => None,
+    }
+}
+
 fn transcription_note(state: &State, level: Level) -> Option<String> {
     let missing = state.transcriber_missing().map(|program| {
         let install = match program {
@@ -1728,6 +1784,7 @@ fn transcription_note(state: &State, level: Level) -> Option<String> {
                 .to_owned(),
             Setting::Colors
             | Setting::Emoji
+            | Setting::SidebarWidth
             | Setting::Layout
             | Setting::BubbleStyle
             | Setting::BubblePadding
@@ -1840,6 +1897,7 @@ fn value_detail(state: &State, choice: SettingChoice) -> &'static str {
         | SettingChoice::Density(_)
         | SettingChoice::Timestamps(_)
         | SettingChoice::Allowlist(_)
+        | SettingChoice::SidebarWidth(_)
         | SettingChoice::Previews(_)
         | SettingChoice::PreviewTime(_)
         | SettingChoice::PreviewActivity(_)
@@ -1949,6 +2007,7 @@ fn values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)>
             SettingChoice::Privacy,
         ),
         Setting::Allowlist => on_off(SettingChoice::Allowlist, state.list.allowlist),
+        Setting::SidebarWidth => sidebar_widths(state),
         Setting::InlineImages => inline_images_values(state),
         Setting::AutoDownload => choice_values(
             AutoDownload::ALL,
@@ -1984,6 +2043,20 @@ fn values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)>
     }
 }
 
+/// The preset widths of the conversation list (D156).
+fn sidebar_widths(state: &State) -> Vec<(SettingChoice, String, bool)> {
+    SIDEBAR_WIDTHS
+        .iter()
+        .map(|&(width, title)| {
+            (
+                SettingChoice::SidebarWidth(width),
+                title.to_owned(),
+                width == state.config.ui.sidebar_width,
+            )
+        })
+        .collect()
+}
+
 /// `on` and `off` for the plain on/off settings.
 fn switch_values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)> {
     let config = &state.config;
@@ -2017,6 +2090,7 @@ fn switch_values(state: &State, setting: Setting) -> Vec<(SettingChoice, String,
         | Setting::Desktop
         | Setting::Privacy
         | Setting::Allowlist
+        | Setting::SidebarWidth
         | Setting::InlineImages
         | Setting::AutoDownload
         | Setting::Transcribe
@@ -2102,6 +2176,7 @@ fn transcription_values(state: &State, setting: Setting) -> Vec<(SettingChoice, 
         | Setting::Desktop
         | Setting::Privacy
         | Setting::Allowlist
+        | Setting::SidebarWidth
         | Setting::Previews
         | Setting::PreviewTime
         | Setting::PreviewActivity

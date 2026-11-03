@@ -49,6 +49,7 @@ fn key_constants_name_settings() {
     for path in [
         key::THEME,
         key::EMOJI,
+        key::SIDEBAR_WIDTH,
         key::ALLOWLIST,
         key::PREVIEWS,
         key::PREVIEW_TIME,
@@ -168,6 +169,21 @@ fn inline_and_dotted_tables_work_too() {
     assert_eq!(parsed.problems, vec![]);
     assert_eq!(parsed.config.messages.layout, MessageLayout::Irc);
     assert!(!parsed.config.mouse.enabled);
+}
+
+#[test]
+fn the_sidebar_width_is_read_within_its_range() {
+    let parsed = parse_fresh("[ui]\nsidebar_width = 42\n");
+    assert_eq!(parsed.problems, vec![]);
+    assert_eq!(parsed.config.ui.sidebar_width, 42);
+    let parsed = parse_fresh("[ui]\nsidebar_width = 12\n");
+    assert_eq!(parsed.config.ui.sidebar_width, SIDEBAR_WIDTH);
+    assert_eq!(
+        parsed.problems,
+        vec![Problem::error(
+            "ui.sidebar_width: expected a number from 20 to 100, not 12; keeping 30"
+        )]
+    );
 }
 
 #[test]

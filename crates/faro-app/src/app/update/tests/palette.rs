@@ -254,10 +254,11 @@ fn prefixes_jump_into_a_category() {
 }
 
 /// `Settings ›` with nothing typed: every setting under its section.
-const SETTINGS_LIST: [&str; 39] = [
+const SETTINGS_LIST: [&str; 40] = [
     "Appearance",
     "Colours",
     "Emoji",
+    "Sidebar width",
     "Reduce motion",
     "Messages",
     "Message layout",
@@ -375,7 +376,7 @@ fn headers_are_skipped() {
     press(&mut state, KeyCode::Down);
     press(&mut state, KeyCode::Down);
     assert_eq!(selected_title(&state), "Colours", "wraps past Appearance");
-    for _ in 0..5 {
+    for _ in 0..6 {
         press(&mut state, KeyCode::Down);
     }
     assert_eq!(selected_title(&state), "Bell", "skips Notifications");
@@ -723,11 +724,11 @@ fn mouse_picks_a_result_or_closes() {
     update(&mut state, click(20, 5));
     assert_eq!(level(&state), Level::Settings);
     assert_eq!(selected_title(&state), "Colours");
-    update(&mut state, click(20, 8));
+    update(&mut state, click(20, 9));
     assert_eq!(selected_title(&state), "Reduce motion");
     assert!(state.config.reduce_motion);
     // A click on a disabled setting does nothing either.
-    update(&mut state, click(20, 14));
+    update(&mut state, click(20, 15));
     assert_eq!(selected_title(&state), "Reduce motion");
     assert!(state.config.messages.bubble_padding);
     update(&mut state, click(2, 20));
@@ -1158,7 +1159,7 @@ fn left_and_right_cycle_setting_values_in_place_at_settings_level() {
     );
 
     // Move down to Bell (a switch) and cycle with Right and Left.
-    for _ in 0..5 {
+    for _ in 0..6 {
         press(&mut state, KeyCode::Down);
     }
     assert_eq!(selected_title(&state), "Bell");
@@ -1724,4 +1725,60 @@ fn a_missing_local_command_is_named_with_how_to_install_it() {
 fn palette_open_settings(state: &mut State) -> Vec<Effect> {
     update(state, ctrl('p'));
     pick(state, "Settings")
+}
+
+#[test]
+fn the_sidebar_width_has_presets_a_preview_and_a_custom_value() {
+    let mut state = loaded_state();
+    palette_open(&mut state, ":sidebar width");
+    enter(&mut state);
+    assert_eq!(level(&state), Level::Setting(Setting::SidebarWidth));
+    assert_eq!(
+        titles(&state),
+        vec![
+            "24 (narrow)",
+            "30 (default)",
+            "40 (wide)",
+            "50 (wider)",
+            "Custom…"
+        ]
+    );
+    assert_eq!(
+        selected_title(&state),
+        "30 (default)",
+        "opens on the one in use"
+    );
+    // Moving to a width draws it before it's chosen (D59).
+    press(&mut state, KeyCode::Down);
+    assert_eq!(state.sidebar_width(), 40);
+    assert_eq!(state.config.ui.sidebar_width, 30);
+    let effects = enter(&mut state);
+    assert_eq!(
+        effects,
+        vec![saved(key::SIDEBAR_WIDTH, ConfigValue::Uint(40))]
+    );
+    assert_eq!(state.config.ui.sidebar_width, 40);
+
+    update(&mut state, key(KeyCode::Esc, KeyModifiers::NONE));
+    palette_open(&mut state, ":sidebar width");
+    enter(&mut state);
+    pick(&mut state, "Custom");
+    assert_eq!(level(&state), Level::SettingText(Setting::SidebarWidth));
+    // The query starts from the width in use.
+    assert_eq!(state.palette.as_ref().unwrap().input.text(), "40");
+    update(&mut state, ctrl('u'));
+    let effects = pick(&mut state, "36");
+    assert_eq!(
+        effects,
+        vec![saved(key::SIDEBAR_WIDTH, ConfigValue::Uint(36))]
+    );
+    assert_eq!(state.config.ui.sidebar_width, 36);
+
+    update(&mut state, key(KeyCode::Esc, KeyModifiers::NONE));
+    palette_open(&mut state, ":sidebar width");
+    enter(&mut state);
+    pick(&mut state, "Custom");
+    update(&mut state, ctrl('u'));
+    assert_eq!(pick(&mut state, "wide"), vec![]);
+    assert_eq!(state.config.ui.sidebar_width, 36, "nothing changed");
 }

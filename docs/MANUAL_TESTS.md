@@ -677,3 +677,15 @@ Notes (version, OS, what went wrong):
 - [ ] **Narrow and emoji:** with long names, emoji in names and previews, and a narrow terminal, nothing overflows the sidebar border and the unread count stays at the edge (directly and inside tmux).
 
 Notes (version, OS, what went wrong):
+
+## Resizing the conversation list (D156)
+
+- [ ] **Unchanged by default:** after upgrading, the list is 30 columns wide as before and `config.toml` has no `sidebar_width` line.
+- [ ] **Drag:** hover the line between the list and the chat: the list's border lights up. Press and drag right and left: the list follows the mouse smoothly (directly and inside tmux, and over SSH), never narrower than 20 columns or so wide that the chat gets under 40. Release: the footer says "Conversation list: N columns" and `config.toml` gets `sidebar_width = N`. Restart: the width is kept.
+- [ ] **A click isn't a resize:** clicking the border without moving changes nothing; clicking inside the list still opens conversations; text selection and scrolling elsewhere work as before.
+- [ ] **Keys:** `Alt+.` widens and `Alt+,` narrows by 2 columns; at either end the footer says it can't go further; with the list hidden (`Alt+S`) it says so.
+- [ ] **Palette:** `Ctrl+P` › Settings › Appearance › Sidebar width: moving through 24/30/40/50 previews each width; Enter keeps it; Custom… takes a typed number (and refuses `12` or text); `Ctrl+R` on the setting goes back to 30.
+- [ ] **Small terminal:** with a wide list (50), shrink the terminal: the list gets narrower so the chat keeps its room, and grows back when the terminal does; the setting stays 50.
+- [ ] **With previews:** a wider list shows more of each message preview.
+
+Notes (version, OS, what went wrong):

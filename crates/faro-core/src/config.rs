@@ -222,10 +222,29 @@ pub struct Config {
     pub keybindings: Vec<Keybinding>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Ui {
     pub emoji: EmojiChoice,
     pub colors: ColorChoice,
+    /// Columns for the conversation list, borders included (D156). Drawn
+    /// narrower when the terminal can't fit it beside the chat.
+    pub sidebar_width: u16,
+}
+
+/// The conversation list's widths (D156): the default (the width it always
+/// had) and what the setting takes.
+pub const SIDEBAR_WIDTH: u16 = 30;
+pub const SIDEBAR_WIDTH_MIN: u16 = 20;
+pub const SIDEBAR_WIDTH_MAX: u16 = 100;
+
+impl Default for Ui {
+    fn default() -> Self {
+        Self {
+            emoji: EmojiChoice::default(),
+            colors: ColorChoice::default(),
+            sidebar_width: SIDEBAR_WIDTH,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -411,6 +430,7 @@ pub mod key {
     pub const REDUCE_MOTION: &str = "reduce_motion";
     pub const EMOJI: &str = "ui.emoji";
     pub const COLORS: &str = "ui.colors";
+    pub const SIDEBAR_WIDTH: &str = "ui.sidebar_width";
     pub const ALLOWLIST: &str = "conversations.allowlist";
     pub const PREVIEWS: &str = "conversations.previews";
     pub const PREVIEW_TIME: &str = "conversations.preview_time";
@@ -549,6 +569,16 @@ pub static SETTINGS: &[Setting] = &[
         get: |c| text(c.ui.colors),
         set: |c, v| {
             c.ui.colors = choice(v)?;
+            Ok(())
+        },
+    },
+    Setting {
+        path: key::SIDEBAR_WIDTH,
+        help: "Width of the conversation list in columns (20 to 100; 30 by default). Drag its \
+               border with the mouse, or use Alt+[ and Alt+], to change it.",
+        get: |c| ConfigValue::Uint(u32::from(c.ui.sidebar_width)),
+        set: |c, v| {
+            c.ui.sidebar_width = sidebar_width(v)?;
             Ok(())
         },
     },
@@ -893,6 +923,19 @@ fn boolean(value: &Value) -> Result<bool, String> {
     value
         .as_bool()
         .ok_or_else(|| format!("expected true or false, not {}", shown(value)))
+}
+
+fn sidebar_width(value: &Value) -> Result<u16, String> {
+    value
+        .as_integer()
+        .and_then(|n| u16::try_from(n).ok())
+        .filter(|n| (SIDEBAR_WIDTH_MIN..=SIDEBAR_WIDTH_MAX).contains(n))
+        .ok_or_else(|| {
+            format!(
+                "expected a number from {SIDEBAR_WIDTH_MIN} to {SIDEBAR_WIDTH_MAX}, not {}",
+                shown(value)
+            )
+        })
 }
 
 fn uint32(value: &Value) -> Result<u32, String> {

@@ -1,5 +1,6 @@
 //! Views (DESIGN.md §7.1): pure functions from `State` to a frame. No I/O here.
 
+use faro_core::config::SIDEBAR_WIDTH_MAX;
 use jiff::tz::TimeZone;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -45,8 +46,9 @@ impl View<'_> {
     }
 }
 
-const LEFT_WIDTH: u16 = 30;
 const RIGHT_WIDTH: u16 = 28;
+/// The chat keeps at least this many columns beside the sidebars (D156).
+const CENTER_MIN: u16 = 40;
 /// Below these terminal widths the sidebars hide themselves (DESIGN.md §7.1).
 const LEFT_MIN_TERMINAL: u16 = 70;
 const RIGHT_MIN_TERMINAL: u16 = 110;
@@ -60,6 +62,8 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>) -> Geometry
     frame.render_widget(Block::new().style(view.theme.base()), area);
     let [main, footer] = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
     let panes = Panes::split(main, state);
+    geometry.sidebar_border = panes.left;
+    geometry.sidebar_max = panes.left_max;
     if let Some(left) = panes.left {
         sidebar::render(frame, left, state, view, &mut geometry);
     }
@@ -183,6 +187,8 @@ fn focused(state: &State, geometry: &Geometry, pane: Focus) -> bool {
 
 struct Panes {
     left: Option<Rect>,
+    /// The widest the left sidebar can be here (D156).
+    left_max: u16,
     center: Rect,
     right: Option<Rect>,
 }
@@ -191,14 +197,22 @@ impl Panes {
     fn split(area: Rect, state: &State) -> Self {
         let left = state.panels.left && area.width >= LEFT_MIN_TERMINAL;
         let right = state.panels.right && area.width >= RIGHT_MIN_TERMINAL;
+        let right_width = if right { RIGHT_WIDTH } else { 0 };
+        // The chosen width, unless the chat would get too narrow (D156).
+        let left_max = area
+            .width
+            .saturating_sub(CENTER_MIN + right_width)
+            .min(SIDEBAR_WIDTH_MAX);
+        let left_width = state.sidebar_width().min(left_max);
         let [l, center, r] = Layout::horizontal([
-            Constraint::Length(if left { LEFT_WIDTH } else { 0 }),
+            Constraint::Length(if left { left_width } else { 0 }),
             Constraint::Fill(1),
-            Constraint::Length(if right { RIGHT_WIDTH } else { 0 }),
+            Constraint::Length(right_width),
         ])
         .areas(area);
         Self {
             left: left.then_some(l),
+            left_max,
             center,
             right: right.then_some(r),
         }

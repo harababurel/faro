@@ -12,16 +12,16 @@ expression: "snapshot(&draw(&with_palette(\":\"), 100, 30))"
 │           │ Appearance                                                               │           │
 │           │▌  Colours ›                                    auto (truecolor detected) │           │
 │           │   Emoji ›                                                           auto │           │
-│           │   Reduce motion                                                      off │────────── │
-│           │ Messages                                                                 │hursday?   │
-│           │   Message layout ›                                                 * IRC │ss         │
+│           │   Sidebar width ›                                           30 (default) │────────── │
+│           │   Reduce motion                                                      off │hursday?   │
+│           │ Messages                                                                 │ss         │
+│           │   Message layout ›                                                 * IRC │           │
 │           │   Timestamps ›                                                * absolute │           │
 │           │ Bubbles                                                                  │           │
 │           │   Bubble style                                       bubbles layout only │           │
-│           │   Bubble padding                                     bubbles layout only │           │
-│           │   Match bubble widths                                bubbles layout only │────────── │
-│           │   Message density                                    bubbles layout only │ast week   │
-│           │ Notifications                                                            │bring your │
+│           │   Bubble padding                                     bubbles layout only │────────── │
+│           │   Match bubble widths                                bubbles layout only │ast week   │
+│           │   Message density                                    bubbles layout only │bring your │
 │           ╰──────────────────────────────────────────────────────────────────────────╯for your   │
 │                            ││                  fingers.                                          │
 │                            ││ 17:54        You On my way ✓                                       │

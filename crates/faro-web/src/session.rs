@@ -139,9 +139,12 @@ impl Session {
             self.waiting_backlog = self.waiting_backlog.saturating_sub(1);
         }
         let redraw = affects_view(&event);
+        let hover = self.state.resize.hover;
         let effects = update::update(&mut self.state, event);
         self.router.dispatch(effects, &self.state);
-        self.open_start() || redraw
+        // Mouse moves redraw only when they light up or dim the list's
+        // border (D156).
+        self.open_start() || redraw || self.state.resize.hover != hover
     }
 
     /// Whether the start has settled (D124): the chat list is in and the

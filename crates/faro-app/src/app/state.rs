@@ -137,6 +137,8 @@ pub struct State {
     /// Which pane keys go to (Tab cycles).
     pub focus: Focus,
     pub sidebar: SidebarScroll,
+    /// Dragging the conversation list's border (D156).
+    pub resize: SidebarResize,
     /// Which conversations the sidebar lists (D41).
     pub list: ConversationList,
     /// Where things were on the last frame, for mouse hits and page sizes.
@@ -666,6 +668,18 @@ pub struct SidebarScroll {
     pub reveal: bool,
 }
 
+/// Resizing the conversation list with the mouse (D156).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SidebarResize {
+    /// The width while its border is held down: drawn, but saved only on
+    /// release.
+    pub dragging: Option<u16>,
+    /// The border moved while held: a click alone saves nothing.
+    pub moved: bool,
+    /// The pointer is over the border: it's drawn highlighted.
+    pub hover: bool,
+}
+
 /// The sidebar's two lists (D41).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SidebarView {
@@ -730,6 +744,11 @@ pub enum Focus {
 pub struct Geometry {
     /// Inside the sidebar's border; `None` when hidden.
     pub sidebar: Option<Rect>,
+    /// The sidebar with its border, whose right edge is the handle for
+    /// resizing it (D156); `None` when hidden.
+    pub sidebar_border: Option<Rect>,
+    /// The widest the sidebar can be drawn in this terminal (D156).
+    pub sidebar_max: u16,
     /// What's on each sidebar row from the top.
     pub sidebar_rows: Vec<SidebarRow>,
     /// The sidebar offset actually used (clamped, selection revealed).
@@ -854,6 +873,7 @@ impl State {
                 offset: 0,
                 reveal: true,
             },
+            resize: SidebarResize::default(),
             list: ConversationList {
                 view: SidebarView::Chats,
                 allowlist: false,
@@ -1301,6 +1321,19 @@ impl State {
             ColorChoice::Truecolor => ColorDepth::Truecolor,
             ColorChoice::Colors256 => ColorDepth::Indexed256,
             ColorChoice::Colors16 => ColorDepth::Ansi16,
+        }
+    }
+
+    /// The conversation list's width to draw (D156): the one being dragged,
+    /// else the one being previewed (D59), else the config's. The renderer
+    /// draws it narrower if the terminal can't fit it.
+    pub fn sidebar_width(&self) -> u16 {
+        if let Some(width) = self.resize.dragging {
+            return width;
+        }
+        match self.previewed() {
+            Some(SettingChoice::SidebarWidth(width)) => width,
+            Some(_) | None => self.config.ui.sidebar_width,
         }
     }
 

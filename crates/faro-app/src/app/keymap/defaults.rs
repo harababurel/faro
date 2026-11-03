@@ -19,6 +19,16 @@ pub const NAMES: &[(&str, &str, Action)] = &[
         Action::ToggleBell,
     ),
     (
+        "sidebar.narrower",
+        "Conversation list narrower",
+        Action::NarrowSidebar,
+    ),
+    (
+        "sidebar.wider",
+        "Conversation list wider",
+        Action::WidenSidebar,
+    ),
+    (
         "attachment.paste_image",
         "Paste an image from the clipboard",
         Action::PasteImage,
@@ -287,6 +297,8 @@ pub const BINDINGS: &[(Context, &str, Action)] = &[
     (Global, "alt+s", Action::ToggleLeftSidebar),
     (Global, "alt+i", Action::ToggleRightSidebar),
     (Global, "alt+n", Action::ToggleBell),
+    (Global, "alt+,", Action::NarrowSidebar),
+    (Global, "alt+.", Action::WidenSidebar),
     // Clipboard images (D91): Cmd+V and Ctrl+Shift+V are the terminal's own.
     (Global, "ctrl+v", Action::PasteImage),
     (Global, "ctrl+o", Action::ViewStagedImage),

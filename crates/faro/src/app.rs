@@ -257,7 +257,11 @@ pub async fn run<B: Backend + 'static>(
         for event in events {
             paste.resume(&mut input, &event);
             dirty |= update::affects_view(&event);
+            // Mouse moves cost a frame only when they light up or dim the
+            // list's border (D156).
+            let hover = state.resize.hover;
             handle(event, &mut state, &router);
+            dirty |= state.resize.hover != hover;
         }
         // Graphics became possible (the mosh or other client left), or
         // another terminal attached: ask the terminal now instead of at the

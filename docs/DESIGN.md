@@ -248,6 +248,7 @@ presage keeps its own store for keys, sessions and protocol state; faro never to
 - **Footer:** connection status, unread total, mode, and **context-sensitive key hints** (change with focus).
 - Sidebars are **collapsible**, **resizable** (mouse drag or keys), and **auto-hide on narrow terminals**. Widths persist in `app_state`.
 - **As built in M3 (D35):** fixed widths (left 30, right 28), auto-hidden below 70 and 110 columns; `Alt+S`/`Alt+I` toggle them. Pinned/Recent headers appear only when something is pinned. Resizing comes in v0.2.
+- **As built (D156): the conversation list resizes.** `[ui] sidebar_width` (30 by default, 20–100) is set by dragging the list's right border (or the chat's left one), by `Alt+,`/`Alt+.`, or in `Ctrl+P` › Settings › Appearance › Sidebar width; it's kept in the config file, not `app_state`. The chat keeps at least 40 columns, so a wide list is drawn narrower in a small terminal. The info panel's width is still fixed.
 
 ### 7.2 Command palette (`Ctrl+P`)
 
@@ -311,6 +312,7 @@ Chosen to avoid tmux's default prefix (`Ctrl+B`) and common terminal shortcuts. 
 | `Alt+Enter` | Newline (also `Ctrl+J`; `Shift+Enter` when the kitty keyboard protocol is available) (D38) |
 | `Ctrl+A/E`, `Alt+B/F`, `Ctrl+W`, `Alt+D`, `Ctrl+U/K` | Input editing: line start/end, word left/right, delete word back/forward, delete to line start/end; arrows, `Home/End` and `Alt`/`Ctrl`+arrows too (D38) |
 | `Alt+S` / `Alt+I` | Toggle left / right sidebar |
+| `Alt+,` / `Alt+.` | Conversation list narrower / wider (D156) |
 | `Alt+N` | Do not disturb: the bell off / on (D53) |
 | `Ctrl+V` / `Ctrl+O` | Paste an image from the clipboard (the terminal's, or this computer's, D150) / show the staged image before sending it (D91) |
 | `F1` or `?` (in non-input focus) | Help: opens the palette listing all keybindings |

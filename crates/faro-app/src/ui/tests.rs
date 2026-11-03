@@ -1961,3 +1961,26 @@ fn both_rows_of_a_preview_belong_to_its_conversation() {
     assert_eq!(rows.get(at + 1), Some(&alice), "{rows:?}");
     assert_ne!(rows.get(at + 2), Some(&alice), "{rows:?}");
 }
+
+// --- Resizable conversation list (D156) ---
+
+#[test]
+fn the_list_is_drawn_at_its_width_unless_the_chat_would_get_too_narrow() {
+    let mut state = loaded_state();
+    let images = fixtures::Undecoded::for_state(&state);
+    let border_width = |state: &State, width: u16| {
+        let (_, geometry) = draw_with_images(state, width, 16, &Theme::default(), &images);
+        (
+            geometry.sidebar_border.map(|r| r.width),
+            geometry.sidebar_max,
+        )
+    };
+    assert_eq!(border_width(&state, 100), (Some(30), 60), "the default");
+    state.config.ui.sidebar_width = 44;
+    assert_eq!(border_width(&state, 100), (Some(44), 60));
+    // 80 columns leave the chat its 40 and the list the rest.
+    assert_eq!(border_width(&state, 80), (Some(40), 40));
+    let text = snapshot(&draw(&state, 100, 16));
+    let first = text.lines().next().unwrap();
+    assert_eq!(first.chars().position(|c| c == '╮'), Some(43), "{first}");
+}

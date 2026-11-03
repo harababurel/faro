@@ -107,6 +107,7 @@ Press **`F1`** for every key, or search them in the palette. Every key can be re
 | `Tab` / `Shift+Tab` | Next / previous pane |
 | `PgUp` / `PgDn` | Scroll the messages |
 | `Alt+S` / `Alt+I` | Show or hide the conversation list / the info panel (shared links and files) |
+| `Alt+,` / `Alt+.` | Conversation list narrower / wider (or drag its border with the mouse) |
 | `Alt+N` | Do not disturb (the footer says `bell off`) |
 | `Ctrl+V` / `Ctrl+O` | Paste an image from the clipboard / show the staged image |
 | `Ctrl+L` | Redraw the screen |

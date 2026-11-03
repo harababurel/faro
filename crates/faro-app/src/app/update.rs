@@ -28,6 +28,7 @@ mod navigation;
 mod notify;
 mod palette;
 mod presence;
+mod resize;
 pub(crate) mod selection;
 mod sending;
 mod settings;

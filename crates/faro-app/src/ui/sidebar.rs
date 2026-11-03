@@ -33,9 +33,15 @@ pub fn render(
         (SidebarView::Chats, true) => " Conversations · allowlist ",
         (SidebarView::Archive, _) => " Archive ",
     };
+    // Lit while the pointer is on its edge or dragging it (D156).
+    let border = if state.resize.hover || state.resize.dragging.is_some() {
+        Style::new().fg(theme.accent)
+    } else {
+        theme.border(focused)
+    };
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
-        .border_style(theme.border(focused))
+        .border_style(border)
         .title(Span::styled(title, title_style));
     let inner = block.inner(area);
     frame.render_widget(block, area);

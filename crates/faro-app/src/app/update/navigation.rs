@@ -7,7 +7,7 @@ use crate::app::term_event::{
 use faro_core::domain::ConversationId;
 use ratatui::layout::Position;
 
-use super::{curation, open_conversation, palette, quit, selection};
+use super::{curation, open_conversation, palette, quit, resize, selection};
 use crate::app::event::Effect;
 use crate::app::input::Input;
 use crate::app::keymap::{Action, Edit, WHEEL_ROWS};
@@ -34,6 +34,8 @@ pub fn on_action(state: &mut State, action: Action) -> Vec<Effect> {
             }
         }
         Action::ToggleRightSidebar => state.panels.right = !state.panels.right,
+        Action::NarrowSidebar => return resize::step(state, false),
+        Action::WidenSidebar => return resize::step(state, true),
         Action::FocusNext => cycle_focus(state, 1),
         Action::FocusPrevious => cycle_focus(state, -1),
         Action::FocusInput => return focus_input(state),
@@ -505,6 +507,9 @@ fn scroll(state: &mut State, rows: isize) {
 }
 
 pub fn on_mouse(state: &mut State, mouse: MouseEvent) -> Vec<Effect> {
+    if let Some(effects) = resize::on_mouse(state, mouse) {
+        return effects;
+    }
     let at = Position::new(mouse.column, mouse.row);
     let geometry = &state.geometry;
     let in_sidebar = geometry.sidebar.filter(|r| r.contains(at));
@@ -584,12 +589,16 @@ pub fn on_mouse(state: &mut State, mouse: MouseEvent) -> Vec<Effect> {
     vec![]
 }
 
-/// Whether a mouse event can change what's on screen (moves and drags can't
-/// yet, so they don't cost a frame).
+/// Whether a mouse event can change what's on screen. Drags and releases of
+/// the left button can (resizing the list, D156); moves only light up the
+/// list's border, which the app loop checks itself (`State::resize`), so
+/// they don't cost a frame each.
 pub fn mouse_affects_view(mouse: MouseEvent) -> bool {
     matches!(
         mouse.kind,
         MouseEventKind::Down(MouseButton::Left | MouseButton::Right)
+            | MouseEventKind::Drag(MouseButton::Left)
+            | MouseEventKind::Up(MouseButton::Left)
             | MouseEventKind::ScrollUp
             | MouseEventKind::ScrollDown
     )

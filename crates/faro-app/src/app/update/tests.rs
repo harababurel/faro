@@ -447,6 +447,8 @@ use crate::app::state::{Anchor, Focus, Geometry, SidebarRow};
 fn geometry(state: &State) -> Geometry {
     Geometry {
         sidebar: Some(Rect::new(1, 1, 28, 20)),
+        sidebar_border: Some(Rect::new(0, 0, 30, 22)),
+        sidebar_max: 60,
         sidebar_rows: state
             .visible_conversations()
             .map(|c| SidebarRow::Conversation(c.id))
@@ -2459,6 +2461,7 @@ mod notify;
 mod palette;
 mod people;
 mod presence;
+mod resize;
 mod settings;
 mod terminal;
 mod updates;
