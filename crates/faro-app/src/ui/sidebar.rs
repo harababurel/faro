@@ -294,7 +294,7 @@ fn row(
     }
 }
 
-/// Before a preview, under the group marker (D154).
+/// Before a preview, under the first letter of the name (D154).
 const BRANCH: &str = "╰─ ";
 
 /// What both forms of a conversation's entry are made of.
@@ -370,16 +370,17 @@ fn two_rows(
         Span::styled(time, time_style),
     ]);
 
-    // The preview hangs off the entry like a tree branch, so it can't be
+    // The preview hangs off the name like a tree branch, so it can't be
     // mistaken for a name; one blank cell always separates it from the count.
-    let fixed = 3
+    let indent = " ".repeat(3 + text::width(parts.kind));
+    let fixed = indent.len()
         + text::width(BRANCH)
         + text::width(&parts.count)
         + text::width(&parts.quiet)
         + parts.end.len()
         + 1;
     let room = width.saturating_sub(fixed);
-    let mut spans = vec![Span::raw("   "), Span::styled(BRANCH, theme.muted())];
+    let mut spans = vec![Span::raw(indent), Span::styled(BRANCH, theme.muted())];
     let used = preview_spans(state, summary, parts.bright, view, room, &mut spans);
     spans.push(Span::raw(" ".repeat(room.saturating_sub(used) + 1)));
     spans.push(Span::styled(parts.count, parts.count_style));
