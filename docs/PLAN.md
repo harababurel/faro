@@ -382,7 +382,7 @@ Design, copy, server runbook and full task lists: [WEBSITE.md](WEBSITE.md) (§7 
 
 ## Later (backlog: do not lose)
 
-- Investigate search-jump effect routing: `on_messages_around_loaded` discards `open_conversation`'s effects when switching chats, including `StopAudio` and draft persistence. Pre-existing (confirmed in HEAD during D125 review); reproduce with a playing voice note and a cross-chat search result before fixing it.
+- ~~Investigate search-jump effect routing~~: fixed (D157). Choosing a result already opens its chat with every effect; only a window arriving after the user moved on dropped them, and it's now ignored.
 - `faro daemon` + attachable TUI
 - signal-cli JSON-RPC backend
 - Encryption at rest

@@ -1356,6 +1356,71 @@ fn search_messages_across_all_conversations_loads_around() {
     assert_eq!(open.selected.map(|s| s.message), Some(older_msg));
 }
 
+/// A search result's window that arrives after the user moved on (another
+/// chat, or none) is dropped: it used to reopen the result's chat and lose
+/// what leaving the current one does (its draft saved, audio stopped).
+#[test]
+fn a_late_search_window_doesnt_pull_the_user_back() {
+    use faro_core::store::SearchHit;
+
+    let mut state = loaded_state();
+    let found = text(alice(), ALICE, 500, "coffee tomorrow");
+    update(&mut state, ctrl('f'));
+    typed(&mut state, "coffee");
+    press(&mut state, KeyCode::Up);
+    enter(&mut state);
+    update(
+        &mut state,
+        AppEvent::SearchResults {
+            conversation: None,
+            query: "coffee".into(),
+            hits: vec![SearchHit {
+                conversation: alice(),
+                message: found.clone(),
+                matched_transcript: None,
+            }],
+        },
+    );
+    enter(&mut state);
+    assert_eq!(open_id(&state), Some(alice()), "opened at once");
+
+    // Before the window arrives: back to Climbing, and start a draft there.
+    update(&mut state, key(KeyCode::Char('k'), KeyModifiers::ALT));
+    assert_eq!(open_id(&state), Some(climbing()));
+    state.focus = Focus::Input;
+    typed(&mut state, "half a thought");
+
+    let effects = update(
+        &mut state,
+        AppEvent::MessagesAroundLoaded {
+            conversation: alice(),
+            target: found.reference(),
+            messages: vec![found],
+        },
+    );
+    assert_eq!(effects, vec![]);
+    assert_eq!(
+        open_id(&state),
+        Some(climbing()),
+        "still where the user went"
+    );
+    assert_eq!(state.open.as_ref().unwrap().input.text(), "half a thought");
+
+    // Closed meanwhile: nothing opens.
+    update(&mut state, key(KeyCode::Esc, KeyModifiers::NONE));
+    update(&mut state, key(KeyCode::Esc, KeyModifiers::NONE));
+    let open_before = open_id(&state);
+    update(
+        &mut state,
+        AppEvent::MessagesAroundLoaded {
+            conversation: alice(),
+            target: text(alice(), ALICE, 500, "").reference(),
+            messages: vec![],
+        },
+    );
+    assert_eq!(open_id(&state), open_before);
+}
+
 #[test]
 fn jump_to_unread_selects_unread_marker_or_notifies() {
     let mut state = loaded_state();

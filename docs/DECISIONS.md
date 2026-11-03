@@ -1548,3 +1548,9 @@ A developer friend of the owner tried getfaro.dev; the owner agreed with all of 
 - **Palette:** Settings › Appearance › Sidebar width: 24 (narrow), 30 (default), 40 (wide), 50 (wider), and Custom… (a typed number, checked against the range). Moving through them draws each width first (D59). `palette::typed_value` now shows numbers too, so a custom width (or a custom transcription limit) shows beside Custom….
 - **Limits:** the chat keeps at least 40 columns (`ui::CENTER_MIN`) beside the list and, when shown, the 28-column info panel. A wider setting is drawn narrower there without changing the setting (`Geometry::sidebar_max` is what fits). The list still hides below 70 columns, as before.
 - **Not done:** the info panel's width (still 28); a double-click on the border to reset (use `Ctrl+R` on the setting in the palette).
+
+### D157. A late search window no longer pulls the user back (2026-11-03)
+
+- **The backlog note** said `on_messages_around_loaded` discarded `open_conversation`'s effects (draft save, `StopAudio`, typing stopped, `RememberOpen`, `MarkRead`) when a search result was in another chat.
+- **What was really happening:** choosing a result opens its chat at once (`palette::jump_to_message` → `show_conversation`) and keeps all those effects, so the usual path was fine. The bug was a race: if the user switched chats (`Alt+J/K`, a click) or closed the chat before the window loaded, the late `MessagesAroundLoaded` reopened the result's chat. That dropped the effects of leaving the chat the user had moved to (its draft not stored, its voice note still playing, it not remembered) and took the user somewhere they'd left.
+- **Fix:** the window is applied only if its conversation is still the open one; otherwise it's stale and ignored. The code that reopened the chat and dropped the effects is gone. Test: `a_late_search_window_doesnt_pull_the_user_back`.

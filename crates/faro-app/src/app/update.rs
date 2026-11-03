@@ -500,10 +500,10 @@ fn on_messages_around_loaded(
     target: MessageRef,
     messages: Vec<Message>,
 ) -> Vec<Effect> {
-    if state.open.as_ref().is_none_or(|o| o.id != conversation) {
-        let _ = open_conversation(state, conversation);
-    }
-    let Some(open) = state.open.as_mut() else {
+    // Choosing the result opened its chat already (`palette::jump_to_message`,
+    // with everything leaving the previous one does). If another chat is open
+    // now, or none, the user moved on while this loaded: it's stale.
+    let Some(open) = state.open.as_mut().filter(|o| o.id == conversation) else {
         return vec![];
     };
     open.has_older = true;
