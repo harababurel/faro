@@ -387,7 +387,7 @@ Design, copy, server runbook and full task lists: [WEBSITE.md](WEBSITE.md) (§7 
 - signal-cli JSON-RPC backend
 - Encryption at rest
 - ~~About screen with the logo~~: done as a popup from the palette (D94); the animated lighthouse is the empty message pane (D61)
-- Drag-resizable sidebars with hover highlight
+- Drag-resizable sidebars with hover highlight (owner, 2026-11-03: drag the border between the panes; failing that, width presets in Settings)
 - Optional sync of hidden/allowlist state via config
 - Recording and sending voice notes
 - Terminal hyperlinks (OSC 8) for links in messages, so a link split over lines still opens whole (kitty; tmux 3.4+ with the `hyperlinks` terminal feature). ratatui has no support, so it goes through `tui/backend.rs`; needs replays and hands-on checks (D102).
