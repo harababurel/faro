@@ -3,9 +3,9 @@
 //! allowlist key) written back to it.
 
 use faro_core::config::{
-    self, AutoDownload, BubbleStyle, Config, DesktopNotifications, EmojiChoice, InlineImages,
-    MessageDensity, NotificationPrivacy, Problem, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN, Severity,
-    TimestampFormat, TranscribeMode, key,
+    self, AutoDownload, Avatars, BubbleStyle, Config, DesktopNotifications, EmojiChoice,
+    InlineImages, MessageDensity, NotificationPrivacy, Problem, SIDEBAR_WIDTH_MAX,
+    SIDEBAR_WIDTH_MIN, Severity, TimestampFormat, TranscribeMode, key,
 };
 
 use super::{check_terminal, curation, selection, updates};
@@ -292,6 +292,14 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
         | SettingChoice::MatchWidths(on)
         | SettingChoice::UpdateCheck(on) => choose_toggle(state, choice, on),
         SettingChoice::SidebarWidth(width) => super::resize::set_width(state, width),
+        SettingChoice::Avatars(avatars) => {
+            state.config.conversations.avatars = avatars;
+            let msg = match avatars {
+                Avatars::Off => "The list shows no avatars",
+                Avatars::Initials => "The list shows initials beside each name",
+            };
+            save_with_notice(state, key::AVATARS, msg)
+        }
         SettingChoice::Previews(on) => choose_preview(state, key::PREVIEWS, on),
         SettingChoice::PreviewTime(on) => choose_preview(state, key::PREVIEW_TIME, on),
         SettingChoice::PreviewActivity(on) => choose_preview(state, key::PREVIEW_ACTIVITY, on),
@@ -364,6 +372,7 @@ fn choose_media_and_notifications(state: &mut State, choice: SettingChoice) -> V
         | SettingChoice::Density(_)
         | SettingChoice::Timestamps(_)
         | SettingChoice::Allowlist(_)
+        | SettingChoice::Avatars(_)
         | SettingChoice::SidebarWidth(_)
         | SettingChoice::Previews(_)
         | SettingChoice::PreviewTime(_)
@@ -455,6 +464,7 @@ fn choose_transcription(state: &mut State, choice: SettingChoice) -> Vec<Effect>
         | SettingChoice::Density(_)
         | SettingChoice::Timestamps(_)
         | SettingChoice::Allowlist(_)
+        | SettingChoice::Avatars(_)
         | SettingChoice::SidebarWidth(_)
         | SettingChoice::Previews(_)
         | SettingChoice::PreviewTime(_)
@@ -584,6 +594,7 @@ pub fn set_text(state: &mut State, setting: Setting, text: &str) -> Vec<Effect> 
         | Setting::Desktop
         | Setting::Privacy
         | Setting::Allowlist
+        | Setting::Avatars
         | Setting::SidebarWidth
         | Setting::Previews
         | Setting::PreviewTime
@@ -680,18 +691,7 @@ fn choose_toggle(state: &mut State, choice: SettingChoice, on: bool) -> Vec<Effe
             };
             save_with_notice(state, key::MATCH_WIDTHS, msg)
         }
-        SettingChoice::UpdateCheck(_) => {
-            let was_on = state.config.updates.check;
-            state.config.updates.check = on;
-            let msg = if on {
-                "Update checks on: faro asks GitHub at start and every 12 hours"
-            } else {
-                "Update checks off: faro talks only to Signal's servers"
-            };
-            let mut effects = save_with_notice(state, key::UPDATES_CHECK, msg);
-            effects.extend(updates::on_setting_changed(state, was_on));
-            effects
-        }
+        SettingChoice::UpdateCheck(_) => choose_update_check(state, on),
         SettingChoice::Colors(_)
         | SettingChoice::Emoji(_)
         | SettingChoice::Desktop(_)
@@ -701,6 +701,7 @@ fn choose_toggle(state: &mut State, choice: SettingChoice, on: bool) -> Vec<Effe
         | SettingChoice::Density(_)
         | SettingChoice::Timestamps(_)
         | SettingChoice::Allowlist(_)
+        | SettingChoice::Avatars(_)
         | SettingChoice::SidebarWidth(_)
         | SettingChoice::Previews(_)
         | SettingChoice::PreviewTime(_)
@@ -716,6 +717,20 @@ fn choose_toggle(state: &mut State, choice: SettingChoice, on: bool) -> Vec<Effe
         | SettingChoice::TranscribeEndpoint(_)
         | SettingChoice::TranscribeRemoteModel(_) => vec![],
     }
+}
+
+/// Update checks on or off (D148): saved, and started or stopped.
+fn choose_update_check(state: &mut State, on: bool) -> Vec<Effect> {
+    let was_on = state.config.updates.check;
+    state.config.updates.check = on;
+    let msg = if on {
+        "Update checks on: faro asks GitHub at start and every 12 hours"
+    } else {
+        "Update checks off: faro talks only to Signal's servers"
+    };
+    let mut effects = save_with_notice(state, key::UPDATES_CHECK, msg);
+    effects.extend(updates::on_setting_changed(state, was_on));
+    effects
 }
 
 /// The conversation list's preview switches (D154), by key.

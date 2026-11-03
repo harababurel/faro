@@ -14,7 +14,7 @@ mod import;
 mod tests;
 mod user;
 
-use faro_core::domain::ServiceId;
+use faro_core::domain::{ConversationId, ServiceId};
 use ratatui::style::{Color, Modifier, Style};
 
 pub use self::colors::{ColorDepth, Rgb, indexed_rgb, luminance, nearest_256};
@@ -206,9 +206,27 @@ impl Theme {
     /// The same person always gets the same colour (stable across runs and
     /// versions: derived from the UUID, not a hasher).
     pub fn sender(&self, id: ServiceId) -> Style {
-        let index = usize::try_from(id.uuid().as_u128() % self.senders.len() as u128).unwrap_or(0);
-        let colour = self.senders.get(index).copied().unwrap_or(self.text);
-        Style::new().fg(colour).add_modifier(Modifier::BOLD)
+        Style::new()
+            .fg(self.sender_colour(id.uuid().as_u128()))
+            .add_modifier(Modifier::BOLD)
+    }
+
+    /// A conversation's avatar colour (D158): a person's is the colour their
+    /// name has in groups; a group's is picked from its ID the same way.
+    pub fn avatar(&self, id: ConversationId) -> Color {
+        let seed = match id {
+            ConversationId::Direct(person) => person.uuid().as_u128(),
+            ConversationId::Group(group) => group
+                .as_bytes()
+                .iter()
+                .fold(0_u128, |seed, &byte| seed.rotate_left(8) ^ u128::from(byte)),
+        };
+        self.sender_colour(seed)
+    }
+
+    fn sender_colour(&self, seed: u128) -> Color {
+        let index = usize::try_from(seed % self.senders.len() as u128).unwrap_or(0);
+        self.senders.get(index).copied().unwrap_or(self.text)
     }
 }
 

@@ -11,9 +11,9 @@
 use std::path::PathBuf;
 
 use faro_core::config::{
-    AutoDownload, BubbleStyle, Choice as _, ColorChoice, DesktopNotifications, EmojiChoice,
-    InlineImages, MessageDensity, NotificationPrivacy, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN,
-    TimestampFormat, TranscribeMode, key,
+    AutoDownload, Avatars, BubbleStyle, Choice as _, ColorChoice, DesktopNotifications,
+    EmojiChoice, InlineImages, MessageDensity, NotificationPrivacy, SIDEBAR_WIDTH_MAX,
+    SIDEBAR_WIDTH_MIN, TimestampFormat, TranscribeMode, key,
 };
 use faro_core::domain::{ConversationId, MessageRef, ServiceId};
 use faro_core::store::{NotifyLevel, RemoteTranscription, SearchHit};
@@ -194,6 +194,8 @@ pub enum Setting {
     Previews,
     PreviewTime,
     PreviewActivity,
+    /// `[conversations] avatars` (D158).
+    Avatars,
     InlineImages,
     AutoDownload,
     Transcribe,
@@ -326,6 +328,7 @@ impl SettingsGroup {
                 Setting::Previews,
                 Setting::PreviewTime,
                 Setting::PreviewActivity,
+                Setting::Avatars,
             ],
             Self::Media => &[
                 Setting::InlineImages,
@@ -369,6 +372,7 @@ impl Setting {
             Self::Previews => "Message previews",
             Self::PreviewTime => "Time in the list",
             Self::PreviewActivity => "Typing and drafts",
+            Self::Avatars => "Avatars",
             Self::InlineImages => "Inline images",
             Self::AutoDownload => "Auto-download media",
             Self::Transcribe => "Transcription",
@@ -406,6 +410,7 @@ impl Setting {
             Self::Previews => key::PREVIEWS,
             Self::PreviewTime => key::PREVIEW_TIME,
             Self::PreviewActivity => key::PREVIEW_ACTIVITY,
+            Self::Avatars => key::AVATARS,
             Self::InlineImages => key::INLINE_IMAGES,
             Self::AutoDownload => key::AUTO_DOWNLOAD,
             Self::Transcribe => key::VOICE_TRANSCRIBE,
@@ -474,6 +479,7 @@ impl Setting {
             | Self::Desktop
             | Self::Privacy
             | Self::Allowlist
+            | Self::Avatars
             | Self::SidebarWidth
             | Self::Previews
             | Self::InlineImages
@@ -507,6 +513,7 @@ impl Setting {
             | Self::Desktop
             | Self::Privacy
             | Self::Allowlist
+            | Self::Avatars
             | Self::Previews
             | Self::PreviewTime
             | Self::PreviewActivity
@@ -540,6 +547,7 @@ impl Setting {
             Self::Colors
             | Self::Emoji
             | Self::SidebarWidth
+            | Self::Avatars
             | Self::Layout
             | Self::BubbleStyle
             | Self::Density
@@ -566,6 +574,7 @@ impl Setting {
         match self {
             Self::Colors
             | Self::SidebarWidth
+            | Self::Avatars
             | Self::Layout
             | Self::BubbleStyle
             | Self::Density
@@ -649,6 +658,7 @@ pub enum SettingChoice {
     Previews(bool),
     PreviewTime(bool),
     PreviewActivity(bool),
+    Avatars(Avatars),
     Emoji(EmojiChoice),
     Desktop(DesktopNotifications),
     Privacy(NotificationPrivacy),
@@ -1797,6 +1807,7 @@ fn transcription_note(state: &State, level: Level) -> Option<String> {
             | Setting::Desktop
             | Setting::Privacy
             | Setting::Allowlist
+            | Setting::Avatars
             | Setting::Previews
             | Setting::PreviewTime
             | Setting::PreviewActivity
@@ -1897,6 +1908,7 @@ fn value_detail(state: &State, choice: SettingChoice) -> &'static str {
         | SettingChoice::Density(_)
         | SettingChoice::Timestamps(_)
         | SettingChoice::Allowlist(_)
+        | SettingChoice::Avatars(_)
         | SettingChoice::SidebarWidth(_)
         | SettingChoice::Previews(_)
         | SettingChoice::PreviewTime(_)
@@ -2008,12 +2020,9 @@ fn values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)>
         ),
         Setting::Allowlist => on_off(SettingChoice::Allowlist, state.list.allowlist),
         Setting::SidebarWidth => sidebar_widths(state),
+        Setting::Avatars => avatar_values(state),
         Setting::InlineImages => inline_images_values(state),
-        Setting::AutoDownload => choice_values(
-            AutoDownload::ALL,
-            state.config.media.auto_download,
-            SettingChoice::AutoDownload,
-        ),
+        Setting::AutoDownload => auto_download_values(state),
         Setting::Transcribe => choice_values(
             TranscribeMode::ALL,
             state.config.voice.transcribe,
@@ -2041,6 +2050,23 @@ fn values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)>
         | Setting::PasteFromSystem
         | Setting::UpdateCheck => switch_values(state, setting),
     }
+}
+
+/// `off` and `initials` (D158).
+fn avatar_values(state: &State) -> Vec<(SettingChoice, String, bool)> {
+    choice_values(
+        Avatars::ALL,
+        state.config.conversations.avatars,
+        SettingChoice::Avatars,
+    )
+}
+
+fn auto_download_values(state: &State) -> Vec<(SettingChoice, String, bool)> {
+    choice_values(
+        AutoDownload::ALL,
+        state.config.media.auto_download,
+        SettingChoice::AutoDownload,
+    )
 }
 
 /// The preset widths of the conversation list (D156).
@@ -2090,6 +2116,7 @@ fn switch_values(state: &State, setting: Setting) -> Vec<(SettingChoice, String,
         | Setting::Desktop
         | Setting::Privacy
         | Setting::Allowlist
+        | Setting::Avatars
         | Setting::SidebarWidth
         | Setting::InlineImages
         | Setting::AutoDownload
@@ -2176,6 +2203,7 @@ fn transcription_values(state: &State, setting: Setting) -> Vec<(SettingChoice, 
         | Setting::Desktop
         | Setting::Privacy
         | Setting::Allowlist
+        | Setting::Avatars
         | Setting::SidebarWidth
         | Setting::Previews
         | Setting::PreviewTime

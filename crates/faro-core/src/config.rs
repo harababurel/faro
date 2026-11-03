@@ -90,6 +90,18 @@ choice! {
 }
 
 choice! {
+    /// What the conversation list draws beside each name (D158). Profile
+    /// pictures (`"pictures"`) are planned, with initials where they can't
+    /// be drawn.
+    Avatars {
+        #[default]
+        Off = "off",
+        /// A badge with the initials, in the person's (or group's) colour.
+        Initials = "initials",
+    }
+}
+
+choice! {
     /// Vertical spacing between messages (DESIGN.md §9, D83).
     MessageDensity {
         Comfortable = "comfortable",
@@ -262,6 +274,8 @@ pub struct Conversations {
     pub preview_time: bool,
     /// With previews, `typing…` and `Draft: …` in place of the message.
     pub preview_activity: bool,
+    /// Initials badges beside the names (D158).
+    pub avatars: Avatars,
 }
 
 impl Default for Conversations {
@@ -271,6 +285,7 @@ impl Default for Conversations {
             previews: false,
             preview_time: true,
             preview_activity: true,
+            avatars: Avatars::Off,
         }
     }
 }
@@ -435,6 +450,7 @@ pub mod key {
     pub const PREVIEWS: &str = "conversations.previews";
     pub const PREVIEW_TIME: &str = "conversations.preview_time";
     pub const PREVIEW_ACTIVITY: &str = "conversations.preview_activity";
+    pub const AVATARS: &str = "conversations.avatars";
     pub const LAYOUT: &str = "messages.layout";
     pub const BUBBLE_STYLE: &str = "messages.bubble_style";
     pub const BUBBLE_PADDING: &str = "messages.bubble_padding";
@@ -618,6 +634,16 @@ pub static SETTINGS: &[Setting] = &[
         get: |c| ConfigValue::Bool(c.conversations.preview_activity),
         set: |c, v| {
             c.conversations.preview_activity = boolean(v)?;
+            Ok(())
+        },
+    },
+    Setting {
+        path: key::AVATARS,
+        help: "Beside each name in the list: \"off\" or \"initials\" (a badge in the \
+               person's colour; taller with previews on).",
+        get: |c| text(c.conversations.avatars),
+        set: |c, v| {
+            c.conversations.avatars = choice(v)?;
             Ok(())
         },
     },

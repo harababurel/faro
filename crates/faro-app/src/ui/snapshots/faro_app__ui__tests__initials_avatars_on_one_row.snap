@@ -1,0 +1,16 @@
+---
+source: crates/faro-app/src/ui/tests.rs
+expression: "snapshot(&draw(&state, 100, 12))"
+---
+╭ Conversations ─────────────╮╭ Climbing 🧗 ───────────────────────────────────────────────────────╮
+│ ▾ Pinned                   ││                  and apparently the grades are soft, so bring your │
+│ ▐Bo▌   Bob                 ││                  project shoes 🧗‍♀️🧗‍♂️ and maybe some tape for your   │
+│ ▾ Recent                   ││                  fingers.                                          │
+│ ▐Cl▌ # Climbing 🧗         ││ 17:54        You On my way ✓                                       │
+│ ▐Al▌   Alice 🌸          1 ││ 17:55   Alice 🌸 Running 10 min late 🙈                            │
+│                            ││                                                                    │
+│                            ││╭──────────────────────────────────────────────────────────────────╮│
+│                            │││ Message Climbing 🧗…                                             ││
+│                            ││╰──────────────────────────────────────────────────────────────────╯│
+╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯
+ ● connected · 1 unread    enter send · alt+j/k conversations · esc close · tab focus · pgup scroll

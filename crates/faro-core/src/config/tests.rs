@@ -54,6 +54,7 @@ fn key_constants_name_settings() {
         key::PREVIEWS,
         key::PREVIEW_TIME,
         key::PREVIEW_ACTIVITY,
+        key::AVATARS,
         key::LAYOUT,
         key::BUBBLE_STYLE,
         key::DENSITY,

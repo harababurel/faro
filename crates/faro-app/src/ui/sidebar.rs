@@ -2,11 +2,11 @@
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Paragraph};
 
-use faro_core::config::TimestampFormat;
+use faro_core::config::{Avatars, TimestampFormat};
 use faro_core::domain::{ConversationId, Direction, Message, Timestamp};
 use faro_core::store::{ConversationSummary, NotifyLevel};
 
@@ -270,10 +270,16 @@ fn row(
     } else {
         Style::new().fg(theme.unread).add_modifier(Modifier::BOLD)
     };
+    let title = state.conversation_title(summary.id);
+    let badge = (settings.avatars == Avatars::Initials).then(|| Badge {
+        initials: initials(&sanitize(&title)),
+        colour: theme.avatar(summary.id),
+    });
     let parts = Parts {
         marker,
+        badge,
         kind,
-        title: state.conversation_title(summary.id),
+        title,
         name_style,
         suffix,
         count,
@@ -305,7 +311,10 @@ const BRANCH: &str = "╰─ ";
 
 /// What both forms of a conversation's entry are made of.
 struct Parts {
+    /// The unread dot (or blanks), when there's no badge.
     marker: Span<'static>,
+    /// The initials badge, in place of the dot (D158).
+    badge: Option<Badge>,
     kind: &'static str,
     title: String,
     name_style: Style,
@@ -320,10 +329,104 @@ struct Parts {
     bright: bool,
 }
 
+/// An initials avatar (D158).
+struct Badge {
+    /// Two cells' worth.
+    initials: String,
+    colour: Color,
+}
+
+/// Which row of an entry [`lead`] draws.
+#[derive(Clone, Copy)]
+enum Lead {
+    /// The only row (no previews).
+    Only,
+    /// The name's row, with previews.
+    Top,
+    /// The preview's row.
+    Bottom,
+}
+
+/// Before the group marker: the unread dot in 3 cells, or a badge in 6. A
+/// badge is a pill on a row of its own (`▐AB▌`) and a rounded square over
+/// two (`▟AB▙` over `▜██▛`), in the conversation's colour. With a badge the
+/// dot goes (the count at the edge and the bold name still say unread).
+fn lead(parts: &Parts, row: Lead, view: &View<'_>) -> (Vec<Span<'static>>, usize) {
+    let Some(badge) = &parts.badge else {
+        return match row {
+            Lead::Only | Lead::Top => (vec![parts.marker.clone()], 3),
+            Lead::Bottom => (vec![Span::raw("   ")], 3),
+        };
+    };
+    let edge = Style::new().fg(badge.colour);
+    // Dark on the colour; the terminal's own background has no colour value.
+    let ink = if view.theme.background == Color::Reset {
+        Color::Black
+    } else {
+        view.theme.background
+    };
+    let letters = Span::styled(
+        badge.initials.clone(),
+        Style::new()
+            .bg(badge.colour)
+            .fg(ink)
+            .add_modifier(Modifier::BOLD),
+    );
+    let spans = match row {
+        Lead::Only => vec![Span::styled("▐", edge), letters, Span::styled("▌", edge)],
+        Lead::Top => vec![Span::styled("▟", edge), letters, Span::styled("▙", edge)],
+        Lead::Bottom => vec![Span::styled("▜██▛", edge)],
+    };
+    let mut lead = vec![Span::raw(" ")];
+    lead.extend(spans);
+    lead.push(Span::raw(" "));
+    (lead, 6)
+}
+
+/// Up to two cells of initials for `title` (D158): the first letters of its
+/// first and last words (`Alice Smith` → `AS`), or the first two of a single
+/// word (`Bob` → `Bo`); digits if there are no letters (a phone number), `?`
+/// if there's nothing. Always exactly two cells, padded on the right.
+fn initials(title: &str) -> String {
+    use unicode_segmentation::UnicodeSegmentation as _;
+
+    let alphanumeric = |g: &&str| g.chars().next().is_some_and(char::is_alphanumeric);
+    let firsts: Vec<&str> = title
+        .split_whitespace()
+        .filter_map(|word| word.graphemes(true).find(alphanumeric))
+        .collect();
+    let picked: String = match firsts.as_slice() {
+        [] => "?".to_owned(),
+        [only] => {
+            let word = title
+                .split_whitespace()
+                .find(|word| word.graphemes(true).any(|g| alphanumeric(&g)))
+                .unwrap_or(only);
+            let mut letters = word.graphemes(true).filter(alphanumeric);
+            let first = letters.next().unwrap_or(only).to_uppercase();
+            let second = letters.next().map(str::to_lowercase).unwrap_or_default();
+            first + &second
+        }
+        [first, .., last] => first.to_uppercase() + &last.to_uppercase(),
+    };
+    // Two cells at most (one wide character fills both), then padded.
+    let mut out = String::new();
+    for g in picked.graphemes(true) {
+        if text::width(&out) + text::width(g) > 2 {
+            break;
+        }
+        out.push_str(g);
+    }
+    let pad = 2_usize.saturating_sub(text::width(&out));
+    out.push_str(&" ".repeat(pad));
+    out
+}
+
 /// The entry without previews: everything on the name's row.
 fn one_row(parts: Parts, view: &View<'_>, width: usize) -> Line<'static> {
     let theme = view.theme;
-    let fixed = 3
+    let (lead, lead_width) = lead(&parts, Lead::Only, view);
+    let fixed = lead_width
         + text::width(parts.kind)
         + text::width(&parts.count)
         + text::width(&parts.quiet)
@@ -331,8 +434,8 @@ fn one_row(parts: Parts, view: &View<'_>, width: usize) -> Line<'static> {
     let room = width.saturating_sub(fixed + text::width(parts.suffix));
     let name = truncate(&sanitize(&parts.title), room).into_owned();
     let pad = room.saturating_sub(text::width(&name));
-    Line::from(vec![
-        parts.marker,
+    let mut spans = lead;
+    spans.extend([
         Span::styled(parts.kind, theme.muted()),
         Span::styled(name, parts.name_style),
         Span::styled(parts.suffix, Style::new().fg(theme.accent)),
@@ -340,7 +443,8 @@ fn one_row(parts: Parts, view: &View<'_>, width: usize) -> Line<'static> {
         Span::styled(parts.count, parts.count_style),
         Span::styled(parts.quiet, theme.muted()),
         Span::raw(parts.end),
-    ])
+    ]);
+    Line::from(spans)
 }
 
 /// The entry with previews (D154): the name and the time, then the preview
@@ -358,7 +462,10 @@ fn two_rows(
         .filter(|_| state.config.conversations.preview_time)
         .map(|at| format!(" {} ", list_time(state, at, view)))
         .unwrap_or_default();
-    let fixed = 3 + text::width(parts.kind) + text::width(parts.suffix) + text::width(&time);
+    let (top, lead_width) = lead(&parts, Lead::Top, view);
+    let (bottom, _) = lead(&parts, Lead::Bottom, view);
+    let fixed =
+        lead_width + text::width(parts.kind) + text::width(parts.suffix) + text::width(&time);
     let room = width.saturating_sub(fixed);
     let name = truncate(&sanitize(&parts.title), room).into_owned();
     let pad = room.saturating_sub(text::width(&name));
@@ -367,26 +474,29 @@ fn two_rows(
     } else {
         theme.muted()
     };
-    let first = Line::from(vec![
-        parts.marker,
+    let mut first = top;
+    first.extend([
         Span::styled(parts.kind, theme.muted()),
         Span::styled(name, parts.name_style),
         Span::styled(parts.suffix, Style::new().fg(theme.accent)),
         Span::raw(" ".repeat(pad)),
         Span::styled(time, time_style),
     ]);
+    let first = Line::from(first);
 
     // The preview hangs off the name like a tree branch, so it can't be
     // mistaken for a name; one blank cell always separates it from the count.
-    let indent = " ".repeat(3 + text::width(parts.kind));
-    let fixed = indent.len()
+    let indent = " ".repeat(text::width(parts.kind));
+    let fixed = lead_width
+        + indent.len()
         + text::width(BRANCH)
         + text::width(&parts.count)
         + text::width(&parts.quiet)
         + parts.end.len()
         + 1;
     let room = width.saturating_sub(fixed);
-    let mut spans = vec![Span::raw(indent), Span::styled(BRANCH, theme.muted())];
+    let mut spans = bottom;
+    spans.extend([Span::raw(indent), Span::styled(BRANCH, theme.muted())]);
     let used = preview_spans(state, summary, parts.bright, view, room, &mut spans);
     spans.push(Span::raw(" ".repeat(room.saturating_sub(used) + 1)));
     spans.push(Span::styled(parts.count, parts.count_style));
@@ -524,7 +634,21 @@ fn message_preview(state: &State, message: &Message) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::visible_offset;
+    use super::{initials, visible_offset};
+
+    #[test]
+    fn initials_take_first_and_last_words_and_always_fill_two_cells() {
+        assert_eq!(initials("Alice Smith"), "AS");
+        assert_eq!(initials("Mary Anne van Dyke"), "MD");
+        assert_eq!(initials("Bob"), "Bo");
+        assert_eq!(initials("Climbing 🧗"), "Cl", "emoji aren't letters");
+        assert_eq!(initials("élodie roux"), "ÉR");
+        assert_eq!(initials("+44 7700 900123"), "49", "a number");
+        assert_eq!(initials("日本語"), "日", "one wide character fills both");
+        assert_eq!(initials("X"), "X ");
+        assert_eq!(initials("🧗 🧗"), "? ");
+        assert_eq!(initials(""), "? ");
+    }
 
     #[test]
     fn offset_is_clamped_and_reveals_the_selection() {

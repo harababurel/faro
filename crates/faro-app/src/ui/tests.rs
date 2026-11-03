@@ -1984,3 +1984,41 @@ fn the_list_is_drawn_at_its_width_unless_the_chat_would_get_too_narrow() {
     let first = text.lines().next().unwrap();
     assert_eq!(first.chars().position(|c| c == '╮'), Some(43), "{first}");
 }
+
+// --- Initials avatars (D158) ---
+
+#[test]
+fn initials_avatars_with_previews() {
+    let mut state = previews_state();
+    state.config.conversations.avatars = faro_core::config::Avatars::Initials;
+    insta::assert_snapshot!(snapshot(&draw(&state, 100, 16)));
+}
+
+#[test]
+fn initials_avatars_on_one_row() {
+    let mut state = loaded_state();
+    state.notice = None;
+    state.config.conversations.avatars = faro_core::config::Avatars::Initials;
+    insta::assert_snapshot!(snapshot(&draw(&state, 100, 12)));
+}
+
+#[test]
+fn an_avatar_is_drawn_in_the_conversations_colour() {
+    let mut state = loaded_state();
+    state.notice = None;
+    state.config.conversations.avatars = faro_core::config::Avatars::Initials;
+    let theme = Theme::default();
+    let buffer = draw_with(&state, 100, 12, &theme);
+    let text = snapshot(&buffer);
+    let (y, line) = text
+        .lines()
+        .enumerate()
+        .find(|(_, line)| line.contains("Alice"))
+        .unwrap();
+    let x = line.chars().position(|c| c == '▐').unwrap();
+    let cell = |x: usize| &buffer[(u16::try_from(x).unwrap(), u16::try_from(y).unwrap())];
+    let colour = theme.avatar(fixtures::alice());
+    assert_eq!(cell(x).fg, colour, "the pill's edge");
+    assert_eq!(cell(x + 1).bg, colour, "behind the initials");
+    assert_eq!(cell(x + 1).symbol(), "A");
+}

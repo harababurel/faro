@@ -689,3 +689,14 @@ Notes (version, OS, what went wrong):
 - [ ] **With previews:** a wider list shows more of each message preview.
 
 Notes (version, OS, what went wrong):
+
+## Initials avatars (D158)
+
+- [ ] **Off by default:** after upgrading, the list looks as before and `config.toml` has no `avatars` line.
+- [ ] **Turning them on:** `Ctrl+P` › Settings › Conversations › Avatars: moving to "initials" previews it; Enter keeps it and writes `avatars = "initials"`.
+- [ ] **Shapes:** without previews each name has a small pill (`▐AB▌`); with previews a rounded square over both rows. The corners and edges are smooth, with no gaps or stray half-cells, in kitty, inside tmux, and over mosh (and with the `system` theme / 16 colours).
+- [ ] **Initials and colours:** two-word names show both initials, one-word names their first two letters, numbers digits; a person's badge has the colour their name has in group chats; a group's colour stays the same across restarts. Readable in dark and light themes.
+- [ ] **Unread:** with avatars the dot is gone, but the count at the edge and the bold name still show which chats are unread.
+- [ ] **Selection and resizing:** the highlighted row's background runs around the badge cleanly; a wider or narrower list (D156) keeps the badge whole.
+
+Notes (version, OS, what went wrong):

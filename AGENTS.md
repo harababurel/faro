@@ -197,6 +197,7 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 - 2026-11-03: D155 (owner's rule): new features and visible changes are opt-in. See "Working with the owner".
 - 2026-11-03: D156: the conversation list resizes: `[ui] sidebar_width` (30 default, 20–100) via dragging its border (`update/resize.rs`, `State::resize`, `State::sidebar_width()`, `Geometry::sidebar_border`/`sidebar_max`), `Alt+,`/`Alt+.`, or Settings › Appearance › Sidebar width (presets + Custom…, previewed). The chat keeps ≥ 40 columns (`ui::CENTER_MIN`). Mouse moves redraw only when the border's hover state changes. Owner's hands-on checks pending (MANUAL_TESTS "Resizing the conversation list"). The info panel is still fixed.
 - 2026-11-03: D157: a search result's message window that arrives after the user switched or closed the chat is ignored (`on_messages_around_loaded`), instead of reopening the result's chat and dropping the leave effects (draft save, stop audio, remember). Test `a_late_search_window_doesnt_pull_the_user_back`.
+- 2026-11-03: D158: initials avatars in the list (`[conversations] avatars = "off" | "initials"`, off by default): `sidebar::{Badge, lead, initials}`, `Theme::avatar`; a pill on one row, a rounded square over two with previews; the unread dot gives way to the badge. Real pictures are a planned milestone (PLAN.md "Later"). Owner's hands-on checks pending (MANUAL_TESTS "Initials avatars").
 
 ### Gotchas found so far
 

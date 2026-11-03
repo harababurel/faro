@@ -389,6 +389,8 @@ Design, copy, server runbook and full task lists: [WEBSITE.md](WEBSITE.md) (§7 
 - ~~About screen with the logo~~: done as a popup from the palette (D94); the animated lighthouse is the empty message pane (D61)
 - ~~Drag-resizable sidebars with hover highlight~~ the conversation list: done (D156, drag, keys and presets); the info panel is still fixed
 - Optional sync of hidden/allowlist state via config
+- **Profile pictures in the conversation list** (owner, 2026-11-03; step one, initials, is D158). `[conversations] avatars = "pictures"`, falling back to initials. Pieces: fetch people's and groups' pictures through presage (`retrieve_profile_avatar_by_uuid`, `retrieve_group_avatar`), behind the allowlist guard; cache them `0600` in the data dir and refresh when a profile or group changes; draw them with the D78 image code in the badge's 4×2 cells. Risks to check first with a spike: 10–20 small images on screen at once, re-sent on scroll and hidden under overlays (D78's placeholders), flicker or lag inside tmux and over SSH, the D55 frame checks; half-blocks (mosh, no graphics protocol) are too coarse at that size, so those terminals keep initials. Start with ~15 images in kitty inside tmux before building the rest.
+- Resize the info panel too (the code from D156 applies)
 - Recording and sending voice notes
 - Terminal hyperlinks (OSC 8) for links in messages, so a link split over lines still opens whole (kitty; tmux 3.4+ with the `hyperlinks` terminal feature). ratatui has no support, so it goes through `tui/backend.rs`; needs replays and hands-on checks (D102).
 - Packaging (cargo-dist binaries, Homebrew tap, AUR `faro-bin`/`faro-git`, `.deb`, Nix flake)

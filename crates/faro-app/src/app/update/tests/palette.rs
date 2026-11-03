@@ -254,7 +254,7 @@ fn prefixes_jump_into_a_category() {
 }
 
 /// `Settings ›` with nothing typed: every setting under its section.
-const SETTINGS_LIST: [&str; 40] = [
+const SETTINGS_LIST: [&str; 41] = [
     "Appearance",
     "Colours",
     "Emoji",
@@ -278,6 +278,7 @@ const SETTINGS_LIST: [&str; 40] = [
     "Message previews",
     "Time in the list",
     "Typing and drafts",
+    "Avatars",
     "Media",
     "Inline images",
     "Auto-download media",
@@ -1846,4 +1847,22 @@ fn the_sidebar_width_has_presets_a_preview_and_a_custom_value() {
     update(&mut state, ctrl('u'));
     assert_eq!(pick(&mut state, "wide"), vec![]);
     assert_eq!(state.config.ui.sidebar_width, 36, "nothing changed");
+}
+
+#[test]
+fn avatars_are_off_until_chosen_and_preview_while_moving() {
+    use faro_core::config::Avatars;
+
+    let mut state = loaded_state();
+    assert_eq!(state.config.conversations.avatars, Avatars::Off, "D155");
+    palette_open(&mut state, ":avatars");
+    enter(&mut state);
+    assert_eq!(titles(&state), vec!["off", "initials"]);
+    press(&mut state, KeyCode::Down);
+    let effects = enter(&mut state);
+    assert_eq!(
+        effects,
+        vec![saved(key::AVATARS, ConfigValue::Text("initials".into()))]
+    );
+    assert_eq!(state.config.conversations.avatars, Avatars::Initials);
 }

@@ -1,0 +1,20 @@
+---
+source: crates/faro-app/src/ui/tests.rs
+expression: "snapshot(&draw(&state, 100, 16))"
+---
+╭ Conversations ─────────────╮╭ Climbing 🧗 ───────────────────────────────────────────────────────╮
+│ ▾ Pinned                   ││ 17:50 Carol Bar… Route map from last time                          │
+│ ▟Bo▙   Bob           08:00 ││                  📎 route-map.jpg · 2.3 MB                         │
+│ ▜██▛   ╰─ Draft: Bring th… ││ ────────────────────────── new messages ────────────────────────── │
+│ ▾ Recent                   ││ 17:51            Also: the new overhang section opened last week   │
+│ ▟Cl▙ # Climbing 🧗   17:55 ││                  and apparently the grades are soft, so bring your │
+│ ▜██▛   ╰─ Alice 🌸: Runni… ││                  project shoes 🧗‍♀️🧗‍♂️ and maybe some tape for your   │
+│ ▟Al▙   Alice 🌸      17:30 ││                  fingers.                                          │
+│ ▜██▛   ╰─ ▶ Voice mess…  1 ││ 17:54        You On my way ✓                                       │
+│                            ││ 17:55   Alice 🌸 Running 10 min late 🙈                            │
+│                            ││                                                                    │
+│                            ││╭──────────────────────────────────────────────────────────────────╮│
+│                            │││ Message Climbing 🧗…                                             ││
+│                            ││╰──────────────────────────────────────────────────────────────────╯│
+╰────────────────────────────╯╰────────────────────────────────────────────────────────────────────╯
+ ● connected · 1 unread    enter send · alt+j/k conversations · esc close · tab focus · pgup scroll
