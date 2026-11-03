@@ -1519,6 +1519,7 @@ A developer friend of the owner tried getfaro.dev; the owner agreed with all of 
 - **How:** `text::edit_breaks(paragraph, max)` returns where each line after the first starts, using the same break points as messages (`text::words`: Unicode word boundaries, so after spaces and punctuation, between emoji and between CJK characters; links kept whole). Unlike `wrap_ranges` it keeps every character, because the cursor must be able to sit after any of them: the space at a break hangs at the end of the line before it, at most one cell past the edge (into the box's right padding, where the cursor may now go); further spaces go on to the next line. A test checks that, trimmed, its lines match message wrapping.
 - **Judgement:** `↑`/`↓` still move between the text's own lines, not wrapped rows (unchanged).
 - **Rejected:** hyphenation (e-reader style). It needs per-language dictionaries and knowing which language a message is in; chat text mixes languages, slang, emoji and links; and a hyphen that isn't in the text would confuse cursor movement and deletion. With whole-word wrapping, only words wider than the whole box are still split, mostly links and junk strings, where a hyphen wouldn't help.
+- **Released in 0.1.8** (2026-11-03).
 
 ### D154. Message previews in the conversation list, opt-in (2026-11-03)
 
@@ -1532,6 +1533,7 @@ A developer friend of the owner tried getfaro.dev; the owner agreed with all of 
 - **Rows, not entries:** the sidebar now flattens entries into screen rows: `Geometry::sidebar_rows` gets one `SidebarRow` per row (so a click on either row opens the conversation and popups anchor to its first row), `sidebar.offset` counts rows, and `visible_offset` reveals both rows of the highlighted entry (its first if only one fits).
 - **Previews off:** drawn exactly as before (a test compares the two).
 - **Not done (later):** profile pictures beside the two rows (real pictures via `ratatui-image` where the terminal has graphics, coloured initials elsewhere), and showing reactions ("Alice reacted ❤") as previews.
+- **Released in 0.1.8** (2026-11-03).
 
 ### D155. New features and visible changes are opt-in (2026-11-03)
 
@@ -1548,12 +1550,14 @@ A developer friend of the owner tried getfaro.dev; the owner agreed with all of 
 - **Palette:** Settings › Appearance › Sidebar width: 24 (narrow), 30 (default), 40 (wide), 50 (wider), and Custom… (a typed number, checked against the range). Moving through them draws each width first (D59). `palette::typed_value` now shows numbers too, so a custom width (or a custom transcription limit) shows beside Custom….
 - **Limits:** the chat keeps at least 40 columns (`ui::CENTER_MIN`) beside the list and, when shown, the 28-column info panel. A wider setting is drawn narrower there without changing the setting (`Geometry::sidebar_max` is what fits). The list still hides below 70 columns, as before.
 - **Not done:** the info panel's width (still 28); a double-click on the border to reset (use `Ctrl+R` on the setting in the palette).
+- **Released in 0.1.8** (2026-11-03).
 
 ### D157. A late search window no longer pulls the user back (2026-11-03)
 
 - **The backlog note** said `on_messages_around_loaded` discarded `open_conversation`'s effects (draft save, `StopAudio`, typing stopped, `RememberOpen`, `MarkRead`) when a search result was in another chat.
 - **What was really happening:** choosing a result opens its chat at once (`palette::jump_to_message` → `show_conversation`) and keeps all those effects, so the usual path was fine. The bug was a race: if the user switched chats (`Alt+J/K`, a click) or closed the chat before the window loaded, the late `MessagesAroundLoaded` reopened the result's chat. That dropped the effects of leaving the chat the user had moved to (its draft not stored, its voice note still playing, it not remembered) and took the user somewhere they'd left.
 - **Fix:** the window is applied only if its conversation is still the open one; otherwise it's stale and ignored. The code that reopened the chat and dropped the effects is gone. Test: `a_late_search_window_doesnt_pull_the_user_back`.
+- **Released in 0.1.8** (2026-11-03).
 
 ### D158. Initials avatars in the conversation list, opt-in; pictures later (2026-11-03)
 
@@ -1564,3 +1568,4 @@ A developer friend of the owner tried getfaro.dev; the owner agreed with all of 
 - **Initials (`sidebar::initials`):** the first letters of the first and last words (`Alice Smith` → `AS`), the first two letters of a single word (`Bob` → `Bo`), digits when there are no letters (a phone number), `?` when there's nothing usable (only emoji). Always two cells; one wide character (CJK) fills both. Nicknames (D65) count, as the title does.
 - **The unread dot goes with a badge (Judgement):** the count at the edge, the bold name and (with previews) the bright preview and time still mark unread; keeping the dot would cost three more columns. The `#` before group names stays.
 - **Not done:** real pictures; a badge in the info panel or the chat header.
+- **Released in 0.1.8** (2026-11-03).
