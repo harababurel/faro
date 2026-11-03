@@ -74,6 +74,36 @@ engines! {
     nicknames_are_kept_apart_from_contact_updates,
     search_messages_matches_bodies_and_transcripts,
     messages_around_returns_oldest_first_window,
+    each_summary_carries_its_newest_message,
+}
+
+async fn each_summary_carries_its_newest_message(kind: Kind) {
+    let older = incoming(direct(ALICE), ALICE, 100, "older");
+    let mut newest = incoming(direct(ALICE), ALICE, 300, "photo");
+    newest.attachments = vec![AttachmentRef {
+        file_name: Some("cat.jpg".into()),
+        ..AttachmentRef::remote("att-1", "image/jpeg")
+    }];
+    newest.mentions = vec![Mention {
+        who: aci(BOB),
+        start: 0,
+        len: 1,
+    }];
+    let in_group = outgoing(group(), 200, DeliveryStatus::Sent);
+    // Arrives last but was sent first: still not the newest.
+    let late = incoming(direct(ALICE), ALICE, 50, "late");
+    let store = store_with(kind, &[older, newest.clone(), in_group.clone(), late]).await;
+    store
+        .set_conversation_state(direct(CAROL), ConversationState::default())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        summary(&store, direct(ALICE)).await.last_message,
+        Some(newest)
+    );
+    assert_eq!(summary(&store, group()).await.last_message, Some(in_group));
+    assert_eq!(summary(&store, direct(CAROL)).await.last_message, None);
 }
 
 fn aci(n: u128) -> ServiceId {

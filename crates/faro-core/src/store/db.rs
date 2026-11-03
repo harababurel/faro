@@ -467,7 +467,8 @@ impl Db {
         .fetch_all(&mut self.conn)
         .await?;
 
-        rows.into_iter()
+        let mut summaries = rows
+            .into_iter()
             .map(|row| {
                 let (key, title, last_activity, unread, contact, profile, phone) =
                     (row.0, row.1, row.2, row.3, row.4, row.5, row.6);
@@ -506,9 +507,64 @@ impl Db {
                             remote_tx.unwrap_or(false),
                         ),
                     },
+                    last_message: None,
                 })
             })
-            .collect()
+            .collect::<Result<Vec<_>>>()?;
+        let mut latest = self.last_messages().await?;
+        for summary in &mut summaries {
+            summary.last_message = latest.remove(&summary.id);
+        }
+        Ok(summaries)
+    }
+
+    /// Each conversation's newest message (D154): one indexed lookup per
+    /// conversation, then their reactions, attachments and mentions.
+    async fn last_messages(&mut self) -> Result<HashMap<ConversationId, Message>> {
+        // The conversation's key, then a `MessageRow`.
+        type Row = (
+            String,
+            i64,
+            String,
+            i64,
+            Option<String>,
+            Option<String>,
+            Option<i64>,
+            Option<String>,
+            Option<i64>,
+            bool,
+            String,
+            Option<String>,
+        );
+        let rows: Vec<Row> = sqlx::query_as(
+            "SELECT c.id, m.id, m.sender, m.sent_at, m.body,
+                        m.quote_sender, m.quote_sent_at, m.quote_preview,
+                        m.edited_at, m.deleted, m.direction, m.status
+                 FROM conversations c
+                 JOIN messages m ON m.id = (
+                     SELECT id FROM messages
+                     WHERE conversation_id = c.id
+                     ORDER BY sent_at DESC, sender DESC
+                     LIMIT 1)",
+        )
+        .fetch_all(&mut self.conn)
+        .await?;
+        let mut latest = HashMap::with_capacity(rows.len());
+        for row in rows {
+            let conversation = conversation_from_key(&row.0)?;
+            let message_row = (
+                row.1, row.2, row.3, row.4, row.5, row.6, row.7, row.8, row.9, row.10, row.11,
+            );
+            let (id, message) = decode_message_row(conversation, message_row)?;
+            // One message at a time: the row IDs of different conversations'
+            // newest messages are far apart, and `attach_extras` scans the
+            // range between the lowest and the highest.
+            let mut one = [message];
+            self.attach_extras(&[id], &mut one).await?;
+            let [message] = one;
+            latest.insert(conversation, message);
+        }
+        Ok(latest)
     }
 
     /// Up to `limit` messages older than `before` (newest page if `None`), oldest first.

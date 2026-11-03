@@ -393,6 +393,14 @@ impl Mem {
     /// Every conversation: pinned first (in pin order), then most recent activity,
     /// then empty ones.
     pub(super) fn conversations(&self) -> Result<Vec<ConversationSummary>> {
+        // Each conversation's newest message (D154), in one pass.
+        let mut latest: HashMap<ConversationId, &Row> = HashMap::new();
+        for row in self.rows.values() {
+            let newest = latest.entry(row.conversation).or_insert(row);
+            if row.point() > newest.point() {
+                *newest = row;
+            }
+        }
         let mut list: Vec<(&String, ConversationSummary)> = self
             .conversations
             .iter()
@@ -420,6 +428,7 @@ impl Mem {
                         title,
                         phone,
                         last_activity: conv.last_activity,
+                        last_message: latest.get(&id).map(|row| row.to_message()),
                         unread: conv.unread,
                         state: conv.state.clone().unwrap_or_default(),
                     },

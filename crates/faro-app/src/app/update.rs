@@ -561,10 +561,12 @@ fn on_backend(state: &mut State, event: BackendEvent) -> Vec<Effect> {
             apply_to_open(state, None, &event);
             selection::on_delivery_update(state, *message, *status, *by, *updated_at);
         }
-        BackendEvent::Reaction { conversation, .. }
-        | BackendEvent::Edited { conversation, .. }
-        | BackendEvent::Deleted { conversation, .. } => {
+        BackendEvent::Reaction { conversation, .. } => {
             apply_to_open(state, Some(*conversation), &event);
+        }
+        BackendEvent::Edited { conversation, .. } | BackendEvent::Deleted { conversation, .. } => {
+            apply_to_open(state, Some(*conversation), &event);
+            track_last_message(state, *conversation, &event);
         }
         BackendEvent::Typing {
             conversation,
@@ -656,6 +658,14 @@ fn on_message(state: &mut State, message: &Message, effects: &mut Vec<Effect>) {
     let incoming = message.direction == Direction::Incoming && !message.deleted;
     if let Some(summary) = summary_entry(state, id) {
         summary.last_activity = summary.last_activity.max(Some(message.sent_at));
+        // The list's preview (D154): only drawing, never a read (D42).
+        if summary
+            .last_message
+            .as_ref()
+            .is_none_or(|last| (last.sent_at, last.sender) < (message.sent_at, message.sender))
+        {
+            summary.last_message = Some(message.clone());
+        }
         if incoming && !seen {
             summary.unread += 1;
         }
@@ -688,6 +698,21 @@ fn on_message(state: &mut State, message: &Message, effects: &mut Vec<Effect>) {
     }
 }
 
+/// Apply an edit or deletion to the list's newest message (D154) if it's
+/// the target, by the rules the open timeline follows.
+fn track_last_message(state: &mut State, conversation: ConversationId, event: &BackendEvent) {
+    let Some(summary) = state
+        .conversations
+        .iter_mut()
+        .find(|c| c.id == conversation)
+    else {
+        return;
+    };
+    let mut newest: Vec<Message> = summary.last_message.take().into_iter().collect();
+    timeline::apply(&mut newest, event);
+    summary.last_message = newest.pop();
+}
+
 /// The summary for `id`, created if this is a new conversation. (Always `Some`;
 /// an `Option` only because getting it back out of the `Vec` can't be proven.)
 fn summary_entry(state: &mut State, id: ConversationId) -> Option<&mut ConversationSummary> {
@@ -705,6 +730,7 @@ fn summary_entry(state: &mut State, id: ConversationId) -> Option<&mut Conversat
         title,
         phone,
         last_activity: None,
+        last_message: None,
         unread: 0,
         state: ConversationState::default(),
     });

@@ -228,10 +228,32 @@ pub struct Ui {
     pub colors: ColorChoice,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "four independent on/off settings, one per key in [conversations]"
+)]
 pub struct Conversations {
     /// Allowlist mode (D41).
     pub allowlist: bool,
+    /// The newest message under each name in the list (D154). Off by
+    /// default: new looks are opt-in.
+    pub previews: bool,
+    /// With previews, the newest message's time beside the name.
+    pub preview_time: bool,
+    /// With previews, `typing…` and `Draft: …` in place of the message.
+    pub preview_activity: bool,
+}
+
+impl Default for Conversations {
+    fn default() -> Self {
+        Self {
+            allowlist: false,
+            previews: false,
+            preview_time: true,
+            preview_activity: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -390,6 +412,9 @@ pub mod key {
     pub const EMOJI: &str = "ui.emoji";
     pub const COLORS: &str = "ui.colors";
     pub const ALLOWLIST: &str = "conversations.allowlist";
+    pub const PREVIEWS: &str = "conversations.previews";
+    pub const PREVIEW_TIME: &str = "conversations.preview_time";
+    pub const PREVIEW_ACTIVITY: &str = "conversations.preview_activity";
     pub const LAYOUT: &str = "messages.layout";
     pub const BUBBLE_STYLE: &str = "messages.bubble_style";
     pub const BUBBLE_PADDING: &str = "messages.bubble_padding";
@@ -534,6 +559,35 @@ pub static SETTINGS: &[Setting] = &[
         get: |c| ConfigValue::Bool(c.conversations.allowlist),
         set: |c, v| {
             c.conversations.allowlist = boolean(v)?;
+            Ok(())
+        },
+    },
+    Setting {
+        path: key::PREVIEWS,
+        help: "Show each conversation's newest message under its name in the list (two \
+               rows per conversation). Reading it there doesn't mark it read.",
+        get: |c| ConfigValue::Bool(c.conversations.previews),
+        set: |c, v| {
+            c.conversations.previews = boolean(v)?;
+            Ok(())
+        },
+    },
+    Setting {
+        path: key::PREVIEW_TIME,
+        help: "With previews: the newest message's time beside the name (10:42, Mon, 3 Oct).",
+        get: |c| ConfigValue::Bool(c.conversations.preview_time),
+        set: |c, v| {
+            c.conversations.preview_time = boolean(v)?;
+            Ok(())
+        },
+    },
+    Setting {
+        path: key::PREVIEW_ACTIVITY,
+        help: "With previews: \"typing…\" while someone types, and your unsent draft, in \
+               place of the newest message.",
+        get: |c| ConfigValue::Bool(c.conversations.preview_activity),
+        set: |c, v| {
+            c.conversations.preview_activity = boolean(v)?;
             Ok(())
         },
     },

@@ -193,6 +193,8 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 - 2026-10-23: **v0.1.7 released** (tag at `78a16d5`) with D151; Homebrew tap updated by the release workflow; AUR PKGBUILDs bumped with pinned checksums (pushing them to the AUR is the owner's); release notes added by the owner. Next: upstream PRs for the contact-list fix (libsignal-service-rs) and the avatar writer (presage).
 - 2026-11-01: D152: a third party added the FreeBSD port `net-im/faro` (0.1.7). Listed as `pkg install faro` in the README, on the site (copy `method` `pkg`) and in the bug form; FreeBSD itself is untested by us. Keep it in the install lists with the other methods. Site change not deployed.
 - 2026-11-03: D153 (owner's report): the input box wraps on words like messages do (`text::edit_breaks`, used by `layout_input` in `ui/conversation.rs`); the space at a break hangs one cell into the box's padding, where the cursor may now sit. Hyphenation rejected. Owner's hands-on checks pending (MANUAL_TESTS "Input box wraps on words").
+- 2026-11-03: D154: optional message previews in the conversation list (`[conversations] previews`, off by default; `preview_time` and `preview_activity` on but dimmed until previews are on). `ConversationSummary::last_message` (store: `Db::last_messages`; reducer: `on_message`, `track_last_message`), two-row entries in `ui/sidebar.rs` (`preview_spans`, `message_preview`, `list_time`), `Geometry::sidebar_rows` and `sidebar.offset` now count screen rows. Previews never mark anything read (D42). Owner's hands-on checks pending (MANUAL_TESTS "Message previews"). Profile pictures are later.
+- 2026-11-03: D155 (owner's rule): new features and visible changes are opt-in. See "Working with the owner".
 
 ### Gotchas found so far
 
@@ -301,6 +303,8 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 10. **Terminal behaviour can't be fully verified by agents.** When a change affects rendering, input, mouse, colours or emoji, say so and add an item to [docs/MANUAL_TESTS.md](docs/MANUAL_TESTS.md) instead of claiming it works.
 
 ## Working with the owner
+
+- **New features are opt-in (D155).** New features and changes to how things look are off by default and switchable in `Ctrl+P` › Settings; someone who ignores them keeps faro exactly as it was. Exceptions are bug fixes and changes the owner explicitly asks to be the default.
 
 - Wants **plain, concise explanations** and clear recommendations with a default ("I'd do X; say if you prefer Y").
 - Work, tests, commits and pushes happen in the development checkout (`/home/sergiu/work/faro`). **Never deploy the website or modify the owner's `/srv` instance**: the owner deploys manually. Say when a tested checkpoint is ready to deploy.

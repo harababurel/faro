@@ -290,6 +290,9 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
         | SettingChoice::BubblePadding(on)
         | SettingChoice::MatchWidths(on)
         | SettingChoice::UpdateCheck(on) => choose_toggle(state, choice, on),
+        SettingChoice::Previews(on) => choose_preview(state, key::PREVIEWS, on),
+        SettingChoice::PreviewTime(on) => choose_preview(state, key::PREVIEW_TIME, on),
+        SettingChoice::PreviewActivity(on) => choose_preview(state, key::PREVIEW_ACTIVITY, on),
     }
 }
 
@@ -359,6 +362,9 @@ fn choose_media_and_notifications(state: &mut State, choice: SettingChoice) -> V
         | SettingChoice::Density(_)
         | SettingChoice::Timestamps(_)
         | SettingChoice::Allowlist(_)
+        | SettingChoice::Previews(_)
+        | SettingChoice::PreviewTime(_)
+        | SettingChoice::PreviewActivity(_)
         | SettingChoice::Mouse(_)
         | SettingChoice::PasteFromSystem(_)
         | SettingChoice::Bell(_)
@@ -446,6 +452,9 @@ fn choose_transcription(state: &mut State, choice: SettingChoice) -> Vec<Effect>
         | SettingChoice::Density(_)
         | SettingChoice::Timestamps(_)
         | SettingChoice::Allowlist(_)
+        | SettingChoice::Previews(_)
+        | SettingChoice::PreviewTime(_)
+        | SettingChoice::PreviewActivity(_)
         | SettingChoice::Desktop(_)
         | SettingChoice::Privacy(_)
         | SettingChoice::InlineImages(_)
@@ -557,6 +566,9 @@ pub fn set_text(state: &mut State, setting: Setting, text: &str) -> Vec<Effect> 
         | Setting::Desktop
         | Setting::Privacy
         | Setting::Allowlist
+        | Setting::Previews
+        | Setting::PreviewTime
+        | Setting::PreviewActivity
         | Setting::InlineImages
         | Setting::AutoDownload
         | Setting::Transcribe
@@ -670,6 +682,9 @@ fn choose_toggle(state: &mut State, choice: SettingChoice, on: bool) -> Vec<Effe
         | SettingChoice::Density(_)
         | SettingChoice::Timestamps(_)
         | SettingChoice::Allowlist(_)
+        | SettingChoice::Previews(_)
+        | SettingChoice::PreviewTime(_)
+        | SettingChoice::PreviewActivity(_)
         | SettingChoice::InlineImages(_)
         | SettingChoice::AutoDownload(_)
         | SettingChoice::Transcribe(_)
@@ -681,6 +696,39 @@ fn choose_toggle(state: &mut State, choice: SettingChoice, on: bool) -> Vec<Effe
         | SettingChoice::TranscribeEndpoint(_)
         | SettingChoice::TranscribeRemoteModel(_) => vec![],
     }
+}
+
+/// The conversation list's preview switches (D154), by key.
+fn choose_preview(state: &mut State, path: &'static str, on: bool) -> Vec<Effect> {
+    let conversations = &mut state.config.conversations;
+    let msg = match path {
+        key::PREVIEWS => {
+            conversations.previews = on;
+            if on {
+                "The list shows each conversation's newest message"
+            } else {
+                "The list shows names only"
+            }
+        }
+        key::PREVIEW_TIME => {
+            conversations.preview_time = on;
+            if on {
+                "Previews show the newest message's time"
+            } else {
+                "Previews leave out the time"
+            }
+        }
+        key::PREVIEW_ACTIVITY => {
+            conversations.preview_activity = on;
+            if on {
+                "Previews show typing and drafts"
+            } else {
+                "Previews always show the newest message"
+            }
+        }
+        _ => return vec![],
+    };
+    save_with_notice(state, path, msg)
 }
 
 /// Put `setting` back to its default (`Ctrl+R` in the settings list, D100):

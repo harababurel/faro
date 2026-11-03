@@ -1856,3 +1856,108 @@ fn info_sidebar_renders_files_and_links() {
     assert!(text.contains("https://signal.org/docs"), "{text}");
     assert_drawable(&compatible(state), 140, 36);
 }
+
+// --- Message previews in the list (D154) ---
+
+/// Previews on: Bob (pinned) with a draft, Climbing (open) with someone
+/// typing, Alice with a voice note.
+fn previews_state() -> State {
+    use faro_core::domain::{AttachmentRef, MessageBody};
+
+    let mut state = loaded_state();
+    state.config.conversations.previews = true;
+    state.notice = None;
+    let history = fixtures::climbing_history();
+    let newest = history.last().cloned();
+    let mut voice = fixtures::text(fixtures::alice(), ALICE, NOW_MS - 30 * 60_000, "");
+    voice.body = None;
+    voice.attachments = vec![AttachmentRef {
+        voice_note: true,
+        duration_secs: Some(83),
+        ..AttachmentRef::remote("v1", "audio/aac")
+    }];
+    let sent = fixtures::text(
+        fixtures::bob(),
+        ME,
+        NOW_MS - 600 * 60_000,
+        "See you Thursday",
+    );
+    for summary in &mut state.conversations {
+        if summary.id == climbing() {
+            summary.last_message.clone_from(&newest);
+        } else if summary.id == fixtures::alice() {
+            summary.last_message = Some(voice.clone());
+        } else {
+            summary.last_message = Some(sent.clone());
+            summary.state.draft = Some(MessageBody::new("Bring the rope?"));
+        }
+    }
+    state
+}
+
+#[test]
+fn previews_show_the_newest_message_under_each_name() {
+    let state = previews_state();
+    insta::assert_snapshot!(snapshot(&draw(&state, 100, 16)));
+}
+
+#[test]
+fn previews_show_typing_and_can_leave_out_time_and_activity() {
+    let mut state = previews_state();
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::Typing {
+            conversation: fixtures::bob(),
+            sender: fixtures::BOB,
+            state: TypingState::Started,
+        }),
+    );
+    let sidebar = |state: &State| -> Vec<String> {
+        snapshot(&draw(state, 100, 16))
+            .lines()
+            .map(|line| line.chars().take(30).collect())
+            .collect()
+    };
+    let rows = sidebar(&state);
+    assert!(rows.iter().any(|r| r.contains("typing…")), "{rows:#?}");
+    assert!(
+        !rows.iter().any(|r| r.contains("Draft:")),
+        "typing wins: {rows:#?}"
+    );
+
+    state.config.conversations.preview_activity = false;
+    state.config.conversations.preview_time = false;
+    let rows = sidebar(&state);
+    assert!(!rows.iter().any(|r| r.contains("typing…")), "{rows:#?}");
+    assert!(rows.iter().any(|r| r.contains("You: See you")), "{rows:#?}");
+    assert!(
+        !rows.iter().any(|r| r.contains(':') && r.contains("15")),
+        "{rows:#?}"
+    );
+}
+
+#[test]
+fn previews_off_draws_the_list_as_before() {
+    let mut state = previews_state();
+    state.config.conversations.previews = false;
+    let mut before = loaded_state();
+    before.notice = None;
+    assert_eq!(
+        snapshot(&draw(&state, 100, 16)),
+        snapshot(&draw(&before, 100, 16))
+    );
+}
+
+#[test]
+fn both_rows_of_a_preview_belong_to_its_conversation() {
+    use crate::app::state::SidebarRow;
+
+    let state = previews_state();
+    let images = fixtures::Undecoded::for_state(&state);
+    let (_, geometry) = draw_with_images(&state, 100, 16, &Theme::default(), &images);
+    let rows: Vec<SidebarRow> = geometry.sidebar_rows.clone();
+    let alice = SidebarRow::Conversation(fixtures::alice());
+    let at = rows.iter().position(|r| *r == alice).unwrap();
+    assert_eq!(rows.get(at + 1), Some(&alice), "{rows:?}");
+    assert_ne!(rows.get(at + 2), Some(&alice), "{rows:?}");
+}

@@ -664,3 +664,16 @@ Notes (version, OS, what went wrong):
 - [ ] **Resize:** with a long draft, resize the terminal narrower and wider; the draft rewraps on words each time and the cursor stays on the character it was on.
 
 Notes (version, OS, what went wrong):
+
+## Message previews in the list (D154)
+
+- [ ] **Off by default:** after upgrading, the conversation list looks exactly as before (one row per conversation) and `config.toml` is unchanged. In `Ctrl+P` › Settings › Conversations, "Message previews" is off and "Time in the list" and "Typing and drafts" are dimmed with "needs message previews".
+- [ ] **Turning them on:** flip "Message previews": each conversation takes two rows, with the newest message under its name and its time on the right (`10:42` today, `Mon` this week, `3 Oct` older). The config file gets `previews = true`. Flipping it off returns to one row.
+- [ ] **Not read by being shown:** with previews on and another chat open (or nothing open), have someone message you. The preview updates, the unread count rises, and on their phone the message stays delivered, not read, until you open the chat.
+- [ ] **What a preview says:** your own last message starts with `You:`; in a group, other people's start with their name; a photo shows `📎 caption` or `📎 file name`; a voice note `▶ Voice message 0:12`; a message deleted for everyone `Message deleted`; an edit on the phone updates the preview.
+- [ ] **Typing and drafts:** someone typing shows `typing…` (in a group, `Name is typing…`) in place of the preview; leave a half-typed message in a chat and switch away: that chat shows `Draft: …`. Turning "Typing and drafts" off always shows the last message (and the ` …` after the name comes back for typing).
+- [ ] **Time setting:** turning "Time in the list" off removes the times; with `[messages] timestamps = "relative"` they read `5m`, `3h`, `2d`.
+- [ ] **Mouse and scrolling:** clicking either row of a conversation opens it; the wheel scrolls smoothly; moving with `Alt+J/K` (or `↑`/`↓` in the list) keeps both rows of the highlighted conversation in view; the conversation menu (`Space`) opens beside it.
+- [ ] **Narrow and emoji:** with long names, emoji in names and previews, and a narrow terminal, nothing overflows the sidebar border and the unread count stays at the edge (directly and inside tmux).
+
+Notes (version, OS, what went wrong):

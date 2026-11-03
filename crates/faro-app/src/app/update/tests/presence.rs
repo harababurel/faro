@@ -363,3 +363,58 @@ fn reads_on_the_phone_need_no_receipts_from_faro() {
     assert_eq!(open.unread_marker, Some(incoming.reference()));
     assert_eq!(open.unreceipted, vec![incoming.reference()]);
 }
+
+// --- Message previews in the list (D154) ---
+
+fn last_body(state: &State, id: ConversationId) -> Option<String> {
+    let summary = state.summary(id)?;
+    let message = summary.last_message.as_ref()?;
+    Some(if message.deleted {
+        "(deleted)".to_owned()
+    } else {
+        message.body.as_ref()?.expose().to_owned()
+    })
+}
+
+#[test]
+fn a_preview_follows_new_edited_and_deleted_messages_without_reading_them() {
+    let mut state = loaded_state();
+    state.config.conversations.previews = true;
+    let unread = state.summary(alice()).unwrap().unread;
+    let hello = text(alice(), ALICE, fixtures::NOW_MS, "hello");
+    let effects = update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::Message(hello.clone())),
+    );
+    assert_eq!(last_body(&state, alice()).as_deref(), Some("hello"));
+    // Shown in the list, still unread, and nobody told it was read (D42).
+    assert_eq!(state.summary(alice()).unwrap().unread, unread + 1);
+    assert_eq!(receipts(&effects), vec![]);
+    assert!(!effects.iter().any(|e| matches!(e, Effect::MarkRead(_))));
+
+    // An older message arriving late doesn't replace it.
+    let older = text(alice(), ALICE, fixtures::NOW_MS - 60_000, "older");
+    update(&mut state, AppEvent::Backend(BackendEvent::Message(older)));
+    assert_eq!(last_body(&state, alice()).as_deref(), Some("hello"));
+
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::Edited {
+            conversation: alice(),
+            target: hello.reference(),
+            body: MessageBody::new("hello there"),
+            mentions: vec![],
+            edited_at: Timestamp::from_millis(fixtures::NOW_MS + 1_000),
+        }),
+    );
+    assert_eq!(last_body(&state, alice()).as_deref(), Some("hello there"));
+
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::Deleted {
+            conversation: alice(),
+            target: hello.reference(),
+        }),
+    );
+    assert_eq!(last_body(&state, alice()).as_deref(), Some("(deleted)"));
+}

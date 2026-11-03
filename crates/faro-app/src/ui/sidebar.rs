@@ -6,11 +6,12 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Paragraph};
 
-use faro_core::domain::ConversationId;
+use faro_core::config::TimestampFormat;
+use faro_core::domain::{ConversationId, Direction, Message, Timestamp};
 use faro_core::store::{ConversationSummary, NotifyLevel};
 
-use super::View;
 use super::text::{self, sanitize, truncate};
+use super::{View, messages};
 use crate::app::state::{Focus, Geometry, Section, SidebarRow, SidebarView, State};
 
 pub fn render(
@@ -47,56 +48,74 @@ pub fn render(
         );
         return;
     }
-    let rows = rows(state, view, usize::from(inner.width));
     let height = usize::from(inner.height);
-    let selected = rows.iter().position(|r| r.selected);
+    // Screen rows: a conversation takes two with previews (D154), so the
+    // offset, clicks and the wheel all count lines, not entries.
+    let mut lines = Vec::new();
+    let mut kinds = Vec::new();
+    let mut selected = None;
+    for row in rows(state, view, usize::from(inner.width)) {
+        let first = lines.len();
+        if row.selected {
+            selected = Some((first, first + row.lines.len().saturating_sub(1)));
+        }
+        kinds.extend(std::iter::repeat_n(row.kind, row.lines.len()));
+        lines.extend(row.lines);
+    }
     let offset = visible_offset(
         state.sidebar.offset,
-        rows.len(),
+        lines.len(),
         height,
         selected,
         state.sidebar.reveal,
     );
     geometry.sidebar_offset = offset;
-    let mut lines = Vec::with_capacity(height);
-    for row in rows.into_iter().skip(offset).take(height) {
-        geometry.sidebar_rows.push(row.kind);
-        lines.push(row.line);
-    }
-    frame.render_widget(Paragraph::new(lines), inner);
+    geometry
+        .sidebar_rows
+        .extend(kinds.into_iter().skip(offset).take(height));
+    let shown: Vec<Line<'static>> = lines.into_iter().skip(offset).take(height).collect();
+    frame.render_widget(Paragraph::new(shown), inner);
 }
 
 /// The first row to show: the requested offset, clamped so the list doesn't
-/// scroll past its end, and moved just enough to show the selection when asked.
+/// scroll past its end, and moved just enough to show the selection (its
+/// first and last rows) when asked; its first row if both don't fit.
 fn visible_offset(
     requested: usize,
     rows: usize,
     height: usize,
-    selected: Option<usize>,
+    selected: Option<(usize, usize)>,
     reveal: bool,
 ) -> usize {
     let mut offset = requested.min(rows.saturating_sub(height));
-    if reveal && let Some(selected) = selected {
-        if selected < offset {
-            offset = selected;
-        } else if selected >= offset + height {
-            offset = (selected + 1).saturating_sub(height);
+    if reveal && let Some((first, last)) = selected {
+        if first < offset {
+            offset = first;
+        } else if last >= offset + height {
+            offset = (last + 1).saturating_sub(height).min(first);
         }
     }
     offset
 }
 
 struct Row {
-    line: Line<'static>,
+    lines: Vec<Line<'static>>,
     kind: SidebarRow,
     selected: bool,
 }
 
 impl Row {
     fn label(text: impl Into<String>, style: Style) -> Self {
+        Self::one(
+            Line::from(Span::styled(text.into(), style)),
+            SidebarRow::Label,
+        )
+    }
+
+    fn one(line: Line<'static>, kind: SidebarRow) -> Self {
         Self {
-            line: Line::from(Span::styled(text.into(), style)),
-            kind: SidebarRow::Label,
+            lines: vec![line],
+            kind,
             selected: false,
         }
     }
@@ -113,11 +132,10 @@ fn rows(state: &State, view: &View<'_>, width: usize) -> Vec<Row> {
     let headed = archive || listed.iter().any(|c| state.section(c) == Section::Pinned);
     let mut rows = Vec::with_capacity(listed.len() + 6);
     if archive {
-        rows.push(Row {
-            line: Line::from(Span::styled(" ◂ Chats", Style::new().fg(theme.accent))),
-            kind: SidebarRow::SwitchView,
-            selected: false,
-        });
+        rows.push(Row::one(
+            Line::from(Span::styled(" ◂ Chats", Style::new().fg(theme.accent))),
+            SidebarRow::SwitchView,
+        ));
     }
     let mut current = None;
     for summary in &listed {
@@ -139,14 +157,13 @@ fn rows(state: &State, view: &View<'_>, width: usize) -> Vec<Row> {
     let elsewhere = state.listed_in(SidebarView::Archive).count();
     if !archive && elsewhere > 0 {
         rows.push(Row::label("", theme.muted()));
-        rows.push(Row {
-            line: Line::from(vec![
+        rows.push(Row::one(
+            Line::from(vec![
                 Span::styled(" ▸ Archive", Style::new().fg(theme.accent)),
                 Span::styled(format!(" ({elsewhere})"), theme.muted()),
             ]),
-            kind: SidebarRow::SwitchView,
-            selected: false,
-        });
+            SidebarRow::SwitchView,
+        ));
     }
     rows
 }
@@ -198,6 +215,7 @@ fn row(
     let quiet = notify_glyph(summary, view);
     // Muted or mentions only: drawn quietly, as it won't notify (D49).
     let muted = quiet.is_some();
+    let settings = state.config.conversations;
 
     let marker = if unread {
         let style = if muted {
@@ -223,12 +241,9 @@ fn row(
     } else {
         " "
     };
-    let suffix = if typing { " …" } else { "" };
-    let fixed = 3 + text::width(kind) + text::width(&count) + text::width(&quiet) + end.len();
-    let room = width.saturating_sub(fixed + text::width(suffix));
-    let title = state.conversation_title(summary.id);
-    let name = truncate(&sanitize(&title), room).into_owned();
-    let pad = room.saturating_sub(text::width(&name));
+    // With previews, typing shows on the second row instead (D154).
+    let typing_suffix = typing && !(settings.previews && settings.preview_activity);
+    let suffix = if typing_suffix { " …" } else { "" };
 
     let mut name_style = if muted {
         theme.muted()
@@ -249,23 +264,247 @@ fn row(
     } else {
         Style::new().fg(theme.unread).add_modifier(Modifier::BOLD)
     };
-    let mut line = Line::from(vec![
+    let parts = Parts {
         marker,
-        Span::styled(kind, theme.muted()),
-        Span::styled(name, name_style),
-        Span::styled(suffix, Style::new().fg(theme.accent)),
-        Span::raw(" ".repeat(pad)),
-        Span::styled(count, count_style),
-        Span::styled(quiet, theme.muted()),
-        Span::raw(end),
-    ]);
+        kind,
+        title: state.conversation_title(summary.id),
+        name_style,
+        suffix,
+        count,
+        count_style,
+        quiet,
+        end,
+        bright: unread && !muted,
+    };
+    let mut lines = if settings.previews {
+        two_rows(state, view, summary, parts, width)
+    } else {
+        vec![one_row(parts, view, width)]
+    };
     if selected {
-        line = line.style(theme.selected());
+        lines = lines
+            .into_iter()
+            .map(|line| line.style(theme.selected()))
+            .collect();
     }
     Row {
-        line,
+        lines,
         kind: SidebarRow::Conversation(summary.id),
         selected,
+    }
+}
+
+/// What both forms of a conversation's entry are made of.
+struct Parts {
+    marker: Span<'static>,
+    kind: &'static str,
+    title: String,
+    name_style: Style,
+    /// ` …` while someone types (unless the preview says so).
+    suffix: &'static str,
+    count: String,
+    count_style: Style,
+    /// The mute or mentions-only marker.
+    quiet: String,
+    end: &'static str,
+    /// Unread and not muted: the time and preview are drawn brighter.
+    bright: bool,
+}
+
+/// The entry without previews: everything on the name's row.
+fn one_row(parts: Parts, view: &View<'_>, width: usize) -> Line<'static> {
+    let theme = view.theme;
+    let fixed = 3
+        + text::width(parts.kind)
+        + text::width(&parts.count)
+        + text::width(&parts.quiet)
+        + parts.end.len();
+    let room = width.saturating_sub(fixed + text::width(parts.suffix));
+    let name = truncate(&sanitize(&parts.title), room).into_owned();
+    let pad = room.saturating_sub(text::width(&name));
+    Line::from(vec![
+        parts.marker,
+        Span::styled(parts.kind, theme.muted()),
+        Span::styled(name, parts.name_style),
+        Span::styled(parts.suffix, Style::new().fg(theme.accent)),
+        Span::raw(" ".repeat(pad)),
+        Span::styled(parts.count, parts.count_style),
+        Span::styled(parts.quiet, theme.muted()),
+        Span::raw(parts.end),
+    ])
+}
+
+/// The entry with previews (D154): the name and the time, then the preview
+/// under the name with the unread count and marker at the edge.
+fn two_rows(
+    state: &State,
+    view: &View<'_>,
+    summary: &ConversationSummary,
+    parts: Parts,
+    width: usize,
+) -> Vec<Line<'static>> {
+    let theme = view.theme;
+    let time = summary
+        .last_activity
+        .filter(|_| state.config.conversations.preview_time)
+        .map(|at| format!(" {} ", list_time(state, at, view)))
+        .unwrap_or_default();
+    let fixed = 3 + text::width(parts.kind) + text::width(parts.suffix) + text::width(&time);
+    let room = width.saturating_sub(fixed);
+    let name = truncate(&sanitize(&parts.title), room).into_owned();
+    let pad = room.saturating_sub(text::width(&name));
+    let time_style = if parts.bright {
+        Style::new().fg(theme.unread)
+    } else {
+        theme.muted()
+    };
+    let indent = " ".repeat(3 + text::width(parts.kind));
+    let first = Line::from(vec![
+        parts.marker,
+        Span::styled(parts.kind, theme.muted()),
+        Span::styled(name, parts.name_style),
+        Span::styled(parts.suffix, Style::new().fg(theme.accent)),
+        Span::raw(" ".repeat(pad)),
+        Span::styled(time, time_style),
+    ]);
+
+    // One blank cell always separates the preview from the count.
+    let fixed =
+        indent.len() + text::width(&parts.count) + text::width(&parts.quiet) + parts.end.len() + 1;
+    let room = width.saturating_sub(fixed);
+    let mut spans = vec![Span::raw(indent)];
+    let used = preview_spans(state, summary, parts.bright, view, room, &mut spans);
+    spans.push(Span::raw(" ".repeat(room.saturating_sub(used) + 1)));
+    spans.push(Span::styled(parts.count, parts.count_style));
+    spans.push(Span::styled(parts.quiet, theme.muted()));
+    spans.push(Span::raw(parts.end));
+    vec![first, Line::from(spans)]
+}
+
+/// The newest message's time for the list (D154): `10:42` today, `Mon`
+/// within the week, `3 Oct` this year, `Oct 2025` before; `5m`/`3h`/`2d`
+/// when message timestamps are relative.
+fn list_time(state: &State, at: Timestamp, view: &View<'_>) -> String {
+    if state.timestamp_format() == TimestampFormat::Relative {
+        return messages::format_relative_time(at, view.now_timestamp());
+    }
+    let Some(at) = messages::to_jiff(at) else {
+        return String::new();
+    };
+    let when = messages::zoned(at, view);
+    let (date, today) = (when.date(), messages::zoned(view.now, view).date());
+    let days = today.since(date).ok().map(|span| span.get_days());
+    let format = if date == today {
+        "%H:%M"
+    } else if matches!(days, Some(1..=6)) {
+        "%a"
+    } else if date.year() == today.year() {
+        "%-d %b"
+    } else {
+        "%b %Y"
+    };
+    when.strftime(format).to_string()
+}
+
+/// Push the second row's text (D154), cut to `room` cells; returns the
+/// cells used. Typing beats a draft, which beats the newest message (as in
+/// Signal's apps); the open conversation's draft is in the input box, so it
+/// isn't repeated here. Nothing here marks anything read (D42).
+fn preview_spans(
+    state: &State,
+    summary: &ConversationSummary,
+    bright: bool,
+    view: &View<'_>,
+    room: usize,
+    spans: &mut Vec<Span<'static>>,
+) -> usize {
+    let theme = view.theme;
+    let settings = state.config.conversations;
+    let is_open = state.open.as_ref().is_some_and(|o| o.id == summary.id);
+    let mut push = |label: &str, text: &str, label_style: Style, style: Style| {
+        let label = truncate(label, room).into_owned();
+        let rest = room.saturating_sub(text::width(&label));
+        let text = truncate(&text::one_line(text), rest).into_owned();
+        let used = text::width(&label) + text::width(&text);
+        spans.push(Span::styled(label, label_style));
+        spans.push(Span::styled(text, style));
+        used
+    };
+    let typists = state.typists(summary.id);
+    if settings.preview_activity && !typists.is_empty() {
+        let text = match (summary.id, typists) {
+            (ConversationId::Group(_), [one]) => {
+                format!("{} is typing…", state.person_name(one.who))
+            }
+            (ConversationId::Group(_), many) => format!("{} people are typing…", many.len()),
+            (ConversationId::Direct(_), _) => "typing…".to_owned(),
+        };
+        let style = Style::new().fg(theme.accent).add_modifier(Modifier::ITALIC);
+        return push("", &text, style, style);
+    }
+    if settings.preview_activity
+        && !is_open
+        && let Some(draft) = &summary.state.draft
+    {
+        return push(
+            "Draft: ",
+            draft.expose(),
+            Style::new().fg(theme.warning),
+            theme.muted(),
+        );
+    }
+    let Some(message) = &summary.last_message else {
+        return 0;
+    };
+    let style = if bright {
+        Style::new().fg(theme.text)
+    } else {
+        theme.muted()
+    };
+    let who = if matches!(message.direction, Direction::Outgoing(_)) || message.sender == state.me {
+        "You: ".to_owned()
+    } else if matches!(summary.id, ConversationId::Group(_)) {
+        format!("{}: ", state.person_name(message.sender))
+    } else {
+        String::new()
+    };
+    if message.deleted {
+        return push(
+            &who,
+            "Message deleted",
+            style,
+            style.add_modifier(Modifier::ITALIC),
+        );
+    }
+    push(&who, &message_preview(state, message), style, style)
+}
+
+/// One line for a message: its text (mentions as names) after a 📎 if it
+/// carries a file, or what the file is when there's no text.
+fn message_preview(state: &State, message: &Message) -> String {
+    let attachment = message.attachments.first();
+    if let Some(voice) = attachment.filter(|a| a.is_voice_note()) {
+        return match voice.duration_secs {
+            Some(secs) => format!("▶ Voice message {}:{:02}", secs / 60, secs % 60),
+            None => "▶ Voice message".to_owned(),
+        };
+    }
+    let body = message
+        .body
+        .as_ref()
+        .and_then(|_| state.readable_body(message))
+        .filter(|text| !text.trim().is_empty());
+    match (attachment, body) {
+        (Some(_), Some(text)) => format!("📎 {text}"),
+        (None, Some(text)) => text,
+        (Some(file), None) => {
+            let name = file
+                .file_name
+                .clone()
+                .unwrap_or_else(|| if file.is_image() { "Photo" } else { "File" }.to_owned());
+            format!("📎 {name}")
+        }
+        (None, None) => String::new(),
     }
 }
 
@@ -276,11 +515,15 @@ mod tests {
     #[test]
     fn offset_is_clamped_and_reveals_the_selection() {
         // 20 rows, 5 visible.
-        assert_eq!(visible_offset(0, 20, 5, Some(2), true), 0);
-        assert_eq!(visible_offset(0, 20, 5, Some(9), true), 5);
-        assert_eq!(visible_offset(8, 20, 5, Some(2), true), 2);
+        assert_eq!(visible_offset(0, 20, 5, Some((2, 2)), true), 0);
+        assert_eq!(visible_offset(0, 20, 5, Some((9, 9)), true), 5);
+        assert_eq!(visible_offset(8, 20, 5, Some((2, 2)), true), 2);
         // Scrolled away with the wheel: the selection may be off screen.
-        assert_eq!(visible_offset(8, 20, 5, Some(2), false), 8);
+        assert_eq!(visible_offset(8, 20, 5, Some((2, 2)), false), 8);
+        // Both rows of a two-row entry come into view…
+        assert_eq!(visible_offset(0, 20, 5, Some((4, 5)), true), 1);
+        // …or at least its first, when only one row fits.
+        assert_eq!(visible_offset(0, 20, 1, Some((4, 5)), true), 4);
         // Never past the end.
         assert_eq!(visible_offset(99, 20, 5, None, false), 15);
         assert_eq!(visible_offset(3, 4, 5, None, false), 0);

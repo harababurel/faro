@@ -179,6 +179,10 @@ pub enum Setting {
     Desktop,
     Privacy,
     Allowlist,
+    /// `[conversations] previews` and the two that only apply with it (D154).
+    Previews,
+    PreviewTime,
+    PreviewActivity,
     InlineImages,
     AutoDownload,
     Transcribe,
@@ -301,7 +305,12 @@ impl SettingsGroup {
                 Setting::Desktop,
                 Setting::Privacy,
             ],
-            Self::Conversations => &[Setting::Allowlist],
+            Self::Conversations => &[
+                Setting::Allowlist,
+                Setting::Previews,
+                Setting::PreviewTime,
+                Setting::PreviewActivity,
+            ],
             Self::Media => &[
                 Setting::InlineImages,
                 Setting::AutoDownload,
@@ -340,6 +349,9 @@ impl Setting {
             Self::Desktop => "Desktop notifications",
             Self::Privacy => "Notification privacy",
             Self::Allowlist => "Allowlist mode",
+            Self::Previews => "Message previews",
+            Self::PreviewTime => "Time in the list",
+            Self::PreviewActivity => "Typing and drafts",
             Self::InlineImages => "Inline images",
             Self::AutoDownload => "Auto-download media",
             Self::Transcribe => "Transcription",
@@ -373,6 +385,9 @@ impl Setting {
             Self::Desktop => key::DESKTOP,
             Self::Privacy => key::PRIVACY,
             Self::Allowlist => key::ALLOWLIST,
+            Self::Previews => key::PREVIEWS,
+            Self::PreviewTime => key::PREVIEW_TIME,
+            Self::PreviewActivity => key::PREVIEW_ACTIVITY,
             Self::InlineImages => key::INLINE_IMAGES,
             Self::AutoDownload => key::AUTO_DOWNLOAD,
             Self::Transcribe => key::VOICE_TRANSCRIBE,
@@ -428,6 +443,9 @@ impl Setting {
                 TranscribeMode::Remote => None,
             },
             Self::UpdateCheck => state.update_checks_unavailable().map(Unavailable::reason),
+            Self::PreviewTime | Self::PreviewActivity => {
+                (!state.config.conversations.previews).then_some("needs message previews")
+            }
             Self::Colors
             | Self::Emoji
             | Self::Layout
@@ -438,6 +456,7 @@ impl Setting {
             | Self::Desktop
             | Self::Privacy
             | Self::Allowlist
+            | Self::Previews
             | Self::InlineImages
             | Self::AutoDownload
             | Self::Transcribe
@@ -468,6 +487,9 @@ impl Setting {
             | Self::Desktop
             | Self::Privacy
             | Self::Allowlist
+            | Self::Previews
+            | Self::PreviewTime
+            | Self::PreviewActivity
             | Self::InlineImages
             | Self::AutoDownload
             | Self::Transcribe
@@ -488,6 +510,9 @@ impl Setting {
             | Self::Bell
             | Self::Title
             | Self::Allowlist
+            | Self::Previews
+            | Self::PreviewTime
+            | Self::PreviewActivity
             | Self::TranscribeAuto
             | Self::Mouse
             | Self::PasteFromSystem
@@ -530,6 +555,9 @@ impl Setting {
             | Self::Desktop
             | Self::Privacy
             | Self::Allowlist
+            | Self::Previews
+            | Self::PreviewTime
+            | Self::PreviewActivity
             | Self::InlineImages
             | Self::AutoDownload
             | Self::Transcribe
@@ -592,6 +620,9 @@ pub enum SettingChoice {
     Density(MessageDensity),
     Timestamps(TimestampFormat),
     Allowlist(bool),
+    Previews(bool),
+    PreviewTime(bool),
+    PreviewActivity(bool),
     Emoji(EmojiChoice),
     Desktop(DesktopNotifications),
     Privacy(NotificationPrivacy),
@@ -1709,6 +1740,9 @@ fn transcription_note(state: &State, level: Level) -> Option<String> {
             | Setting::Desktop
             | Setting::Privacy
             | Setting::Allowlist
+            | Setting::Previews
+            | Setting::PreviewTime
+            | Setting::PreviewActivity
             | Setting::InlineImages
             | Setting::AutoDownload
             | Setting::Transcribe
@@ -1806,6 +1840,9 @@ fn value_detail(state: &State, choice: SettingChoice) -> &'static str {
         | SettingChoice::Density(_)
         | SettingChoice::Timestamps(_)
         | SettingChoice::Allowlist(_)
+        | SettingChoice::Previews(_)
+        | SettingChoice::PreviewTime(_)
+        | SettingChoice::PreviewActivity(_)
         | SettingChoice::Emoji(_)
         | SettingChoice::Desktop(_)
         | SettingChoice::Privacy(_)
@@ -1938,6 +1975,9 @@ fn values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)>
         | Setting::MatchWidths
         | Setting::Bell
         | Setting::Title
+        | Setting::Previews
+        | Setting::PreviewTime
+        | Setting::PreviewActivity
         | Setting::Mouse
         | Setting::PasteFromSystem
         | Setting::UpdateCheck => switch_values(state, setting),
@@ -1952,6 +1992,15 @@ fn switch_values(state: &State, setting: Setting) -> Vec<(SettingChoice, String,
         Setting::BubblePadding => (SettingChoice::BubblePadding, config.messages.bubble_padding),
         Setting::MatchWidths => (SettingChoice::MatchWidths, config.messages.match_widths),
         Setting::Bell => (SettingChoice::Bell, config.notifications.bell),
+        Setting::Previews => (SettingChoice::Previews, config.conversations.previews),
+        Setting::PreviewTime => (
+            SettingChoice::PreviewTime,
+            config.conversations.preview_time,
+        ),
+        Setting::PreviewActivity => (
+            SettingChoice::PreviewActivity,
+            config.conversations.preview_activity,
+        ),
         Setting::Title => (SettingChoice::Title, config.notifications.title),
         Setting::Mouse => (SettingChoice::Mouse, config.mouse.enabled),
         Setting::PasteFromSystem => (
@@ -2053,6 +2102,9 @@ fn transcription_values(state: &State, setting: Setting) -> Vec<(SettingChoice, 
         | Setting::Desktop
         | Setting::Privacy
         | Setting::Allowlist
+        | Setting::Previews
+        | Setting::PreviewTime
+        | Setting::PreviewActivity
         | Setting::InlineImages
         | Setting::AutoDownload
         | Setting::Transcribe

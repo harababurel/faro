@@ -164,6 +164,9 @@ pub struct ConversationSummary {
     pub phone: Option<PhoneNumber>,
     /// Newest message's send time; `None` if there are no messages yet.
     pub last_activity: Option<Timestamp>,
+    /// The newest message, shown under the name when message previews are
+    /// on (D154); `None` if there are no messages yet.
+    pub last_message: Option<Message>,
     pub unread: u32,
     pub state: ConversationState,
 }

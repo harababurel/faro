@@ -72,6 +72,7 @@ pub fn summary(
         title: Some(title.to_owned()),
         phone: None,
         last_activity: Some(Timestamp::from_millis(NOW_MS - minutes_ago * MINUTE)),
+        last_message: None,
         unread,
         state: ConversationState::default(),
     }

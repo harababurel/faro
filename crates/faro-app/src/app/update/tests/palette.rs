@@ -254,7 +254,7 @@ fn prefixes_jump_into_a_category() {
 }
 
 /// `Settings ›` with nothing typed: every setting under its section.
-const SETTINGS_LIST: [&str; 36] = [
+const SETTINGS_LIST: [&str; 39] = [
     "Appearance",
     "Colours",
     "Emoji",
@@ -274,6 +274,9 @@ const SETTINGS_LIST: [&str; 36] = [
     "Notification privacy",
     "Conversations",
     "Allowlist mode",
+    "Message previews",
+    "Time in the list",
+    "Typing and drafts",
     "Media",
     "Inline images",
     "Auto-download media",
@@ -1502,6 +1505,42 @@ fn row(state: &State, title: &str) -> (String, bool) {
     let palette = state.palette.as_ref().unwrap();
     let item = palette.items.iter().find(|i| i.title == title).unwrap();
     (item.detail.clone(), item.disabled)
+}
+
+#[test]
+fn message_previews_are_opt_in_and_unlock_their_switches() {
+    let mut state = loaded_state();
+    assert!(
+        !state.config.conversations.previews,
+        "off by default (D154)"
+    );
+    palette_open(&mut state, ":");
+    assert_eq!(row(&state, "Message previews"), ("off".to_owned(), false));
+    for title in ["Time in the list", "Typing and drafts"] {
+        assert_eq!(
+            row(&state, title),
+            ("needs message previews".to_owned(), true)
+        );
+    }
+    update(&mut state, key(KeyCode::Esc, KeyModifiers::NONE));
+
+    palette_open(&mut state, ":message previews");
+    let effects = enter(&mut state);
+    assert_eq!(effects, vec![saved(key::PREVIEWS, ConfigValue::Bool(true))]);
+    assert!(state.config.conversations.previews);
+    update(&mut state, key(KeyCode::Esc, KeyModifiers::NONE));
+
+    palette_open(&mut state, ":");
+    assert_eq!(row(&state, "Time in the list"), ("on".to_owned(), false));
+    assert_eq!(row(&state, "Typing and drafts"), ("on".to_owned(), false));
+    update(&mut state, key(KeyCode::Esc, KeyModifiers::NONE));
+    palette_open(&mut state, ":time in the list");
+    let effects = enter(&mut state);
+    assert_eq!(
+        effects,
+        vec![saved(key::PREVIEW_TIME, ConfigValue::Bool(false))]
+    );
+    assert!(!state.config.conversations.preview_time);
 }
 
 #[test]
