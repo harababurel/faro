@@ -115,6 +115,7 @@ pub(super) fn render_image_box(
         width,
         height,
         protocol,
+        shape: crate::app::image_cache::ImageShape::Whole,
     };
     match view.images.get(&key) {
         Some(CachedImage::Ready(sliced)) => {

@@ -707,3 +707,36 @@ Notes (version, OS, what went wrong):
 - [ ] **Other files and voice:** a non-picture file is delivered too; a large one (tens of MB) still uploads.
 
 Notes (version, OS, what went wrong):
+
+## Profile pictures: spike (D160)
+
+Stand-in pictures on the demo, to judge drawing before faro fetches any from Signal. Set up once (the tool needs Python 3 only):
+
+```fish
+python3 tools/avatars/make.py /tmp/faro-avatars 20
+```
+
+Then add to `config.toml` (or pick them in `Ctrl+P` › Settings › Conversations: Previews on, Avatars "pictures"):
+
+```toml
+[conversations]
+previews = true
+avatars = "pictures"
+```
+
+and run the demo with the pictures (any folder of JPEG/PNG photos works too):
+
+```fish
+env FARO_SPIKE_AVATARS=/tmp/faro-avatars faro demo
+```
+
+- [ ] **kitty inside tmux:** each of the 9 chats shows a round picture in place of its initials square, crisp and not stretched; initials show for a moment at start, then the pictures appear without flicker.
+- [ ] **Scrolling:** make the window short enough that the list scrolls; `Alt+J`/`Alt+K` through the list and the mouse wheel: pictures move with their rows, a half-shown entry at the top or bottom shows half its picture, nothing lags or leaves ghosts behind.
+- [ ] **Selection:** the highlighted row's background shows around the round picture's corners (not a coloured square).
+- [ ] **Overlays:** `Ctrl+P` and a popup (`Space` on a chat): the pictures turn back into initials while it's open and come back when it closes, with no holes or stale images.
+- [ ] **Over SSH (kitty → ssh → tmux):** the same as above; startup is not noticeably slower; scrolling stays smooth.
+- [ ] **Reattach:** detach tmux and attach again (same terminal, then another kitty window): pictures come back (or `Ctrl+L` brings them back).
+- [ ] **Where pictures can't be drawn:** over mosh, in a terminal without graphics (or `[media] inline_images = "halfblocks"`), and with previews off: initials only, as before.
+- [ ] **Your verdict:** good enough to build the real thing (fetching from Signal)? Anything that looked off (size, round vs square, delay)?
+
+Notes (version, OS, terminal, what went wrong):

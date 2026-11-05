@@ -2022,3 +2022,151 @@ fn an_avatar_is_drawn_in_the_conversations_colour() {
     assert_eq!(cell(x + 1).bg, colour, "behind the initials");
     assert_eq!(cell(x + 1).symbol(), "A");
 }
+
+// --- Profile pictures (PLAN.md "Profile pictures") ---
+
+/// A cache that draws with a graphics protocol; profile pictures are
+/// decoded when `ready`, and drawn as `P` cells.
+struct Pictures {
+    protocol: crate::app::image_cache::ImageProtocol,
+    ready: bool,
+}
+
+struct Marker;
+
+impl crate::app::image_cache::DrawImage for Marker {
+    fn draw(
+        &self,
+        x: i16,
+        y: i16,
+        clip_area: ratatui::layout::Rect,
+        buf: &mut Buffer,
+        _colors: crate::theme::ColorDepth,
+    ) {
+        let x = u16::try_from(x).unwrap();
+        let Some(vis) = crate::app::image_cache::visible_rect(x, y, 4, 2, clip_area) else {
+            return;
+        };
+        for row in vis.top()..vis.bottom() {
+            for col in vis.left()..vis.right() {
+                buf[(col, row)].set_symbol("P");
+            }
+        }
+    }
+}
+
+impl crate::app::image_cache::ImageCache for Pictures {
+    fn active_protocol(&self) -> Option<crate::app::image_cache::ImageProtocol> {
+        Some(self.protocol)
+    }
+
+    fn font_size(&self) -> crate::app::image_cache::CellSize {
+        crate::app::image_cache::HALFBLOCK_FONT
+    }
+
+    fn get(
+        &self,
+        key: &crate::app::image_cache::ImageKey,
+    ) -> Option<crate::app::image_cache::CachedImage<'_>> {
+        (self.ready && key.shape == crate::app::image_cache::ImageShape::Avatar)
+            .then_some(crate::app::image_cache::CachedImage::Ready(&Marker))
+    }
+}
+
+fn pictures_state() -> State {
+    let mut state = previews_state();
+    state.config.conversations.avatars = faro_core::config::Avatars::Pictures;
+    state.avatars.insert(
+        fixtures::alice(),
+        std::path::PathBuf::from("/pics/alice.png"),
+    );
+    state
+}
+
+fn kitty(ready: bool) -> Pictures {
+    Pictures {
+        protocol: crate::app::image_cache::ImageProtocol::Kitty,
+        ready,
+    }
+}
+
+/// The screen rows of `name`'s entry and the badge's first column.
+fn badge_at(text: &str, name: &str) -> (usize, usize) {
+    let (y, line) = text
+        .lines()
+        .enumerate()
+        .find(|(_, line)| line.contains(name) && (line.contains('▟') || line.contains("PPPP")))
+        .unwrap();
+    let x = line.chars().position(|c| c == '▟' || c == 'P').unwrap();
+    (y, x)
+}
+
+#[test]
+fn a_profile_picture_covers_the_badge_once_decoded() {
+    let state = pictures_state();
+    let (buffer, geometry) = draw_with_images(&state, 100, 16, &Theme::default(), &kitty(false));
+    let text = snapshot(&buffer);
+    let (y, x) = badge_at(&text, "Alice");
+    assert!(text.lines().nth(y).unwrap().contains("▟Al▙"), "{text}");
+    let wanted = &geometry.images_wanted;
+    assert_eq!(wanted.len(), 1, "only Alice has a picture: {wanted:?}");
+    assert_eq!((wanted[0].width, wanted[0].height), (4, 2));
+    assert_eq!(wanted[0].shape, crate::app::image_cache::ImageShape::Avatar);
+
+    let (buffer, geometry) = draw_with_images(&state, 100, 16, &Theme::default(), &kitty(true));
+    let text = snapshot(&buffer);
+    let lines: Vec<&str> = text.lines().collect();
+    for row in [y, y + 1] {
+        let badge: String = lines[row].chars().skip(x).take(4).collect();
+        assert_eq!(badge, "PPPP", "{text}");
+    }
+    assert_eq!(
+        geometry.images_wanted,
+        [] as [crate::app::image_cache::ImageKey; 0]
+    );
+    assert!(
+        text.contains("▟Bo▙"),
+        "Bob has no picture: initials\n{text}"
+    );
+}
+
+#[test]
+fn initials_stay_where_a_picture_cant_be_drawn() {
+    let wants_nothing = |state: &State, images: &Pictures, why: &str| {
+        let (buffer, geometry) = draw_with_images(state, 100, 16, &Theme::default(), images);
+        let text = snapshot(&buffer);
+        assert_eq!(
+            geometry.images_wanted,
+            [] as [crate::app::image_cache::ImageKey; 0],
+            "{why}"
+        );
+        assert!(!text.contains("PPPP"), "{why}\n{text}");
+    };
+    let state = pictures_state();
+    wants_nothing(
+        &state,
+        &Pictures {
+            protocol: crate::app::image_cache::ImageProtocol::Halfblocks,
+            ready: true,
+        },
+        "half-blocks are too coarse",
+    );
+    let mut one_row = pictures_state();
+    one_row.config.conversations.previews = false;
+    wants_nothing(&one_row, &kitty(true), "one-row entries keep the pill");
+    let mut palette = pictures_state();
+    update(
+        &mut palette,
+        AppEvent::Terminal(crate::app::term_event::Event::Key(
+            crate::app::term_event::KeyEvent::new(
+                crate::app::term_event::KeyCode::Char('p'),
+                crate::app::term_event::KeyModifiers::CONTROL,
+            ),
+        )),
+    );
+    assert!(palette.palette.is_some());
+    wants_nothing(&palette, &kitty(true), "overlays hide graphics (D78)");
+    let mut initials = pictures_state();
+    initials.config.conversations.avatars = faro_core::config::Avatars::Initials;
+    wants_nothing(&initials, &kitty(true), "initials asked for");
+}

@@ -297,6 +297,9 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
             let msg = match avatars {
                 Avatars::Off => "The list shows no avatars",
                 Avatars::Initials => "The list shows initials beside each name",
+                Avatars::Pictures => {
+                    "The list shows profile pictures where it can, initials elsewhere"
+                }
             };
             save_with_notice(state, key::AVATARS, msg)
         }

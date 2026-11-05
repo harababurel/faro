@@ -60,10 +60,15 @@ pub fn render(
     let mut lines = Vec::new();
     let mut kinds = Vec::new();
     let mut selected = None;
+    // Where each two-row entry starts, for its picture.
+    let mut tall = Vec::new();
     for row in rows(state, view, usize::from(inner.width)) {
         let first = lines.len();
         if row.selected {
             selected = Some((first, first + row.lines.len().saturating_sub(1)));
+        }
+        if let (SidebarRow::Conversation(id), 2) = (row.kind, row.lines.len()) {
+            tall.push((first, id));
         }
         kinds.extend(std::iter::repeat_n(row.kind, row.lines.len()));
         lines.extend(row.lines);
@@ -81,6 +86,94 @@ pub fn render(
         .extend(kinds.into_iter().skip(offset).take(height));
     let shown: Vec<Line<'static>> = lines.into_iter().skip(offset).take(height).collect();
     frame.render_widget(Paragraph::new(shown), inner);
+    pictures(frame, inner, state, view, geometry, &tall, offset);
+}
+
+/// A picture's box: the badge's four cells, one in from the edge, two rows.
+const PICTURE: Rect = Rect::new(1, 0, 4, 2);
+
+/// Draw profile pictures over the badges of two-row entries (`avatars =
+/// "pictures"`): only with a graphics protocol (half-blocks are too coarse at
+/// four cells) and while no popup or palette is open (D78). Initials stay
+/// until a picture is decoded, and wherever there's none.
+fn pictures(
+    frame: &mut Frame<'_>,
+    inner: Rect,
+    state: &State,
+    view: &View<'_>,
+    geometry: &mut Geometry,
+    tall: &[(usize, ConversationId)],
+    offset: usize,
+) {
+    use crate::app::image_cache::{CachedImage, ImageKey, ImageShape};
+
+    let overlay = state.popup.is_some() || state.palette.is_some();
+    let protocol = match view.images.active_protocol() {
+        Some(protocol) if protocol.is_graphics() => protocol,
+        Some(_) | None => return,
+    };
+    if state.config.conversations.avatars != Avatars::Pictures || overlay {
+        return;
+    }
+    for &(first, id) in tall {
+        let Some(path) = state.avatars.get(&id) else {
+            continue;
+        };
+        let (Ok(first), Ok(offset)) = (i32::try_from(first), i32::try_from(offset)) else {
+            continue;
+        };
+        let y = first - offset;
+        if y + i32::from(PICTURE.height) <= 0 || y >= i32::from(inner.height) {
+            continue;
+        }
+        let Ok(y) = i16::try_from(y) else {
+            continue;
+        };
+        let key = ImageKey {
+            path: path.clone(),
+            width: PICTURE.width,
+            height: PICTURE.height,
+            protocol,
+            shape: ImageShape::Avatar,
+        };
+        match view.images.get(&key) {
+            Some(CachedImage::Ready(picture)) => {
+                clear_badge(frame.buffer_mut(), inner, y);
+                let x = i16::try_from(PICTURE.x).unwrap_or(0);
+                picture.draw(x, y, inner, frame.buffer_mut(), state.colors());
+            }
+            Some(CachedImage::Failed) => {}
+            None => {
+                if !geometry.images_wanted.contains(&key) {
+                    geometry.images_wanted.push(key);
+                }
+            }
+        }
+    }
+}
+
+/// Blank the badge under a picture in the row's own colours (taken from the
+/// cell before it), so a round picture's corners show the row, not the
+/// badge.
+fn clear_badge(buf: &mut ratatui::buffer::Buffer, inner: Rect, y: i16) {
+    for dy in 0..PICTURE.height {
+        let Ok(row) = u16::try_from(i32::from(y) + i32::from(dy)) else {
+            continue;
+        };
+        if row >= inner.height {
+            continue;
+        }
+        let row = inner.y + row;
+        let style = buf
+            .cell((inner.x, row))
+            .map(ratatui::buffer::Cell::style)
+            .unwrap_or_default();
+        for dx in 0..PICTURE.width {
+            if let Some(cell) = buf.cell_mut((inner.x + PICTURE.x + dx, row)) {
+                cell.set_symbol(" ").set_style(style);
+            }
+        }
+    }
 }
 
 /// The first row to show: the requested offset, clamped so the list doesn't
@@ -271,7 +364,7 @@ fn row(
         Style::new().fg(theme.unread).add_modifier(Modifier::BOLD)
     };
     let title = state.conversation_title(summary.id);
-    let badge = (settings.avatars == Avatars::Initials).then(|| Badge {
+    let badge = (settings.avatars != Avatars::Off).then(|| Badge {
         initials: initials(&sanitize(&title)),
         colour: theme.avatar(summary.id),
     });

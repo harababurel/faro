@@ -23,6 +23,7 @@ pub mod clipboard;
 pub mod commands;
 mod effects;
 pub mod images;
+mod spike_avatars;
 pub mod system;
 pub mod updates;
 
@@ -168,6 +169,7 @@ pub async fn run<B: Backend + 'static>(
         tokio::sync::mpsc::unbounded_channel::<(images::probe::Probe, Vec<String>)>();
     let mut probing = false;
     router.dispatch(vec![Effect::LoadConversations], &state);
+    let spike_pool = spike_avatars::pool().await;
 
     let mut themes = Themes::default();
     let mut dirty = true;
@@ -263,6 +265,7 @@ pub async fn run<B: Backend + 'static>(
             handle(event, &mut state, &router);
             dirty |= state.resize.hover != hover;
         }
+        spike_avatars::assign(&mut state, &spike_pool);
         // Graphics became possible (the mosh or other client left), or
         // another terminal attached: ask the terminal now instead of at the
         // next start, and send the pictures again (D137).

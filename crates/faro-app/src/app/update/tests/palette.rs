@@ -1857,7 +1857,7 @@ fn avatars_are_off_until_chosen_and_preview_while_moving() {
     assert_eq!(state.config.conversations.avatars, Avatars::Off, "D155");
     palette_open(&mut state, ":avatars");
     enter(&mut state);
-    assert_eq!(titles(&state), vec!["off", "initials"]);
+    assert_eq!(titles(&state), vec!["off", "initials", "pictures"]);
     press(&mut state, KeyCode::Down);
     let effects = enter(&mut state);
     assert_eq!(

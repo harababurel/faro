@@ -269,6 +269,7 @@ mod tests {
             width: 2,
             height: 1,
             protocol: ImageProtocol::Halfblocks,
+            shape: faro_app::app::image_cache::ImageShape::Whole,
         }
     }
 

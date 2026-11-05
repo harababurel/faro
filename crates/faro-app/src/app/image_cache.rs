@@ -60,6 +60,30 @@ pub struct ImageKey {
     pub width: u16,
     pub height: u16,
     pub protocol: ImageProtocol,
+    pub shape: ImageShape,
+}
+
+/// How a picture fills its box.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum ImageShape {
+    /// The whole picture, stretched to the box (whose shape already
+    /// matches it): photos and stickers in the chat.
+    #[default]
+    Whole,
+    /// A profile picture: cropped to fill the box, corners cut round where
+    /// the protocol keeps transparency.
+    Avatar,
+}
+
+impl ImageShape {
+    /// How many decoded pictures of this shape the cache keeps: profile
+    /// pictures are tiny and a tall list shows dozens at once.
+    pub const fn cache_limit(self) -> usize {
+        match self {
+            Self::Whole => 32,
+            Self::Avatar => 96,
+        }
+    }
 }
 
 /// The decoded images a frame draws from.

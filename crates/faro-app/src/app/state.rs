@@ -170,6 +170,9 @@ pub struct State {
     pub user_themes: UserThemes,
     /// Directory where downloaded and outgoing attachments are stored (D75, D77).
     pub attachments_dir: PathBuf,
+    /// Profile and group pictures on disk, for `avatars = "pictures"`
+    /// (PLAN.md "Profile pictures"). Missing: initials.
+    pub avatars: HashMap<ConversationId, PathBuf>,
     /// The config file faro read at startup (the default or `--config`),
     /// shown in About (D94).
     pub config_path: PathBuf,
@@ -903,6 +906,7 @@ impl State {
             config_problems: Vec::new(),
             user_themes: UserThemes::default(),
             attachments_dir: PathBuf::from("attachments"),
+            avatars: HashMap::new(),
             config_path: PathBuf::new(),
             pasting: None,
             downloading: HashSet::new(),

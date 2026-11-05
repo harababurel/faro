@@ -295,6 +295,7 @@ A terminal (TUI) client for Signal, written in Rust, built for people who run ev
 | `packaging/aur/faro-git/` | AUR PKGBUILD for the development version (D85); test on Arch with `makepkg -si`, check with `namcap` |
 | `.github/workflows/ci.yml` | fmt, clippy `-D warnings`, test on ubuntu + macos (`--locked`); `wasm32` job: clippy faro-core (`--no-default-features`), faro-app and faro-web, then `crates/faro-web/build.sh` and a 1.5 MB gzipped size budget (D119) |
 | `deny.toml`, `.github/dependabot.yml` | Dependency policy (D149): cargo-deny advisories/licences/sources; weekly grouped Dependabot PRs for `Cargo.lock` and Actions |
+- 2026-11-05: D160: profile pictures spike (branch `avatars-spike`, not pushed): `[conversations] avatars = "pictures"`, `sidebar::pictures` over the two-row badge via the D78 cache (`ImageShape::Avatar`: cropped, round for kitty/iTerm2; own cache budget), `State::avatars`; initials while loading, under overlays, on one row and without a graphics protocol. Stand-in pictures only: `FARO_SPIKE_AVATARS=DIR` (`app/spike_avatars.rs`) + `tools/avatars/make.py`. Owner's check pending (MANUAL_TESTS "Profile pictures: spike") before fetching from Signal.
 
 ## Rules
 

@@ -3,9 +3,10 @@
 //!
 //! Decoded and encoded [`SlicedProtocol`]s are rendering resources, not app
 //! state: they live in `app::run` (passed to [`crate::ui::render`] via
-//! [`crate::ui::View`]), keyed by `(path, width, height, protocol)` and capped
-//! at [`CACHE_LIMIT`] entries. Finished decodes come back on the cache's own
-//! channel ([`Images::next_decoded`]), never through the reducer.
+//! [`crate::ui::View`]), keyed by `(path, width, height, protocol, shape)`
+//! and capped at [`ImageShape::cache_limit`] entries per shape. Finished
+//! decodes come back on the cache's own channel ([`Images::next_decoded`]),
+//! never through the reducer.
 
 use std::cell::Cell;
 use std::collections::HashSet;
@@ -25,15 +26,12 @@ use tokio::sync::mpsc;
 
 use super::image_cache::{
     CachedImage, CellSize, DrawImage, HALFBLOCK_FONT, ImageCache, ImageKey, ImageProtocol,
-    resolve_protocol, visible_rect,
+    ImageShape, resolve_protocol, visible_rect,
 };
 use super::state::{GraphicsSupport, State};
 
 pub mod probe;
 use crate::theme::ColorDepth;
-
-/// Maximum number of decoded image slices kept in memory (D78).
-pub const CACHE_LIMIT: usize = 32;
 
 const QUERY_TIMEOUT: Duration = Duration::from_millis(500);
 
@@ -304,7 +302,8 @@ impl Images {
     }
 
     /// Store a finished decode in the cache, evicting the least recently used
-    /// entry when at [`CACHE_LIMIT`].
+    /// entry of the same shape when there are [`ImageShape::cache_limit`]
+    /// of them.
     pub fn insert(&mut self, decoded: DecodedImage) -> bool {
         if decoded.generation != self.generation {
             return false;
@@ -318,12 +317,15 @@ impl Images {
             existing.last_used.set(tick);
             return true;
         }
-        if self.entries.len() >= CACHE_LIMIT
-            && let Some((oldest_idx, _)) = self
-                .entries
+        let shape = decoded.key.shape;
+        let same_shape = || {
+            self.entries
                 .iter()
                 .enumerate()
-                .min_by_key(|(_, e)| e.last_used.get())
+                .filter(|(_, e)| e.key.shape == shape)
+        };
+        if same_shape().count() >= shape.cache_limit()
+            && let Some((oldest_idx, _)) = same_shape().min_by_key(|(_, e)| e.last_used.get())
         {
             self.entries.remove(oldest_idx);
         }
@@ -489,7 +491,18 @@ pub fn decode_and_slice(picker: &Picker, key: &ImageKey) -> Option<SlicedProtoco
     let font_size = picker.font_size();
     let px_w = u32::from(key.width.max(1)) * u32::from(font_size.width.max(1));
     let px_h = u32::from(key.height.max(1)) * u32::from(font_size.height.max(1));
-    let resized = dyn_img.resize_exact(px_w, px_h, FilterType::Triangle);
+    let resized = match key.shape {
+        ImageShape::Whole => dyn_img.resize_exact(px_w, px_h, FilterType::Triangle),
+        ImageShape::Avatar => {
+            let filled = dyn_img.resize_to_fill(px_w, px_h, FilterType::Lanczos3);
+            match key.protocol {
+                // Transparency reaches the screen: the corners show the
+                // row behind (the selection's colour too).
+                ImageProtocol::Kitty | ImageProtocol::Iterm2 => round(filled),
+                ImageProtocol::Sixel | ImageProtocol::Halfblocks => filled,
+            }
+        }
+    };
     let size = Size::new(key.width.max(1), key.height.max(1));
     SlicedProtocol::new_with_resize(
         picker,
@@ -500,11 +513,36 @@ pub fn decode_and_slice(picker: &Picker, key: &ImageKey) -> Option<SlicedProtoco
     .ok()
 }
 
+/// `image` cut to the largest circle centred in it, its edge softened over
+/// about a pixel (Signal draws profile pictures round).
+#[expect(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "pixel coordinates of a picture a few dozen pixels wide"
+)]
+fn round(image: image::DynamicImage) -> image::DynamicImage {
+    let mut rgba = image.into_rgba8();
+    let (w, h) = rgba.dimensions();
+    let (cx, cy) = (w as f32 / 2.0, h as f32 / 2.0);
+    let radius = cx.min(cy);
+    for (x, y, pixel) in rgba.enumerate_pixels_mut() {
+        let dx = x as f32 + 0.5 - cx;
+        let dy = y as f32 + 0.5 - cy;
+        let inside = (radius - (dx * dx + dy * dy).sqrt() + 0.5).clamp(0.0, 1.0);
+        pixel[3] = (f32::from(pixel[3]) * inside).round() as u8;
+    }
+    image::DynamicImage::ImageRgba8(rgba)
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
     use super::*;
+
+    /// Chat pictures kept decoded (D78).
+    const CACHE_LIMIT: usize = ImageShape::Whole.cache_limit();
 
     /// A terminal that answers the query but not its cell-size part leaves
     /// ratatui-image guessing 10 × 20; the window's own size is better
@@ -600,6 +638,7 @@ mod tests {
             width: 2,
             height: 2,
             protocol: ImageProtocol::Kitty,
+            shape: ImageShape::Whole,
         };
         assert!(!images.insert(DecodedImage {
             key: key.clone(),
@@ -618,6 +657,7 @@ mod tests {
             width: i + 1,
             height: 4,
             protocol: ImageProtocol::Halfblocks,
+            shape: ImageShape::Whole,
         };
         for i in 0..u16::try_from(CACHE_LIMIT).unwrap_or(32) {
             images.insert(DecodedImage {

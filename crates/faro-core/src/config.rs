@@ -90,14 +90,15 @@ choice! {
 }
 
 choice! {
-    /// What the conversation list draws beside each name (D158). Profile
-    /// pictures (`"pictures"`) are planned, with initials where they can't
-    /// be drawn.
+    /// What the conversation list draws beside each name (D158).
     Avatars {
         #[default]
         Off = "off",
         /// A badge with the initials, in the person's (or group's) colour.
         Initials = "initials",
+        /// Profile pictures where the terminal can draw them (a graphics
+        /// protocol, two-row entries), initials elsewhere.
+        Pictures = "pictures",
     }
 }
 
@@ -639,8 +640,10 @@ pub static SETTINGS: &[Setting] = &[
     },
     Setting {
         path: key::AVATARS,
-        help: "Beside each name in the list: \"off\" or \"initials\" (a badge in the \
-               person's colour; taller with previews on).",
+        help: "Beside each name in the list: \"off\", \"initials\" (a badge in the \
+               person's colour; taller with previews on) or \"pictures\" (profile \
+               pictures with previews on, in terminals that draw images; initials \
+               elsewhere).",
         get: |c| text(c.conversations.avatars),
         set: |c, v| {
             c.conversations.avatars = choice(v)?;
