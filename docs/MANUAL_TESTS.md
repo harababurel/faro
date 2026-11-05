@@ -700,3 +700,10 @@ Notes (version, OS, what went wrong):
 - [ ] **Selection and resizing:** the highlighted row's background runs around the badge cleanly; a wider or narrower list (D156) keeps the badge whole.
 
 Notes (version, OS, what went wrong):
+
+## Sending attachments after the uploadLength fix (D159)
+
+- [ ] **Picture:** send a picture (palette › Send a file…, or paste its path) to an allowed chat; it's delivered and shows on the phone.
+- [ ] **Other files and voice:** a non-picture file is delivered too; a large one (tens of MB) still uploads.
+
+Notes (version, OS, what went wrong):
