@@ -1503,6 +1503,7 @@ A developer friend of the owner tried getfaro.dev; the owner agreed with all of 
 - **Not done (owner agreed):** the writer fix in presage (stop announcing avatars it doesn't send), to be offered upstream; asking for contacts less often than once per run.
 - **Rejected:** `panic = "abort"` (no clean shutdown, no log flush, and a picture's decoder panic would kill faro); restarting the receive loop after a panic (hides bugs, and a redelivered message would loop); a vendored copy of libsignal-service instead of a fork (much larger diff to carry).
 - **Released in 0.1.7** (2026-10-23).
+- **Upstream (2026-11-05):** the reader fix is whisperfish/libsignal-service-rs#500 (branch `contact-sync-no-panic` on the fork, rebased on upstream `main`; the pinned `contact-list-no-panic` branch stays as it is until faro drops the pin), and the writer fix (presage stops announcing avatars it doesn't send) is whisperfish/presage#495. Both carry `Assisted-by:` trailers, as those projects' AGENTS.md ask. When #500 is merged and presage pins a libsignal-service rev with it: update presage, drop the `[patch]` in `Cargo.toml` and the fork in `deny.toml`, and tell the FreeBSD port maintainer (D152).
 
 ### D152. The FreeBSD port is listed as an install method (2026-11-01)
 
