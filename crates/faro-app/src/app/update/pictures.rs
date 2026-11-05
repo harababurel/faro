@@ -1,8 +1,9 @@
 //! Conversations' pictures (D160): read the pictures folder once at startup,
 //! then fetch, a couple at a time, the pictures of listed conversations that
 //! have none on disk yet. Each is fetched once and kept (`faro
-//! refresh-pictures` empties the folder). Only while `avatars = "pictures"`
-//! and the backend can fetch them: otherwise faro asks Signal for nothing.
+//! refresh-pictures` empties the folder). Only with `avatars = "pictures"`
+//! or `"auto"`, where the terminal can draw them and the backend can fetch
+//! them: otherwise faro asks Signal for nothing.
 
 use std::path::PathBuf;
 
@@ -64,7 +65,14 @@ pub fn on_fetched(
 /// being fetched. Cheap when there's nothing to do: called after every event.
 pub fn wanted(state: &mut State) -> Vec<Effect> {
     let pictures = &state.pictures;
-    if state.config.conversations.avatars != Avatars::Pictures
+    let wanted = match state.config.conversations.avatars {
+        Avatars::Pictures | Avatars::Auto => true,
+        Avatars::Off | Avatars::Initials => false,
+    };
+    // Nothing a terminal can't draw (mosh, half-blocks, one-row entries):
+    // fetched once it can, e.g. after reattaching from kitty (D162).
+    if !wanted
+        || !state.draws_pictures()
         || !state.capabilities.supports(Capability::Pictures)
         || !pictures.listed
         || state.loading

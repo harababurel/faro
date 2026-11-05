@@ -223,18 +223,38 @@ impl Painter {
             &JsValue::from_str("imageSmoothingQuality"),
             &JsValue::from_str("high"),
         );
+        // The box, or for a profile picture the largest square in it, cut
+        // round (as faro cuts kitty's, D162).
+        let (bw, bh) = (
+            f64::from(placement.width) * w,
+            f64::from(placement.height) * h,
+        );
+        let (bx, by) = (f64::from(placement.x) * w, f64::from(placement.y) * h);
+        let (dx, dy, dw, dh) = if placement.round {
+            let side = bw.min(bh);
+            (bx + (bw - side) / 2.0, by + (bh - side) / 2.0, side, side)
+        } else {
+            (bx, by, bw, bh)
+        };
         for &row in rows.iter().filter(|row| shown.contains(row)) {
             self.ctx.save();
             self.ctx.begin_path();
             self.ctx.rect(left, f64::from(row) * h, width, h);
             self.ctx.clip();
-            let drawn = self.ctx.draw_image_with_image_bitmap_and_dw_and_dh(
-                bitmap,
-                f64::from(placement.x) * w,
-                f64::from(placement.y) * h,
-                f64::from(placement.width) * w,
-                f64::from(placement.height) * h,
-            );
+            if placement.round {
+                self.ctx.begin_path();
+                let _ = self.ctx.arc(
+                    dx + dw / 2.0,
+                    dy + dh / 2.0,
+                    dw / 2.0,
+                    0.0,
+                    std::f64::consts::TAU,
+                );
+                self.ctx.clip();
+            }
+            let drawn = self
+                .ctx
+                .draw_image_with_image_bitmap_and_dw_and_dh(bitmap, dx, dy, dw, dh);
             self.ctx.restore();
             if drawn.is_err() {
                 tracing::debug!("drawing a picture failed");

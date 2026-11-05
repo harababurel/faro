@@ -340,9 +340,14 @@ async fn command_task(
                 index,
                 result: canned_transcript(&blobs, &path),
             }),
-            // Only asked for once the pictures folder is read, which the
-            // demo never does (D160).
-            Command::FetchPicture(_) => None,
+            Command::FetchPicture(conversation) => Some(AppEvent::PictureFetched {
+                conversation,
+                result: backend.fetch_picture(conversation).await.map(|picture| {
+                    picture
+                        .filter(|bytes| !bytes.is_empty())
+                        .map(|bytes| blobs.insert_picture(conversation, bytes))
+                }),
+            }),
             command @ (Command::Send { .. }
             | Command::React { .. }
             | Command::Edit { .. }

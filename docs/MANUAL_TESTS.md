@@ -738,3 +738,14 @@ Turn them on: `Ctrl+P` › Settings › Conversations › Previews on, Avatars "
 - [ ] **Files:** `ls -l <data dir>/pictures`: `0600` files in a `0700` folder, `.pic` for pictures and empty `.none` for chats without one.
 
 Notes (version, OS, terminal, what went wrong):
+
+## Previews and pictures by default (D162)
+
+- [ ] **Upgrade:** with a config that doesn't set `previews` or `avatars`, the list now has two rows per chat with previews; in kitty (also over ssh, inside tmux) each chat has its picture (initials only for chats without one, and for a moment while they load).
+- [ ] **Over mosh / without graphics:** the list has previews but no badges at all: the unread dot as before, no initials. Detach and reattach from kitty over ssh: badges and pictures appear without a restart (pictures not fetched before are fetched then).
+- [ ] **Previews off:** with `previews = false`, no badges in `auto` (one-row entries look as before 0.1.10).
+- [ ] **Palette:** `Ctrl+P` › Settings › Conversations › Avatars lists auto, off, initials, pictures; auto is marked current on a fresh config.
+- [ ] **Website demo:** previews and round pictures in the list (the number-only chat has none), pictures kept while scrolling, initials while the palette is open.
+
+Notes (version, OS, terminal, what went wrong):
+

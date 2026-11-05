@@ -182,6 +182,9 @@ pub fn loaded_state() -> State {
     // before D99).
     state.config.messages.density = faro_core::config::MessageDensity::Comfortable;
     state.config.messages.timestamps = faro_core::config::TimestampFormat::Absolute;
+    // …and for the one-row list without avatars (the defaults before D162).
+    state.config.conversations.previews = false;
+    state.config.conversations.avatars = faro_core::config::Avatars::Off;
     update(
         &mut state,
         AppEvent::Loaded {

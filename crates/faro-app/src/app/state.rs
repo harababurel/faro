@@ -1349,6 +1349,31 @@ impl State {
         }
     }
 
+    /// Whether profile pictures can be drawn now (D162): a graphics
+    /// protocol reaches the terminal (not mosh, half-blocks or 16 colours)
+    /// and entries have two rows (previews on). What the renderer decides
+    /// from the image cache, as far as the reducer can tell.
+    pub fn draws_pictures(&self) -> bool {
+        use super::image_cache::{ImageProtocol, resolve_protocol};
+
+        let detected = match self.env.image_protocol {
+            Some(InlineImages::Kitty) => ImageProtocol::Kitty,
+            Some(InlineImages::Sixel) => ImageProtocol::Sixel,
+            Some(InlineImages::Iterm2) => ImageProtocol::Iterm2,
+            Some(InlineImages::Auto | InlineImages::Halfblocks | InlineImages::Off) | None => {
+                ImageProtocol::Halfblocks
+            }
+        };
+        self.config.conversations.previews
+            && resolve_protocol(
+                self.config.media.inline_images,
+                self.colors(),
+                self.env.graphics,
+                detected,
+            )
+            .is_some_and(ImageProtocol::is_graphics)
+    }
+
     /// The conversation list's width to draw (D156): the one being dragged,
     /// else the one being previewed (D59), else the config's. The renderer
     /// draws it narrower if the terminal can't fit it.

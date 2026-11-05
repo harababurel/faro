@@ -25,11 +25,41 @@ fn fetches(effects: &[Effect]) -> Vec<ConversationId> {
         .collect()
 }
 
+/// kitty reachable, previews on, `avatars = "pictures"`.
 fn with_pictures() -> State {
     let mut state = loaded_state();
     state.capabilities = Capabilities::NONE.with(Capability::Pictures);
     state.config.conversations.avatars = Avatars::Pictures;
+    state.config.conversations.previews = true;
+    state.config.media.inline_images = faro_core::config::InlineImages::Auto;
+    state.config.ui.colors = faro_core::config::ColorChoice::Truecolor;
+    state.env.graphics = crate::app::state::GraphicsSupport::Direct;
+    state.env.image_protocol = Some(faro_core::config::InlineImages::Kitty);
     state
+}
+
+/// `auto` (D162): fetched only while the terminal can draw them, e.g. not
+/// over mosh; once kitty is reachable again they are.
+#[test]
+fn auto_fetches_only_where_pictures_can_be_drawn() {
+    let mut state = with_pictures();
+    state.config.conversations.avatars = Avatars::Auto;
+    state.env.graphics = crate::app::state::GraphicsSupport::HalfblocksOnly;
+    let effects = update(&mut state, AppEvent::PicturesListed(vec![]));
+    assert_eq!(fetches(&effects), vec![], "mosh in the way");
+    state.config.conversations.previews = false;
+    state.env.graphics = crate::app::state::GraphicsSupport::Direct;
+    assert_eq!(
+        fetches(&update(&mut state, AppEvent::Tick)),
+        vec![],
+        "one-row entries"
+    );
+    state.config.conversations.previews = true;
+    assert_eq!(
+        fetches(&update(&mut state, AppEvent::Tick)).len(),
+        2,
+        "kitty again"
+    );
 }
 
 #[test]

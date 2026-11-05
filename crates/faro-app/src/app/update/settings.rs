@@ -295,6 +295,7 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
         SettingChoice::Avatars(avatars) => {
             state.config.conversations.avatars = avatars;
             let msg = match avatars {
+                Avatars::Auto => "The list shows profile pictures where the terminal can draw them",
                 Avatars::Off => "The list shows no avatars",
                 Avatars::Initials => "The list shows initials beside each name",
                 Avatars::Pictures => {

@@ -93,7 +93,7 @@ pub fn render(
 const PICTURE: Rect = Rect::new(1, 0, 4, 2);
 
 /// Draw profile pictures over the badges of two-row entries (`avatars =
-/// "pictures"`): only with a graphics protocol (half-blocks are too coarse at
+/// "pictures"` or `"auto"`): only with a graphics protocol (half-blocks are too coarse at
 /// four cells) and while no popup or palette is open (D78). Initials stay
 /// until a picture is decoded, and wherever there's none.
 fn pictures(
@@ -112,7 +112,11 @@ fn pictures(
         Some(protocol) if protocol.is_graphics() => protocol,
         Some(_) | None => return,
     };
-    if state.config.conversations.avatars != Avatars::Pictures || overlay {
+    let wanted = match state.config.conversations.avatars {
+        Avatars::Pictures | Avatars::Auto => true,
+        Avatars::Off | Avatars::Initials => false,
+    };
+    if !wanted || overlay {
         return;
     }
     for &(first, id) in tall {
@@ -364,7 +368,14 @@ fn row(
         Style::new().fg(theme.unread).add_modifier(Modifier::BOLD)
     };
     let title = state.conversation_title(summary.id);
-    let badge = (settings.avatars != Avatars::Off).then(|| Badge {
+    // `auto` (D162): a badge only where pictures can be drawn (initials
+    // until each arrives, and for chats without one); the dot elsewhere.
+    let badges = match settings.avatars {
+        Avatars::Off => false,
+        Avatars::Initials | Avatars::Pictures => true,
+        Avatars::Auto => settings.previews && view.images.is_graphics_protocol(),
+    };
+    let badge = badges.then(|| Badge {
         initials: initials(&sanitize(&title)),
         colour: theme.avatar(summary.id),
     });

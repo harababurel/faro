@@ -1850,14 +1850,25 @@ fn the_sidebar_width_has_presets_a_preview_and_a_custom_value() {
 }
 
 #[test]
-fn avatars_are_off_until_chosen_and_preview_while_moving() {
-    use faro_core::config::Avatars;
+fn avatars_default_to_auto_and_preview_while_moving() {
+    use faro_core::config::{Avatars, Config};
 
+    let defaults = Config::default().conversations;
+    assert_eq!(
+        defaults.avatars,
+        Avatars::Auto,
+        "the owner's exception to D155 (D162)"
+    );
+    assert!(defaults.previews, "D162");
     let mut state = loaded_state();
-    assert_eq!(state.config.conversations.avatars, Avatars::Off, "D155");
+    assert_eq!(
+        state.config.conversations.avatars,
+        Avatars::Off,
+        "the fixture's"
+    );
     palette_open(&mut state, ":avatars");
     enter(&mut state);
-    assert_eq!(titles(&state), vec!["off", "initials", "pictures"]);
+    assert_eq!(titles(&state), vec!["auto", "off", "initials", "pictures"]);
     press(&mut state, KeyCode::Down);
     let effects = enter(&mut state);
     assert_eq!(

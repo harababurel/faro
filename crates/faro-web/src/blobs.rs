@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use faro_core::domain::{AttachmentId, MessageRef};
+use faro_core::domain::{AttachmentId, ConversationId, MessageRef};
 
 /// Where the demo's "files" are; never a real directory.
 const ROOT: &str = "/faro-demo";
@@ -40,6 +40,18 @@ impl Blobs {
         ));
         let blob = Blob {
             id,
+            bytes: bytes.into(),
+        };
+        self.lock().insert(path.clone(), blob);
+        path
+    }
+
+    /// Keep a conversation's picture (D162); the path to use.
+    pub fn insert_picture(&self, conversation: ConversationId, bytes: Vec<u8>) -> PathBuf {
+        let name = faro_core::pictures::file_name(conversation, true);
+        let path = PathBuf::from(format!("{ROOT}/pictures/{name}"));
+        let blob = Blob {
+            id: AttachmentId(name),
             bytes: bytes.into(),
         };
         self.lock().insert(path.clone(), blob);

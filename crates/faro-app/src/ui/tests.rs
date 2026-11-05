@@ -1200,6 +1200,9 @@ fn full_mode_keeps_emoji_as_they_are() {
 /// After startup: conversations loaded, nothing open (D60).
 fn logo_state() -> State {
     let mut state = State::new(ME, fixtures::contacts(), fixtures::groups());
+    // The list as before D162.
+    state.config.conversations.previews = false;
+    state.config.conversations.avatars = faro_core::config::Avatars::Off;
     update(
         &mut state,
         AppEvent::Loaded {
@@ -2169,4 +2172,38 @@ fn initials_stay_where_a_picture_cant_be_drawn() {
     let mut initials = pictures_state();
     initials.config.conversations.avatars = faro_core::config::Avatars::Initials;
     wants_nothing(&initials, &kitty(true), "initials asked for");
+}
+
+/// `auto` (D162): pictures where the terminal draws them (initials until
+/// each arrives, and for chats without one); elsewhere no badge at all, the
+/// list as it was.
+#[test]
+fn auto_shows_pictures_with_graphics_and_nothing_without() {
+    let mut state = pictures_state();
+    state.config.conversations.avatars = faro_core::config::Avatars::Auto;
+    let (buffer, _) = draw_with_images(&state, 100, 16, &Theme::default(), &kitty(true));
+    let text = snapshot(&buffer);
+    assert!(text.contains("PPPP"), "Alice's picture\n{text}");
+    assert!(text.contains("▟Bo▙"), "Bob has none: initials\n{text}");
+
+    let halfblocks = Pictures {
+        protocol: crate::app::image_cache::ImageProtocol::Halfblocks,
+        ready: true,
+    };
+    let (buffer, geometry) = draw_with_images(&state, 100, 16, &Theme::default(), &halfblocks);
+    let text = snapshot(&buffer);
+    assert!(!text.contains('▟') && !text.contains("PPPP"), "{text}");
+    assert_eq!(
+        geometry.images_wanted,
+        [] as [crate::app::image_cache::ImageKey; 0]
+    );
+    let mut previews_off = pictures_state();
+    previews_off.config.conversations.previews = false;
+    previews_off.config.conversations.avatars = faro_core::config::Avatars::Off;
+    let plain =
+        snapshot(&draw_with_images(&previews_off, 100, 16, &Theme::default(), &halfblocks).0);
+    let mut one_row = state;
+    one_row.config.conversations.previews = false;
+    let auto = snapshot(&draw_with_images(&one_row, 100, 16, &Theme::default(), &kitty(true)).0);
+    assert_eq!(auto, plain, "one row: as with avatars off");
 }

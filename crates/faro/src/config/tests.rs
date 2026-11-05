@@ -95,6 +95,7 @@ async fn toggling_the_layout_from_the_palette_keeps_the_file_s_comments() {
     // The template's defaults (the fixture pins older ones).
     state.config.messages.density = faro_core::config::MessageDensity::default();
     state.config.messages.timestamps = faro_core::config::TimestampFormat::default();
+    state.config.conversations = faro_core::config::Config::default().conversations;
     update(&mut state, AppEvent::Terminal(ctrl('p')));
     // Settings › Message layout › IRC.
     for c in ":layout\rirc".chars() {

@@ -90,9 +90,12 @@ choice! {
 }
 
 choice! {
-    /// What the conversation list draws beside each name (D158).
+    /// What the conversation list draws beside each name (D158, D162).
     Avatars {
+        /// Profile pictures where the terminal can draw them (a graphics
+        /// protocol, two-row entries), nothing elsewhere (D162).
         #[default]
+        Auto = "auto",
         Off = "off",
         /// A badge with the initials, in the person's (or group's) colour.
         Initials = "initials",
@@ -283,10 +286,10 @@ impl Default for Conversations {
     fn default() -> Self {
         Self {
             allowlist: false,
-            previews: false,
+            previews: true,
             preview_time: true,
             preview_activity: true,
-            avatars: Avatars::Off,
+            avatars: Avatars::Auto,
         }
     }
 }
@@ -640,10 +643,10 @@ pub static SETTINGS: &[Setting] = &[
     },
     Setting {
         path: key::AVATARS,
-        help: "Beside each name in the list: \"off\", \"initials\" (a badge in the \
-               person's colour; taller with previews on) or \"pictures\" (profile \
-               pictures with previews on, in terminals that draw images; initials \
-               elsewhere).",
+        help: "Beside each name in the list: \"auto\" (profile pictures with previews on, \
+               in terminals that draw images; nothing elsewhere), \"off\", \"initials\" \
+               (a badge in the person's colour; taller with previews on) or \"pictures\" \
+               (pictures where they can be drawn, initials elsewhere).",
         get: |c| text(c.conversations.avatars),
         set: |c, v| {
             c.conversations.avatars = choice(v)?;

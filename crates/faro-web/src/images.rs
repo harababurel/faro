@@ -112,6 +112,8 @@ pub struct Placement {
     pub width: u16,
     pub height: u16,
     pub visible: Rect,
+    /// A profile picture: drawn round (D162), as faro's kitty images are.
+    pub round: bool,
 }
 
 impl Placement {
@@ -130,6 +132,9 @@ pub struct Picture {
     id: u64,
     width: u16,
     height: u16,
+    /// A profile picture: round, its corners showing the row (whose cells
+    /// the list already blanked in the row's colours).
+    round: bool,
     placed: Rc<RefCell<Vec<Placement>>>,
 }
 
@@ -142,7 +147,11 @@ impl DrawImage for Picture {
         for sy in visible.top()..visible.bottom() {
             for sx in visible.left()..visible.right() {
                 if let Some(cell) = buf.cell_mut((sx, sy)) {
-                    cell.reset();
+                    if self.round {
+                        cell.set_symbol(" ");
+                    } else {
+                        cell.reset();
+                    }
                 }
             }
         }
@@ -153,6 +162,7 @@ impl DrawImage for Picture {
             width: self.width,
             height: self.height,
             visible,
+            round: self.round,
         });
     }
 }
@@ -230,6 +240,7 @@ impl Images {
                 id,
                 width: key.width,
                 height: key.height,
+                round: key.shape == faro_app::app::image_cache::ImageShape::Avatar,
                 placed: Rc::clone(&self.placed),
             }),
         });
@@ -357,6 +368,7 @@ mod tests {
                 width: 3,
                 height: 4,
                 visible: Rect::new(3, 1, 3, 3),
+                round: false,
             }]
         );
         assert_eq!(buf[(3, 1)].symbol(), " ", "blanked");
