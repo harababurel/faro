@@ -338,6 +338,11 @@ impl<B: Backend> Backend for Guarded<B> {
     async fn fetch_attachment(&self, attachment: &AttachmentRef) -> Result<Vec<u8>> {
         self.inner.fetch_attachment(attachment).await
     }
+
+    async fn fetch_picture(&self, conversation: ConversationId) -> Result<Option<Vec<u8>>> {
+        self.shared.check(conversation)?;
+        self.inner.fetch_picture(conversation).await
+    }
 }
 
 #[cfg(test)]

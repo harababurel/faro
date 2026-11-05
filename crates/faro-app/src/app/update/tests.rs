@@ -39,8 +39,9 @@ fn startup_opens_nothing_and_highlights_the_remembered_conversation() {
             recent_reactions: Vec::new(),
         },
     );
-    // Nothing is opened, so nothing is read (D60).
-    assert_eq!(effects, vec![]);
+    // Nothing is opened, so nothing is read (D60); the pictures folder is
+    // read (D161).
+    assert_eq!(effects, vec![Effect::ListPictures]);
     assert!(!state.loading);
     assert_eq!(open_id(&state), None);
     assert_eq!(state.highlighted(), Some(climbing()));
@@ -187,7 +188,10 @@ fn messages_arriving_before_the_list_are_kept() {
     );
     assert_eq!(
         effects,
-        vec![Effect::Persist(Box::new(BackendEvent::Message(early)))]
+        vec![
+            Effect::Persist(Box::new(BackendEvent::Message(early))),
+            Effect::ListPictures
+        ]
     );
     assert!(!state.loading);
     assert_eq!(state.summary(alice()).map(|s| s.unread), Some(2));
@@ -2460,6 +2464,7 @@ mod focus;
 mod notify;
 mod palette;
 mod people;
+mod pictures;
 mod presence;
 mod resize;
 mod settings;

@@ -38,6 +38,8 @@ pub enum Error {
     Store(#[from] SqliteStoreError),
     #[error("making presage's database private: {0}")]
     Private(std::io::Error),
+    #[error("presage's database: {0}")]
+    Database(#[from] sqlx::Error),
     #[error(transparent)]
     Signal(Box<presage::Error<SqliteStoreError>>),
 }
@@ -61,6 +63,56 @@ pub async fn open_store(file: &Path) -> Result<SqliteStore, Error> {
         .filename(file)
         .create_if_missing(true);
     Ok(SqliteStore::open_with_options(options, OnNewIdentity::Trust).await?)
+}
+
+/// What [`forget_pictures`] cleared from presage's database.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Forgotten {
+    pub profiles: u64,
+    pub profile_pictures: u64,
+    pub group_pictures: u64,
+}
+
+/// presage's tables `faro refresh-pictures` empties (D160): people's
+/// profiles (names, the picture's path) and both picture caches. presage
+/// keeps them forever and has no call to drop one; its `clear_profiles`
+/// would also drop everyone's profile keys. Profile keys, contacts, groups
+/// and messages stay. A test checks these tables still exist after each
+/// presage update.
+const FORGET: [&str; 3] = [
+    "DELETE FROM profiles",
+    "DELETE FROM profile_avatars",
+    "DELETE FROM group_avatars",
+];
+
+/// Forget presage's copies of profiles and pictures, so the next run fetches
+/// them again (D160). Nothing to do when `file` doesn't exist (no account
+/// linked here). Run while faro isn't using the database.
+pub async fn forget_pictures(file: &Path) -> Result<Forgotten, Error> {
+    if !tokio::fs::try_exists(file).await.map_err(Error::Private)? {
+        return Ok(Forgotten {
+            profiles: 0,
+            profile_pictures: 0,
+            group_pictures: 0,
+        });
+    }
+    let options = SqliteConnectOptions::new().filename(file);
+    let mut connection = sqlx::ConnectOptions::connect(&options).await?;
+    let mut transaction = sqlx::Connection::begin(&mut connection).await?;
+    let mut counts = [0; 3];
+    for (statement, count) in FORGET.into_iter().zip(&mut counts) {
+        *count = sqlx::query(statement)
+            .execute(&mut *transaction)
+            .await?
+            .rows_affected();
+    }
+    transaction.commit().await?;
+    let [profiles, profile_pictures, group_pictures] = counts;
+    Ok(Forgotten {
+        profiles,
+        profile_pictures,
+        group_pictures,
+    })
 }
 
 /// Create the file `0600` (it holds the account's keys), or tighten it. SQLite
@@ -181,5 +233,57 @@ mod tests {
         );
         assert_eq!(default_device_name(Some("  ")), "faro");
         assert_eq!(default_device_name(None), "faro");
+    }
+
+    /// `faro refresh-pictures` (D160) relies on presage's table names: this
+    /// fails when a presage update renames them. Pictures go; profile keys
+    /// stay.
+    #[tokio::test]
+    async fn forgetting_pictures_keeps_profile_keys() {
+        use presage::libsignal_service::zkgroup::profiles::ProfileKey;
+        use presage::store::ContentsStore as _;
+
+        let dir = tempfile::tempdir().unwrap();
+        let file = store_file(dir.path());
+        let none = forget_pictures(&file).await.unwrap();
+        assert_eq!(none.group_pictures, 0, "no database yet: nothing to do");
+
+        let mut store = open_store(&file).await.unwrap();
+        let person = uuid::Uuid::from_u128(5);
+        let key = ProfileKey::create([7; 32]);
+        store.upsert_profile_key(&person, key).await.unwrap();
+        let group = presage::model::groups::Group {
+            title: "Climbing".to_owned(),
+            avatar: "groups/abc".to_owned(),
+            disappearing_messages_timer: None,
+            access_control: None,
+            revision: 1,
+            members: vec![],
+            pending_members: vec![],
+            requesting_members: vec![],
+            invite_link_password: vec![],
+            description: None,
+        };
+        store.save_group([1; 32], group).await.unwrap();
+        store
+            .save_group_avatar([1; 32], &vec![1, 2, 3])
+            .await
+            .unwrap();
+        store
+            .save_profile_avatar(person, key, &vec![4, 5])
+            .await
+            .unwrap();
+
+        let forgotten = forget_pictures(&file).await.unwrap();
+        assert_eq!(forgotten.group_pictures, 1);
+        assert_eq!(forgotten.profile_pictures, 1);
+        assert_eq!(store.group_avatar([1; 32]).await.unwrap(), None);
+        assert_eq!(store.profile_avatar(person, key).await.unwrap(), None);
+        let kept = store
+            .profile_key(&presage::libsignal_service::protocol::Aci::from(person).into())
+            .await
+            .unwrap();
+        assert!(kept.is_some_and(|k| k.bytes == key.bytes), "keys stay");
+        assert!(store.group([1; 32]).await.unwrap().is_some(), "groups stay");
     }
 }

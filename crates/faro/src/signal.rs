@@ -1,6 +1,6 @@
-//! The real Signal backend from the command line (M7): `faro link`, `faro ids`
-//! and opening the linked account for the TUI. Runs before the TUI takes the
-//! terminal, so it prints to stdout.
+//! The real Signal backend from the command line (M7): `faro link`, `faro
+//! ids`, `faro refresh-pictures` and opening the linked account for the TUI.
+//! Runs before the TUI takes the terminal, so it prints to stdout.
 
 use std::fmt::Write as _;
 use std::io::Write as _;
@@ -42,6 +42,27 @@ pub async fn link(data_dir: &Path, device_name: Option<String>) -> anyhow::Resul
     say(&format!(
         "\nLinked. This account's Signal ID is {aci}.\n\
          Next: `faro ids --username <your username>` prints the IDs for an allowlist.\n"
+    ));
+    Ok(())
+}
+
+/// `faro refresh-pictures` (D160): forget the saved pictures, faro's and
+/// presage's (with presage's copies of profiles, which hold each picture's
+/// path), so the next start fetches them again.
+pub async fn refresh_pictures(paths: &faro_core::paths::Paths) -> anyhow::Result<()> {
+    let file = faro_presage::store_file(paths.data_dir());
+    let pictures_dir = &paths.pictures_dir();
+    let forgotten = faro_presage::forget_pictures(&file)
+        .await
+        .with_context(|| format!("clearing presage's pictures in {}", file.display()))?;
+    let removed = crate::app::pictures::clear(pictures_dir)
+        .await
+        .with_context(|| format!("emptying {}", pictures_dir.display()))?;
+    say(&format!(
+        "Forgot {removed} saved pictures, and presage's {} profiles, {} profile pictures \
+         and {} group pictures.\nThey're fetched again the next time faro starts (with \
+         avatars = \"pictures\").\n",
+        forgotten.profiles, forgotten.profile_pictures, forgotten.group_pictures
     ));
     Ok(())
 }

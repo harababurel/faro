@@ -18,6 +18,9 @@ presage = { git = "https://github.com/whisperfish/presage", rev = "6f630791b2c7b
 presage-store-sqlite = { git = "https://github.com/whisperfish/presage", rev = "6f630791b2c7bf3d5b00c75f5a6c94131bf79c8c" }
 # The same version libsignal-service uses, for padding sync messages.
 rand = "0.9"
+# The version presage's store uses: `faro refresh-pictures` clears its
+# picture cache (D160).
+sqlx = { version = "0.9.0", default-features = false, features = ["sqlite", "runtime-tokio"] }
 thiserror = "2.0.21"
 tokio = { version = "1.53.2", features = ["fs", "rt", "sync", "time"] }
 tracing = "0.1.44"

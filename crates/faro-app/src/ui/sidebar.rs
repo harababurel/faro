@@ -116,7 +116,7 @@ fn pictures(
         return;
     }
     for &(first, id) in tall {
-        let Some(path) = state.avatars.get(&id) else {
+        let Some(path) = state.pictures.files.get(&id) else {
             continue;
         };
         let (Ok(first), Ok(offset)) = (i32::try_from(first), i32::try_from(offset)) else {

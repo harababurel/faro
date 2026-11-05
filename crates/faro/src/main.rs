@@ -29,7 +29,10 @@ fn main() -> anyhow::Result<()> {
     let invocation = cli::Invocation::parse();
     let demo = match &invocation.cli.command {
         Some(cli::Command::Demo(args)) => Some(args.clone()),
-        Some(cli::Command::Link { .. } | cli::Command::Ids { .. }) | None => None,
+        Some(
+            cli::Command::Link { .. } | cli::Command::Ids { .. } | cli::Command::RefreshPictures,
+        )
+        | None => None,
     };
     let profile = if demo.is_some() {
         Profile::Demo
@@ -78,6 +81,9 @@ fn main() -> anyhow::Result<()> {
         Some(cli::Command::Ids { usernames }) => {
             return local.block_on(&runtime, signal::ids(paths.data_dir(), &usernames));
         }
+        Some(cli::Command::RefreshPictures) => {
+            return local.block_on(&runtime, signal::refresh_pictures(&paths));
+        }
         Some(cli::Command::Demo(_)) | None => {}
     }
     // The allowlist guard (D62) is for testing: on only with --allowlist
@@ -101,6 +107,7 @@ fn main() -> anyhow::Result<()> {
         let startup = config::Startup {
             path: config_file,
             attachments_dir: paths.attachments_dir(),
+            pictures_dir: paths.pictures_dir(),
             config: settings,
             problems,
             themes,

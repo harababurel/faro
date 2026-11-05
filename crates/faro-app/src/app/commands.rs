@@ -10,7 +10,8 @@ use super::event::{AppEvent, Command};
 
 /// Run one command; what the app loop should hear back, if anything.
 /// Outgoing attachments must already be where the backend can read them.
-/// `Fetch` and `Transcribe` aren't run here: they return `None`.
+/// `Fetch`, `FetchPicture` and `Transcribe` aren't run here: they return
+/// `None`.
 pub async fn execute<B: Backend>(backend: &B, command: Command) -> Option<AppEvent> {
     let event = match command {
         Command::Send {
@@ -62,7 +63,9 @@ pub async fn execute<B: Backend>(backend: &B, command: Command) -> Option<AppEve
             }
             AppEvent::DeleteResult(result)
         }
-        Command::Fetch { .. } | Command::Transcribe { .. } => return None,
+        Command::Fetch { .. } | Command::Transcribe { .. } | Command::FetchPicture(_) => {
+            return None;
+        }
         Command::MarkRead(messages) => {
             if let Err(error) = backend.mark_read(&messages).await {
                 tracing::warn!(%error, count = messages.len(), "sending read receipts failed");

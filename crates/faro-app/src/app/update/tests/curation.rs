@@ -42,6 +42,7 @@ fn saved(effects: &[Effect], id: ConversationId) -> Option<ConversationState> {
         | Effect::SaveUpdateState { .. }
         | Effect::CheckForUpdate
         | Effect::SaveSetting(_)
+        | Effect::ListPictures
         | Effect::Backend(_)
         | Effect::Copy(_)
         | Effect::OpenUrl(_)

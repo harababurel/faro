@@ -6,7 +6,8 @@ use crate::app::term_event::Event;
 use faro_core::backend::BackendEvent;
 use faro_core::config::{BubbleStyle, InlineImages};
 use faro_core::domain::{
-    ConversationId, Direction, Message, MessageBody, MessageRef, ServiceId, TypingState,
+    ConnectionState, ConversationId, Direction, Message, MessageBody, MessageRef, ServiceId,
+    TypingState,
 };
 use faro_core::store::{ConversationState, ConversationSummary};
 use std::time::Duration;
@@ -27,6 +28,7 @@ mod curation;
 mod navigation;
 mod notify;
 mod palette;
+mod pictures;
 mod presence;
 mod resize;
 pub(crate) mod selection;
@@ -78,6 +80,8 @@ pub fn affects_view(event: &AppEvent) -> bool {
         | AppEvent::ClipboardDrained
         | AppEvent::PlaybackFinished { .. }
         | AppEvent::Transcribed { .. }
+        | AppEvent::PicturesListed(_)
+        | AppEvent::PictureFetched { .. }
         | AppEvent::OpenFailed(_)
         | AppEvent::Unavailable(_)
         | AppEvent::TerminalChecked { .. }
@@ -93,6 +97,16 @@ pub fn affects_view(event: &AppEvent) -> bool {
 }
 
 pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
+    let mut effects = route(state, event);
+    effects.extend(pictures::wanted(state));
+    effects
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "one arm per event, each handing off to its module: reads best as one table"
+)]
+fn route(state: &mut State, event: AppEvent) -> Vec<Effect> {
     match event {
         AppEvent::Terminal(event) => on_terminal(state, &event),
         AppEvent::Backend(event) if state.loading => {
@@ -169,6 +183,11 @@ pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
             selection::on_playback_finished(state, message, index, error);
             vec![]
         }
+        AppEvent::PicturesListed(found) => pictures::on_listed(state, found),
+        AppEvent::PictureFetched {
+            conversation,
+            result,
+        } => pictures::on_fetched(state, conversation, result),
         AppEvent::Transcribed {
             conversation,
             message,
@@ -443,6 +462,9 @@ fn on_loaded(
     if state.open.is_none() && state.panels.left {
         state.focus = Focus::Conversations;
     }
+    if !state.pictures.listed {
+        effects.push(Effect::ListPictures);
+    }
     effects
 }
 
@@ -551,7 +573,13 @@ fn last_unread(messages: &[Message], unread: u32) -> Vec<MessageRef> {
 fn on_backend(state: &mut State, event: BackendEvent) -> Vec<Effect> {
     let mut effects = Vec::new();
     match &event {
-        BackendEvent::Connection(connection) => state.connection = *connection,
+        BackendEvent::Connection(connection) => {
+            state.connection = *connection;
+            // Back online: pictures that failed get another try (D160).
+            if *connection == ConnectionState::Connected {
+                state.pictures.failed.clear();
+            }
+        }
         BackendEvent::Message(message) => on_message(state, message, &mut effects),
         BackendEvent::DeliveryUpdate {
             message,

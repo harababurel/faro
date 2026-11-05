@@ -340,6 +340,9 @@ async fn command_task(
                 index,
                 result: canned_transcript(&blobs, &path),
             }),
+            // Only asked for once the pictures folder is read, which the
+            // demo never does (D160).
+            Command::FetchPicture(_) => None,
             command @ (Command::Send { .. }
             | Command::React { .. }
             | Command::Edit { .. }

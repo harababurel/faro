@@ -24,6 +24,7 @@ const APP_DIR: &str = "faro";
 const CONFIG_FILE: &str = "config.toml";
 const LOG_DIR: &str = "logs";
 const ATTACHMENTS_DIR: &str = "attachments";
+const PICTURES_DIR: &str = "pictures";
 const DB_FILE: &str = "faro.db";
 
 /// Permissions for directories faro creates.
@@ -90,16 +91,23 @@ impl Paths {
         self.data_dir.join(ATTACHMENTS_DIR)
     }
 
+    /// Conversations' pictures (D160, [`crate::pictures`]).
+    pub fn pictures_dir(&self) -> PathBuf {
+        self.data_dir.join(PICTURES_DIR)
+    }
+
     /// faro's own database (history, conversation state), not presage's.
     pub fn db_file(&self) -> PathBuf {
         self.data_dir.join(DB_FILE)
     }
 
-    /// Create the data, log and attachments directories (`0700`) if they don't exist.
+    /// Create the data, log, attachments and pictures directories (`0700`)
+    /// if they don't exist.
     pub fn ensure_data_dirs(&self) -> io::Result<()> {
         create_private_dir_all(&self.data_dir)?;
         create_private_dir_all(&self.log_dir())?;
-        create_private_dir_all(&self.attachments_dir())
+        create_private_dir_all(&self.attachments_dir())?;
+        create_private_dir_all(&self.pictures_dir())
     }
 
     /// The same config file with the data in `dir`: the layout `faro demo`

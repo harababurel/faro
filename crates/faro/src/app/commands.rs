@@ -48,22 +48,50 @@ pub fn spawn<B: Backend + 'static>(
     backend: B,
     me: ServiceId,
     attachments_dir: PathBuf,
+    pictures_dir: PathBuf,
     results: mpsc::UnboundedSender<AppEvent>,
 ) -> (mpsc::UnboundedSender<Command>, JoinHandle<()>) {
     let (commands, queue) = mpsc::unbounded_channel();
-    let task = tokio::task::spawn_local(run(Rc::new(backend), me, attachments_dir, queue, results));
+    let dirs = Dirs {
+        attachments: attachments_dir,
+        pictures: pictures_dir,
+    };
+    let task = tokio::task::spawn_local(run(Rc::new(backend), me, dirs, queue, results));
     (commands, task)
+}
+
+/// Where downloads go.
+struct Dirs {
+    attachments: PathBuf,
+    /// Conversations' pictures (D160).
+    pictures: PathBuf,
 }
 
 async fn run<B: Backend + 'static>(
     backend: Rc<B>,
     me: ServiceId,
-    attachments_dir: PathBuf,
+    dirs: Dirs,
     mut queue: mpsc::UnboundedReceiver<Command>,
     results: mpsc::UnboundedSender<AppEvent>,
 ) {
+    let attachments_dir = dirs.attachments;
     let mut in_flight = InFlight::default();
     while let Some(command) = queue.recv().await {
+        // At most a couple at a time (the reducer limits them), beside
+        // sends and receipts.
+        if let Command::FetchPicture(conversation) = command {
+            let backend = Rc::clone(&backend);
+            let dir = dirs.pictures.clone();
+            let tx = results.clone();
+            in_flight.spawn(tokio::task::spawn_local(async move {
+                let result = super::pictures::fetch(backend.as_ref(), &dir, conversation).await;
+                let _ = tx.send(AppEvent::PictureFetched {
+                    conversation,
+                    result,
+                });
+            }));
+            continue;
+        }
         if let Command::Fetch {
             conversation,
             message,
@@ -542,6 +570,7 @@ async fn execute<B: Backend>(
         | Command::Edit { .. }
         | Command::DeleteForEveryone { .. }
         | Command::Fetch { .. }
+        | Command::FetchPicture(_)
         | Command::Transcribe { .. }
         | Command::MarkRead(_)
         | Command::Typing { .. }) => other,

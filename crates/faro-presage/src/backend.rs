@@ -31,6 +31,8 @@ use crate::convert::{self, MasterKey};
 const BACKOFF: (Duration, Duration) = (Duration::from_secs(1), Duration::from_secs(60));
 /// How long a profile fetch may take before a contact is shown without it.
 const PROFILE_TIMEOUT: Duration = Duration::from_secs(5);
+/// Longest wait for a picture (a profile fetch and a download, D160).
+const PICTURE_TIMEOUT: Duration = Duration::from_secs(20);
 /// presage fetches a new sender's profile in the background; look again then.
 const PROFILE_RECHECK: Duration = Duration::from_secs(5);
 
@@ -317,6 +319,7 @@ impl Backend for PresageBackend {
             .with(Capability::Edit)
             .with(Capability::DeleteForEveryone)
             .with(Capability::Attachments)
+            .with(Capability::Pictures)
     }
 
     fn whoami(&self) -> impl Future<Output = Result<Account>> {
@@ -511,6 +514,48 @@ impl Backend for PresageBackend {
                 tracing::warn!(error = %e, "downloading an attachment failed");
                 backend_error(&e)
             })
+    }
+
+    /// presage keeps what it fetches (by person and profile key, or by
+    /// group) and never checks it again: `faro refresh-pictures` clears that
+    /// cache along with faro's (D160).
+    async fn fetch_picture(&self, conversation: ConversationId) -> Result<Option<Vec<u8>>> {
+        let mut manager = self.manager.clone();
+        let fetch = async {
+            match conversation {
+                ConversationId::Direct(id) => {
+                    // Only accounts (ACIs) have profiles.
+                    let ServiceId::Aci(uuid) = id else {
+                        return Ok(None);
+                    };
+                    let key = if id == self.me {
+                        self.manager.registration_data().profile_key()
+                    } else {
+                        self.manager
+                            .store()
+                            .profile_key(&convert::signal_id(id))
+                            .await
+                            .ok()
+                            .flatten()
+                            // Not known yet: try again another run.
+                            .ok_or(BackendError::NotFound)?
+                    };
+                    Box::pin(manager.retrieve_profile_avatar_by_uuid(uuid, key))
+                        .await
+                        .map_err(|e| backend_error(&e))
+                }
+                ConversationId::Group(group) => {
+                    let context = self.group_context(group)?;
+                    Box::pin(manager.retrieve_group_avatar(context))
+                        .await
+                        .map_err(|e| backend_error(&e))
+                }
+            }
+        };
+        match tokio::time::timeout(PICTURE_TIMEOUT, fetch).await {
+            Ok(result) => result,
+            Err(_) => Err(BackendError::Network("fetching a picture timed out".into())),
+        }
     }
 }
 

@@ -2076,7 +2076,7 @@ impl crate::app::image_cache::ImageCache for Pictures {
 fn pictures_state() -> State {
     let mut state = previews_state();
     state.config.conversations.avatars = faro_core::config::Avatars::Pictures;
-    state.avatars.insert(
+    state.pictures.files.insert(
         fixtures::alice(),
         std::path::PathBuf::from("/pics/alice.png"),
     );

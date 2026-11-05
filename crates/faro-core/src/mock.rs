@@ -16,6 +16,7 @@
 
 mod assets;
 mod cast;
+mod pictures;
 mod scenes;
 mod sim;
 mod world;
@@ -95,7 +96,8 @@ impl Default for MockConfig {
             capabilities: Capabilities::NONE
                 .with(Capability::Edit)
                 .with(Capability::DeleteForEveryone)
-                .with(Capability::Attachments),
+                .with(Capability::Attachments)
+                .with(Capability::Pictures),
         }
     }
 }
@@ -276,6 +278,12 @@ impl Backend for MockBackend {
         self.capabilities.require(Capability::Attachments)?;
         self.request(|_| Ok(())).await?;
         assets::attachment_bytes(&attachment.id.0).ok_or(BackendError::NotFound)
+    }
+
+    async fn fetch_picture(&self, conversation: ConversationId) -> Result<Option<Vec<u8>>> {
+        self.capabilities.require(Capability::Pictures)?;
+        self.request(|_| Ok(())).await?;
+        Ok(pictures::picture(self.shared.sim().world(), conversation))
     }
 }
 

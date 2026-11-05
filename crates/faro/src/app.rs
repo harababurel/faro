@@ -23,7 +23,7 @@ pub mod clipboard;
 pub mod commands;
 mod effects;
 pub mod images;
-mod spike_avatars;
+pub mod pictures;
 pub mod system;
 pub mod updates;
 
@@ -107,6 +107,7 @@ fn initial_state(directory: Directory, detected: state::Detected, startup: &mut 
     state.profile = startup.profile;
     state.updates.built = updates::BUILT;
     state.attachments_dir.clone_from(&startup.attachments_dir);
+    state.pictures_dir.clone_from(&startup.pictures_dir);
     state.config_path.clone_from(&startup.path);
     sense_terminal(&mut state, detected);
     for problem in state.user_themes.load(std::mem::take(&mut startup.themes)) {
@@ -142,6 +143,7 @@ pub async fn run<B: Backend + 'static>(
         backend,
         directory.me,
         startup.attachments_dir.clone(),
+        startup.pictures_dir.clone(),
         results_tx.clone(),
     );
     let (config_writer, config_task) =
@@ -169,7 +171,6 @@ pub async fn run<B: Backend + 'static>(
         tokio::sync::mpsc::unbounded_channel::<(images::probe::Probe, Vec<String>)>();
     let mut probing = false;
     router.dispatch(vec![Effect::LoadConversations], &state);
-    let spike_pool = spike_avatars::pool().await;
 
     let mut themes = Themes::default();
     let mut dirty = true;
@@ -265,7 +266,6 @@ pub async fn run<B: Backend + 'static>(
             handle(event, &mut state, &router);
             dirty |= state.resize.hover != hover;
         }
-        spike_avatars::assign(&mut state, &spike_pool);
         // Graphics became possible (the mosh or other client left), or
         // another terminal attached: ask the terminal now instead of at the
         // next start, and send the pictures again (D137).
@@ -453,6 +453,10 @@ impl Router {
             }
             Effect::ListFiles(query) => {
                 system::list_files(query, self.results.clone());
+                true
+            }
+            Effect::ListPictures => {
+                pictures::list(state.pictures_dir.clone(), self.results.clone());
                 true
             }
             Effect::CheckCommand(program) => {

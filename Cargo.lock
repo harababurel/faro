@@ -1298,6 +1298,7 @@ dependencies = [
  "presage",
  "presage-store-sqlite",
  "rand 0.9.5",
+ "sqlx",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",

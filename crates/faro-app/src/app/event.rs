@@ -80,6 +80,16 @@ pub enum AppEvent {
         index: usize,
         result: Result<AttachmentRef, BackendError>,
     },
+    /// The pictures folder was read (`Effect::ListPictures`, D160): each
+    /// conversation faro already knows about, with its picture or `None`
+    /// when it has none.
+    PicturesListed(Vec<(ConversationId, Option<PathBuf>)>),
+    /// A conversation's picture was fetched and saved (`Command::FetchPicture`,
+    /// D160): `Ok(None)` when it has none.
+    PictureFetched {
+        conversation: ConversationId,
+        result: Result<Option<PathBuf>, BackendError>,
+    },
     /// A voice-note transcription finished (`Command::Transcribe`, D82).
     Transcribed {
         conversation: ConversationId,
@@ -260,6 +270,9 @@ pub enum Effect {
     /// List a directory for the palette's file picker (`Level::AttachFile`, D77).
     /// Answered with `AppEvent::FilesListed`.
     ListFiles(String),
+    /// Read the pictures folder (D160). Answered with
+    /// `AppEvent::PicturesListed`.
+    ListPictures,
     /// Look for a program on `PATH` (the local transcription command, D145).
     /// Answered with `AppEvent::CommandChecked`.
     CheckCommand(String),
@@ -333,6 +346,9 @@ pub enum Command {
         index: usize,
         attachment: AttachmentRef,
     },
+    /// Fetch a conversation's picture and save it in the pictures folder
+    /// (D160). Answered with `AppEvent::PictureFetched`.
+    FetchPicture(ConversationId),
     /// Transcribe a downloaded voice note (`local` or `remote`, D82).
     /// Answered with `AppEvent::Transcribed`.
     Transcribe {

@@ -11,6 +11,7 @@ pub mod guard;
 pub mod mock;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod paths;
+pub mod pictures;
 pub mod rt;
 pub mod store;
 pub mod theme_file;

@@ -65,9 +65,12 @@ impl Router {
                 Effect::CheckTerminal => self.answer(AppEvent::TerminalChecked(BROWSER)),
                 // Settings last for the visit (D-c): the state already has them.
                 // The demo never checks for updates (D148).
-                Effect::SaveSetting(_) | Effect::DesktopNotify { .. } | Effect::CheckForUpdate => {
-                    true
-                }
+                // No pictures folder here: never answered, so the demo
+                // fetches no pictures and keeps initials (D161).
+                Effect::SaveSetting(_)
+                | Effect::DesktopNotify { .. }
+                | Effect::CheckForUpdate
+                | Effect::ListPictures => true,
                 Effect::StopAudio => {
                     self.page.stop();
                     true

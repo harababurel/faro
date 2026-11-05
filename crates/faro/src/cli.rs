@@ -142,6 +142,10 @@ pub enum Command {
         #[arg(long = "username", value_name = "NAME")]
         usernames: Vec<String>,
     },
+    /// Fetch profile and group pictures again: forgets the saved ones (and
+    /// presage's copies of profiles), so the next start fetches them. Quit
+    /// faro first
+    RefreshPictures,
 }
 
 /// `faro demo`'s flags (D87). Command line only: no environment variables,

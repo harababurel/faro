@@ -710,25 +710,7 @@ Notes (version, OS, what went wrong):
 
 ## Profile pictures: spike (D160)
 
-Stand-in pictures on the demo, to judge drawing before faro fetches any from Signal. Set up once (the tool needs Python 3 only):
-
-```fish
-python3 tools/avatars/make.py /tmp/faro-avatars 20
-```
-
-Then add to `config.toml` (or pick them in `Ctrl+P` › Settings › Conversations: Previews on, Avatars "pictures"):
-
-```toml
-[conversations]
-previews = true
-avatars = "pictures"
-```
-
-and run the demo with the pictures (any folder of JPEG/PNG photos works too):
-
-```fish
-env FARO_SPIKE_AVATARS=/tmp/faro-avatars faro demo
-```
+Checked with stand-in pictures (`FARO_SPIKE_AVATARS`, since removed: `faro demo` now draws its own, D161). The items still open can be checked with the demo as described in the next section.
 
 - [x] **kitty inside tmux:** each of the 9 chats shows a round picture in place of its initials square, crisp and not stretched; initials show for a moment at start, then the pictures appear without flicker.
 - [ ] **Scrolling:** make the window short enough that the list scrolls; `Alt+J`/`Alt+K` through the list and the mouse wheel: pictures move with their rows, a half-shown entry at the top or bottom shows half its picture, nothing lags or leaves ghosts behind.
@@ -742,3 +724,17 @@ env FARO_SPIKE_AVATARS=/tmp/faro-avatars faro demo
 Notes (version, OS, terminal, what went wrong):
 
 - 2026-11-05, owner, kitty → ssh → tmux on smithers (Debian): "they look nice". Over mosh they didn't show until reconnecting with ssh (expected: initials over mosh, D78).
+
+## Profile pictures from Signal (D161)
+
+Turn them on: `Ctrl+P` › Settings › Conversations › Previews on, Avatars "pictures" (or `[conversations] previews = true`, `avatars = "pictures"`).
+
+- [ ] **Demo:** `faro demo --fresh`: within a few seconds every chat but the number-only one gets a picture (groups show three heads); the number-only chat keeps its initials. Quit and start again (without `--fresh`): the pictures are there at once.
+- [ ] **Test account (kitty → ssh → tmux):** chats with people who have a profile picture show it; groups with a picture show theirs; people and groups without one keep initials. Your own Note to self shows your picture.
+- [ ] **Only when asked:** with Avatars "off" or "initials", `<data dir>/pictures/` stays empty (nothing is fetched).
+- [ ] **Allowlist:** with `--allowlist`, chats off the list get no picture (and the log has no errors beyond "not allowed").
+- [ ] **Refresh:** change a test contact's (or a group's) picture on the phone; faro keeps the old one. Quit faro, run `faro refresh-pictures` (with the same `--data-dir` if you use one): it says how many it forgot. Start faro: the new picture appears; names may show as numbers for a moment, then come back.
+- [ ] **Offline start:** start faro with the network off: initials; when the network comes back, the pictures arrive without a restart.
+- [ ] **Files:** `ls -l <data dir>/pictures`: `0600` files in a `0700` folder, `.pic` for pictures and empty `.none` for chats without one.
+
+Notes (version, OS, terminal, what went wrong):

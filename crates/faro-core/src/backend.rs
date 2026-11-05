@@ -101,6 +101,18 @@ pub trait Backend {
     /// Requires [`Capability::Attachments`].
     fn fetch_attachment(&self, attachment: &AttachmentRef)
     -> impl Future<Output = Result<Vec<u8>>>;
+
+    /// A conversation's picture: the person's profile picture, or the
+    /// group's. `Ok(None)`: it has none. An error means it couldn't be
+    /// fetched now (try again another time), not that there is none.
+    /// Requires [`Capability::Pictures`] (D160).
+    fn fetch_picture(
+        &self,
+        conversation: ConversationId,
+    ) -> impl Future<Output = Result<Option<Vec<u8>>>> {
+        let _ = conversation;
+        std::future::ready(Err(BackendError::Unsupported(Capability::Pictures)))
+    }
 }
 
 /// The linked account.
@@ -171,16 +183,24 @@ pub enum Capability {
     Edit,
     DeleteForEveryone,
     Attachments,
+    /// Profile and group pictures ([`Backend::fetch_picture`], D160).
+    Pictures,
 }
 
 impl Capability {
-    pub const ALL: [Self; 3] = [Self::Edit, Self::DeleteForEveryone, Self::Attachments];
+    pub const ALL: [Self; 4] = [
+        Self::Edit,
+        Self::DeleteForEveryone,
+        Self::Attachments,
+        Self::Pictures,
+    ];
 
     const fn bit(self) -> u8 {
         match self {
             Self::Edit => 1,
             Self::DeleteForEveryone => 1 << 1,
             Self::Attachments => 1 << 2,
+            Self::Pictures => 1 << 3,
         }
     }
 }
