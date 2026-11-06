@@ -751,11 +751,13 @@ Notes (version, OS, terminal, what went wrong):
 
 ## Safety numbers and key changes (D163)
 
-- [ ] **Info sidebar (`Alt+I`):** open a direct chat and press `Alt+I`: a `Safety number` section shows `Not verified` (or `✓ Verified`) above 3 rows of 4 five-digit groups (60 digits total). In `faro` on a linked account, compare the 60 digits with Signal on your phone (Chat settings › View safety number): they match.
-- [ ] **Popup (`Popup::SafetyNumber`):** in a direct chat, open `Space` (conversation menu) or `Ctrl+P` › *Verify safety number…*: a centred box shows the contact's name, verification status, the 3×4 five-digit groups, and key hints (`v` verify, `u` mark unverified, `y` copy, `Esc` close).
-- [ ] **Verify / unverify & sync:** press `v` in the safety-number popup: status changes to `✓ Marked as verified` (and `✓ Verified` in `Alt+I`), and Signal on your phone shows the contact as verified. Press `v` again (or `u`): status updates and syncs back. Press `y`: the 12 five-digit blocks are copied to the clipboard.
-- [ ] **Key change & send guard:** when a contact's identity key changes, faro shows a warning banner above the input (`⚠ Safety number with <Name> changed — verify before sending`) and refuses to send (`Enter`) until you open *Verify safety number…* and press `v` (verify) or `a` (approve new key).
+- [x] **Info sidebar (`Alt+I`):** open a direct chat and press `Alt+I`: a `Safety number` section shows `Not verified` (or `✓ Verified`) above 3 rows of 4 five-digit groups (60 digits total). In `faro` on a linked account, compare the 60 digits with Signal on your phone (Chat settings › View safety number): they match.
+- [x] **Popup (`Popup::SafetyNumber`):** in a direct chat, open `Space` (conversation menu) or `Ctrl+P` › *Verify safety number…*: a centred box shows the contact's name, verification status, the 3×4 five-digit groups, and key hints (`v` verify, `u` mark unverified, `y` copy, `Esc` close).
+- [x] **Verify / unverify & sync:** press `v` in the safety-number popup: status changes to `✓ Marked as verified` (and `✓ Verified` in `Alt+I`), and Signal on your phone shows the contact as verified. Press `v` again (or `u`): status updates and syncs back. Press `y`: the 12 five-digit blocks are copied to the clipboard.
+- [x] **Key change & send guard:** when a contact's identity key changes, faro shows a warning banner above the input (`⚠ Safety number with <Name> changed — verify before sending`) and refuses to send (`Enter`) until you open *Verify safety number…* and press `v` (verify) or `a` (approve new key).
 
 Notes (version, OS, terminal, what went wrong):
+
+- 2026-11-06, owner: all 4 checks passed on personal account (60-digit safety number matched Signal on phone, two-way verification sync worked, and simulated key change showed warning banner, blocked sending, and cleared on approval/verification).
 
 
