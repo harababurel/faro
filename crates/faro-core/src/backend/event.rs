@@ -1,4 +1,4 @@
-use super::BackendError;
+use super::{BackendError, IdentityUpdate};
 use crate::domain::{
     ConnectionState, Contact, ConversationId, DeliveryStatus, Group, Mention, Message, MessageBody,
     MessageRef, ServiceId, Timestamp, TypingState,
@@ -64,6 +64,10 @@ pub enum BackendEvent {
 
     /// A group was added or changed (title, members).
     GroupUpdated(Group),
+
+    /// A contact's identity key (60-digit safety number) or verification
+    /// state was learned or changed (D163).
+    IdentityUpdated(IdentityUpdate),
 
     /// A problem that didn't come from a request, e.g. a message that failed to
     /// decrypt or the device being unlinked.

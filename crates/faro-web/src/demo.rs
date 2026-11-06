@@ -114,6 +114,7 @@ pub async fn stored_state(mock: &MockConfig) -> Result<(State, Store), Error> {
     let me = backend.whoami().await?.service_id;
     let contacts = backend.contacts().await?;
     let groups = backend.groups().await?;
+    let identities = backend.identities().await?;
     let capabilities = backend.capabilities();
     let backlog = backlog(events).await;
     drop(backend);
@@ -121,10 +122,11 @@ pub async fn stored_state(mock: &MockConfig) -> Result<(State, Store), Error> {
     let store = Store::memory();
     store.upsert_contacts(contacts.clone()).await?;
     store.upsert_groups(groups.clone()).await?;
+    store.upsert_identities(identities).await?;
     for event in backlog {
         store.apply(event).await?;
     }
-    let mut state = State::new(me, contacts, groups);
+    let mut state = State::new(me, contacts, groups).with_identities(store.identities().await?);
     // The demo's own settings and environment, as the live session sets them
     // (D114, D116): the poster's frame is the live demo's, so it runs with the
     // same emoji mode, colours and key map. What configuring returns goes to

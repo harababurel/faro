@@ -10,16 +10,16 @@ use sqlx::{ConnectOptions as _, Connection as _};
 use super::codec::{
     conversation_from_key, conversation_key, count_from_db, direction_from_db, direction_to_db,
     optional_timestamp_from_db, service_id_from_db, status_from_db, status_to_db,
-    timestamp_from_db, timestamp_to_db,
+    timestamp_from_db, timestamp_to_db, verification_from_db,
 };
 use super::{
     ConversationState, ConversationSummary, NotifyLevel, PROFILE_KEY, Profile, RecipientReceipt,
     Result, SearchHit, StoreError, StoreStats, StoredProfile, decide,
 };
-use crate::backend::BackendEvent;
+use crate::backend::{BackendEvent, IdentityUpdate};
 use crate::domain::{
-    Contact, ConversationId, DeliveryStatus, Direction, Group, Mention, Message, MessageBody,
-    MessageRef, PhoneNumber, Quote, Reaction, ServiceId, Timestamp,
+    Contact, ConversationId, DeliveryStatus, Direction, Group, IdentityRecord, Mention, Message,
+    MessageBody, MessageRef, PhoneNumber, Quote, Reaction, ServiceId, Timestamp, VerificationState,
 };
 
 mod attachments;
@@ -93,6 +93,7 @@ impl Db {
                 self.read_elsewhere(&messages).await.map(|_| ())
             }
             BackendEvent::ContactUpdated(contact) => self.upsert_contacts(&[contact]).await,
+            BackendEvent::IdentityUpdated(update) => self.upsert_identities(&[update]).await,
             BackendEvent::GroupUpdated(group) => self.upsert_groups(&[group]).await,
             BackendEvent::Connection(_) | BackendEvent::Typing { .. } | BackendEvent::Error(_) => {
                 Ok(())
@@ -936,6 +937,82 @@ impl Db {
         ensure_recipient(&mut tx, id).await?;
         sqlx::query("UPDATE recipients SET nickname = ?1 WHERE service_id = ?2")
             .bind(nickname)
+            .bind(id.to_string())
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Everyone whose safety number or non-default verification state is recorded (D163).
+    pub(super) async fn identities(&mut self) -> Result<HashMap<ServiceId, IdentityRecord>> {
+        let rows: Vec<(String, Option<String>, String, bool)> = sqlx::query_as(
+            "SELECT service_id, safety_number, verified, key_changed FROM recipients
+             WHERE safety_number IS NOT NULL OR verified != 'default' OR key_changed != 0",
+        )
+        .fetch_all(&mut self.conn)
+        .await?;
+        rows.into_iter()
+            .map(|(id, safety_number, verified, key_changed)| {
+                Ok((
+                    service_id_from_db(&id, "recipients.service_id")?,
+                    IdentityRecord {
+                        safety_number,
+                        verified: verification_from_db(&verified)?,
+                        key_changed,
+                    },
+                ))
+            })
+            .collect()
+    }
+
+    /// Record safety numbers and optional synced verification states from the backend (D163).
+    pub(super) async fn upsert_identities(&mut self, updates: &[IdentityUpdate]) -> Result<()> {
+        let mut tx = self.conn.begin().await?;
+        for update in updates {
+            ensure_recipient(&mut tx, update.service_id).await?;
+            let id_str = update.service_id.to_string();
+            let (safety_number, verified, key_changed): (Option<String>, String, bool) =
+                sqlx::query_as(
+                    "SELECT safety_number, verified, key_changed FROM recipients
+                     WHERE service_id = ?1",
+                )
+                .bind(&id_str)
+                .fetch_one(&mut *tx)
+                .await?;
+            let mut record = IdentityRecord {
+                safety_number,
+                verified: verification_from_db(&verified)?,
+                key_changed,
+            };
+            record.update(update.safety_number.clone(), update.verified);
+            sqlx::query(
+                "UPDATE recipients
+                 SET safety_number = ?1, verified = ?2, key_changed = ?3
+                 WHERE service_id = ?4",
+            )
+            .bind(record.safety_number.as_deref())
+            .bind(record.verified.as_str())
+            .bind(i64::from(record.key_changed))
+            .bind(&id_str)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Record a user-chosen verification state (or approval of a changed key),
+    /// clearing `key_changed` (D163).
+    pub(super) async fn set_verification(
+        &mut self,
+        id: ServiceId,
+        verified: VerificationState,
+    ) -> Result<()> {
+        let mut tx = self.conn.begin().await?;
+        ensure_recipient(&mut tx, id).await?;
+        sqlx::query("UPDATE recipients SET verified = ?1, key_changed = 0 WHERE service_id = ?2")
+            .bind(verified.as_str())
             .bind(id.to_string())
             .execute(&mut *tx)
             .await?;

@@ -9,7 +9,7 @@ use faro_core::clipboard::ReadError;
 use faro_core::config::{SettingEdit, Voice};
 use faro_core::domain::{
     AttachmentRef, ConversationId, Message, MessageRef, ServiceId, Timestamp, TranscriptSource,
-    TypingState,
+    TypingState, VerificationState,
 };
 use faro_core::store::{ConversationState, ConversationSummary, RecipientReceipt, SearchHit};
 
@@ -226,6 +226,8 @@ pub enum Effect {
     RememberOpen(ConversationId),
     /// Store someone's nickname, or remove it (`None`) (D65).
     SaveNickname(ServiceId, Option<String>),
+    /// Store someone's safety-number verification state and clear `key_changed` (D163).
+    SaveVerification(ServiceId, VerificationState),
     /// Store the reactions last sent from here, most recent first (D104).
     SaveRecentReactions(Vec<String>),
     /// Read what the last run knew about updates (D148); answered with
@@ -367,6 +369,12 @@ pub enum Command {
     Typing {
         conversation: ConversationId,
         state: TypingState,
+    },
+    /// Save someone's safety-number verification state in the backend and sync
+    /// it to other linked devices (D163). No answer; failures are only logged.
+    SetVerification {
+        peer: ServiceId,
+        verified: VerificationState,
     },
 }
 

@@ -21,10 +21,10 @@ use std::str::FromStr as _;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous};
 use tokio::sync::{mpsc, oneshot};
 
-use crate::backend::BackendEvent;
+use crate::backend::{BackendEvent, IdentityUpdate};
 use crate::domain::{
-    AttachmentRef, Contact, ConversationId, DeliveryStatus, Group, Message, MessageBody,
-    MessageRef, PhoneNumber, ServiceId, Timestamp,
+    AttachmentRef, Contact, ConversationId, DeliveryStatus, Group, IdentityRecord, Message,
+    MessageBody, MessageRef, PhoneNumber, ServiceId, Timestamp, VerificationState,
 };
 #[cfg(feature = "sqlite")]
 use crate::paths;
@@ -325,6 +325,9 @@ enum Request {
     RemoveAppState(String, Reply<()>),
     Nicknames(Reply<HashMap<ServiceId, String>>),
     SetNickname(ServiceId, Option<String>, Reply<()>),
+    Identities(Reply<HashMap<ServiceId, IdentityRecord>>),
+    UpsertIdentities(Vec<IdentityUpdate>, Reply<()>),
+    SetVerification(ServiceId, VerificationState, Reply<()>),
     Stats(Reply<StoreStats>),
     Close(Reply<()>),
 }
@@ -575,6 +578,25 @@ impl Store {
             .await
     }
 
+    /// Everyone whose safety number or verification state is recorded (D163).
+    pub async fn identities(&self) -> Result<HashMap<ServiceId, IdentityRecord>> {
+        self.call(Request::Identities).await
+    }
+
+    /// Record safety numbers and optional synced verification states from the
+    /// backend, flagging any changed safety numbers (D163).
+    pub async fn upsert_identities(&self, updates: Vec<IdentityUpdate>) -> Result<()> {
+        self.call(|reply| Request::UpsertIdentities(updates, reply))
+            .await
+    }
+
+    /// Record a user-chosen verification state (or approval of a changed key),
+    /// clearing `key_changed` (D163).
+    pub async fn set_verification(&self, id: ServiceId, verified: VerificationState) -> Result<()> {
+        self.call(|reply| Request::SetVerification(id, verified, reply))
+            .await
+    }
+
     /// Stop the store task and close the database cleanly (checkpointing the WAL).
     /// Other handles get [`StoreError::Closed`] afterwards.
     pub async fn close(self) -> Result<()> {
@@ -720,6 +742,15 @@ async fn handle(engine: &mut Engine, request: Request) -> Option<Reply<()>> {
         }
         Request::SetNickname(id, nickname, reply) => {
             let _ = reply.send(call!(engine, set_nickname(id, nickname.as_deref())));
+        }
+        Request::Identities(reply) => {
+            let _ = reply.send(call!(engine, identities()));
+        }
+        Request::UpsertIdentities(updates, reply) => {
+            let _ = reply.send(call!(engine, upsert_identities(&updates)));
+        }
+        Request::SetVerification(id, verified, reply) => {
+            let _ = reply.send(call!(engine, set_verification(id, verified)));
         }
         Request::Close(reply) => return Some(reply),
     }

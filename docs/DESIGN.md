@@ -183,6 +183,8 @@ pub trait Backend {                       // no Send bound: futures may be !Send
     async fn send_typing(&self, to: ConversationId, state: TypingState) -> Result<()>;
     async fn fetch_attachment(&self, attachment: &AttachmentRef) -> Result<Vec<u8>>; // bytes; faro writes the file (D75)
     async fn fetch_picture(&self, conversation: ConversationId) -> Result<Option<Vec<u8>>>; // profile or group picture, None = has none (D161)
+    async fn identities(&self) -> Result<Vec<IdentityUpdate>>; // 60-digit safety numbers & verification state (D163)
+    async fn set_verification(&self, peer: ServiceId, verified: VerificationState) -> Result<()>; // persist + SyncMessage::Verified (D163)
 }
 ```
 
@@ -208,7 +210,7 @@ presage keeps its own store for keys, sessions and protocol state; faro never to
 
 | Table | Key fields |
 |---|---|
-| `recipients` | service_id (PK), contact name, profile name, phone (nullable) |
+| `recipients` | service_id (PK), contact name, profile name, phone (nullable), nickname (D65), safety_number, verified (`default`/`verified`/`unverified`), key_changed (D163) |
 | `conversations` | id (PK; `direct:<service id>` or `group:<hex>`), kind (direct/group), peer (direct: recipient), title (groups), last_activity, unread_count |
 | `group_members` | group_id, service_id |
 | `conversation_state` | conversation_id, **hidden**, **archived**, **pinned** (order), **muted_until**, draft text, **allowed** (allowlist, D41) |

@@ -29,10 +29,11 @@ use tokio::sync::mpsc;
 
 use crate::backend::{
     Account, Backend, BackendError, BackendEvent, BackendEvents, Capabilities,
-    EVENT_CHANNEL_CAPACITY, OutgoingEdit, OutgoingMessage, ReactionChange, Result,
+    EVENT_CHANNEL_CAPACITY, IdentityUpdate, OutgoingEdit, OutgoingMessage, ReactionChange, Result,
 };
 use crate::domain::{
     AttachmentRef, Contact, ConversationId, Group, GroupId, MessageRef, ServiceId, TypingState,
+    VerificationState,
 };
 
 /// Who faro may talk to.
@@ -137,6 +138,7 @@ impl Shared {
             | BackendEvent::Deleted { conversation, .. }
             | BackendEvent::Typing { conversation, .. } => self.list.allows(*conversation),
             BackendEvent::ContactUpdated(contact) => self.knows(contact.service_id),
+            BackendEvent::IdentityUpdated(update) => self.knows(update.service_id),
             BackendEvent::GroupUpdated(group) => {
                 self.learn(group);
                 self.list.groups.contains(&group.id)
@@ -249,6 +251,23 @@ impl<B: Backend> Backend for Guarded<B> {
             .into_iter()
             .filter(|g| self.shared.list.groups.contains(&g.id))
             .collect())
+    }
+
+    async fn identities(&self) -> Result<Vec<IdentityUpdate>> {
+        self.groups().await?;
+        let updates = self.inner.identities().await?;
+        Ok(updates
+            .into_iter()
+            .filter(|u| self.shared.knows(u.service_id))
+            .collect())
+    }
+
+    async fn set_verification(&self, peer: ServiceId, verified: VerificationState) -> Result<()> {
+        if !self.shared.knows(peer) {
+            tracing::warn!("allowlist: blocked verification change for someone not listed");
+            return Err(BackendError::NotAllowed);
+        }
+        self.inner.set_verification(peer, verified).await
     }
 
     /// Only allowed conversations are asked about, and what comes back is

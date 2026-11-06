@@ -2458,6 +2458,118 @@ fn forward_attachment_only_message_requires_download_first() {
     );
 }
 
+#[test]
+fn safety_number_change_blocks_sending_until_verified_or_approved() {
+    use faro_core::backend::IdentityUpdate;
+    use faro_core::domain::VerificationState;
+
+    let mut state = loaded_state();
+    // Loaded state opens Climbing (a group containing ALICE and BOB).
+    let sn1 = "1".repeat(60);
+    let sn2 = "2".repeat(60);
+
+    // Initial safety number for ALICE: recorded as Verified, no warning.
+    let effects = update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::IdentityUpdated(IdentityUpdate {
+            service_id: ALICE,
+            safety_number: sn1.clone(),
+            verified: Some(VerificationState::Verified),
+        })),
+    );
+    assert!(effects.iter().any(|e| matches!(
+        e,
+        Effect::Persist(ev) if matches!(**ev, BackendEvent::IdentityUpdated(_))
+    )));
+    assert_eq!(
+        state
+            .identities
+            .get(&ALICE)
+            .map(|i| (i.verified, i.key_changed)),
+        Some((VerificationState::Verified, false))
+    );
+
+    // ALICE's safety number changes mid-session: downgraded to Unverified, key_changed = true.
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::IdentityUpdated(IdentityUpdate {
+            service_id: ALICE,
+            safety_number: sn2.clone(),
+            verified: None,
+        })),
+    );
+    assert_eq!(
+        state
+            .identities
+            .get(&ALICE)
+            .map(|i| (i.verified, i.key_changed)),
+        Some((VerificationState::Unverified, true))
+    );
+    assert_eq!(
+        state.notice.as_ref().map(|n| n.text.as_str()),
+        Some("Safety number with Alice 🌸 changed — verify before sending")
+    );
+
+    // Attempting to send in Climbing (where Alice is a member) is blocked and keeps the input.
+    typed(&mut state, "Secret plan");
+    let send_effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(send_effects, vec![]);
+    assert_eq!(
+        state.open.as_ref().map(|o| o.input.text()),
+        Some("Secret plan")
+    );
+    assert_eq!(
+        state.notice.as_ref().map(|n| n.text.as_str()),
+        Some("Safety number with Alice 🌸 changed — verify or approve before sending")
+    );
+
+    // Open Popup::SafetyNumber via ConversationAction::SafetyNumber, copy ('y'), then verify ('v').
+    super::curation::perform(
+        &mut state,
+        climbing(),
+        crate::app::state::ConversationAction::SafetyNumber,
+    );
+    assert_eq!(state.popup, Some(Popup::SafetyNumber(ALICE)));
+
+    let copy_effects = press(&mut state, 'y');
+    assert_eq!(
+        copy_effects,
+        vec![Effect::Copy(
+            faro_core::domain::format_safety_number(&sn2).join("\n")
+        )]
+    );
+    assert_eq!(state.popup, Some(Popup::SafetyNumber(ALICE)));
+
+    let verify_effects = press(&mut state, 'v');
+    assert_eq!(
+        verify_effects,
+        vec![
+            Effect::SaveVerification(ALICE, VerificationState::Verified),
+            Effect::Backend(Command::SetVerification {
+                peer: ALICE,
+                verified: VerificationState::Verified,
+            }),
+        ]
+    );
+    assert_eq!(
+        state
+            .identities
+            .get(&ALICE)
+            .map(|i| (i.verified, i.key_changed)),
+        Some((VerificationState::Verified, false))
+    );
+
+    // Close popup and send: now succeeds.
+    update(&mut state, key(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(state.popup.is_none());
+    let send_effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(
+        send_effects
+            .iter()
+            .any(|e| matches!(e, Effect::Backend(Command::Send { .. })))
+    );
+}
+
 mod clipboard;
 mod curation;
 mod focus;

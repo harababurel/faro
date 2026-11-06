@@ -7,19 +7,21 @@ use std::time::{Duration, SystemTime};
 
 use faro_core::backend::{
     Account, Backend, BackendError, BackendEvent, BackendEvents, Capabilities, Capability,
-    EVENT_CHANNEL_CAPACITY, OutgoingEdit, OutgoingMessage, ReactionChange, Result,
+    EVENT_CHANNEL_CAPACITY, IdentityUpdate, OutgoingEdit, OutgoingMessage, ReactionChange, Result,
 };
 use faro_core::domain::{
     AttachmentRef, ConnectionState, Contact, ConversationId, Group, GroupId, MessageRef,
-    PhoneNumber, ServiceId, TypingState,
+    PhoneNumber, ServiceId, TypingState, VerificationState,
 };
 use futures::StreamExt as _;
 use presage::libsignal_service::content::ContentBody;
 use presage::libsignal_service::prelude::ServiceError;
+use presage::libsignal_service::protocol::{DeviceId, IdentityKeyStore as _, ProtocolAddress};
+use presage::libsignal_service::session_store::SessionStoreExt as _;
 use presage::libsignal_service::zkgroup::profiles::ProfileKey;
 use presage::model::messages::Received;
 use presage::proto::SyncMessage;
-use presage::store::{ContentsStore as _, Thread};
+use presage::store::{ContentsStore as _, Store as _, Thread};
 use presage_store_sqlite::SqliteStoreError;
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -44,6 +46,8 @@ pub struct PresageBackend {
     me: ServiceId,
     /// Master key and revision of each group seen, by faro's group ID.
     groups: Rc<RefCell<HashMap<GroupId, (MasterKey, u32)>>>,
+    /// Last seen serialized identity key for each peer in this session (D163).
+    identity_keys: Rc<RefCell<HashMap<ServiceId, Vec<u8>>>>,
     /// For contacts whose profile arrives later.
     events: mpsc::Sender<BackendEvent>,
 }
@@ -56,6 +60,7 @@ pub fn start(manager: Linked) -> (PresageBackend, BackendEvents) {
         manager,
         me,
         groups: Rc::default(),
+        identity_keys: Rc::default(),
         events: events.clone(),
     };
     tokio::task::spawn_local(receive(backend.clone(), events));
@@ -148,7 +153,27 @@ impl PresageBackend {
         result.map_err(|e| {
             tracing::warn!(error = %e, "sending failed");
             backend_error(&e)
-        })
+        })?;
+        match to {
+            ConversationId::Direct(peer) if peer != self.me => {
+                let _ = self.check_identity(peer, &self.events).await;
+            }
+            ConversationId::Direct(_) => {}
+            ConversationId::Group(group) => {
+                let key = self.groups.borrow().get(&group).map(|(k, _)| *k);
+                if let Some(key) = key
+                    && let Ok(Some(g)) = self.manager.store().group(key).await
+                {
+                    for member in g.members {
+                        let id = ServiceId::Aci(Uuid::from(member.aci));
+                        if id != self.me {
+                            let _ = self.check_identity(id, &self.events).await;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     fn group_of(&self, to: ConversationId) -> Result<Option<presage::proto::GroupContextV2>> {
@@ -311,6 +336,86 @@ impl PresageBackend {
             tracing::debug!(%error, "saving a profile key failed");
         }
     }
+
+    async fn peer_identity_key(&self, id: ServiceId) -> Option<Vec<u8>> {
+        let device_id = DeviceId::try_from(1u32).ok()?;
+        let addr = ProtocolAddress::new(convert::signal_id(id).service_id_string(), device_id);
+        let protocol_store = self.manager.store().aci_protocol_store();
+        protocol_store
+            .get_identity(&addr)
+            .await
+            .ok()
+            .flatten()
+            .map(|key| key.serialize().to_vec())
+    }
+
+    /// Compute the 60-digit safety number and phone-synced verification state
+    /// for `id`, if presage has an identity key for them (D163).
+    async fn identity_update(&self, id: ServiceId) -> Option<IdentityUpdate> {
+        if id == self.me {
+            return None;
+        }
+        let key_bytes = self.peer_identity_key(id).await?;
+        let local = convert::signal_id(self.me);
+        let peer = convert::signal_id(id);
+        let safety_number = self
+            .manager
+            .store()
+            .aci_protocol_store()
+            .compute_safety_number(&local, &peer)
+            .await
+            .ok()?;
+        self.identity_keys
+            .borrow_mut()
+            .insert(id, key_bytes.clone());
+        let verified = self
+            .manager
+            .store()
+            .contact_by_id(&peer)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|c| {
+                let stored_key = c.verified.identity_key.as_deref().unwrap_or(&[]);
+                if stored_key.is_empty() || stored_key == key_bytes {
+                    Some(convert::verification_state(c.verified.state()))
+                } else {
+                    None
+                }
+            });
+        Some(IdentityUpdate {
+            service_id: id,
+            safety_number,
+            verified,
+        })
+    }
+
+    /// Check whether `id`'s identity key in presage's store is new or changed
+    /// since we last observed it in this session, and emit `IdentityUpdated`
+    /// if so. Returns `false` only if the event channel closed.
+    async fn check_identity(&self, id: ServiceId, events: &mpsc::Sender<BackendEvent>) -> bool {
+        if id == self.me {
+            return true;
+        }
+        let Some(key_bytes) = self.peer_identity_key(id).await else {
+            return true;
+        };
+        let unchanged = self
+            .identity_keys
+            .borrow()
+            .get(&id)
+            .is_some_and(|prev| *prev == key_bytes);
+        if unchanged {
+            return true;
+        }
+        let Some(update) = self.identity_update(id).await else {
+            return true;
+        };
+        events
+            .send(BackendEvent::IdentityUpdated(update))
+            .await
+            .is_ok()
+    }
 }
 
 impl Backend for PresageBackend {
@@ -363,6 +468,54 @@ impl Backend for PresageBackend {
 
     async fn groups(&self) -> Result<Vec<Group>> {
         self.groups_from_store().await
+    }
+
+    async fn identities(&self) -> Result<Vec<IdentityUpdate>> {
+        let synced = self
+            .manager
+            .store()
+            .contacts()
+            .await
+            .map_err(|e| BackendError::Storage(e.to_string()))?;
+        let mut ids: Vec<ServiceId> = synced
+            .filter_map(std::result::Result::ok)
+            .map(|c| ServiceId::Aci(c.uuid))
+            .collect();
+        for group in self.groups_from_store().await? {
+            ids.extend(group.members);
+        }
+        ids.sort();
+        ids.dedup();
+        ids.retain(|id| *id != self.me);
+        let mut updates = Vec::new();
+        for id in ids {
+            if let Some(update) = self.identity_update(id).await {
+                updates.push(update);
+            }
+        }
+        Ok(updates)
+    }
+
+    async fn set_verification(&self, peer: ServiceId, verified: VerificationState) -> Result<()> {
+        let Some(identity_key) = self.peer_identity_key(peer).await else {
+            return Err(BackendError::NotFound);
+        };
+        let mut store = self.manager.store().clone();
+        if let Ok(Some(mut contact)) = store.contact_by_id(&convert::signal_id(peer)).await {
+            contact
+                .verified
+                .set_state(convert::proto_verification_state(verified));
+            contact.verified.identity_key = Some(identity_key.clone());
+            if let Err(error) = store.save_contact(&contact).await {
+                tracing::warn!(%error, "saving contact verification failed");
+            }
+        }
+        if let Some(mut sync) = convert::verified_sync_message(peer, identity_key, verified) {
+            sync.padding = SyncMessage::with_padding(&mut rand::rng()).padding;
+            self.deliver(ConversationId::Direct(self.me), sync, now_millis())
+                .await?;
+        }
+        Ok(())
     }
 
     /// What presage kept in these conversations' threads (it saves every
@@ -652,11 +805,20 @@ async fn on_received(
                 return true;
             };
             for contact in contacts {
-                seen.people.insert(contact.service_id);
+                let id = contact.service_id;
+                seen.people.insert(id);
                 if events
                     .send(BackendEvent::ContactUpdated(contact))
                     .await
                     .is_err()
+                {
+                    return false;
+                }
+                if let Some(update) = backend.identity_update(id).await
+                    && events
+                        .send(BackendEvent::IdentityUpdated(update))
+                        .await
+                        .is_err()
                 {
                     return false;
                 }
@@ -670,15 +832,48 @@ async fn on_received(
                 return false;
             }
             let sender = convert::service_id(&content.metadata.sender);
-            if sender != backend.me && seen.people.insert(sender) {
-                if events
-                    .send(BackendEvent::ContactUpdated(backend.contact(sender).await))
-                    .await
-                    .is_err()
-                {
+            if sender != backend.me {
+                if seen.people.insert(sender) {
+                    if events
+                        .send(BackendEvent::ContactUpdated(backend.contact(sender).await))
+                        .await
+                        .is_err()
+                    {
+                        return false;
+                    }
+                    recheck_profile(backend.clone(), events.clone(), sender);
+                }
+                if !backend.check_identity(sender, events).await {
                     return false;
                 }
-                recheck_profile(backend.clone(), events.clone(), sender);
+            }
+            if let Some(sync) = convert::verified_sync(&content, backend.me) {
+                let mut store = backend.manager.store().clone();
+                if let Ok(Some(mut contact)) =
+                    store.contact_by_id(&convert::signal_id(sync.peer)).await
+                {
+                    contact
+                        .verified
+                        .set_state(convert::proto_verification_state(sync.state));
+                    if let Some(key) = &sync.identity_key {
+                        contact.verified.identity_key = Some(key.clone());
+                    }
+                    let _ = store.save_contact(&contact).await;
+                }
+                if let Some(mut update) = backend.identity_update(sync.peer).await {
+                    if sync.identity_key.is_none()
+                        || backend.peer_identity_key(sync.peer).await == sync.identity_key
+                    {
+                        update.verified = Some(sync.state);
+                    }
+                    if events
+                        .send(BackendEvent::IdentityUpdated(update))
+                        .await
+                        .is_err()
+                    {
+                        return false;
+                    }
+                }
             }
             for event in convert::events(&content, backend.me) {
                 if events.send(event).await.is_err() {

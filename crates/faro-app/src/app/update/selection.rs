@@ -8,7 +8,8 @@ use faro_core::backend::{BackendError, BackendEvent, Capability, OutgoingMessage
 use faro_core::config::{AutoDownload, TranscribeMode};
 use faro_core::domain::{
     AttachmentRef, AttachmentStatus, ConversationId, DeliveryStatus, Direction, Message,
-    MessageBody, MessageRef, Quote, ServiceId, Timestamp, TranscriptSource,
+    MessageBody, MessageRef, Quote, ServiceId, Timestamp, TranscriptSource, VerificationState,
+    format_safety_number,
 };
 use faro_core::rt::Instant;
 use faro_core::store::{RecipientReceipt, RemoteTranscription};
@@ -381,7 +382,75 @@ pub fn on_popup(state: &mut State, key: PopupKey) -> Vec<Effect> {
             selected,
         } => curation::on_menu_key(state, target, items, selected, key),
         Popup::Mute { target, selected } => curation::on_mute_key(state, target, selected, key),
+        Popup::SafetyNumber(peer) => on_safety_number_key(state, peer, key),
     }
+}
+
+fn on_safety_number_key(state: &mut State, peer: ServiceId, key: PopupKey) -> Vec<Effect> {
+    match key {
+        PopupKey::Choose | PopupKey::Char('v') => {
+            let currently_verified = state
+                .identities
+                .get(&peer)
+                .is_some_and(|i| i.verified == VerificationState::Verified && !i.key_changed);
+            let next = if currently_verified {
+                VerificationState::Default
+            } else {
+                VerificationState::Verified
+            };
+            set_peer_verification(state, peer, next, false)
+        }
+        PopupKey::Char('u') => {
+            set_peer_verification(state, peer, VerificationState::Unverified, false)
+        }
+        PopupKey::Char('a') => set_peer_verification(state, peer, VerificationState::Default, true),
+        PopupKey::Char('y') => {
+            state.popup = Some(Popup::SafetyNumber(peer));
+            let Some(sn) = state
+                .identities
+                .get(&peer)
+                .and_then(|i| i.safety_number.as_deref())
+            else {
+                return vec![];
+            };
+            let formatted = format_safety_number(sn).join("\n");
+            state.notice = Some(Notice::info("Copied safety number"));
+            vec![Effect::Copy(formatted)]
+        }
+        PopupKey::Close | PopupKey::Char('q') => vec![],
+        PopupKey::Previous | PopupKey::Next | PopupKey::Backspace | PopupKey::Char(_) => {
+            state.popup = Some(Popup::SafetyNumber(peer));
+            vec![]
+        }
+    }
+}
+
+fn set_peer_verification(
+    state: &mut State,
+    peer: ServiceId,
+    verified: VerificationState,
+    approved_change: bool,
+) -> Vec<Effect> {
+    state.popup = Some(Popup::SafetyNumber(peer));
+    state
+        .identities
+        .entry(peer)
+        .or_default()
+        .set_verified(verified);
+    let name = state.person_name(peer);
+    let text = match verified {
+        VerificationState::Verified => format!("Marked {name} as verified"),
+        VerificationState::Unverified => format!("Marked {name} as unverified"),
+        VerificationState::Default if approved_change => {
+            format!("Approved new safety number for {name}")
+        }
+        VerificationState::Default => format!("Cleared verification for {name}"),
+    };
+    state.notice = Some(Notice::info(text));
+    vec![
+        Effect::SaveVerification(peer, verified),
+        Effect::Backend(Command::SetVerification { peer, verified }),
+    ]
 }
 
 pub(super) fn cycle(at: usize, len: usize, forward: bool) -> usize {
@@ -997,6 +1066,9 @@ fn retry(state: &mut State, target: MessageRef) -> Vec<Effect> {
         return vec![];
     };
     let conversation = open.id;
+    if super::sending::block_if_key_changed(state, conversation) {
+        return vec![];
+    }
     let Some(message) =
         find(state, target).filter(|m| m.direction == Direction::Outgoing(DeliveryStatus::Failed))
     else {

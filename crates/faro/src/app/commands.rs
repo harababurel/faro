@@ -573,7 +573,8 @@ async fn execute<B: Backend>(
         | Command::FetchPicture(_)
         | Command::Transcribe { .. }
         | Command::MarkRead(_)
-        | Command::Typing { .. }) => other,
+        | Command::Typing { .. }
+        | Command::SetVerification { .. }) => other,
     };
     shared::execute(backend, command).await
 }

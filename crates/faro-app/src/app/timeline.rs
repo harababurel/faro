@@ -63,6 +63,7 @@ pub fn apply(messages: &mut Vec<Message>, event: &BackendEvent) {
         | BackendEvent::ReadElsewhere(_)
         | BackendEvent::ContactUpdated(_)
         | BackendEvent::GroupUpdated(_)
+        | BackendEvent::IdentityUpdated(_)
         | BackendEvent::Error(_) => {}
     }
 }

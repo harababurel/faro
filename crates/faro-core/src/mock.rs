@@ -31,10 +31,10 @@ use self::sim::{Millis, Sim, millis};
 use self::world::World;
 use crate::backend::{
     Account, Backend, BackendError, BackendEvent, BackendEvents, Capabilities, Capability,
-    EVENT_CHANNEL_CAPACITY, OutgoingEdit, OutgoingMessage, ReactionChange, Result,
+    EVENT_CHANNEL_CAPACITY, IdentityUpdate, OutgoingEdit, OutgoingMessage, ReactionChange, Result,
 };
 use crate::domain::{
-    AttachmentRef, Contact, ConversationId, Group, MessageRef, Timestamp, TypingState,
+    AttachmentRef, Contact, ConversationId, Group, MessageRef, ServiceId, Timestamp, TypingState,
 };
 use crate::rt::{self, Instant, Task};
 
@@ -244,6 +244,22 @@ impl Backend for MockBackend {
         ready(Ok(self.shared.sim().world().groups.clone()))
     }
 
+    fn identities(&self) -> impl Future<Output = Result<Vec<IdentityUpdate>>> {
+        let sim = self.shared.sim();
+        let me = sim.world().account.service_id;
+        let updates = sim
+            .world()
+            .contacts
+            .iter()
+            .map(|c| IdentityUpdate {
+                service_id: c.service_id,
+                safety_number: mock_safety_number(me, c.service_id),
+                verified: None,
+            })
+            .collect();
+        ready(Ok(updates))
+    }
+
     async fn send(&self, to: ConversationId, msg: OutgoingMessage) -> Result<()> {
         if !msg.attachments.is_empty() {
             self.capabilities.require(Capability::Attachments)?;
@@ -285,6 +301,28 @@ impl Backend for MockBackend {
         self.request(|_| Ok(())).await?;
         Ok(pictures::picture(self.shared.sim().world(), conversation))
     }
+}
+
+/// Deterministic 60-digit safety number for a mock contact, symmetric in `(a, b)`.
+fn mock_safety_number(a: ServiceId, b: ServiceId) -> String {
+    use std::fmt::Write as _;
+    let (lo, hi) = if a <= b {
+        (a.uuid().as_u64_pair(), b.uuid().as_u64_pair())
+    } else {
+        (b.uuid().as_u64_pair(), a.uuid().as_u64_pair())
+    };
+    let mut state = lo.1.wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(lo.0)
+        ^ hi.1.rotate_left(17)
+        ^ hi.0.rotate_right(13);
+    let mut out = String::with_capacity(60);
+    for _ in 0..12 {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        let group = (state >> 32) % 100_000;
+        let _ = write!(out, "{group:05}");
+    }
+    out
 }
 
 #[cfg(test)]
@@ -393,6 +431,7 @@ mod tests {
             | BackendEvent::Typing { .. }
             | BackendEvent::ReadElsewhere(_)
             | BackendEvent::ContactUpdated(_)
+            | BackendEvent::IdentityUpdated(_)
             | BackendEvent::GroupUpdated(_)
             | BackendEvent::Error(_) => None,
         })

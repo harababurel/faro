@@ -73,13 +73,15 @@ impl Session {
         let me = backend.whoami().await?.service_id;
         let contacts = backend.contacts().await?;
         let groups = backend.groups().await?;
+        let identities = backend.identities().await?;
         let capabilities = backend.capabilities();
         let waiting_backlog = backend.backlog_len();
         let store = Store::memory();
         store.upsert_contacts(contacts.clone()).await?;
         store.upsert_groups(groups.clone()).await?;
+        store.upsert_identities(identities).await?;
 
-        let mut state = State::new(me, contacts, groups);
+        let mut state = State::new(me, contacts, groups).with_identities(store.identities().await?);
         let blobs = Blobs::default();
         let (results_tx, results) = mpsc::unbounded_channel();
         let (effects, effect_queue) = mpsc::unbounded_channel();
@@ -353,7 +355,8 @@ async fn command_task(
             | Command::Edit { .. }
             | Command::DeleteForEveryone { .. }
             | Command::MarkRead(_)
-            | Command::Typing { .. }) => commands::execute(&backend, command).await,
+            | Command::Typing { .. }
+            | Command::SetVerification { .. }) => commands::execute(&backend, command).await,
         };
         if let Some(event) = event
             && results.send(event).is_err()

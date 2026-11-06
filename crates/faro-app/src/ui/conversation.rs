@@ -53,7 +53,9 @@ pub fn render(
 
     let input_width = usize::from(inner.width.saturating_sub(4));
     let input_layout = layout_input(&open.input, input_width);
-    let reply_rows = u16::from(open.editing.is_some())
+    let key_changed = !state.changed_identities(open.id).is_empty();
+    let reply_rows = u16::from(key_changed)
+        + u16::from(open.editing.is_some())
         + u16::from(open.reply_to.is_some())
         + u16::from(open.staged_attachment.is_some());
     let input_height = u16::try_from(input_layout.lines.len().clamp(1, INPUT_MAX_LINES))
@@ -336,6 +338,18 @@ fn render_input(
         .padding(Padding::horizontal(1));
     let mut inner = block.inner(area);
     frame.render_widget(block, area);
+
+    if let Some(&who) = state.changed_identities(open.id).first() {
+        let name = sanitize(&state.person_name(who)).into_owned();
+        let text = format!("⚠ Safety number with {name} changed — verify before sending");
+        let line = Line::from(Span::styled(
+            truncate(&text, usize::from(inner.width)).into_owned(),
+            Style::new().fg(theme.warning).add_modifier(Modifier::BOLD),
+        ));
+        frame.render_widget(Paragraph::new(line), Rect { height: 1, ..inner });
+        inner.y += 1;
+        inner.height = inner.height.saturating_sub(1);
+    }
 
     if open.editing.is_some() {
         let text = "✎ Editing message";

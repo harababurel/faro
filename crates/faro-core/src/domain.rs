@@ -16,6 +16,6 @@ pub use message::{
     Message, Quote, Reaction, TranscriptSource, format_byte_size, mention_parts,
     transcript_paragraph,
 };
-pub use people::{Contact, Group};
+pub use people::{Contact, Group, IdentityRecord, VerificationState, format_safety_number};
 pub use presence::{ConnectionState, TypingState};
 pub use sensitive::{MessageBody, PhoneNumber};

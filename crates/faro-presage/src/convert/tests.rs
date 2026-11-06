@@ -595,3 +595,20 @@ fn reads_here_are_synced_to_our_other_devices() {
         BackendEvent::ReadElsewhere(vec![read(ALICE, 10)])
     );
 }
+
+#[test]
+fn verified_sync_messages_round_trip_and_reject_strangers() {
+    let key = vec![0x05; 33];
+    let sync = verified_sync_message(ALICE, key.clone(), VerificationState::Verified).unwrap();
+    let content = from(ME, sync.clone());
+    assert_eq!(
+        verified_sync(&content, ME),
+        Some(VerifiedSync {
+            peer: ALICE,
+            identity_key: Some(key),
+            state: VerificationState::Verified,
+        })
+    );
+    // Never accept a verified sync sent by someone else.
+    assert_eq!(verified_sync(&from(ALICE, sync), ME), None);
+}

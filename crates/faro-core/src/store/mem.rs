@@ -16,10 +16,11 @@ use super::{
     ConversationState, ConversationSummary, PROFILE_KEY, Profile, RecipientReceipt, Result,
     SearchHit, StoreError, StoreStats, StoredProfile, decide,
 };
-use crate::backend::BackendEvent;
+use crate::backend::{BackendEvent, IdentityUpdate};
 use crate::domain::{
-    AttachmentRef, Contact, ConversationId, DeliveryStatus, Direction, Group, Mention, Message,
-    MessageBody, MessageRef, PhoneNumber, Quote, Reaction, ServiceId, Timestamp,
+    AttachmentRef, Contact, ConversationId, DeliveryStatus, Direction, Group, IdentityRecord,
+    Mention, Message, MessageBody, MessageRef, PhoneNumber, Quote, Reaction, ServiceId, Timestamp,
+    VerificationState,
 };
 
 #[derive(Debug, Default)]
@@ -28,6 +29,7 @@ struct Recipient {
     profile_name: Option<String>,
     phone: Option<PhoneNumber>,
     nickname: Option<String>,
+    identity: IdentityRecord,
 }
 
 #[derive(Debug, Default)]
@@ -129,6 +131,7 @@ impl Mem {
             BackendEvent::Deleted { target, .. } => self.delete(target),
             BackendEvent::ReadElsewhere(messages) => self.read_elsewhere(&messages).map(|_| ()),
             BackendEvent::ContactUpdated(contact) => self.upsert_contacts(&[contact]),
+            BackendEvent::IdentityUpdated(update) => self.upsert_identities(&[update]),
             BackendEvent::GroupUpdated(group) => self.upsert_groups(&[group]),
             BackendEvent::Connection(_) | BackendEvent::Typing { .. } | BackendEvent::Error(_) => {
                 Ok(())
@@ -695,6 +698,44 @@ impl Mem {
     /// Give someone a nickname, or take it away (`None`).
     pub(super) fn set_nickname(&mut self, id: ServiceId, nickname: Option<&str>) -> Result<()> {
         self.recipients.entry(id).or_default().nickname = nickname.map(str::to_owned);
+        Ok(())
+    }
+
+    pub(super) fn identities(&self) -> Result<HashMap<ServiceId, IdentityRecord>> {
+        Ok(self
+            .recipients
+            .iter()
+            .filter_map(|(id, r)| {
+                let rec = &r.identity;
+                (rec.safety_number.is_some()
+                    || rec.verified != VerificationState::Default
+                    || rec.key_changed)
+                    .then(|| (*id, rec.clone()))
+            })
+            .collect())
+    }
+
+    pub(super) fn upsert_identities(&mut self, updates: &[IdentityUpdate]) -> Result<()> {
+        for update in updates {
+            self.recipients
+                .entry(update.service_id)
+                .or_default()
+                .identity
+                .update(update.safety_number.clone(), update.verified);
+        }
+        Ok(())
+    }
+
+    pub(super) fn set_verification(
+        &mut self,
+        id: ServiceId,
+        verified: VerificationState,
+    ) -> Result<()> {
+        self.recipients
+            .entry(id)
+            .or_default()
+            .identity
+            .set_verified(verified);
         Ok(())
     }
 

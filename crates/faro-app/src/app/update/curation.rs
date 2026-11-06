@@ -120,6 +120,16 @@ pub fn menu(state: &mut State, target: ConversationId) {
         && peer != state.me
     {
         items.push(ConversationAction::Nickname);
+        if state
+            .identities
+            .get(&peer)
+            .and_then(|i| i.safety_number.as_ref())
+            .is_some()
+        {
+            items.push(ConversationAction::SafetyNumber);
+        }
+    } else if !state.changed_identities(target).is_empty() {
+        items.push(ConversationAction::SafetyNumber);
     }
     state.popup = Some(Popup::Conversation {
         target,
@@ -279,6 +289,10 @@ pub fn perform(
             }
             vec![]
         }
+        ConversationAction::SafetyNumber => {
+            open_safety_number(state, target);
+            vec![]
+        }
         ConversationAction::Pin => pin(state, target),
         ConversationAction::Unpin => change(state, target, "Unpinned".into(), |s| s.pinned = None),
         ConversationAction::Unmute => {
@@ -349,6 +363,18 @@ pub fn perform(
                 s.remote_transcription = RemoteTranscription::Disallowed;
             },
         ),
+    }
+}
+
+fn open_safety_number(state: &mut State, target: ConversationId) {
+    let peer = match target {
+        ConversationId::Direct(peer) if peer != state.me => Some(peer),
+        ConversationId::Direct(_) | ConversationId::Group(_) => {
+            state.changed_identities(target).first().copied()
+        }
+    };
+    if let Some(peer) = peer {
+        state.popup = Some(Popup::SafetyNumber(peer));
     }
 }
 

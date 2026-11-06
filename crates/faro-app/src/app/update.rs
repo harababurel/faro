@@ -634,6 +634,17 @@ fn on_backend(state: &mut State, event: BackendEvent) -> Vec<Effect> {
                 sort_conversations(&mut state.conversations);
             }
         }
+        BackendEvent::IdentityUpdated(update) => {
+            let record = state.identities.entry(update.service_id).or_default();
+            let changed = record.update(update.safety_number.clone(), update.verified);
+            if changed {
+                tracing::warn!(peer = %update.service_id, "safety number changed");
+                state.notice = Some(Notice::warning(format!(
+                    "Safety number with {} changed — verify before sending",
+                    state.person_name(update.service_id)
+                )));
+            }
+        }
         BackendEvent::Error(error) => {
             state.notice = Some(Notice::warning(format!("Signal: {error}")));
         }
@@ -653,7 +664,8 @@ fn persistent(event: &BackendEvent) -> bool {
         | BackendEvent::Edited { .. }
         | BackendEvent::Deleted { .. }
         | BackendEvent::ContactUpdated(_)
-        | BackendEvent::GroupUpdated(_) => true,
+        | BackendEvent::GroupUpdated(_)
+        | BackendEvent::IdentityUpdated(_) => true,
         // Read syncs are applied by their own effect, which reports what it
         // cleared (D70).
         BackendEvent::ReadElsewhere(_)

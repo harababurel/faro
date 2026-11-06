@@ -1139,6 +1139,7 @@ impl Sim {
             | BackendEvent::Typing { .. }
             | BackendEvent::ReadElsewhere(_)
             | BackendEvent::ContactUpdated(_)
+            | BackendEvent::IdentityUpdated(_)
             | BackendEvent::GroupUpdated(_)
             | BackendEvent::Error(_) => {}
         }
@@ -1412,6 +1413,7 @@ mod tests {
                             | BackendEvent::Typing { .. }
                             | BackendEvent::ReadElsewhere(_)
                             | BackendEvent::ContactUpdated(_)
+                            | BackendEvent::IdentityUpdated(_)
                             | BackendEvent::GroupUpdated(_)
                             | BackendEvent::Error(_) => {}
                         }

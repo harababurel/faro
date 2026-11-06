@@ -2299,11 +2299,32 @@ fn open_conversation_commands(state: &State) -> Vec<Item> {
             "Set a nickname…",
         ));
     }
+    if has_safety_number_command(state, summary.id) {
+        items.push(command(
+            PaletteCommand::Conversation(ConversationAction::SafetyNumber),
+            ConversationAction::SafetyNumber.label().0,
+            None,
+        ));
+    }
     let name = state.conversation_title(summary.id);
     for item in &mut items {
         item.path = Some(name.clone());
     }
     items
+}
+
+fn has_safety_number_command(state: &State, id: ConversationId) -> bool {
+    match id {
+        ConversationId::Direct(peer) => {
+            peer != state.me
+                && state
+                    .identities
+                    .get(&peer)
+                    .and_then(|i| i.safety_number.as_ref())
+                    .is_some()
+        }
+        ConversationId::Group(_) => !state.changed_identities(id).is_empty(),
+    }
 }
 
 fn pin_and_mute_commands(

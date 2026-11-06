@@ -37,6 +37,7 @@ fn saved(effects: &[Effect], id: ConversationId) -> Option<ConversationState> {
         | Effect::ReadElsewhere(_)
         | Effect::RememberOpen(_)
         | Effect::SaveNickname(..)
+        | Effect::SaveVerification(..)
         | Effect::SaveRecentReactions(_)
         | Effect::LoadUpdateState
         | Effect::SaveUpdateState { .. }

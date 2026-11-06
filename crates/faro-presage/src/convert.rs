@@ -7,6 +7,7 @@ use faro_core::backend::{
 use faro_core::domain::{
     AttachmentId, AttachmentRef, AttachmentStatus, ConversationId, DeliveryStatus, Direction,
     GroupId, Mention, Message, MessageBody, MessageRef, Quote, ServiceId, Timestamp, TypingState,
+    VerificationState,
 };
 use presage::libsignal_service::content::{Content, ContentBody};
 use presage::libsignal_service::prelude::ProtobufMessage as _;
@@ -20,7 +21,7 @@ use presage::proto::sync_message::{self, Sent};
 use presage::proto::typing_message;
 use presage::proto::{
     AttachmentPointer, BodyRange, DataMessage, EditMessage, GroupContextV2, ReceiptMessage,
-    SyncMessage, TypingMessage,
+    SyncMessage, TypingMessage, Verified, verified,
 };
 use uuid::Uuid;
 
@@ -161,6 +162,7 @@ fn kept(event: &BackendEvent) -> bool {
         BackendEvent::Connection(_)
         | BackendEvent::Typing { .. }
         | BackendEvent::ContactUpdated(_)
+        | BackendEvent::IdentityUpdated(_)
         | BackendEvent::GroupUpdated(_)
         | BackendEvent::Error(_) => false,
     }
@@ -650,6 +652,78 @@ pub fn read_sync(messages: &[MessageRef], me: ServiceId) -> SyncMessage {
             .collect(),
         ..SyncMessage::default()
     }
+}
+
+/// A safety-number verification change synced from one of this account's other
+/// devices (D163).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedSync {
+    pub peer: ServiceId,
+    pub identity_key: Option<Vec<u8>>,
+    pub state: VerificationState,
+}
+
+/// Extract a [`VerifiedSync`] when `content` is a verification sync message
+/// from this account.
+pub fn verified_sync(content: &Content, me: ServiceId) -> Option<VerifiedSync> {
+    if service_id(&content.metadata.sender) != me {
+        return None;
+    }
+    let ContentBody::SynchronizeMessage(SyncMessage {
+        content: Some(sync_message::Content::Verified(verified)),
+        ..
+    }) = &content.body
+    else {
+        return None;
+    };
+    let peer = author(
+        verified.destination_aci.as_deref(),
+        verified.destination_aci_binary.as_deref(),
+    )?;
+    let state = verification_state(verified.state());
+    Some(VerifiedSync {
+        peer,
+        identity_key: verified.identity_key.clone(),
+        state,
+    })
+}
+
+pub fn verification_state(state: verified::State) -> VerificationState {
+    match state {
+        verified::State::Default => VerificationState::Default,
+        verified::State::Verified => VerificationState::Verified,
+        verified::State::Unverified => VerificationState::Unverified,
+    }
+}
+
+pub fn proto_verification_state(state: VerificationState) -> verified::State {
+    match state {
+        VerificationState::Default => verified::State::Default,
+        VerificationState::Verified => verified::State::Verified,
+        VerificationState::Unverified => verified::State::Unverified,
+    }
+}
+
+/// Build a `SyncMessage::Verified` to tell this account's other devices that
+/// `peer`'s verification state changed (D163).
+pub fn verified_sync_message(
+    peer: ServiceId,
+    identity_key: Vec<u8>,
+    state: VerificationState,
+) -> Option<SyncMessage> {
+    let ServiceId::Aci(aci) = peer else {
+        return None;
+    };
+    Some(SyncMessage {
+        content: Some(sync_message::Content::Verified(Verified {
+            destination_aci: Some(aci.to_string()),
+            destination_aci_binary: Some(aci.as_bytes().to_vec()),
+            identity_key: Some(identity_key),
+            state: Some(proto_verification_state(state).into()),
+            null_message: None,
+        })),
+        ..SyncMessage::default()
+    })
 }
 
 pub fn typing(state: TypingState, now: u64, group: Option<GroupId>) -> TypingMessage {

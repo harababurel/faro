@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use super::{Result, StoreError};
 use crate::domain::{
     AttachmentStatus, ConversationId, DeliveryStatus, Direction, ServiceId, Timestamp,
-    TranscriptSource,
+    TranscriptSource, VerificationState,
 };
 
 /// `direct:<service id>` or `group:<hex>` (`ConversationId`'s string form).
@@ -139,6 +139,10 @@ pub(super) fn transcript_source_from_db(source: &str) -> Result<TranscriptSource
         "demo" => Ok(TranscriptSource::Demo),
         _ => Err(StoreError::Corrupt("transcript source")),
     }
+}
+
+pub(super) fn verification_from_db(value: &str) -> Result<VerificationState> {
+    VerificationState::parse(value).ok_or(StoreError::Corrupt("recipients.verified"))
 }
 
 #[cfg(test)]

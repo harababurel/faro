@@ -75,6 +75,7 @@ engines! {
     search_messages_matches_bodies_and_transcripts,
     messages_around_returns_oldest_first_window,
     each_summary_carries_its_newest_message,
+    identities_track_key_changes_and_verification,
 }
 
 async fn each_summary_carries_its_newest_message(kind: Kind) {
@@ -995,4 +996,95 @@ async fn messages_around_returns_oldest_first_window(kind: Kind) {
         .unwrap();
     let times: Vec<u64> = window.iter().map(|m| m.sent_at.as_millis()).collect();
     assert_eq!(times, vec![300, 400, 500, 600]);
+}
+
+async fn identities_track_key_changes_and_verification(kind: Kind) {
+    let store = kind.open().await;
+    let alice = aci(ALICE);
+    let key1 = "1".repeat(60);
+    let key2 = "2".repeat(60);
+
+    // First sight: not marked changed, default verification.
+    store
+        .upsert_identities(vec![IdentityUpdate {
+            service_id: alice,
+            safety_number: key1.clone(),
+            verified: None,
+        }])
+        .await
+        .unwrap();
+    assert_eq!(
+        store.identities().await.unwrap().get(&alice),
+        Some(&IdentityRecord {
+            safety_number: Some(key1.clone()),
+            verified: VerificationState::Default,
+            key_changed: false,
+        })
+    );
+
+    // User marks Alice verified.
+    store
+        .set_verification(alice, VerificationState::Verified)
+        .await
+        .unwrap();
+    assert_eq!(
+        store.identities().await.unwrap().get(&alice),
+        Some(&IdentityRecord {
+            safety_number: Some(key1.clone()),
+            verified: VerificationState::Verified,
+            key_changed: false,
+        })
+    );
+
+    // Same key seen again: keeps Verified.
+    store
+        .apply(BackendEvent::IdentityUpdated(IdentityUpdate {
+            service_id: alice,
+            safety_number: key1,
+            verified: None,
+        }))
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .identities()
+            .await
+            .unwrap()
+            .get(&alice)
+            .unwrap()
+            .verified,
+        VerificationState::Verified
+    );
+
+    // Key changes: downgrades Verified -> Unverified and sets key_changed = true.
+    store
+        .apply(BackendEvent::IdentityUpdated(IdentityUpdate {
+            service_id: alice,
+            safety_number: key2.clone(),
+            verified: None,
+        }))
+        .await
+        .unwrap();
+    assert_eq!(
+        store.identities().await.unwrap().get(&alice),
+        Some(&IdentityRecord {
+            safety_number: Some(key2.clone()),
+            verified: VerificationState::Unverified,
+            key_changed: true,
+        })
+    );
+
+    // User approves the new key (Default): clears key_changed.
+    store
+        .set_verification(alice, VerificationState::Default)
+        .await
+        .unwrap();
+    assert_eq!(
+        store.identities().await.unwrap().get(&alice),
+        Some(&IdentityRecord {
+            safety_number: Some(key2),
+            verified: VerificationState::Default,
+            key_changed: false,
+        })
+    );
 }

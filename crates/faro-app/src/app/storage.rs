@@ -104,6 +104,7 @@ async fn run(store: &Store, effect: Effect) -> Result<Option<AppEvent>, StoreErr
         | Effect::MarkRead(_)
         | Effect::RememberOpen(_)
         | Effect::SaveNickname(..)
+        | Effect::SaveVerification(..)
         | Effect::SaveRecentReactions(_)
         | Effect::SaveUpdateState { .. } => {
             write(store, effect).await?;
@@ -167,6 +168,7 @@ async fn write(store: &Store, effect: Effect) -> Result<(), StoreError> {
                 .await
         }
         Effect::SaveNickname(id, nickname) => store.set_nickname(id, nickname).await,
+        Effect::SaveVerification(id, verified) => store.set_verification(id, verified).await,
         Effect::SaveRecentReactions(recent) => {
             store
                 .set_app_state(RECENT_REACTIONS, &recent.join(" "))

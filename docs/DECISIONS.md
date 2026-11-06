@@ -1608,3 +1608,22 @@ A developer friend of the owner tried getfaro.dev; the owner agreed with all of 
 - **Tests:** fixtures pin the old list (`previews = false`, `avatars = "off"`), as they pin IRC (D45), so earlier snapshots are unchanged; the defaults are checked in `avatars_default_to_auto_and_preview_while_moving`.
 - **Released in 0.1.10** (2026-11-05), with D160 and D161.
 
+### D163. Safety numbers, key-change warnings and send guard (owner's request, 2026-11-06)
+
+- **Problem:** presage's `SqliteStore` implements `IdentityKeyStore::is_trusted_identity` as unconditional trust (`Ok(true)`), and faro neither computed safety numbers nor tracked identity-key changes or verification status. If a contact reinstalled Signal or their identity key changed, faro continued encrypting to the new key without warning the user.
+- **No fork needed:** upstream `presage` and `libsignal` expose `SessionStoreExt::compute_safety_number` (computing the 60-digit numeric safety number and scannable fingerprint from `IdentityKeyStore`), `IdentityKeyStore::get_identity`, `ContentsStore::{contact_by_id, save_contact}` (storing `contact.verified: proto::Verified`), and `SyncMessage::Verified` for multi-device verification sync.
+- **Store & domain (`faro-core`):**
+  - `VerificationState` (`Default`, `Verified`, `Unverified`) and `IdentityRecord { safety_number: Option<String>, verified: VerificationState, key_changed: bool }` in `domain/people.rs`, with `format_safety_number` formatting 60 digits into 3 lines × 4 five-digit groups.
+  - Migration `0009_identities.sql` adds `safety_number`, `verified` (`CHECK (verified IN ('default', 'verified', 'unverified'))`) and `key_changed` (`CHECK (key_changed IN (0, 1))`) to `recipients`. Mirrored in `store/mem.rs` and tested on both engines (`identities_track_key_changes_and_verification`).
+  - When a contact's safety number is first recorded, `key_changed` is `false`. If a later `upsert_identities` (startup) or `BackendEvent::IdentityUpdated` (live) reports a different safety number for that `ServiceId`, `key_changed` becomes `true` and `Verified` downgrades to `Unverified`. An explicit `Verified` sync from another linked device clears `key_changed`.
+- **Backend (`faro-presage`, `mock`, `guard`):**
+  - `Backend::identities()` reads current safety numbers and verification states at startup; `Backend::set_verification(peer, verified)` updates `contact.verified` in `presage.db` and sends a padded `SyncMessage::Verified` to `self.me` so other linked devices stay in sync.
+  - `PresageBackend` caches each contact's raw identity-key bytes in memory (`identity_keys`) and rechecks after incoming messages, contact syncs, and before/after sends, emitting `BackendEvent::IdentityUpdated` whenever the key or verification state changes. Incoming `SyncMessage::Verified` envelopes (`convert::verified_sync`, accepted only from our own account) update `presage.db` and emit `BackendEvent::IdentityUpdated`.
+  - `MockBackend` generates deterministic 60-digit safety numbers per `(me, peer)` pair; `Guarded` filters `identities()`, `IdentityUpdated` and `set_verification()`.
+- **Send guard & UI (`faro-app`, Judgement on layout):**
+  - Outgoing sends (`send`, `forward`, `send_edit`, `retry`) to a direct chat or group where any participant has `key_changed == true` (`State::changed_identities`) are blocked with a warning notice (`"Safety number with <Name> changed — verify or approve before sending"`), leaving the draft intact.
+  - While `key_changed` is `true` for a participant in the open conversation, a warning bar sits at the top of the input box (`⚠ Safety number with <Name> changed — verify before sending`).
+  - `Alt+I` Info shows `Safety number`, the verification status (`✓ Verified`, `⚠ Changed — verify`, `⚠ Unverified`, `Not verified`) and the 3×4 five-digit groups in direct chats, and marks group members whose key changed with `⚠`.
+  - *Verify safety number…* (`ConversationAction::SafetyNumber`, in the conversation menu and `Ctrl+P`) opens `Popup::SafetyNumber(peer)` showing the 60-digit number and status, with `v`/`Enter` to verify/clear, `u` to mark unverified, `a` to approve a changed key without marking verified, and `y` to copy.
+
+

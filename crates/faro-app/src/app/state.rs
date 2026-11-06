@@ -11,7 +11,7 @@ use faro_core::config::{
 };
 use faro_core::domain::{
     AttachmentRef, BodyPart, ConnectionState, Contact, ConversationId, Direction, Group, GroupId,
-    Message, MessageRef, Quote, ServiceId, Timestamp, mention_parts,
+    IdentityRecord, Message, MessageRef, Quote, ServiceId, Timestamp, mention_parts,
 };
 use faro_core::rt::Instant;
 use faro_core::store::{ConversationSummary, NotifyLevel, Profile, RecipientReceipt};
@@ -135,6 +135,8 @@ pub struct State {
     pub me: ServiceId,
     pub contacts: HashMap<ServiceId, Contact>,
     pub groups: HashMap<GroupId, Group>,
+    /// Safety numbers and verification state per person (D163).
+    pub identities: HashMap<ServiceId, IdentityRecord>,
     /// Names the user gave people, shown instead of theirs (D65).
     pub nicknames: HashMap<ServiceId, String>,
     /// Names (lowercased) that more than one person goes by; those people
@@ -570,6 +572,8 @@ pub enum Popup {
         target: ConversationId,
         selected: usize,
     },
+    /// View and verify someone's 60-digit safety number (D163).
+    SafetyNumber(ServiceId),
 }
 
 /// Curating the conversation list (M4 task 5, D41).
@@ -599,6 +603,8 @@ pub enum ConversationAction {
     DisallowRemoteTranscription,
     /// Give the person in a direct chat a nickname (D65).
     Nickname,
+    /// View and verify a safety number (D163).
+    SafetyNumber,
 }
 
 impl ConversationAction {
@@ -624,6 +630,7 @@ impl ConversationAction {
             Self::AllowRemoteTranscription => ("Allow remote transcription", ""),
             Self::DisallowRemoteTranscription => ("Disallow remote transcription", ""),
             Self::Nickname => ("Set a nickname…", ""),
+            Self::SafetyNumber => ("Verify safety number…", ""),
         }
     }
 }
@@ -878,6 +885,7 @@ impl State {
             me,
             contacts: contacts.into_iter().map(|c| (c.service_id, c)).collect(),
             groups: groups.into_iter().map(|g| (g.id, g)).collect(),
+            identities: HashMap::new(),
             nicknames: HashMap::new(),
             names_clash: HashSet::new(),
             conversations: Vec::new(),
@@ -955,6 +963,32 @@ impl State {
         self.nicknames = nicknames;
         self.recount_names();
         self
+    }
+
+    /// With stored safety numbers and verification state (D163).
+    #[must_use]
+    pub fn with_identities(mut self, identities: HashMap<ServiceId, IdentityRecord>) -> Self {
+        self.identities = identities;
+        self
+    }
+
+    /// Participants in `conversation` whose safety number changed since it was
+    /// first recorded and hasn't been verified or approved yet (D163).
+    pub fn changed_identities(&self, conversation: ConversationId) -> Vec<ServiceId> {
+        match conversation {
+            ConversationId::Direct(peer) => (peer != self.me
+                && self.identities.get(&peer).is_some_and(|i| i.key_changed))
+            .then_some(peer)
+            .into_iter()
+            .collect(),
+            ConversationId::Group(group) => self
+                .groups
+                .get(&group)
+                .into_iter()
+                .flat_map(|g| g.members.iter().copied())
+                .filter(|&m| m != self.me && self.identities.get(&m).is_some_and(|i| i.key_changed))
+                .collect(),
+        }
     }
 
     /// The reaction picker's quick row (D104): the reactions last sent from

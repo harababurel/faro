@@ -133,6 +133,7 @@ impl Router {
                 | Effect::ReadElsewhere(_)
                 | Effect::SaveConversationState(..)
                 | Effect::SaveNickname(..)
+                | Effect::SaveVerification(..)
                 | Effect::SaveRecentReactions(_)
                 | Effect::LoadUpdateState
                 | Effect::SaveUpdateState { .. }

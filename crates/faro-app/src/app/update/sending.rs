@@ -22,21 +22,42 @@ use crate::app::state::{Focus, Notice, Popup, StagedAttachment, State, TerminalN
 /// Signal's object-replacement placeholder for an inline mention (D72).
 const MENTION_PLACEHOLDER: char = '\u{FFFC}';
 
+/// Block outgoing sends if a participant in `conversation` has an unacknowledged
+/// safety-number change (D163).
+pub fn block_if_key_changed(state: &mut State, conversation: ConversationId) -> bool {
+    let Some(&who) = state.changed_identities(conversation).first() else {
+        return false;
+    };
+    state.notice = Some(Notice::warning(format!(
+        "Safety number with {} changed — verify or approve before sending",
+        state.person_name(who)
+    )));
+    true
+}
+
 /// Send what's in the input (and/or staged attachment) to the open conversation,
 /// or submit an in-progress message edit. Blank input with no staged attachment
 /// does nothing.
 pub fn send(state: &mut State) -> Vec<Effect> {
+    let Some(open) = state.open.as_ref() else {
+        return vec![];
+    };
+    let conversation = open.id;
+    let text = open.input.text().trim().to_owned();
+    let target_sent_at = open.editing;
+    let has_staged = open.staged_attachment.is_some();
+    if let Some(target_sent_at) = target_sent_at {
+        return send_edit(state, target_sent_at, &text);
+    }
+    if text.is_empty() && !has_staged {
+        return vec![];
+    }
+    if block_if_key_changed(state, conversation) {
+        return vec![];
+    }
     let Some(open) = state.open.as_mut() else {
         return vec![];
     };
-    let text = open.input.text().trim().to_owned();
-    if let Some(target_sent_at) = open.editing {
-        return send_edit(state, target_sent_at, &text);
-    }
-    if text.is_empty() && open.staged_attachment.is_none() {
-        return vec![];
-    }
-    let conversation = open.id;
     let quote = open.reply_to.take();
     let staged = open.staged_attachment.take();
     let known = std::mem::take(&mut open.mentions);
@@ -125,6 +146,9 @@ pub fn forward(
     text: &str,
     source_attachments: &[AttachmentRef],
 ) -> Vec<Effect> {
+    if block_if_key_changed(state, conversation) {
+        return vec![];
+    }
     if let Some(open) = state.open.as_mut().filter(|o| o.id == conversation) {
         open.scroll = None;
         open.unseen = 0;
@@ -204,10 +228,15 @@ fn send_edit(state: &mut State, target_sent_at: Timestamp, text: &str) -> Vec<Ef
     if text.is_empty() {
         return vec![];
     }
+    let Some(conversation) = state.open.as_ref().map(|o| o.id) else {
+        return vec![];
+    };
+    if block_if_key_changed(state, conversation) {
+        return vec![];
+    }
     let Some(open) = state.open.as_mut() else {
         return vec![];
     };
-    let conversation = open.id;
     let known = std::mem::take(&mut open.mentions);
     open.editing = None;
     open.mention_selected = 0;

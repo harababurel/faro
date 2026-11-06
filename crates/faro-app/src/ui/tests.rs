@@ -2207,3 +2207,43 @@ fn auto_shows_pictures_with_graphics_and_nothing_without() {
     let auto = snapshot(&draw_with_images(&one_row, 100, 16, &Theme::default(), &kitty(true)).0);
     assert_eq!(auto, plain, "one row: as with avatars off");
 }
+
+#[test]
+fn safety_number_warning_banner_info_sidebar_and_popup_render() {
+    use faro_core::domain::{IdentityRecord, VerificationState};
+
+    let mut state = loaded_state();
+    state.panels.right = true;
+    state.identities.insert(
+        ALICE,
+        IdentityRecord {
+            safety_number: Some(
+                "123450000011111222223333344444555556666677777888889999900001".to_owned(),
+            ),
+            verified: VerificationState::Unverified,
+            key_changed: true,
+        },
+    );
+    let text = snapshot(&draw(&state, 130, 34));
+    assert!(
+        text.contains("⚠ Safety number with Alice 🌸 changed — verify before sending"),
+        "warning banner above input\n{text}"
+    );
+    assert!(
+        text.contains("Alice 🌸 ⚠"),
+        "changed group member marked in info sidebar\n{text}"
+    );
+
+    // Open safety number popup for Alice.
+    state.popup = Some(crate::app::state::Popup::SafetyNumber(ALICE));
+    let popup_text = snapshot(&draw(&state, 130, 34));
+    assert!(popup_text.contains("Safety number"), "{popup_text}");
+    assert!(
+        popup_text.contains("12345 00000 11111 22222"),
+        "{popup_text}"
+    );
+    assert!(
+        popup_text.contains("v verify · a approve new key"),
+        "{popup_text}"
+    );
+}

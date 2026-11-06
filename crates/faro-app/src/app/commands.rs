@@ -81,6 +81,12 @@ pub async fn execute<B: Backend>(backend: &B, command: Command) -> Option<AppEve
             }
             return None;
         }
+        Command::SetVerification { peer, verified } => {
+            if let Err(error) = backend.set_verification(peer, verified).await {
+                tracing::warn!(%error, %peer, "updating verification state failed");
+            }
+            return None;
+        }
     };
     Some(event)
 }

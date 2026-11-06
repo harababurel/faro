@@ -7,7 +7,9 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use super::*;
-use crate::domain::{ConnectionState, DeliveryStatus, Direction, Message, MessageBody, Timestamp};
+use crate::domain::{
+    ConnectionState, DeliveryStatus, Direction, Message, MessageBody, Timestamp, VerificationState,
+};
 use crate::mock::{MockBackend, MockConfig};
 
 fn person(n: u128) -> ServiceId {
@@ -134,6 +136,20 @@ fn only_events_about_allowed_conversations_get_through() {
     assert!(shared.admits(&group_update(group(7), vec![person(FRIEND)])));
     assert!(shared.admits(&contact(person(FRIEND))));
     assert!(!shared.admits(&contact(person(STRANGER))));
+    assert!(
+        shared.admits(&BackendEvent::IdentityUpdated(IdentityUpdate {
+            service_id: person(FRIEND),
+            safety_number: "123".to_owned(),
+            verified: None,
+        }))
+    );
+    assert!(
+        !shared.admits(&BackendEvent::IdentityUpdated(IdentityUpdate {
+            service_id: person(STRANGER),
+            safety_number: "123".to_owned(),
+            verified: None,
+        }))
+    );
     // Other groups aren't let through, and their members stay unknown.
     assert!(!shared.admits(&group_update(group(8), vec![person(STRANGER)])));
     assert!(!shared.admits(&contact(person(STRANGER))));
@@ -221,11 +237,21 @@ async fn actions_towards_others_are_refused() {
         guarded.send_typing(other_group, TypingState::Started).await
     ));
     assert!(refused(guarded.delete_for_everyone(stranger, target).await));
+    assert!(refused(
+        guarded
+            .set_verification(person(STRANGER), VerificationState::Verified)
+            .await
+    ));
     // Receipts to strangers are dropped (nothing to send: not an error).
     assert_eq!(guarded.mark_read(&[target]).await, Ok(()));
     // Allowed conversations reach the backend.
     let allowed = ConversationId::Direct(person(ALLOWED));
     assert!(!refused(guarded.send(allowed, msg).await));
+    assert!(!refused(
+        guarded
+            .set_verification(person(ALLOWED), VerificationState::Verified)
+            .await
+    ));
 }
 
 #[tokio::test(start_paused = true)]
@@ -260,6 +286,15 @@ async fn the_directory_keeps_only_allowed_people_and_groups() {
     assert!(contacts.contains(&friend), "group members keep their names");
     assert!(!contacts.contains(&outsider));
     assert!(contacts.iter().all(|id| chosen.members.contains(id)));
+    let identities: Vec<ServiceId> = guarded
+        .identities()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|i| i.service_id)
+        .collect();
+    assert!(identities.contains(&friend));
+    assert!(!identities.contains(&outsider));
 }
 
 /// A backend that kept some events, and notes which conversations it was

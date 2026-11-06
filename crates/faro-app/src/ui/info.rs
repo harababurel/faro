@@ -1,6 +1,8 @@
 //! Right sidebar: about the open conversation (DESIGN.md §7.1). Toggled with Alt+I.
 
-use faro_core::domain::{AttachmentRef, ConversationId, format_byte_size};
+use faro_core::domain::{
+    AttachmentRef, ConversationId, VerificationState, format_byte_size, format_safety_number,
+};
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
@@ -42,12 +44,24 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, view: &View<'_>)
     )];
     let summary = state.summary(open.id);
     match open.id {
-        ConversationId::Direct(_) => {
+        ConversationId::Direct(peer) => {
             lines.push(value("Direct message".to_owned(), theme.muted()));
             if let Some(phone) = summary.and_then(|s| s.phone.as_ref()) {
                 lines.push(Line::default());
                 lines.push(label("Phone"));
                 lines.push(value(phone.expose().to_owned(), plain));
+            }
+            if peer != state.me
+                && let Some(record) = state.identities.get(&peer)
+                && let Some(sn) = record.safety_number.as_deref()
+            {
+                lines.push(Line::default());
+                lines.push(label("Safety number"));
+                let (status_text, status_style) = safety_status(record, theme);
+                lines.push(value(status_text.to_owned(), status_style));
+                for row in format_safety_number(sn) {
+                    lines.push(value(row, plain));
+                }
             }
         }
         ConversationId::Group(group) => {
@@ -57,8 +71,16 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, view: &View<'_>)
                 lines.push(Line::default());
                 lines.push(label("Members"));
                 for member in &group.members {
-                    let style = theme.sender(*member).remove_modifier(Modifier::BOLD);
-                    lines.push(value(state.person_name(*member), style));
+                    let key_changed = *member != state.me
+                        && state.identities.get(member).is_some_and(|i| i.key_changed);
+                    let mut name = state.person_name(*member);
+                    let style = if key_changed {
+                        name.push_str(" ⚠");
+                        Style::new().fg(theme.warning)
+                    } else {
+                        theme.sender(*member).remove_modifier(Modifier::BOLD)
+                    };
+                    lines.push(value(name, style));
                 }
             }
         }
@@ -67,15 +89,7 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, view: &View<'_>)
     lines.push(label("Notifications"));
     let conversation_state = summary.map(|s| &s.state);
     lines.push(value(notifications(conversation_state, view), plain));
-    // Where it's listed, unless that's just among the recent ones.
-    let place = summary.and_then(|s| match state.section(s) {
-        Section::Pinned => Some("Pinned"),
-        Section::Recent => None,
-        Section::Archived => Some("Archived"),
-        Section::Hidden => Some("Hidden until a message"),
-        Section::NotAllowed => Some("Not on the allowlist"),
-    });
-    if let Some(place) = place {
+    if let Some(place) = summary.and_then(|s| section_place(state, s)) {
         lines.push(Line::default());
         lines.push(label("List"));
         lines.push(value(place.to_owned(), plain));
@@ -97,31 +111,61 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, view: &View<'_>)
         }
     }
 
-    let mut recent_links: Vec<String> = Vec::new();
-    for message in open.messages.iter().rev().filter(|m| !m.deleted) {
-        if let Some(body) = &message.body {
-            for url in find_links(body.expose()) {
-                if !recent_links.contains(&url) {
-                    recent_links.push(url);
-                    if recent_links.len() >= MAX_INFO_ITEMS {
-                        break;
-                    }
-                }
-            }
-        }
-        if recent_links.len() >= MAX_INFO_ITEMS {
-            break;
-        }
-    }
+    let mut recent_links = collect_recent_links(&open.messages);
     if !recent_links.is_empty() {
         lines.push(Line::default());
         lines.push(label("Links"));
-        for url in recent_links {
+        for url in recent_links.drain(..) {
             lines.push(value(url, Style::new().fg(theme.accent)));
         }
     }
 
     frame.render_widget(Paragraph::new(lines), inner);
+}
+
+fn section_place(
+    state: &State,
+    summary: &faro_core::store::ConversationSummary,
+) -> Option<&'static str> {
+    match state.section(summary) {
+        Section::Pinned => Some("Pinned"),
+        Section::Recent => None,
+        Section::Archived => Some("Archived"),
+        Section::Hidden => Some("Hidden until a message"),
+        Section::NotAllowed => Some("Not on the allowlist"),
+    }
+}
+
+fn safety_status(
+    record: &faro_core::domain::IdentityRecord,
+    theme: &crate::theme::Theme,
+) -> (&'static str, Style) {
+    if record.key_changed {
+        ("⚠ Changed — verify", Style::new().fg(theme.warning))
+    } else {
+        match record.verified {
+            VerificationState::Verified => ("✓ Verified", Style::new().fg(theme.success)),
+            VerificationState::Unverified => ("⚠ Unverified", Style::new().fg(theme.warning)),
+            VerificationState::Default => ("Not verified", theme.muted()),
+        }
+    }
+}
+
+fn collect_recent_links(messages: &[faro_core::domain::Message]) -> Vec<String> {
+    let mut recent_links: Vec<String> = Vec::new();
+    for message in messages.iter().rev().filter(|m| !m.deleted) {
+        if let Some(body) = &message.body {
+            for url in find_links(body.expose()) {
+                if !recent_links.contains(&url) {
+                    recent_links.push(url);
+                    if recent_links.len() >= MAX_INFO_ITEMS {
+                        return recent_links;
+                    }
+                }
+            }
+        }
+    }
+    recent_links
 }
 
 fn format_media_item(att: &AttachmentRef) -> String {

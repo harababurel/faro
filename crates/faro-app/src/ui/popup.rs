@@ -13,7 +13,8 @@ use super::messages::{to_jiff, zoned};
 use super::shortcodes::{REACT_SEARCH_LIMIT, REACT_SEARCH_ROWS, search_shortcodes};
 use super::text::{pad_left, sanitize, truncate, width};
 use faro_core::domain::{
-    ConversationId, DeliveryStatus, Direction, MessageRef, Timestamp, format_byte_size,
+    ConversationId, DeliveryStatus, Direction, MessageRef, ServiceId, Timestamp, VerificationState,
+    format_byte_size, format_safety_number,
 };
 use faro_core::store::RecipientReceipt;
 
@@ -117,6 +118,7 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &
             };
             remote_consent(frame, anchor, state, *conversation, *selected, view);
         }
+        Popup::SafetyNumber(peer) => safety_number(frame, state, *peer, view),
     }
 }
 
@@ -847,5 +849,80 @@ fn confirm_delete(frame: &mut Frame<'_>, anchor: Anchor, view: &View<'_>) {
             view.theme.muted(),
         )),
     ];
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+fn safety_number(frame: &mut Frame<'_>, state: &State, peer: ServiceId, view: &View<'_>) {
+    let theme = view.theme;
+    let name = sanitize(&state.person_name(peer)).into_owned();
+    let record = state.identities.get(&peer);
+    let key_changed = record.is_some_and(|r| r.key_changed);
+    let verified = record.map_or(VerificationState::Default, |r| r.verified);
+    let (status_text, status_style) = if key_changed {
+        (
+            "⚠ Safety number changed — verify or approve before sending",
+            Style::new().fg(theme.warning).add_modifier(Modifier::BOLD),
+        )
+    } else {
+        match verified {
+            VerificationState::Verified => (
+                "✓ Marked as verified",
+                Style::new().fg(theme.success).add_modifier(Modifier::BOLD),
+            ),
+            VerificationState::Unverified => (
+                "⚠ Marked as unverified",
+                Style::new().fg(theme.warning).add_modifier(Modifier::BOLD),
+            ),
+            VerificationState::Default => ("Not verified yet", theme.muted()),
+        }
+    };
+    let mut rows: Vec<(String, Style)> = vec![
+        (
+            format!(" {name}"),
+            Style::new().fg(theme.primary).add_modifier(Modifier::BOLD),
+        ),
+        (format!(" {status_text}"), status_style),
+        (String::new(), theme.muted()),
+    ];
+    if let Some(sn) = record.and_then(|r| r.safety_number.as_deref()) {
+        for line in format_safety_number(sn) {
+            rows.push((
+                format!("   {line}   "),
+                Style::new().fg(theme.text).add_modifier(Modifier::BOLD),
+            ));
+        }
+    } else {
+        rows.push((" No safety number available yet".to_owned(), theme.muted()));
+    }
+    rows.push((String::new(), theme.muted()));
+    let keys = if key_changed {
+        " v verify · a approve new key · y copy · Esc close "
+    } else if verified == VerificationState::Verified {
+        " v clear · u mark unverified · y copy · Esc close "
+    } else {
+        " v mark verified · u mark unverified · y copy · Esc close "
+    };
+    rows.push((keys.to_owned(), theme.muted()));
+
+    let area = frame.area();
+    let wanted_width = rows.iter().map(|(t, _)| width(t)).max().unwrap_or(32) + 2;
+    let inner_width = u16::try_from(wanted_width)
+        .unwrap_or(u16::MAX)
+        .min(area.width.saturating_sub(4));
+    let inner_height = u16::try_from(rows.len())
+        .unwrap_or(u16::MAX)
+        .min(area.height.saturating_sub(2));
+    let rect = Rect {
+        x: area.x + area.width.saturating_sub(inner_width + 2) / 2,
+        y: area.y + area.height.saturating_sub(inner_height + 2) / 2,
+        width: (inner_width + 2).min(area.width),
+        height: (inner_height + 2).min(area.height),
+    };
+    let inner = frame_box(frame, rect, "Safety number", view);
+    let room = usize::from(inner.width);
+    let lines: Vec<Line<'static>> = rows
+        .into_iter()
+        .map(|(text, style)| Line::from(Span::styled(truncate(&text, room).into_owned(), style)))
+        .collect();
     frame.render_widget(Paragraph::new(lines), inner);
 }

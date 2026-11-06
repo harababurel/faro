@@ -13,7 +13,7 @@ use tokio::sync::mpsc;
 
 use crate::domain::{
     AttachmentRef, Contact, ConversationId, Group, Mention, MessageBody, MessageRef, PhoneNumber,
-    Quote, ServiceId, Timestamp, TypingState,
+    Quote, ServiceId, Timestamp, TypingState, VerificationState,
 };
 pub use error::BackendError;
 pub use event::BackendEvent;
@@ -46,6 +46,23 @@ pub trait Backend {
     fn contacts(&self) -> impl Future<Output = Result<Vec<Contact>>>;
 
     fn groups(&self) -> impl Future<Output = Result<Vec<Group>>>;
+
+    /// Contacts' current 60-digit safety numbers and verification states
+    /// known to the backend (D163).
+    fn identities(&self) -> impl Future<Output = Result<Vec<IdentityUpdate>>> {
+        std::future::ready(Ok(Vec::new()))
+    }
+
+    /// Record a contact's verification state in the backend's store and sync
+    /// it to this account's other devices (D163).
+    fn set_verification(
+        &self,
+        peer: ServiceId,
+        verified: VerificationState,
+    ) -> impl Future<Output = Result<()>> {
+        let _ = (peer, verified);
+        std::future::ready(Ok(()))
+    }
 
     /// What the backend itself kept about these conversations (messages,
     /// reactions, edits, deletions, receipts), oldest first, so faro can
@@ -120,6 +137,15 @@ pub trait Backend {
 pub struct Account {
     pub service_id: ServiceId,
     pub phone: Option<PhoneNumber>,
+}
+
+/// A contact's 60-digit safety number and optional synced verification state
+/// from the backend (D163).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IdentityUpdate {
+    pub service_id: ServiceId,
+    pub safety_number: String,
+    pub verified: Option<VerificationState>,
 }
 
 /// A message to send. faro picks `sent_at` (as every Signal client does), so the

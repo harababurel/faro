@@ -6,7 +6,7 @@ use std::time::Duration;
 use anyhow::Context as _;
 use crossterm::event::EventStream;
 use faro_core::backend::{Backend, BackendEvents};
-use faro_core::domain::{Contact, ConversationId, Group, ServiceId};
+use faro_core::domain::{Contact, ConversationId, Group, IdentityRecord, ServiceId};
 use faro_core::store::Store;
 use futures_util::StreamExt as _;
 use tokio::signal::unix::{SignalKind, signal};
@@ -44,6 +44,8 @@ pub struct Directory {
     pub groups: Vec<Group>,
     /// Names the user gave people (D65), from the store.
     pub nicknames: HashMap<ServiceId, String>,
+    /// Safety numbers and verification state per person (D163), from the store.
+    pub identities: HashMap<ServiceId, IdentityRecord>,
     /// Running behind the allowlist guard (`--allowlist`, D62, D95).
     pub guarded: bool,
     pub capabilities: faro_core::backend::Capabilities,
@@ -65,6 +67,10 @@ pub async fn load_directory<B: Backend>(backend: &B, store: &Store) -> anyhow::R
     );
     store.upsert_contacts(contacts.clone()).await?;
     store.upsert_groups(groups.clone()).await?;
+    match backend.identities().await {
+        Ok(identities) => store.upsert_identities(identities).await?,
+        Err(error) => tracing::warn!(%error, "reading safety numbers failed"),
+    }
     let known: Vec<ConversationId> = groups
         .iter()
         .map(|g| ConversationId::Group(g.id))
@@ -85,11 +91,13 @@ pub async fn load_directory<B: Backend>(backend: &B, store: &Store) -> anyhow::R
         Err(error) => tracing::warn!(%error, "reading what the backend kept failed"),
     }
     let nicknames = store.nicknames().await?;
+    let identities = store.identities().await?;
     Ok(Directory {
         me: account.service_id,
         contacts,
         groups,
         nicknames,
+        identities,
         guarded: false,
         capabilities: backend.capabilities(),
     })
@@ -99,7 +107,8 @@ pub async fn load_directory<B: Backend>(backend: &B, store: &Store) -> anyhow::R
 /// the terminal and user themes look like.
 fn initial_state(directory: Directory, detected: state::Detected, startup: &mut Startup) -> State {
     let mut state = State::new(directory.me, directory.contacts, directory.groups)
-        .with_nicknames(directory.nicknames);
+        .with_nicknames(directory.nicknames)
+        .with_identities(directory.identities);
     state.capabilities = directory.capabilities;
     if directory.guarded {
         state.guard = state::Guard::On;
@@ -508,6 +517,7 @@ impl Router {
             | Effect::ReadElsewhere(_)
             | Effect::SaveConversationState(..)
             | Effect::SaveNickname(..)
+            | Effect::SaveVerification(..)
             | Effect::SaveRecentReactions(_)
             | Effect::LoadUpdateState
             | Effect::SaveUpdateState { .. }
