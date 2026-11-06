@@ -61,6 +61,16 @@ pub const MUTE_CHOICES: [(&str, Option<Duration>); 5] = [
     ("1 week", Some(Duration::from_hours(7 * 24))),
     ("Until unmuted", None),
 ];
+/// The disappearing-messages timer picker's choices (D165): label and seconds (`None`: off).
+pub const DISAPPEARING_CHOICES: [(&str, Option<u32>); 7] = [
+    ("Off", None),
+    ("5 minutes", Some(5 * 60)),
+    ("1 hour", Some(60 * 60)),
+    ("8 hours", Some(8 * 60 * 60)),
+    ("1 day", Some(24 * 60 * 60)),
+    ("1 week", Some(7 * 24 * 60 * 60)),
+    ("4 weeks", Some(28 * 24 * 60 * 60)),
+];
 /// Choices in `Popup::ConfirmRemoteTranscription` (D82): label and shortcut key.
 pub const REMOTE_CONSENT_CHOICES: [(&str, &str); 3] = [
     ("Allow for this conversation", "1"),
@@ -232,6 +242,8 @@ pub struct State {
     pub capabilities: Capabilities,
     /// Update checks (D148): what's known, and when to ask next.
     pub updates: crate::app::updates::Updates,
+    /// Earliest known message expiration (`(expires_at, deadline)`, D165).
+    pub next_expiry: Option<(Timestamp, Instant)>,
 }
 
 #[derive(Debug)]
@@ -572,6 +584,11 @@ pub enum Popup {
         target: ConversationId,
         selected: usize,
     },
+    /// Pick one of `DISAPPEARING_CHOICES` (D165).
+    DisappearingTimer {
+        target: ConversationId,
+        selected: usize,
+    },
     /// View and verify someone's 60-digit safety number (D163).
     SafetyNumber(ServiceId),
 }
@@ -603,6 +620,8 @@ pub enum ConversationAction {
     DisallowRemoteTranscription,
     /// Give the person in a direct chat a nickname (D65).
     Nickname,
+    /// Set or clear the disappearing-message timer for a direct chat (D165).
+    DisappearingTimer,
     /// View and verify a safety number (D163).
     SafetyNumber,
 }
@@ -630,6 +649,7 @@ impl ConversationAction {
             Self::AllowRemoteTranscription => ("Allow remote transcription", ""),
             Self::DisallowRemoteTranscription => ("Disallow remote transcription", ""),
             Self::Nickname => ("Set a nickname…", ""),
+            Self::DisappearingTimer => ("Disappearing messages…", ""),
             Self::SafetyNumber => ("Verify safety number…", ""),
         }
     }
@@ -952,6 +972,7 @@ impl State {
             profile: Profile::Signal,
             capabilities: Capabilities::all(),
             updates: crate::app::updates::Updates::default(),
+            next_expiry: None,
         };
         state.recount_names();
         state
@@ -1525,9 +1546,33 @@ impl State {
             .map(|p| p.elapsed_secs)
     }
 
+    /// Schedule a message expiration sweep at or before `expires_at` (D165).
+    pub fn note_expiry(&mut self, expires_at: Timestamp, now_wall: Timestamp, now_inst: Instant) {
+        if self.next_expiry.is_some_and(|(ts, _)| ts <= expires_at) {
+            return;
+        }
+        let delay =
+            Duration::from_millis(expires_at.as_millis().saturating_sub(now_wall.as_millis()));
+        self.next_expiry = Some((expires_at, now_inst + delay));
+    }
+
+    /// Replace the next expiration deadline with the store's earliest `expires_at` (D165).
+    pub fn set_next_expiry(
+        &mut self,
+        next: Option<Timestamp>,
+        now_wall: Timestamp,
+        now_inst: Instant,
+    ) {
+        self.next_expiry = None;
+        if let Some(expires_at) = next {
+            self.note_expiry(expires_at, now_wall, now_inst);
+        }
+    }
+
     /// When the reducer next needs a `Tick` (a typing indicator expiring, a
     /// draft to save, a notice to clear, "stopped typing" to send, voice
-    /// note playback progress, or the next update check, D148).
+    /// note playback progress, the next update check, D148, or a disappearing
+    /// message expiring, D165).
     pub fn next_deadline(&self) -> Option<Instant> {
         let typing = self
             .typing
@@ -1555,6 +1600,7 @@ impl State {
             .chain(typing_sent)
             .chain(playing)
             .chain(self.updates.next_check)
+            .chain(self.next_expiry.map(|(_, at)| at))
             .min()
     }
 }

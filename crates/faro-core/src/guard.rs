@@ -148,7 +148,10 @@ impl Shared {
             BackendEvent::Reaction { conversation, .. }
             | BackendEvent::Edited { conversation, .. }
             | BackendEvent::Deleted { conversation, .. }
-            | BackendEvent::Typing { conversation, .. } => self.list.allows(*conversation),
+            | BackendEvent::Typing { conversation, .. }
+            | BackendEvent::DisappearingTimer { conversation, .. } => {
+                self.list.allows(*conversation)
+            }
             BackendEvent::ContactUpdated(contact) => self.knows(contact.service_id),
             BackendEvent::IdentityUpdated(update) => self.knows(update.service_id),
             BackendEvent::GroupUpdated(group) => {
@@ -280,6 +283,29 @@ impl<B: Backend> Backend for Guarded<B> {
             return Err(BackendError::NotAllowed);
         }
         self.inner.set_verification(peer, verified).await
+    }
+
+    async fn disappearing_timers(&self) -> Result<Vec<(ConversationId, u32)>> {
+        let timers = self.inner.disappearing_timers().await?;
+        Ok(timers
+            .into_iter()
+            .filter(|(c, _)| self.shared.list.allows(*c))
+            .collect())
+    }
+
+    async fn set_disappearing_timer(
+        &self,
+        conversation: ConversationId,
+        seconds: Option<u32>,
+    ) -> Result<()> {
+        self.shared.check(conversation)?;
+        self.inner
+            .set_disappearing_timer(conversation, seconds)
+            .await
+    }
+
+    async fn purge_expired(&self, messages: &[(ConversationId, MessageRef)]) -> Result<()> {
+        self.inner.purge_expired(messages).await
     }
 
     /// Only allowed conversations are asked about, and what comes back is

@@ -159,6 +159,12 @@ pub enum AppEvent {
     /// counts in the store by this much (D70); answers
     /// `Effect::ReadElsewhere`.
     UnreadCleared(Vec<(ConversationId, u32)>),
+    /// Expired disappearing messages were swept from the store (D165); answers
+    /// `Effect::SweepExpired`.
+    ExpiredSwept {
+        sweep: faro_core::store::ExpiredSweep,
+        next_expiry: Option<Timestamp>,
+    },
     /// Update checks (D148).
     Updates(UpdateEvent),
     /// A deadline from `State::next_deadline` passed.
@@ -220,6 +226,11 @@ pub enum Effect {
     /// Apply messages read on another device to the unread counts (D70);
     /// answered with `AppEvent::UnreadCleared` if any count dropped.
     ReadElsewhere(Vec<MessageRef>),
+    /// Hard-delete messages whose `expires_at <= now` from the store (D165);
+    /// answered with `AppEvent::ExpiredSwept`.
+    SweepExpired(Timestamp),
+    /// Store the disappearing-message timer (`seconds`) for a conversation (D165).
+    SaveDisappearingTimer(ConversationId, Option<u32>),
     /// Store hide/archive/pin/mute/draft for a conversation.
     SaveConversationState(ConversationId, Box<ConversationState>),
     /// Reopen this conversation on the next start.
@@ -376,6 +387,15 @@ pub enum Command {
         peer: ServiceId,
         verified: VerificationState,
     },
+    /// Set or clear the disappearing-message timer for a conversation (D165).
+    /// No answer; failures are only logged.
+    SetDisappearingTimer {
+        conversation: ConversationId,
+        seconds: Option<u32>,
+    },
+    /// Delete expired messages from the backend's own message store so they
+    /// cannot be replayed on restart (D165). No answer; failures are only logged.
+    PurgeExpired(Vec<(ConversationId, MessageRef)>),
 }
 
 /// Why no image was staged.

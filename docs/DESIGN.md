@@ -185,6 +185,9 @@ pub trait Backend {                       // no Send bound: futures may be !Send
     async fn fetch_picture(&self, conversation: ConversationId) -> Result<Option<Vec<u8>>>; // profile or group picture, None = has none (D161)
     async fn identities(&self) -> Result<Vec<IdentityUpdate>>; // 60-digit safety numbers & verification state (D163)
     async fn set_verification(&self, peer: ServiceId, verified: VerificationState) -> Result<()>; // persist + SyncMessage::Verified (D163)
+    async fn disappearing_timers(&self) -> Result<Vec<(ConversationId, Option<u32>)>>; // per-chat disappearing message timers (D165)
+    async fn set_disappearing_timer(&self, conversation: ConversationId, seconds: Option<u32>) -> Result<()>; // persist + ExpirationTimerUpdate (D165)
+    async fn purge_expired(&self, messages: &[(ConversationId, MessageRef)]) -> Result<()>; // delete expired raw frames from backend store (D165)
 }
 ```
 
@@ -211,10 +214,10 @@ presage keeps its own store for keys, sessions and protocol state; faro never to
 | Table | Key fields |
 |---|---|
 | `recipients` | service_id (PK), contact name, profile name, phone (nullable), nickname (D65), safety_number, verified (`default`/`verified`/`unverified`), key_changed (D163) |
-| `conversations` | id (PK; `direct:<service id>` or `group:<hex>`), kind (direct/group), peer (direct: recipient), title (groups), last_activity, unread_count |
+| `conversations` | id (PK; `direct:<service id>` or `group:<hex>`), kind (direct/group), peer (direct: recipient), title (groups), last_activity, unread_count, disappearing_timer (seconds, nullable; D165) |
 | `group_members` | group_id, service_id |
 | `conversation_state` | conversation_id, **hidden**, **archived**, **pinned** (order), **muted_until**, draft text, **allowed** (allowlist, D41) |
-| `messages` | id, conversation_id, sender, sent_at (sender's timestamp), received_at, body, quote_sender, quote_sent_at, quote_preview, edited_at, deleted, direction, status (sending/sent/delivered/read/failed; outgoing only) |
+| `messages` | id, conversation_id, sender, sent_at (sender's timestamp), received_at, body, quote_sender, quote_sent_at, quote_preview, edited_at, deleted, direction, status (sending/sent/delivered/read/failed; outgoing only), expires_in_secs (nullable), expire_started_at (nullable; D165) |
 | `reactions` | message_id, sender, emoji (one per sender) |
 | `attachments` | id, message_id, backend_id, content_type, file_name, size, local_path (nullable), width, height, status (remote/downloaded/failed; D75) |
 | `app_state` | key/value: sidebar widths, last open conversation, etc. |

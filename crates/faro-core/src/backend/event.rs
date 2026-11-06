@@ -69,6 +69,13 @@ pub enum BackendEvent {
     /// state was learned or changed (D163).
     IdentityUpdated(IdentityUpdate),
 
+    /// A conversation's disappearing-message timer was set (`Some(seconds)`)
+    /// or turned off (`None`) (D165).
+    DisappearingTimer {
+        conversation: ConversationId,
+        seconds: Option<u32>,
+    },
+
     /// A problem that didn't come from a request, e.g. a message that failed to
     /// decrypt or the device being unlinked.
     Error(BackendError),

@@ -13,7 +13,8 @@
 
 use std::collections::HashMap;
 #[cfg(feature = "sqlite")]
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 #[cfg(feature = "sqlite")]
 use std::str::FromStr as _;
 
@@ -168,7 +169,22 @@ pub struct ConversationSummary {
     /// on (D154); `None` if there are no messages yet.
     pub last_message: Option<Message>,
     pub unread: u32,
+    /// Active disappearing-message timer in seconds (`None` when off, D165).
+    pub disappearing_timer: Option<u32>,
     pub state: ConversationState,
+}
+
+/// Result of sweeping expired disappearing messages from the store (D165).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ExpiredSweep {
+    /// `(conversation, message_ref)` of every expired message removed.
+    pub messages: Vec<(ConversationId, MessageRef)>,
+    /// Local attachment paths (`AttachmentStatus::Downloaded`) that belonged
+    /// to the removed messages and should be unlinked from disk.
+    pub attachment_paths: Vec<PathBuf>,
+    /// Updated `(conversation, last_activity, last_message, unread)` for
+    /// every conversation that lost at least one message.
+    pub conversations: Vec<(ConversationId, Option<Timestamp>, Option<Message>, u32)>,
 }
 
 /// Per-conversation UI state, local to this device.
@@ -328,6 +344,10 @@ enum Request {
     Identities(Reply<HashMap<ServiceId, IdentityRecord>>),
     UpsertIdentities(Vec<IdentityUpdate>, Reply<()>),
     SetVerification(ServiceId, VerificationState, Reply<()>),
+    UpsertDisappearingTimers(Vec<(ConversationId, u32)>, Reply<()>),
+    SetDisappearingTimer(ConversationId, Option<u32>, Reply<()>),
+    SweepExpired(Timestamp, Reply<ExpiredSweep>),
+    NextExpiry(Reply<Option<Timestamp>>),
     Stats(Reply<StoreStats>),
     Close(Reply<()>),
 }
@@ -597,6 +617,40 @@ impl Store {
             .await
     }
 
+    /// Record active disappearing-message timers reported by the backend on
+    /// startup (D165).
+    pub async fn upsert_disappearing_timers(
+        &self,
+        timers: Vec<(ConversationId, u32)>,
+    ) -> Result<()> {
+        self.call(|reply| Request::UpsertDisappearingTimers(timers, reply))
+            .await
+    }
+
+    /// Set or clear (`None` or `Some(0)`) the disappearing-message timer for
+    /// `conversation` (D165).
+    pub async fn set_disappearing_timer(
+        &self,
+        conversation: ConversationId,
+        seconds: Option<u32>,
+    ) -> Result<()> {
+        self.call(|reply| Request::SetDisappearingTimer(conversation, seconds, reply))
+            .await
+    }
+
+    /// Hard-delete every message whose disappearing countdown has reached or
+    /// passed `now`, cascading to reactions, attachments, mentions and
+    /// receipts, and recomputing affected conversation summaries (D165).
+    pub async fn sweep_expired(&self, now: Timestamp) -> Result<ExpiredSweep> {
+        self.call(|reply| Request::SweepExpired(now, reply)).await
+    }
+
+    /// Earliest expiration timestamp among messages with a running countdown
+    /// (`None` if no message is currently ticking, D165).
+    pub async fn next_expiry(&self) -> Result<Option<Timestamp>> {
+        self.call(Request::NextExpiry).await
+    }
+
     /// Stop the store task and close the database cleanly (checkpointing the WAL).
     /// Other handles get [`StoreError::Closed`] afterwards.
     pub async fn close(self) -> Result<()> {
@@ -660,6 +714,10 @@ async fn serve(mut engine: Engine, mut queue: mpsc::Receiver<Request>) {
 }
 
 /// Handle one request. Returns the reply channel if it was `Close`.
+#[expect(
+    clippy::too_many_lines,
+    reason = "flat dispatch table over every Store Request variant"
+)]
 #[cfg_attr(
     not(feature = "sqlite"),
     expect(clippy::unused_async, reason = "only the SQLite engine awaits")
@@ -751,6 +809,18 @@ async fn handle(engine: &mut Engine, request: Request) -> Option<Reply<()>> {
         }
         Request::SetVerification(id, verified, reply) => {
             let _ = reply.send(call!(engine, set_verification(id, verified)));
+        }
+        Request::UpsertDisappearingTimers(timers, reply) => {
+            let _ = reply.send(call!(engine, upsert_disappearing_timers(&timers)));
+        }
+        Request::SetDisappearingTimer(conversation, seconds, reply) => {
+            let _ = reply.send(call!(engine, set_disappearing_timer(conversation, seconds)));
+        }
+        Request::SweepExpired(now, reply) => {
+            let _ = reply.send(call!(engine, sweep_expired(now)));
+        }
+        Request::NextExpiry(reply) => {
+            let _ = reply.send(call!(engine, next_expiry()));
         }
         Request::Close(reply) => return Some(reply),
     }

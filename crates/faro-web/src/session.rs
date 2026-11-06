@@ -131,6 +131,9 @@ impl Session {
         ) {
             self.visitor_acted = true;
         }
+        if let AppEvent::ExpiredSwept { sweep, .. } = &event {
+            self.blobs.remove_paths(&sweep.attachment_paths);
+        }
         // The backlog's messages, then the read sync after them once the
         // store has lowered the counts (D134): the chat opens only then, so
         // its "new messages" marker and the list's counts are the poster's.
@@ -356,7 +359,9 @@ async fn command_task(
             | Command::DeleteForEveryone { .. }
             | Command::MarkRead(_)
             | Command::Typing { .. }
-            | Command::SetVerification { .. }) => commands::execute(&backend, command).await,
+            | Command::SetVerification { .. }
+            | Command::SetDisappearingTimer { .. }
+            | Command::PurgeExpired(_)) => commands::execute(&backend, command).await,
         };
         if let Some(event) = event
             && results.send(event).is_err()

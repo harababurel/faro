@@ -20,6 +20,10 @@ use crate::app::update::selection::find_links;
 /// Maximum number of recent files/media or links shown in the info sidebar.
 const MAX_INFO_ITEMS: usize = 5;
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "sequential section list for the info sidebar"
+)]
 pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, view: &View<'_>) {
     let theme = view.theme;
     let block = Block::bordered()
@@ -89,6 +93,14 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, view: &View<'_>)
     lines.push(label("Notifications"));
     let conversation_state = summary.map(|s| &s.state);
     lines.push(value(notifications(conversation_state, view), plain));
+    if let Some(secs) = summary.and_then(|s| s.disappearing_timer) {
+        lines.push(Line::default());
+        lines.push(label("Disappearing messages"));
+        lines.push(value(
+            format!("◷ {}", faro_core::domain::format_disappearing_timer(secs)),
+            plain,
+        ));
+    }
     if let Some(place) = summary.and_then(|s| section_place(state, s)) {
         lines.push(Line::default());
         lines.push(label("List"));

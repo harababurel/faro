@@ -116,6 +116,12 @@ const MUTE_HINTS: &[(&str, &str)] = &[
     ("enter", "mute"),
     ("esc", "close"),
 ];
+const DISAPPEARING_HINTS: &[(&str, &str)] = &[
+    ("↑↓", "choose"),
+    ("1-7", "pick"),
+    ("enter", "set"),
+    ("esc", "close"),
+];
 const REACT_HINTS: &[(&str, &str)] = &[
     ("←→", "choose"),
     ("1-6", "pick"),
@@ -243,6 +249,7 @@ fn hints(state: &State, geometry: &Geometry) -> Vec<(String, &'static str)> {
             Popup::React { query: None, .. } => fixed(REACT_HINTS),
             Popup::React { query: Some(_), .. } => fixed(REACT_SEARCH_HINTS),
             Popup::Mute { .. } => fixed(MUTE_HINTS),
+            Popup::DisappearingTimer { .. } => fixed(DISAPPEARING_HINTS),
             Popup::MessageInfo { .. } => fixed(MESSAGE_INFO_HINTS),
             Popup::ImageViewer { .. } => fixed(IMAGE_VIEWER_HINTS),
             Popup::StagedImage | Popup::About => fixed(STAGED_IMAGE_HINTS),

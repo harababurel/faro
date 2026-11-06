@@ -33,7 +33,7 @@ use ratatui::text::{Line, Span};
 
 use self::grid::{Cell, Grid, Rect};
 use super::View;
-use super::messages::{ImageSlot, content, delivery, message_time, reactions};
+use super::messages::{ImageSlot, content, delivery, disappearing_badge, message_time, reactions};
 use super::text::{sanitize, truncate, width};
 use crate::app::state::{BlockGlyphs, State};
 use crate::app::update::selection::find_links;
@@ -495,6 +495,16 @@ fn meta(state: &State, message: &Message, view: &View<'_>) -> Vec<Span<'static>>
     }
     if let Some(time) = time {
         spans.push(Span::styled(time, muted));
+    }
+    if let Some(timer) = disappearing_badge(state, message, view) {
+        if spans.is_empty() {
+            spans.push(Span::styled(
+                timer.content.trim_start().to_owned(),
+                timer.style,
+            ));
+        } else {
+            spans.push(timer);
+        }
     }
     if let Some(status) = delivery(message, view) {
         if spans.is_empty() {

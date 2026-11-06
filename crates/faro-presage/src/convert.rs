@@ -158,7 +158,8 @@ fn kept(event: &BackendEvent) -> bool {
         | BackendEvent::Reaction { .. }
         | BackendEvent::Edited { .. }
         | BackendEvent::Deleted { .. }
-        | BackendEvent::ReadElsewhere(_) => true,
+        | BackendEvent::ReadElsewhere(_)
+        | BackendEvent::DisappearingTimer { .. } => true,
         BackendEvent::Connection(_)
         | BackendEvent::Typing { .. }
         | BackendEvent::ContactUpdated(_)
@@ -213,14 +214,27 @@ fn data_message(data: &DataMessage, author: &Author, fallback_sent_at: u64) -> V
     if let Some(sticker) = data.sticker.as_ref().and_then(|s| s.data.as_ref()) {
         attachments.push(sticker_attachment(sticker));
     }
+    let timer_update =
+        (data.flags.unwrap_or(0) & (data_message::Flags::ExpirationTimerUpdate as u32)) != 0;
+    let expires_in_secs = data.expire_timer.filter(|&s| s > 0);
+    let mut out = Vec::new();
+    if timer_update {
+        out.push(BackendEvent::DisappearingTimer {
+            conversation,
+            seconds: expires_in_secs,
+        });
+    }
     if body.is_none() && attachments.is_empty() {
         // Profile key, timer and group changes, payments, calls…: nothing to show.
-        return vec![];
+        return out;
     }
-    vec![BackendEvent::Message(Message {
+    let sent_at = Timestamp::from_millis(data.timestamp.unwrap_or(fallback_sent_at));
+    let expire_started_at = expires_in_secs
+        .and_then(|_| matches!(author.direction, Direction::Outgoing(_)).then_some(sent_at));
+    out.push(BackendEvent::Message(Message {
         conversation,
         sender: author.sender,
-        sent_at: Timestamp::from_millis(data.timestamp.unwrap_or(fallback_sent_at)),
+        sent_at,
         direction: author.direction,
         body,
         mentions: data
@@ -233,7 +247,10 @@ fn data_message(data: &DataMessage, author: &Author, fallback_sent_at: u64) -> V
         reactions: vec![],
         edited_at: None,
         deleted: false,
-    })]
+        expires_in_secs,
+        expire_started_at,
+    }));
+    out
 }
 
 /// A message author given as a string or as 16 bytes (newer clients).
@@ -620,6 +637,21 @@ pub fn delete(target: MessageRef, sent_at: u64, group: Option<GroupContextV2>) -
         delete: Some(Delete {
             target_sent_timestamp: Some(target.sent_at.as_millis()),
         }),
+        timestamp: Some(sent_at),
+        group_v2: group,
+        ..DataMessage::default()
+    }
+}
+
+/// A disappearing-message timer update (`Flags::ExpirationTimerUpdate`, D165).
+pub fn timer_update(
+    seconds: Option<u32>,
+    sent_at: u64,
+    group: Option<GroupContextV2>,
+) -> DataMessage {
+    DataMessage {
+        flags: Some(data_message::Flags::ExpirationTimerUpdate as u32),
+        expire_timer: Some(seconds.unwrap_or(0)),
         timestamp: Some(sent_at),
         group_v2: group,
         ..DataMessage::default()

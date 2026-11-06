@@ -51,6 +51,8 @@ fn message(conversation: ConversationId, sender: ServiceId) -> BackendEvent {
         reactions: Vec::new(),
         edited_at: None,
         deleted: false,
+        expires_in_secs: None,
+        expire_started_at: None,
     })
 }
 
@@ -224,6 +226,7 @@ async fn actions_towards_others_are_refused() {
         mentions: vec![],
         quote: None,
         attachments: vec![],
+        expires_in_secs: None,
     };
     let refused = |r: Result<()>| matches!(r, Err(BackendError::NotAllowed));
     assert!(refused(guarded.send(stranger, msg.clone()).await));

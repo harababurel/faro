@@ -49,6 +49,8 @@ pub struct Directory {
     /// Running behind the allowlist guard (`--allowlist`, D62, D95).
     pub guarded: bool,
     pub capabilities: faro_core::backend::Capabilities,
+    /// Earliest message expiration timestamp in the store on startup (D165).
+    pub next_expiry: Option<faro_core::domain::Timestamp>,
 }
 
 /// Read the account, contacts and groups from the backend (local data, no
@@ -71,6 +73,10 @@ pub async fn load_directory<B: Backend>(backend: &B, store: &Store) -> anyhow::R
         Ok(identities) => store.upsert_identities(identities).await?,
         Err(error) => tracing::warn!(%error, "reading safety numbers failed"),
     }
+    match backend.disappearing_timers().await {
+        Ok(timers) => store.upsert_disappearing_timers(timers).await?,
+        Err(error) => tracing::warn!(%error, "reading disappearing timers failed"),
+    }
     let known: Vec<ConversationId> = groups
         .iter()
         .map(|g| ConversationId::Group(g.id))
@@ -90,6 +96,20 @@ pub async fn load_directory<B: Backend>(backend: &B, store: &Store) -> anyhow::R
         }
         Err(error) => tracing::warn!(%error, "reading what the backend kept failed"),
     }
+    let now = update::wall_clock();
+    let sweep = store.sweep_expired(now).await?;
+    if !sweep.messages.is_empty() {
+        tracing::info!(
+            messages = sweep.messages.len(),
+            attachments = sweep.attachment_paths.len(),
+            "swept expired disappearing messages on startup"
+        );
+        if let Err(error) = backend.purge_expired(&sweep.messages).await {
+            tracing::warn!(%error, "purging expired messages from backend on startup failed");
+        }
+        unlink_expired_attachments(sweep.attachment_paths);
+    }
+    let next_expiry = store.next_expiry().await?;
     let nicknames = store.nicknames().await?;
     let identities = store.identities().await?;
     Ok(Directory {
@@ -100,6 +120,7 @@ pub async fn load_directory<B: Backend>(backend: &B, store: &Store) -> anyhow::R
         identities,
         guarded: false,
         capabilities: backend.capabilities(),
+        next_expiry,
     })
 }
 
@@ -110,6 +131,7 @@ fn initial_state(directory: Directory, detected: state::Detected, startup: &mut 
         .with_nicknames(directory.nicknames)
         .with_identities(directory.identities);
     state.capabilities = directory.capabilities;
+    state.set_next_expiry(directory.next_expiry, update::wall_clock(), Instant::now());
     if directory.guarded {
         state.guard = state::Guard::On;
     }
@@ -268,6 +290,12 @@ pub async fn run<B: Backend + 'static>(
         };
         for event in events {
             paste.resume(&mut input, &event);
+            if let AppEvent::ExpiredSwept { sweep, .. } = &event
+                && !sweep.attachment_paths.is_empty()
+            {
+                images.evict_paths(&sweep.attachment_paths);
+                unlink_expired_attachments(sweep.attachment_paths.clone());
+            }
             dirty |= update::affects_view(&event);
             // Mouse moves cost a frame only when they light up or dim the
             // list's border (D156).
@@ -422,6 +450,10 @@ impl Router {
     /// One effect to its owner: store work to the effects worker, backend
     /// commands to the command task, settings to the config writer; terminal
     /// and system effects run here, on the app loop. Whether it was delivered.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "flat dispatch table over every Effect variant"
+    )]
     fn deliver(&self, effect: Effect, state: &State) -> bool {
         match effect {
             Effect::Backend(command) => self.commands.send(command).is_ok(),
@@ -515,6 +547,8 @@ impl Router {
             | Effect::SaveAttachment { .. }
             | Effect::MarkRead(_)
             | Effect::ReadElsewhere(_)
+            | Effect::SweepExpired(_)
+            | Effect::SaveDisappearingTimer(..)
             | Effect::SaveConversationState(..)
             | Effect::SaveNickname(..)
             | Effect::SaveVerification(..)
@@ -531,6 +565,25 @@ async fn finish(task: tokio::task::JoinHandle<()>, name: &str) {
     if let Err(error) = task.await {
         tracing::error!(%error, "{name} failed");
     }
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "unlinking expired attachment files runs inside spawn_blocking"
+)]
+fn unlink_expired_attachments(paths: Vec<std::path::PathBuf>) {
+    if paths.is_empty() {
+        return;
+    }
+    tokio::task::spawn_blocking(move || {
+        for path in paths {
+            if let Err(error) = std::fs::remove_file(&path)
+                && error.kind() != std::io::ErrorKind::NotFound
+            {
+                tracing::warn!(%error, path = %path.display(), "removing expired attachment failed");
+            }
+        }
+    });
 }
 
 /// Draw a frame (clearing the screen first if asked to) and report where

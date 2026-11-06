@@ -518,6 +518,97 @@ impl Backend for PresageBackend {
         Ok(())
     }
 
+    async fn disappearing_timers(&self) -> Result<Vec<(ConversationId, u32)>> {
+        let mut timers = Vec::new();
+        let contacts = self
+            .manager
+            .store()
+            .contacts()
+            .await
+            .map_err(|e| BackendError::Storage(e.to_string()))?;
+        for contact in contacts.filter_map(std::result::Result::ok) {
+            if contact.expire_timer > 0 {
+                timers.push((
+                    ConversationId::Direct(ServiceId::Aci(contact.uuid)),
+                    contact.expire_timer,
+                ));
+            }
+        }
+        let groups = self
+            .manager
+            .store()
+            .groups()
+            .await
+            .map_err(|e| BackendError::Storage(e.to_string()))?;
+        for (key, group) in groups.filter_map(std::result::Result::ok) {
+            if let Some(timer) = group.disappearing_messages_timer
+                && timer.duration > 0
+            {
+                timers.push((
+                    ConversationId::Group(convert::group_id(&key)),
+                    timer.duration,
+                ));
+            }
+        }
+        Ok(timers)
+    }
+
+    async fn set_disappearing_timer(
+        &self,
+        conversation: ConversationId,
+        seconds: Option<u32>,
+    ) -> Result<()> {
+        let ConversationId::Direct(peer) = conversation else {
+            return Err(BackendError::Unsupported(Capability::Edit));
+        };
+        let ServiceId::Aci(uuid) = peer else {
+            return Err(BackendError::NotFound);
+        };
+        let mut store = self.manager.store().clone();
+        if matches!(
+            store.contact_by_id(&convert::signal_id(peer)).await,
+            Ok(None)
+        ) {
+            let contact = presage::model::contacts::Contact {
+                uuid,
+                phone_number: None,
+                name: String::new(),
+                verified: presage::proto::Verified::default(),
+                profile_key: Vec::new(),
+                expire_timer: 0,
+                expire_timer_version: 1,
+                inbox_position: 0,
+                avatar: None,
+            };
+            let _ = store.save_contact(&contact).await;
+        }
+        let now = now_millis();
+        let message = convert::timer_update(seconds, now, None);
+        self.deliver(conversation, message, now).await
+    }
+
+    async fn purge_expired(&self, messages: &[(ConversationId, MessageRef)]) -> Result<()> {
+        let mut store = self.manager.store().clone();
+        for &(conversation, msg_ref) in messages {
+            let thread = match conversation {
+                ConversationId::Direct(peer) => Thread::Contact(convert::signal_id(peer)),
+                ConversationId::Group(group) => {
+                    let Some((key, _)) = self.groups.borrow().get(&group).copied() else {
+                        continue;
+                    };
+                    Thread::Group(key)
+                }
+            };
+            if let Err(error) = store
+                .delete_message(&thread, msg_ref.sent_at.as_millis())
+                .await
+            {
+                tracing::debug!(%error, "deleting expired message from presage store failed");
+            }
+        }
+        Ok(())
+    }
+
     /// What presage kept in these conversations' threads (it saves every
     /// message it receives or sends), oldest first.
     async fn stored_events(&self, conversations: &[ConversationId]) -> Result<Vec<BackendEvent>> {
@@ -574,6 +665,36 @@ impl Backend for PresageBackend {
                 })?
         };
         let message = convert::text(&msg, pointers, group);
+        if let (ConversationId::Direct(peer), Some(secs)) =
+            (to, msg.expires_in_secs.filter(|&s| s > 0))
+            && let ServiceId::Aci(uuid) = peer
+        {
+            let mut store = self.manager.store().clone();
+            let thread = Thread::Contact(convert::signal_id(peer));
+            if matches!(store.expire_timer(&thread).await, Ok(None)) {
+                match store.contact_by_id(&convert::signal_id(peer)).await {
+                    Ok(Some(mut contact)) => {
+                        contact.expire_timer = secs;
+                        let _ = store.save_contact(&contact).await;
+                    }
+                    Ok(None) => {
+                        let contact = presage::model::contacts::Contact {
+                            uuid,
+                            phone_number: None,
+                            name: String::new(),
+                            verified: presage::proto::Verified::default(),
+                            profile_key: Vec::new(),
+                            expire_timer: secs,
+                            expire_timer_version: 1,
+                            inbox_position: 0,
+                            avatar: None,
+                        };
+                        let _ = store.save_contact(&contact).await;
+                    }
+                    Err(_) => {}
+                }
+            }
+        }
         self.deliver(to, message, msg.sent_at.as_millis()).await
     }
 
@@ -911,7 +1032,10 @@ async fn announce_group(
         .groups
         .borrow_mut()
         .insert(id, (key, group.revision.max(revision)));
-    events
+    let timer_secs = group
+        .disappearing_messages_timer
+        .and_then(|t| (t.duration > 0).then_some(t.duration));
+    if events
         .send(BackendEvent::GroupUpdated(Group {
             id,
             title: group.title,
@@ -921,6 +1045,16 @@ async fn announce_group(
                 .map(|m| ServiceId::Aci(Uuid::from(m.aci)))
                 .collect(),
         }))
+        .await
+        .is_err()
+    {
+        return false;
+    }
+    events
+        .send(BackendEvent::DisappearingTimer {
+            conversation: ConversationId::Group(id),
+            seconds: timer_secs,
+        })
         .await
         .is_ok()
 }

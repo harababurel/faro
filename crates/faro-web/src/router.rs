@@ -131,6 +131,8 @@ impl Router {
                 | Effect::SaveAttachment { .. }
                 | Effect::MarkRead(_)
                 | Effect::ReadElsewhere(_)
+                | Effect::SweepExpired(_)
+                | Effect::SaveDisappearingTimer(..)
                 | Effect::SaveConversationState(..)
                 | Effect::SaveNickname(..)
                 | Effect::SaveVerification(..)

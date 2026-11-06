@@ -2298,6 +2298,11 @@ fn open_conversation_commands(state: &State) -> Vec<Item> {
             ItemKind::Level(Level::Nickname(peer)),
             "Set a nickname…",
         ));
+        items.push(command(
+            PaletteCommand::Conversation(ConversationAction::DisappearingTimer),
+            ConversationAction::DisappearingTimer.label().0,
+            None,
+        ));
     }
     if has_safety_number_command(state, summary.id) {
         items.push(command(

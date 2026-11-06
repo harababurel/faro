@@ -772,5 +772,15 @@ Notes (version, OS, terminal, what went wrong):
 
 - 2026-11-06, owner: linked `faro-transfer-test` on personal account; phone prompted to transfer message history, and `faro link` downloaded, decrypted, and imported 64,624 messages, 68 contacts, and 4 groups (45 days of history) in ~35 s.
 
+## Disappearing messages (D165)
+
+- [ ] **Header & Info sidebar (`Alt+I`):** in a chat with disappearing messages enabled on Signal (or after setting a timer in `faro`), the conversation header shows `· ◷ <timer>` after the title and `Alt+I` Info shows a `Disappearing messages` section (`◷ <timer>`).
+- [ ] **Set timer from `faro`:** in a direct chat, open `Space` (conversation menu) or `Ctrl+P` › *Disappearing messages…*: choose an interval (e.g. *5 minutes* or *1 hour*) or *Off*. The header updates immediately and the peer's Signal app reflects the new disappearing-message timer.
+- [ ] **Outgoing inheritance:** send a message from `faro` in a chat with an active disappearing timer: the message shows `◷` (and `◷ <remaining>` when selected), `i` (*Message info*) shows `Disappears: in <remaining> (<timestamp>)`, and on the recipient's phone the message also has the disappearing-message timer.
+- [ ] **Countdown starts on read & full sweep:** receive a disappearing message (e.g. a 30-second or 5-minute timer set from the phone) while another chat is open or the terminal is unfocused: its countdown does not start until you view the message (or read it on your phone). Once the timer runs out, the message disappears automatically from the screen, from `faro.db`, from `<data dir>/attachments/` (if it had a downloaded attachment), and does not reappear after restarting `faro`.
+
+Notes (version, OS, terminal, what went wrong):
+
+
 
 

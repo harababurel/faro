@@ -110,6 +110,9 @@ pub fn send(state: &mut State) -> Vec<Effect> {
     };
     let (body_text, mentions) = extract_mentions(&text, &known);
     let body = MessageBody::new(body_text.clone());
+    let expires_in_secs = state
+        .summary(conversation)
+        .and_then(|s| s.disappearing_timer);
     let message = Message {
         conversation,
         sender: state.me,
@@ -122,6 +125,8 @@ pub fn send(state: &mut State) -> Vec<Effect> {
         reactions: vec![],
         edited_at: None,
         deleted: false,
+        expires_in_secs,
+        expire_started_at: expires_in_secs.map(|_| sent_at),
     };
     let mut effects = clear_draft(state, conversation);
     // Shown and stored like any new message (`Persist` runs before later receipts).
@@ -134,6 +139,7 @@ pub fn send(state: &mut State) -> Vec<Effect> {
             mentions,
             quote,
             attachments: outgoing_attachments,
+            expires_in_secs,
         },
     }));
     effects
@@ -193,6 +199,9 @@ pub fn forward(
         });
     }
     let body = MessageBody::new(text);
+    let expires_in_secs = state
+        .summary(conversation)
+        .and_then(|s| s.disappearing_timer);
     let message = Message {
         conversation,
         sender: state.me,
@@ -205,6 +214,8 @@ pub fn forward(
         reactions: vec![],
         edited_at: None,
         deleted: false,
+        expires_in_secs,
+        expire_started_at: expires_in_secs.map(|_| sent_at),
     };
     state.notice = Some(Notice::info(format!(
         "Forwarded to {}",
@@ -219,6 +230,7 @@ pub fn forward(
             mentions: vec![],
             quote: None,
             attachments: outgoing_attachments,
+            expires_in_secs,
         },
     }));
     effects

@@ -35,6 +35,10 @@ pub async fn execute(store: &Store, effect: Effect) -> Option<AppEvent> {
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "flat dispatch table over every Store Effect variant"
+)]
 async fn run(store: &Store, effect: Effect) -> Result<Option<AppEvent>, StoreError> {
     Ok(match effect {
         Effect::LoadConversations => {
@@ -97,10 +101,16 @@ async fn run(store: &Store, effect: Effect) -> Result<Option<AppEvent>, StoreErr
             let cleared = store.read_elsewhere(messages).await?;
             (!cleared.is_empty()).then_some(AppEvent::UnreadCleared(cleared))
         }
+        Effect::SweepExpired(now) => {
+            let sweep = store.sweep_expired(now).await?;
+            let next_expiry = store.next_expiry().await?;
+            Some(AppEvent::ExpiredSwept { sweep, next_expiry })
+        }
         Effect::LoadUpdateState => Some(load_update_state(store).await?),
         Effect::Persist(_)
         | Effect::SaveAttachment { .. }
         | Effect::SaveConversationState(..)
+        | Effect::SaveDisappearingTimer(..)
         | Effect::MarkRead(_)
         | Effect::RememberOpen(_)
         | Effect::SaveNickname(..)
@@ -161,6 +171,9 @@ async fn write(store: &Store, effect: Effect) -> Result<(), StoreError> {
         Effect::SaveConversationState(conversation, state) => {
             store.set_conversation_state(conversation, *state).await
         }
+        Effect::SaveDisappearingTimer(conversation, seconds) => {
+            store.set_disappearing_timer(conversation, seconds).await
+        }
         Effect::MarkRead(conversation) => store.mark_read(conversation).await,
         Effect::RememberOpen(conversation) => {
             store
@@ -191,6 +204,7 @@ async fn write(store: &Store, effect: Effect) -> Result<(), StoreError> {
         | Effect::SearchMessages { .. }
         | Effect::LoadMessageReceipts { .. }
         | Effect::ReadElsewhere(_)
+        | Effect::SweepExpired(_)
         | Effect::Backend(_)
         | Effect::Copy(_)
         | Effect::OpenUrl(_)

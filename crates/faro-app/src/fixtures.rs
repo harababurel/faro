@@ -75,6 +75,7 @@ pub fn summary(
         last_message: None,
         unread,
         state: ConversationState::default(),
+        disappearing_timer: None,
     }
 }
 
@@ -106,6 +107,8 @@ pub fn text(conversation: ConversationId, sender: ServiceId, at: u64, body: &str
         reactions: vec![],
         edited_at: None,
         deleted: false,
+        expires_in_secs: None,
+        expire_started_at: None,
     }
 }
 

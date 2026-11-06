@@ -13,8 +13,8 @@ pub use ids::{
 };
 pub use message::{
     AttachmentId, AttachmentRef, AttachmentStatus, BodyPart, DeliveryStatus, Direction, Mention,
-    Message, Quote, Reaction, TranscriptSource, format_byte_size, mention_parts,
-    transcript_paragraph,
+    Message, Quote, Reaction, TranscriptSource, format_byte_size, format_disappearing_remaining,
+    format_disappearing_timer, mention_parts, transcript_paragraph,
 };
 pub use people::{Contact, Group, IdentityRecord, VerificationState, format_safety_number};
 pub use presence::{ConnectionState, TypingState};

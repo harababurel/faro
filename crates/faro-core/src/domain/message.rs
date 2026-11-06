@@ -20,6 +20,11 @@ pub struct Message {
     pub edited_at: Option<Timestamp>,
     /// Deleted for everyone; shown as a placeholder.
     pub deleted: bool,
+    /// Disappearing-message timer duration in seconds, if this message expires (D165).
+    pub expires_in_secs: Option<u32>,
+    /// When the expiration countdown started: `sent_at` for outgoing messages,
+    /// or when read (`mark_read` / `ReadElsewhere`) for incoming messages (D165).
+    pub expire_started_at: Option<Timestamp>,
 }
 
 impl Message {
@@ -41,6 +46,18 @@ impl Message {
     /// Whether the message mentions `who`.
     pub fn mentions_person(&self, who: ServiceId) -> bool {
         !self.deleted && self.mentions.iter().any(|m| m.who == who)
+    }
+
+    /// When this message will expire and be deleted, if its countdown has started (D165).
+    pub fn expires_at(&self) -> Option<Timestamp> {
+        let secs = self.expires_in_secs.filter(|&s| s > 0)?;
+        let start = self.expire_started_at.or(match self.direction {
+            Direction::Outgoing(_) => Some(self.sent_at),
+            Direction::Incoming => None,
+        })?;
+        Some(Timestamp::from_millis(
+            start.as_millis().saturating_add(u64::from(secs) * 1000),
+        ))
     }
 }
 
@@ -313,6 +330,42 @@ pub fn format_byte_size(bytes: u64) -> String {
     format!("{size:.1} {}", UNITS.get(unit).copied().unwrap_or("TB"))
 }
 
+/// Format a disappearing-message timer duration compactly (`30s`, `5m`, `1h`,
+/// `1d`, `1w`, `4w`; D165).
+pub fn format_disappearing_timer(secs: u32) -> String {
+    const MINUTE: u32 = 60;
+    const HOUR: u32 = 3_600;
+    const DAY: u32 = 86_400;
+    const WEEK: u32 = 604_800;
+    if secs == 0 {
+        return "off".to_owned();
+    }
+    if secs.is_multiple_of(WEEK) {
+        format!("{}w", secs / WEEK)
+    } else if secs.is_multiple_of(DAY) {
+        format!("{}d", secs / DAY)
+    } else if secs.is_multiple_of(HOUR) {
+        format!("{}h", secs / HOUR)
+    } else if secs.is_multiple_of(MINUTE) {
+        format!("{}m", secs / MINUTE)
+    } else if secs >= DAY {
+        format!("{}d", secs / DAY)
+    } else if secs >= HOUR {
+        format!("{}h", secs / HOUR)
+    } else if secs >= MINUTE {
+        format!("{}m", secs / MINUTE)
+    } else {
+        format!("{secs}s")
+    }
+}
+
+/// Format the remaining lifetime until `expires_at` at `now` (`4m`, `23h`, `6d`; D165).
+pub fn format_disappearing_remaining(expires_at: Timestamp, now: Timestamp) -> String {
+    let remaining_ms = expires_at.as_millis().saturating_sub(now.as_millis());
+    let secs = u32::try_from(remaining_ms.div_ceil(1000).max(1)).unwrap_or(u32::MAX);
+    format_disappearing_timer(secs)
+}
+
 #[cfg(test)]
 mod tests {
     use uuid::Uuid;
@@ -353,6 +406,8 @@ mod tests {
             reactions: vec![],
             edited_at: None,
             deleted: false,
+            expires_in_secs: None,
+            expire_started_at: None,
         };
         msg.apply_reaction(bob, Some("👍".into()));
         msg.apply_reaction(alice, Some("❤️".into()));

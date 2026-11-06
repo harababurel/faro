@@ -71,6 +71,17 @@ impl Blobs {
     pub fn holds(&self, text: &str) -> bool {
         self.lock().contains_key(Path::new(text))
     }
+
+    /// Drop any stored attachment bytes for `paths` (D165).
+    pub fn remove_paths(&self, paths: &[PathBuf]) {
+        if paths.is_empty() {
+            return;
+        }
+        let mut guard = self.lock();
+        for path in paths {
+            guard.remove(path);
+        }
+    }
 }
 
 #[cfg(test)]

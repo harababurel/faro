@@ -521,6 +521,7 @@ impl TransferredHistory {
                 | BackendEvent::Deleted { .. }
                 | BackendEvent::ReadElsewhere(_)
                 | BackendEvent::IdentityUpdated(_)
+                | BackendEvent::DisappearingTimer { .. }
                 | BackendEvent::Typing { .. }
                 | BackendEvent::Error(_) => {}
             }
@@ -848,11 +849,23 @@ impl HistoryBuilder {
         let Some(content) = item.item else {
             return;
         };
-        let Some(message) =
+        let expires_in_secs = item
+            .expires_in_ms
+            .map(|ms| u32::try_from(ms / 1_000).unwrap_or(u32::MAX))
+            .filter(|&s| s > 0);
+        let expire_started_at = expires_in_secs.and_then(|_| {
+            item.expire_start_date
+                .filter(|&ms| ms > 0)
+                .map(Timestamp::from_millis)
+                .or_else(|| matches!(direction, Direction::Outgoing(_)).then_some(sent_at))
+        });
+        let Some(mut message) =
             self.message_from_item(content, conversation, sender, sent_at, direction, edited_at)
         else {
             return;
         };
+        message.expires_in_secs = expires_in_secs;
+        message.expire_started_at = expire_started_at;
 
         self.message_events.push(BackendEvent::Message(message));
         self.message_events.extend(receipt_updates);
@@ -902,6 +915,8 @@ impl HistoryBuilder {
                     reactions,
                     edited_at,
                     deleted: false,
+                    expires_in_secs: None,
+                    expire_started_at: None,
                 })
             }
             proto::chat_item::Item::Sticker(sticker_msg) => {
@@ -928,6 +943,8 @@ impl HistoryBuilder {
                     reactions,
                     edited_at: None,
                     deleted: false,
+                    expires_in_secs: None,
+                    expire_started_at: None,
                 })
             }
             proto::chat_item::Item::RemoteDeleted(_) => Some(Message {
@@ -942,6 +959,8 @@ impl HistoryBuilder {
                 reactions: vec![],
                 edited_at: None,
                 deleted: true,
+                expires_in_secs: None,
+                expire_started_at: None,
             }),
         }
     }
@@ -1066,6 +1085,12 @@ impl HistoryBuilder {
                 title: group.title.clone(),
                 members: group.members.clone(),
             }));
+            if let Some(secs) = group.disappearing_messages_timer.filter(|&d| d > 0) {
+                events.push(BackendEvent::DisappearingTimer {
+                    conversation: ConversationId::Group(group.id),
+                    seconds: Some(secs),
+                });
+            }
         }
         for contact in &self.contacts {
             if contact.service_id == self.me {
@@ -1077,6 +1102,12 @@ impl HistoryBuilder {
                 profile_name: contact.profile_name.clone(),
                 phone: contact.phone.clone(),
             }));
+            if contact.expire_timer > 0 {
+                events.push(BackendEvent::DisappearingTimer {
+                    conversation: ConversationId::Direct(contact.service_id),
+                    seconds: Some(contact.expire_timer),
+                });
+            }
         }
         events.extend(self.message_events);
         if !self.read_messages.is_empty() {
@@ -1400,6 +1431,10 @@ mod proto {
         pub author_id: u64,
         #[prost(uint64, tag = "3")]
         pub date_sent: u64,
+        #[prost(uint64, optional, tag = "4")]
+        pub expire_start_date: Option<u64>,
+        #[prost(uint64, optional, tag = "5")]
+        pub expires_in_ms: Option<u64>,
         #[prost(message, repeated, tag = "6")]
         pub revisions: Vec<ChatItem>,
         #[prost(oneof = "chat_item::DirectionalDetails", tags = "8, 9, 10")]
@@ -1889,10 +1924,14 @@ mod tests {
                     chat_id: 10,
                     author_id: 2,
                     date_sent: 1_500,
+                    expire_start_date: Some(1_100),
+                    expires_in_ms: Some(3_600_000),
                     revisions: vec![proto::ChatItem {
                         chat_id: 10,
                         author_id: 2,
                         date_sent: 1_000,
+                        expire_start_date: None,
+                        expires_in_ms: None,
                         revisions: vec![],
                         directional_details: None,
                         item: None,
@@ -1953,6 +1992,8 @@ mod tests {
                     chat_id: 20,
                     author_id: 3,
                     date_sent: 2_000,
+                    expire_start_date: None,
+                    expires_in_ms: None,
                     revisions: vec![],
                     directional_details: Some(proto::chat_item::DirectionalDetails::Incoming(
                         proto::chat_item::IncomingMessageDetails {
@@ -1996,6 +2037,8 @@ mod tests {
                     chat_id: 10,
                     author_id: 1,
                     date_sent: 3_000,
+                    expire_start_date: None,
+                    expires_in_ms: Some(3_600_000),
                     revisions: vec![],
                     directional_details: Some(proto::chat_item::DirectionalDetails::Outgoing(
                         proto::chat_item::OutgoingMessageDetails {
@@ -2119,6 +2162,7 @@ mod tests {
                 .unwrap();
             // Marked read in the archive (`incoming.read = true`), so unread is 0.
             assert_eq!(alice_summary.unread, 0);
+            assert_eq!(alice_summary.disappearing_timer, Some(3_600));
             assert_eq!(alice_summary.state.pinned, Some(0));
 
             let group_summary = summaries

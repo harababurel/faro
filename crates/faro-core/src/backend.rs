@@ -64,6 +64,33 @@ pub trait Backend {
         std::future::ready(Ok(()))
     }
 
+    /// Active disappearing-message timers (`(conversation, seconds)`) known to
+    /// the backend on startup (D165).
+    fn disappearing_timers(&self) -> impl Future<Output = Result<Vec<(ConversationId, u32)>>> {
+        std::future::ready(Ok(Vec::new()))
+    }
+
+    /// Set (`Some(seconds)`) or turn off (`None`) a conversation's
+    /// disappearing-message timer (D165).
+    fn set_disappearing_timer(
+        &self,
+        conversation: ConversationId,
+        seconds: Option<u32>,
+    ) -> impl Future<Output = Result<()>> {
+        let _ = (conversation, seconds);
+        std::future::ready(Ok(()))
+    }
+
+    /// Delete expired messages from the backend's own storage (`presage.db`)
+    /// so [`Backend::stored_events`] cannot resurrect them on the next launch (D165).
+    fn purge_expired(
+        &self,
+        messages: &[(ConversationId, MessageRef)],
+    ) -> impl Future<Output = Result<()>> {
+        let _ = messages;
+        std::future::ready(Ok(()))
+    }
+
     /// What the backend itself kept about these conversations (messages,
     /// reactions, edits, deletions, receipts), oldest first, so faro can
     /// pick up anything received while it wasn't running (D64). The store
@@ -161,6 +188,9 @@ pub struct OutgoingMessage {
     /// Files to upload with it (D77); sending them requires
     /// [`Capability::Attachments`].
     pub attachments: Vec<OutgoingAttachment>,
+    /// Active disappearing-message timer (in seconds) of the destination
+    /// conversation, if any (D165).
+    pub expires_in_secs: Option<u32>,
 }
 
 /// A file to send: faro's own copy of it (D77).
@@ -355,6 +385,7 @@ mod tests {
             mentions: vec![],
             quote: None,
             attachments: vec![],
+            expires_in_secs: None,
         };
         backend.send(to, msg).await
     }

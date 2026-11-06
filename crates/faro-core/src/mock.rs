@@ -377,6 +377,7 @@ mod tests {
             mentions: vec![],
             quote: None,
             attachments: vec![],
+            expires_in_secs: None,
         }
     }
 
@@ -432,6 +433,7 @@ mod tests {
             | BackendEvent::ReadElsewhere(_)
             | BackendEvent::ContactUpdated(_)
             | BackendEvent::IdentityUpdated(_)
+            | BackendEvent::DisappearingTimer { .. }
             | BackendEvent::GroupUpdated(_)
             | BackendEvent::Error(_) => None,
         })

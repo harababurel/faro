@@ -1642,5 +1642,32 @@ A developer friend of the owner tried getfaro.dev; the owner agreed with all of 
   - `Store::upsert_contacts` (`db.rs` and `mem.rs`) now preserves an existing `profile_name` when a contact update carries `profile_name: None`, so startup `upsert_contacts` (before background profile fetches complete) never wipes profile names imported from the transfer archive.
   - During `faro link`, pressing `Ctrl+C` while waiting for or downloading the archive skips history transfer while keeping the device linked.
 
+### D165. Disappearing messages that actually expire (owner's request, 2026-11-06)
+
+- **Problem:** Signal's disappearing-message timers are enforced client-side by each linked device. Without local expiration and outgoing timer inheritance, `faro` kept ephemeral messages, attachments and voice-note transcripts indefinitely on disk (`faro.db`, `presage.db` and `<data dir>/attachments/`), and messages sent from `faro` into a disappearing-messages chat went out with `expire_timer = None` (`0`), never expiring on recipients' phones either.
+- **No fork needed:** upstream `presage` exposes `DataMessage.expire_timer`, `Flags::ExpirationTimerUpdate`, `Contact.expire_timer`, `Group.disappearing_messages_timer`, and `ContentsStore::delete_message(&thread, sent_at_ms)`.
+- **Domain & countdown rules (`faro-core`):**
+  - `Message` carries `expires_in_secs: Option<u32>` and `expire_started_at: Option<Timestamp>`, with `Message::expires_at() -> Option<Timestamp>`.
+  - Outgoing messages start their countdown immediately at `sent_at` (`expire_started_at = Some(sent_at)`).
+  - Incoming messages start their countdown only when read (`Store::mark_read` when seen in `faro`, `Store::read_elsewhere` on a read sync from the phone, or `ChatItem.expire_start_date` when imported via `faro link`).
+- **Per-conversation timer & outgoing inheritance:**
+  - `ConversationSummary` carries `disappearing_timer: Option<u32>` (`conversations.disappearing_timer` in migration `0010_disappearing_messages.sql`, mirrored in `mem.rs`).
+  - Learned from `Backend::disappearing_timers()` on startup (`Contact.expire_timer` and `Group.disappearing_messages_timer` in `presage.db`), `BackendEvent::DisappearingTimer { conversation, seconds }`, any incoming/outgoing message carrying `expires_in_secs`, and `faro link` history transfer.
+  - Outgoing messages (`sending::send`, `sending::forward`, `sending::retry`) inherit the conversation's active `disappearing_timer` on `OutgoingMessage::expires_in_secs`, which `PresageBackend::send` writes to `DataMessage.expire_timer` (and mirrors onto `Contact.expire_timer` in `presage.db` for direct chats).
+  - In direct chats, *Disappearing messages…* (`ConversationAction::DisappearingTimer` in the conversation menu and `Ctrl+P`) opens `Popup::DisappearingTimer` (`Off`, `5 minutes`, `1 hour`, `8 hours`, `1 day`, `1 week`, `4 weeks`), saving the choice (`Effect::SaveDisappearingTimer`) and sending an `ExpirationTimerUpdate` `DataMessage` (`Command::SetDisappearingTimer`).
+- **Sweeping all 4 storage layers:**
+  - Driven on startup (`app::load_directory`) and by `State::next_expiry` (`State::next_deadline` → `AppEvent::Tick` → `Effect::SweepExpired` → `AppEvent::ExpiredSwept`):
+    1. `faro.db` / `mem.rs` (`Store::sweep_expired`): hard-deletes expired messages (`expires_at <= now`), cascading to `reactions`, `attachments` (including Whisper transcripts), `mentions`, and `message_receipts`, and recomputing `last_activity`, `last_message`, and surviving `unread_count` for affected conversations.
+    2. `<data dir>/attachments/`: unlinks downloaded attachment files (`ExpiredSweep::attachment_paths`) off the UI thread (`unlink_expired_attachments`).
+    3. `presage.db` (`Command::PurgeExpired` → `Backend::purge_expired`): calls `ContentsStore::delete_message(&thread, sent_at)` so `PresageBackend::stored_events` cannot resurrect expired messages on the next startup.
+    4. In-memory UI (`State`, `Images`, `Blobs`): removes swept messages from `OpenConversation::messages` (stopping audio playback and closing target popups if needed), updates `State::conversations` summaries, and evicts deleted attachment paths from the inline image LRU cache (`Images::evict_paths`) and web demo blob store (`Blobs::remove_paths`).
+- **UI indicators (Judgement on glyph & placement):**
+  - Uses the 1-cell geometric glyph `◷` (U+25F7, safe across kitty, tmux and mosh without VS16 width ambiguity).
+  - Conversation header (`ui/conversation.rs`): shows ` · ◷ <timer>` (muted) after the title when `disappearing_timer` is active.
+  - `Alt+I` Info sidebar (`ui/info.rs`): shows `Disappearing messages` (`◷ <timer>`) when active.
+  - Message row (`ui/messages.rs`, `ui/bubbles.rs`): shows ` ◷ <remaining>` when selected (and ` ◷` otherwise) on messages with `expires_in_secs: Some(_)`.
+  - `Popup::MessageInfo` (`ui/popup.rs`): shows `Disappears: in <remaining> (<datetime>)` once ticking, or `<timer> after read` before read.
+
+
 
 

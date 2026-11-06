@@ -35,6 +35,8 @@ fn saved(effects: &[Effect], id: ConversationId) -> Option<ConversationState> {
         | Effect::SaveAttachment { .. }
         | Effect::MarkRead(_)
         | Effect::ReadElsewhere(_)
+        | Effect::SweepExpired(_)
+        | Effect::SaveDisappearingTimer(..)
         | Effect::RememberOpen(_)
         | Effect::SaveNickname(..)
         | Effect::SaveVerification(..)

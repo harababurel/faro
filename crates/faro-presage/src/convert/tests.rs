@@ -397,6 +397,7 @@ fn outgoing_text_carries_quote_mentions_and_group() {
             preview: None,
         }),
         attachments: vec![],
+        expires_in_secs: None,
     };
     let data = text(&msg, vec![], Some(group_context(&KEY, 2)));
     assert_eq!(data.body.as_deref(), Some("🧗 \u{FFFC} hello"));

@@ -14,18 +14,25 @@ use super::shortcodes::{REACT_SEARCH_LIMIT, REACT_SEARCH_ROWS, search_shortcodes
 use super::text::{pad_left, sanitize, truncate, width};
 use faro_core::domain::{
     ConversationId, DeliveryStatus, Direction, MessageRef, ServiceId, Timestamp, VerificationState,
-    format_byte_size, format_safety_number,
+    format_byte_size, format_disappearing_remaining, format_disappearing_timer,
+    format_safety_number,
 };
 use faro_core::store::RecipientReceipt;
 
 use crate::app::state::{
-    Geometry, MUTE_CHOICES, MessageAction, Popup, REMOTE_CONSENT_CHOICES, SidebarRow, State,
-    same_emoji,
+    DISAPPEARING_CHOICES, Geometry, MUTE_CHOICES, MessageAction, Popup, REMOTE_CONSENT_CHOICES,
+    SidebarRow, State, same_emoji,
 };
 
 /// Shortcut keys of `MUTE_CHOICES`.
 const MUTE_KEYS: [&str; 5] = ["1", "2", "3", "4", "5"];
+/// Shortcut keys of `DISAPPEARING_CHOICES`.
+const DISAPPEARING_KEYS: [&str; 7] = ["1", "2", "3", "4", "5", "6", "7"];
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "flat dispatch table over every Popup variant"
+)]
 pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &mut Geometry) {
     let Some(popup) = &state.popup else {
         return;
@@ -95,6 +102,26 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &
                 .map(|((label, _), key)| ((*label).to_owned(), key))
                 .collect();
             menu(frame, anchor, "Mute", &labels, *selected, view);
+        }
+        Popup::DisappearingTimer { target, selected } => {
+            let anchor =
+                beside_sidebar(frame.area(), geometry, *target).unwrap_or_else(|| Anchor {
+                    area: geometry.history.unwrap_or_else(|| frame.area()),
+                    around: None,
+                });
+            let labels: Vec<(String, &str)> = DISAPPEARING_CHOICES
+                .iter()
+                .zip(DISAPPEARING_KEYS)
+                .map(|((label, _), key)| ((*label).to_owned(), key))
+                .collect();
+            menu(
+                frame,
+                anchor,
+                "Disappearing messages",
+                &labels,
+                *selected,
+                view,
+            );
         }
         Popup::ImageViewer { target, index } => {
             attachment_viewer(frame, state, *target, *index, geometry, view);
@@ -184,6 +211,9 @@ fn message_info_rows(
     if let Some(edited_at) = message.edited_at {
         rows.push(("Edited", format_datetime(edited_at, view), text_style));
     }
+    if let Some(value) = disappears_value(message, view) {
+        rows.push(("Disappears", value, text_style));
+    }
     if let Direction::Outgoing(status) = message.direction {
         let (label, style) = match status {
             DeliveryStatus::Sending => ("Sending…", theme.muted()),
@@ -234,43 +264,64 @@ fn message_info_rows(
         rows.push(("Reaction", format!("{emoji} {who}"), text_style));
     }
     for att in &message.attachments {
-        let name = att.file_name.as_deref().map_or_else(
-            || {
-                if att.is_voice_note() {
-                    "voice note".to_owned()
-                } else {
-                    sanitize(&att.content_type).into_owned()
-                }
-            },
-            |n| sanitize(n).into_owned(),
-        );
-        let mut meta = vec![sanitize(&att.content_type).into_owned()];
-        if let Some(size) = att.size {
-            meta.push(format_byte_size(size));
-        }
-        if let (Some(w), Some(h)) = (att.width, att.height)
-            && w > 0
-            && h > 0
-        {
-            meta.push(format!("{w}×{h}"));
-        }
-        if let Some(secs) = att.duration_secs {
-            meta.push(format!("{secs}s"));
-        }
-        rows.push((
-            "Attachment",
-            format!("{name} ({})", meta.join(" · ")),
-            text_style,
-        ));
-        if let Some(path) = att.local_path() {
-            rows.push((
-                "Path",
-                sanitize(&path.display().to_string()).into_owned(),
-                Style::new().fg(theme.secondary),
-            ));
-        }
+        push_attachment_rows(&mut rows, att, text_style, theme.secondary);
     }
     rows
+}
+
+fn push_attachment_rows(
+    rows: &mut Vec<(&'static str, String, Style)>,
+    att: &faro_core::domain::AttachmentRef,
+    text_style: Style,
+    secondary: ratatui::style::Color,
+) {
+    let name = att.file_name.as_deref().map_or_else(
+        || {
+            if att.is_voice_note() {
+                "voice note".to_owned()
+            } else {
+                sanitize(&att.content_type).into_owned()
+            }
+        },
+        |n| sanitize(n).into_owned(),
+    );
+    let mut meta = vec![sanitize(&att.content_type).into_owned()];
+    if let Some(size) = att.size {
+        meta.push(format_byte_size(size));
+    }
+    if let (Some(w), Some(h)) = (att.width, att.height)
+        && w > 0
+        && h > 0
+    {
+        meta.push(format!("{w}×{h}"));
+    }
+    if let Some(secs) = att.duration_secs {
+        meta.push(format!("{secs}s"));
+    }
+    rows.push((
+        "Attachment",
+        format!("{name} ({})", meta.join(" · ")),
+        text_style,
+    ));
+    if let Some(path) = att.local_path() {
+        rows.push((
+            "Path",
+            sanitize(&path.display().to_string()).into_owned(),
+            Style::new().fg(secondary),
+        ));
+    }
+}
+
+fn disappears_value(message: &faro_core::domain::Message, view: &View<'_>) -> Option<String> {
+    let secs = message.expires_in_secs?;
+    Some(match message.expires_at() {
+        Some(expires_at) => format!(
+            "in {} ({})",
+            format_disappearing_remaining(expires_at, view.now_timestamp()),
+            format_datetime(expires_at, view),
+        ),
+        None => format!("{} after read", format_disappearing_timer(secs)),
+    })
 }
 
 fn format_datetime(ts: Timestamp, view: &View<'_>) -> String {

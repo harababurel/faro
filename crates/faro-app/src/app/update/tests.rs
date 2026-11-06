@@ -787,6 +787,7 @@ fn enter_sends_shows_and_stores_the_message() {
                     mentions: vec![],
                     quote: None,
                     attachments: vec![],
+                    expires_in_secs: None,
                 },
             }),
         ]
@@ -1234,6 +1235,7 @@ fn failed_messages_can_be_retried_from_the_menu() {
                     mentions: vec![],
                     quote: None,
                     attachments: vec![],
+                    expires_in_secs: None,
                 },
             }),
         ]
@@ -2568,6 +2570,186 @@ fn safety_number_change_blocks_sending_until_verified_or_approved() {
             .iter()
             .any(|e| matches!(e, Effect::Backend(Command::Send { .. })))
     );
+}
+
+#[test]
+fn disappearing_timer_picker_sets_timer_and_stamps_outgoing_messages() {
+    let mut state = loaded_state();
+    // Switch to Bob's direct chat (pinned first in the sidebar).
+    update(&mut state, key(KeyCode::Char('k'), KeyModifiers::ALT));
+    assert_eq!(open_id(&state), Some(bob()));
+    update(
+        &mut state,
+        AppEvent::MessagesLoaded {
+            conversation: bob(),
+            messages: vec![],
+        },
+    );
+
+    // Open the disappearing timer picker for Bob's direct chat.
+    let effects = super::curation::perform(
+        &mut state,
+        bob(),
+        crate::app::state::ConversationAction::DisappearingTimer,
+    );
+    assert_eq!(effects, vec![]);
+    assert_eq!(
+        state.popup,
+        Some(Popup::DisappearingTimer {
+            target: bob(),
+            selected: 0,
+        })
+    );
+
+    // Move down to "1 hour" (index 2: Off, 5m, 1h) and press Enter.
+    press(&mut state, 'j');
+    press(&mut state, 'j');
+    let effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(state.popup.is_none());
+    assert_eq!(
+        effects,
+        vec![
+            Effect::SaveDisappearingTimer(bob(), Some(3600)),
+            Effect::Backend(Command::SetDisappearingTimer {
+                conversation: bob(),
+                seconds: Some(3600),
+            }),
+        ]
+    );
+    assert_eq!(
+        state
+            .conversations
+            .iter()
+            .find(|c| c.id == bob())
+            .and_then(|c| c.disappearing_timer),
+        Some(3600)
+    );
+
+    // Sending a message inherits the 1h timer and starts the countdown immediately.
+    typed(&mut state, "Ephemeral note");
+    let send_effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    let sent_msg = state
+        .open
+        .as_ref()
+        .and_then(|o| o.messages.last())
+        .expect("optimistic message");
+    assert_eq!(sent_msg.expires_in_secs, Some(3600));
+    assert_eq!(sent_msg.expire_started_at, Some(sent_msg.sent_at));
+    assert_eq!(
+        state.next_expiry.map(|(ts, _)| ts),
+        Some(Timestamp::from_millis(
+            sent_msg.sent_at.as_millis() + 3_600_000
+        ))
+    );
+    assert!(send_effects.iter().any(|e| matches!(
+        e,
+        Effect::Backend(Command::Send { message, .. })
+            if message.expires_in_secs == Some(3600)
+    )));
+}
+
+#[test]
+fn incoming_disappearing_message_starts_countdown_on_read_and_sweeps_when_due() {
+    use faro_core::store::ExpiredSweep;
+
+    let mut state = loaded_state();
+    state.env.focused = false;
+    let prev_last = state
+        .open
+        .as_ref()
+        .and_then(|o| o.messages.last())
+        .cloned()
+        .expect("climbing has history");
+
+    // Incoming disappearing message arrives while terminal is unfocused.
+    let mut incoming = text(
+        climbing(),
+        ALICE,
+        fixtures::NOW_MS + 1000,
+        "Burn after reading",
+    );
+    incoming.expires_in_secs = Some(300);
+    let msg_ref = incoming.reference();
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::Message(incoming)),
+    );
+    let stored = state
+        .open
+        .as_ref()
+        .and_then(|o| o.messages.last())
+        .expect("message in open chat");
+    assert_eq!(stored.expires_in_secs, Some(300));
+    assert_eq!(stored.expire_started_at, None);
+    assert_eq!(state.next_expiry, None);
+
+    // Terminal regains focus -> message is marked read and countdown starts.
+    update(
+        &mut state,
+        AppEvent::Terminal(crate::app::term_event::Event::FocusGained),
+    );
+    let stored = state
+        .open
+        .as_ref()
+        .and_then(|o| o.messages.last())
+        .expect("message in open chat");
+    let read_at = stored.expire_started_at.expect("countdown started on read");
+    let expire_at = Timestamp::from_millis(read_at.as_millis() + 300_000);
+    assert_eq!(state.next_expiry.map(|(ts, _)| ts), Some(expire_at));
+    assert!(state.next_deadline().is_some());
+
+    // Mark the deadline as due now -> Tick emits Effect::SweepExpired.
+    state.next_expiry = Some((expire_at, Instant::now()));
+    let tick_effects = update(&mut state, AppEvent::Tick);
+    assert!(
+        tick_effects
+            .iter()
+            .any(|e| matches!(e, Effect::SweepExpired(_)))
+    );
+
+    // Store completes sweep -> message disappears from open view, summary updates, presage purges.
+    let sweep_effects = update(
+        &mut state,
+        AppEvent::ExpiredSwept {
+            sweep: ExpiredSweep {
+                messages: vec![(climbing(), msg_ref)],
+                attachment_paths: vec![],
+                conversations: vec![(
+                    climbing(),
+                    Some(prev_last.sent_at),
+                    Some(prev_last.clone()),
+                    0,
+                )],
+            },
+            next_expiry: None,
+        },
+    );
+    assert_eq!(
+        sweep_effects,
+        vec![Effect::Backend(Command::PurgeExpired(vec![(
+            climbing(),
+            msg_ref
+        )]))]
+    );
+    assert!(
+        state
+            .open
+            .as_ref()
+            .unwrap()
+            .messages
+            .iter()
+            .all(|m| m.reference() != msg_ref)
+    );
+    assert_eq!(
+        state
+            .conversations
+            .iter()
+            .find(|c| c.id == climbing())
+            .and_then(|c| c.last_message.as_ref())
+            .map(faro_core::domain::Message::reference),
+        Some(prev_last.reference())
+    );
+    assert_eq!(state.next_expiry, None);
 }
 
 mod clipboard;

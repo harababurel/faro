@@ -90,6 +90,7 @@ pub fn affects_view(event: &AppEvent) -> bool {
         | AppEvent::SettingNotSaved(_)
         | AppEvent::StoreFailed(_)
         | AppEvent::UnreadCleared(_)
+        | AppEvent::ExpiredSwept { .. }
         | AppEvent::Updates(_)
         | AppEvent::Tick
         | AppEvent::Shutdown => true,
@@ -205,6 +206,9 @@ fn route(state: &mut State, event: AppEvent) -> Vec<Effect> {
         AppEvent::Drawn(geometry) => on_drawn(state, geometry),
         AppEvent::StoreFailed(error) => notice_err(state, "Storage problem", Err(error)),
         AppEvent::UnreadCleared(cleared) => on_unread_cleared(state, &cleared),
+        AppEvent::ExpiredSwept { sweep, next_expiry } => {
+            on_expired_swept(state, sweep, next_expiry)
+        }
         AppEvent::Updates(event) => updates::on_event(state, event),
         AppEvent::Tick => on_tick(state),
         AppEvent::Shutdown => quit(state),
@@ -249,6 +253,10 @@ fn on_tick(state: &mut State) -> Vec<Effect> {
     let mut effects = presence::on_tick(state, now);
     if draft_due {
         effects.extend(save_draft(state));
+    }
+    if state.next_expiry.is_some_and(|(_, at)| now >= at) {
+        state.next_expiry = None;
+        effects.push(Effect::SweepExpired(wall_clock()));
     }
     effects.extend(updates::on_tick(state, now));
     effects
@@ -451,6 +459,7 @@ fn on_loaded(
         effects.extend(on_backend(state, event));
     }
     state.loading = false;
+    note_summary_expiries(state);
     // Nothing opens by itself (D60): the list highlights where the user
     // was, in the list it's in (it may be archived), and has the focus.
     let remembered = last_open.filter(|id| state.summary(*id).is_some());
@@ -491,6 +500,7 @@ fn on_messages_loaded(
     open.unread_marker = unread.first().copied().or(open.unread_marker);
     presence::on_history(state, &unread);
     let mut effects = presence::catch_up(state);
+    note_loaded_expiries(state);
     effects.extend(selection::queue_auto_downloads(state));
     effects.extend(selection::queue_auto_transcriptions(state));
     effects
@@ -511,6 +521,7 @@ fn on_older_loaded(
     open.loading_older = false;
     open.has_older = full_page(&messages);
     timeline::prepend(&mut open.messages, messages);
+    note_loaded_expiries(state);
     let mut effects = selection::queue_auto_downloads(state);
     effects.extend(selection::queue_auto_transcriptions(state));
     effects
@@ -546,6 +557,7 @@ fn on_messages_around_loaded(
     open.unread_marker = unread.first().copied().or(open.unread_marker);
     presence::on_history(state, &unread);
     let mut effects = presence::catch_up(state);
+    note_loaded_expiries(state);
     effects.extend(selection::queue_auto_downloads(state));
     effects.extend(selection::queue_auto_transcriptions(state));
     effects
@@ -606,6 +618,14 @@ fn on_backend(state: &mut State, event: BackendEvent) -> Vec<Effect> {
             presence::on_read_elsewhere(state, messages);
             effects.push(Effect::ReadElsewhere(messages.clone()));
         }
+        BackendEvent::DisappearingTimer {
+            conversation,
+            seconds,
+        } => {
+            if let Some(summary) = summary_entry(state, *conversation) {
+                summary.disappearing_timer = *seconds;
+            }
+        }
         BackendEvent::ContactUpdated(contact) => {
             let id = ConversationId::Direct(contact.service_id);
             let title = contact.display_name().map(str::to_owned);
@@ -663,6 +683,7 @@ fn persistent(event: &BackendEvent) -> bool {
         | BackendEvent::Reaction { .. }
         | BackendEvent::Edited { .. }
         | BackendEvent::Deleted { .. }
+        | BackendEvent::DisappearingTimer { .. }
         | BackendEvent::ContactUpdated(_)
         | BackendEvent::GroupUpdated(_)
         | BackendEvent::IdentityUpdated(_) => true,
@@ -699,6 +720,9 @@ fn on_message(state: &mut State, message: &Message, effects: &mut Vec<Effect>) {
     let incoming = message.direction == Direction::Incoming && !message.deleted;
     if let Some(summary) = summary_entry(state, id) {
         summary.last_activity = summary.last_activity.max(Some(message.sent_at));
+        if message.expires_in_secs.is_some() {
+            summary.disappearing_timer = message.expires_in_secs;
+        }
         // The list's preview (D154): only drawing, never a read (D42).
         if summary
             .last_message
@@ -718,6 +742,9 @@ fn on_message(state: &mut State, message: &Message, effects: &mut Vec<Effect>) {
                 Box::new(summary.state.clone()),
             ));
         }
+    }
+    if let Some(at) = message.expires_at() {
+        state.note_expiry(at, wall_clock(), Instant::now());
     }
     if incoming && !seen {
         effects.extend(notify::on_unseen_message(state, message));
@@ -774,8 +801,112 @@ fn summary_entry(state: &mut State, id: ConversationId) -> Option<&mut Conversat
         last_message: None,
         unread: 0,
         state: ConversationState::default(),
+        disappearing_timer: None,
     });
     state.conversations.last_mut()
+}
+
+fn note_loaded_expiries(state: &mut State) {
+    let Some(expiries): Option<Vec<_>> = state
+        .open
+        .as_ref()
+        .map(|o| o.messages.iter().filter_map(Message::expires_at).collect())
+    else {
+        return;
+    };
+    let now_wall = wall_clock();
+    let now_inst = Instant::now();
+    for at in expiries {
+        state.note_expiry(at, now_wall, now_inst);
+    }
+}
+
+fn note_summary_expiries(state: &mut State) {
+    let expiries: Vec<_> = state
+        .conversations
+        .iter()
+        .filter_map(|c| c.last_message.as_ref().and_then(Message::expires_at))
+        .collect();
+    let now_wall = wall_clock();
+    let now_inst = Instant::now();
+    for at in expiries {
+        state.note_expiry(at, now_wall, now_inst);
+    }
+}
+
+fn on_expired_swept(
+    state: &mut State,
+    sweep: faro_core::store::ExpiredSweep,
+    next_expiry: Option<faro_core::domain::Timestamp>,
+) -> Vec<Effect> {
+    let now_wall = wall_clock();
+    let now_inst = Instant::now();
+    state.set_next_expiry(next_expiry, now_wall, now_inst);
+    if sweep.messages.is_empty() {
+        return vec![];
+    }
+    let mut effects = Vec::new();
+    let was_swept = |conv: ConversationId, r: MessageRef| {
+        sweep.messages.iter().any(|(c, mr)| *c == conv && *mr == r)
+    };
+    if state
+        .playing
+        .as_ref()
+        .is_some_and(|p| was_swept(p.conversation, p.message))
+    {
+        state.playing = None;
+        effects.push(Effect::StopAudio);
+    }
+    if let Some(open) = state.open.as_mut() {
+        let conv = open.id;
+        open.messages.retain(|m| !was_swept(conv, m.reference()));
+        open.unreceipted.retain(|r| !was_swept(conv, *r));
+        if open.unread_marker.is_some_and(|r| was_swept(conv, r)) {
+            open.unread_marker = None;
+        }
+        if let Some(sel) = open.selected
+            && !open.messages.iter().any(|m| m.reference() == sel.message)
+        {
+            open.selected = open.messages.last().map(|m| Selection {
+                message: m.reference(),
+                reveal: false,
+            });
+        }
+        let popup_target = match &state.popup {
+            Some(
+                Popup::Actions { target, .. }
+                | Popup::React { target, .. }
+                | Popup::MessageInfo { target, .. }
+                | Popup::ImageViewer { target, .. }
+                | Popup::ConfirmDelete { target }
+                | Popup::ConfirmRemoteTranscription { target, .. },
+            ) => Some(*target),
+            Some(
+                Popup::StagedImage
+                | Popup::About
+                | Popup::Conversation { .. }
+                | Popup::Mute { .. }
+                | Popup::DisappearingTimer { .. }
+                | Popup::SafetyNumber(_),
+            )
+            | None => None,
+        };
+        if popup_target.is_some_and(|t| was_swept(conv, t)) {
+            state.popup = None;
+        }
+    }
+    for (id, last_activity, last_message, unread) in sweep.conversations {
+        if let Some(summary) = state.conversations.iter_mut().find(|c| c.id == id) {
+            summary.last_activity = last_activity;
+            summary.last_message = last_message;
+            summary.unread = unread;
+        }
+    }
+    sort_conversations(&mut state.conversations);
+    effects.push(Effect::Backend(crate::app::event::Command::PurgeExpired(
+        sweep.messages,
+    )));
+    effects
 }
 
 /// Apply to the open conversation if it's `conversation` (or, for receipts, which

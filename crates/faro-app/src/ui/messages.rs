@@ -595,7 +595,7 @@ fn render_message(
         Span::raw(" "),
     ];
     let (mut body, pending_images) = content(state, message, columns.text_width, view);
-    append_suffix(&mut body, suffix(message, view), columns.text_width);
+    append_suffix(&mut body, suffix(state, message, view), columns.text_width);
     if !message.reactions.is_empty() {
         body.push(vec![Span::styled(reactions(message), theme.muted())]);
     }
@@ -908,15 +908,41 @@ fn text_lines(
         .collect()
 }
 
-/// `(edited)` and the delivery status of own messages.
-fn suffix(message: &Message, view: &View<'_>) -> Vec<Span<'static>> {
+/// `(edited)`, the disappearing-message timer, and the delivery status of own messages.
+fn suffix(state: &State, message: &Message, view: &View<'_>) -> Vec<Span<'static>> {
     let theme = view.theme;
     let mut spans = Vec::new();
     if message.edited_at.is_some() && !message.deleted {
         spans.push(Span::styled(" (edited)", theme.muted()));
     }
+    spans.extend(disappearing_badge(state, message, view));
     spans.extend(delivery(message, view));
     spans
+}
+
+/// The disappearing-message indicator (` ◷` or ` ◷ 1h` when selected, D165),
+/// with a leading space.
+pub(super) fn disappearing_badge(
+    state: &State,
+    message: &Message,
+    view: &View<'_>,
+) -> Option<Span<'static>> {
+    if message.deleted {
+        return None;
+    }
+    let secs = message.expires_in_secs?;
+    let label = if is_selected(state, message) {
+        let remaining = match message.expires_at() {
+            Some(expires_at) => {
+                faro_core::domain::format_disappearing_remaining(expires_at, view.now_timestamp())
+            }
+            None => faro_core::domain::format_disappearing_timer(secs),
+        };
+        format!(" ◷ {remaining}")
+    } else {
+        " ◷".to_owned()
+    };
+    Some(Span::styled(label, view.theme.muted()))
 }
 
 /// The delivery status of an own message (` ✓✓`), with a leading space.

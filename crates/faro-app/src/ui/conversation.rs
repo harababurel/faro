@@ -39,15 +39,34 @@ pub fn render(
         return;
     };
 
+    let timer = state
+        .summary(open.id)
+        .and_then(|s| s.disappearing_timer)
+        .map(faro_core::domain::format_disappearing_timer);
+    let timer_cols = timer.as_ref().map_or(0, |t| super::text::width(t) + 5);
     let title = state.conversation_title(open.id);
-    let title = truncate(&sanitize(&title), usize::from(area.width.saturating_sub(4))).into_owned();
+    let title = truncate(
+        &sanitize(&title),
+        usize::from(area.width.saturating_sub(4)).saturating_sub(timer_cols),
+    )
+    .into_owned();
+    let title_line = match timer {
+        Some(timer) => Line::from(vec![
+            Span::styled(
+                format!(" {title}"),
+                Style::new().fg(theme.primary).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(format!(" · ◷ {timer} "), theme.muted()),
+        ]),
+        None => Line::from(Span::styled(
+            format!(" {title} "),
+            Style::new().fg(theme.primary).add_modifier(Modifier::BOLD),
+        )),
+    };
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
         .border_style(theme.border(messages_focused))
-        .title(Span::styled(
-            format!(" {title} "),
-            Style::new().fg(theme.primary).add_modifier(Modifier::BOLD),
-        ));
+        .title(title_line);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 

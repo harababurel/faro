@@ -87,6 +87,21 @@ pub async fn execute<B: Backend>(backend: &B, command: Command) -> Option<AppEve
             }
             return None;
         }
+        Command::SetDisappearingTimer {
+            conversation,
+            seconds,
+        } => {
+            if let Err(error) = backend.set_disappearing_timer(conversation, seconds).await {
+                tracing::warn!(%error, %conversation, "updating disappearing timer failed");
+            }
+            return None;
+        }
+        Command::PurgeExpired(messages) => {
+            if let Err(error) = backend.purge_expired(&messages).await {
+                tracing::warn!(%error, count = messages.len(), "purging expired messages from backend failed");
+            }
+            return None;
+        }
     };
     Some(event)
 }

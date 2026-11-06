@@ -169,6 +169,8 @@ impl Content {
             reactions: vec![],
             edited_at: None,
             deleted: false,
+            expires_in_secs: None,
+            expire_started_at: None,
         }
     }
 }
@@ -1141,6 +1143,7 @@ impl Sim {
             | BackendEvent::ContactUpdated(_)
             | BackendEvent::IdentityUpdated(_)
             | BackendEvent::GroupUpdated(_)
+            | BackendEvent::DisappearingTimer { .. }
             | BackendEvent::Error(_) => {}
         }
         out.push(event);
@@ -1414,6 +1417,7 @@ mod tests {
                             | BackendEvent::ReadElsewhere(_)
                             | BackendEvent::ContactUpdated(_)
                             | BackendEvent::IdentityUpdated(_)
+                            | BackendEvent::DisappearingTimer { .. }
                             | BackendEvent::GroupUpdated(_)
                             | BackendEvent::Error(_) => {}
                         }

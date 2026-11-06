@@ -8,12 +8,12 @@ use faro_core::store::{ConversationState, NotifyLevel, RemoteTranscription};
 use super::selection::cycle;
 use super::sending::wall_clock;
 use super::{open_conversation, save_draft, settings};
-use crate::app::event::Effect;
+use crate::app::event::{Command, Effect};
 use crate::app::keymap::{Curate, PopupKey};
 use crate::app::palette::INACTIVE_CHOICES;
 use crate::app::state::{
-    ConversationAction, Focus, MUTE_CHOICES, Notice, Popup, Section, SidebarScroll, SidebarView,
-    State, sort_conversations,
+    ConversationAction, DISAPPEARING_CHOICES, Focus, MUTE_CHOICES, Notice, Popup, Section,
+    SidebarScroll, SidebarView, State, sort_conversations,
 };
 
 /// A sidebar key. Acts on the open conversation, which is the sidebar's
@@ -120,6 +120,7 @@ pub fn menu(state: &mut State, target: ConversationId) {
         && peer != state.me
     {
         items.push(ConversationAction::Nickname);
+        items.push(ConversationAction::DisappearingTimer);
         if state
             .identities
             .get(&peer)
@@ -226,6 +227,61 @@ pub fn mute_for(state: &mut State, target: ConversationId, choice: usize) -> Vec
     change(state, target, notice, |s| s.muted_until = Some(until))
 }
 
+/// A key in the disappearing-messages timer picker (D165): arrows and `Enter`, or `1`–`7`.
+pub fn on_disappearing_timer_key(
+    state: &mut State,
+    target: ConversationId,
+    selected: usize,
+    key: PopupKey,
+) -> Vec<Effect> {
+    let chosen = match key {
+        PopupKey::Previous | PopupKey::Next => {
+            let selected = cycle(selected, DISAPPEARING_CHOICES.len(), key == PopupKey::Next);
+            state.popup = Some(Popup::DisappearingTimer { target, selected });
+            return vec![];
+        }
+        PopupKey::Choose => Some(selected),
+        PopupKey::Char(c) => c
+            .to_digit(10)
+            .and_then(|d| usize::try_from(d).ok())
+            .and_then(|d| d.checked_sub(1))
+            .filter(|i| *i < DISAPPEARING_CHOICES.len()),
+        PopupKey::Backspace => {
+            state.popup = Some(Popup::DisappearingTimer { target, selected });
+            return vec![];
+        }
+        PopupKey::Close => None,
+    };
+    chosen.map_or_else(Vec::new, |choice| {
+        set_disappearing_timer(state, target, choice)
+    })
+}
+
+/// Set `target`'s disappearing-messages timer to `DISAPPEARING_CHOICES[choice]` (D165).
+pub fn set_disappearing_timer(
+    state: &mut State,
+    target: ConversationId,
+    choice: usize,
+) -> Vec<Effect> {
+    let Some(&(label, seconds)) = DISAPPEARING_CHOICES.get(choice) else {
+        return vec![];
+    };
+    if let Some(summary) = state.conversations.iter_mut().find(|c| c.id == target) {
+        summary.disappearing_timer = seconds;
+    }
+    state.notice = Some(Notice::info(match seconds {
+        Some(_) => format!("Disappearing messages set to {label}"),
+        None => "Disappearing messages turned off".to_owned(),
+    }));
+    vec![
+        Effect::SaveDisappearingTimer(target, seconds),
+        Effect::Backend(Command::SetDisappearingTimer {
+            conversation: target,
+            seconds,
+        }),
+    ]
+}
+
 /// Hide every conversation with no message for `INACTIVE_CHOICES[choice]`
 /// (DESIGN §7.7), except pinned ones; like `h`, each comes back with a new
 /// message.
@@ -265,6 +321,10 @@ pub fn hide_inactive(state: &mut State, choice: usize) -> Vec<Effect> {
     effects
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "flat dispatch table over every ConversationAction variant"
+)]
 pub fn perform(
     state: &mut State,
     target: ConversationId,
@@ -287,6 +347,15 @@ pub fn perform(
             {
                 super::palette::open_nickname(state, peer);
             }
+            vec![]
+        }
+        ConversationAction::DisappearingTimer => {
+            let current = state.summary(target).and_then(|s| s.disappearing_timer);
+            let selected = DISAPPEARING_CHOICES
+                .iter()
+                .position(|&(_, secs)| secs == current)
+                .unwrap_or(0);
+            state.popup = Some(Popup::DisappearingTimer { target, selected });
             vec![]
         }
         ConversationAction::SafetyNumber => {

@@ -10,6 +10,7 @@
 
 use std::cell::Cell;
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use faro_core::config::InlineImages;
@@ -377,6 +378,12 @@ impl Images {
     /// The next finished decode (never ends: the cache keeps a sender).
     pub async fn next_decoded(&mut self) -> Option<DecodedImage> {
         self.decoded_rx.recv().await
+    }
+
+    /// Evict any cached or in-flight image slices for the given file paths (D165).
+    pub fn evict_paths(&mut self, paths: &[PathBuf]) {
+        self.entries.retain(|e| !paths.contains(&e.key.path));
+        self.in_flight.retain(|k| !paths.contains(&k.path));
     }
 
     #[cfg(test)]

@@ -13,14 +13,14 @@ use super::codec::{
     attachment_status_to_db, conversation_from_key, conversation_key, timestamp_to_db,
 };
 use super::{
-    ConversationState, ConversationSummary, PROFILE_KEY, Profile, RecipientReceipt, Result,
-    SearchHit, StoreError, StoreStats, StoredProfile, decide,
+    ConversationState, ConversationSummary, ExpiredSweep, PROFILE_KEY, Profile, RecipientReceipt,
+    Result, SearchHit, StoreError, StoreStats, StoredProfile, decide,
 };
 use crate::backend::{BackendEvent, IdentityUpdate};
 use crate::domain::{
-    AttachmentRef, Contact, ConversationId, DeliveryStatus, Direction, Group, IdentityRecord,
-    Mention, Message, MessageBody, MessageRef, PhoneNumber, Quote, Reaction, ServiceId, Timestamp,
-    VerificationState,
+    AttachmentRef, AttachmentStatus, Contact, ConversationId, DeliveryStatus, Direction, Group,
+    IdentityRecord, Mention, Message, MessageBody, MessageRef, PhoneNumber, Quote, Reaction,
+    ServiceId, Timestamp, VerificationState,
 };
 
 #[derive(Debug, Default)]
@@ -38,6 +38,7 @@ struct Conversation {
     title: Option<String>,
     last_activity: Option<Timestamp>,
     unread: u32,
+    disappearing_timer: Option<u32>,
     /// `None` until set: reads back as the default state.
     state: Option<ConversationState>,
 }
@@ -54,6 +55,8 @@ struct Row {
     edited_at: Option<Timestamp>,
     deleted: bool,
     direction: Direction,
+    expires_in_secs: Option<u32>,
+    expire_started_at: Option<Timestamp>,
     /// In row-id order: a replaced reaction keeps its place.
     reactions: Vec<Reaction>,
     attachments: Vec<AttachmentRef>,
@@ -65,6 +68,16 @@ impl Row {
     /// `(sent_at, sender)`, SQL's row-value order for paging.
     fn point(&self) -> (Timestamp, &str) {
         (self.sent_at, &self.sender_key)
+    }
+
+    fn expires_at(&self) -> Option<Timestamp> {
+        let secs = self.expires_in_secs.filter(|&s| s > 0)?;
+        let started = self.expire_started_at?;
+        Some(Timestamp::from_millis(
+            started
+                .as_millis()
+                .saturating_add(u64::from(secs).saturating_mul(1_000)),
+        ))
     }
 
     fn to_message(&self) -> Message {
@@ -80,6 +93,8 @@ impl Row {
             reactions: self.reactions.clone(),
             edited_at: self.edited_at,
             deleted: self.deleted,
+            expires_in_secs: self.expires_in_secs,
+            expire_started_at: self.expire_started_at,
         }
     }
 }
@@ -133,6 +148,10 @@ impl Mem {
             BackendEvent::ContactUpdated(contact) => self.upsert_contacts(&[contact]),
             BackendEvent::IdentityUpdated(update) => self.upsert_identities(&[update]),
             BackendEvent::GroupUpdated(group) => self.upsert_groups(&[group]),
+            BackendEvent::DisappearingTimer {
+                conversation,
+                seconds,
+            } => self.set_disappearing_timer(conversation, seconds),
             BackendEvent::Connection(_) | BackendEvent::Typing { .. } | BackendEvent::Error(_) => {
                 Ok(())
             }
@@ -177,8 +196,18 @@ impl Mem {
                 *entry = point;
             }
         }
+        let started = now();
         let mut cleared = Vec::new();
         for (conversation, (sent_at, sender)) in newest {
+            for row in self.rows.values_mut() {
+                if row.conversation == conversation
+                    && row.expires_in_secs.is_some()
+                    && row.expire_started_at.is_none()
+                    && row.point() <= (sent_at, sender.as_str())
+                {
+                    row.expire_started_at = Some(started);
+                }
+            }
             let after = self
                 .rows
                 .values()
@@ -235,6 +264,15 @@ impl Mem {
             timestamp_to_db(quote.target.sent_at)?;
         }
         message.edited_at.map(timestamp_to_db).transpose()?;
+        let expires_in_secs = message.expires_in_secs.filter(|&s| s > 0);
+        let expire_started_at = if expires_in_secs.is_some() {
+            message.expire_started_at.or_else(|| {
+                matches!(message.direction, Direction::Outgoing(_)).then_some(message.sent_at)
+            })
+        } else {
+            None
+        };
+        expire_started_at.map(timestamp_to_db).transpose()?;
         let reference = message.reference();
         if self.by_ref.contains_key(&reference) {
             // Already stored (a duplicate delivery): keep the first copy, but
@@ -242,6 +280,10 @@ impl Mem {
             self.ensure_recipient(message.sender);
             self.ensure_conversation(message.conversation);
             if let Some(row) = self.row_mut(reference) {
+                if expires_in_secs.is_some() {
+                    row.expires_in_secs = row.expires_in_secs.or(expires_in_secs);
+                    row.expire_started_at = row.expire_started_at.or(expire_started_at);
+                }
                 refresh_attachments(&mut row.attachments, &message.attachments);
             }
             return Ok(());
@@ -264,6 +306,8 @@ impl Mem {
             edited_at: message.edited_at,
             deleted: message.deleted,
             direction: message.direction,
+            expires_in_secs,
+            expire_started_at,
             reactions: Vec::new(),
             attachments: message.attachments.clone(),
             mentions: BTreeMap::new(),
@@ -283,6 +327,9 @@ impl Mem {
             );
             if message.direction == Direction::Incoming && !message.deleted {
                 conv.unread = conv.unread.saturating_add(1);
+            }
+            if expires_in_secs.is_some() {
+                conv.disappearing_timer = expires_in_secs;
             }
         }
         Ok(())
@@ -435,6 +482,7 @@ impl Mem {
                         last_activity: conv.last_activity,
                         last_message: latest.get(&id).map(|row| row.to_message()),
                         unread: conv.unread,
+                        disappearing_timer: conv.disappearing_timer,
                         state: conv.state.clone().unwrap_or_default(),
                     },
                 ))
@@ -642,6 +690,15 @@ impl Mem {
         if let Some(conv) = self.conversations.get_mut(&conversation_key(conversation)) {
             conv.unread = 0;
         }
+        let started = now();
+        for row in self.rows.values_mut() {
+            if row.conversation == conversation
+                && row.expires_in_secs.is_some()
+                && row.expire_started_at.is_none()
+            {
+                row.expire_started_at = Some(started);
+            }
+        }
         Ok(())
     }
 
@@ -741,6 +798,124 @@ impl Mem {
         Ok(())
     }
 
+    pub(super) fn upsert_disappearing_timers(
+        &mut self,
+        timers: &[(ConversationId, u32)],
+    ) -> Result<()> {
+        for &(conversation, seconds) in timers {
+            let key = self.ensure_conversation(conversation);
+            if let Some(conv) = self.conversations.get_mut(&key) {
+                conv.disappearing_timer = (seconds > 0).then_some(seconds);
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn set_disappearing_timer(
+        &mut self,
+        conversation: ConversationId,
+        seconds: Option<u32>,
+    ) -> Result<()> {
+        let key = self.ensure_conversation(conversation);
+        if let Some(conv) = self.conversations.get_mut(&key) {
+            conv.disappearing_timer = seconds.filter(|&s| s > 0);
+        }
+        Ok(())
+    }
+
+    pub(super) fn sweep_expired(&mut self, now: Timestamp) -> Result<ExpiredSweep> {
+        timestamp_to_db(now)?;
+        let mut expired: Vec<(u64, ConversationId, MessageRef)> = self
+            .rows
+            .iter()
+            .filter(|(_, row)| row.expires_at().is_some_and(|at| at <= now))
+            .map(|(&id, row)| {
+                (
+                    id,
+                    row.conversation,
+                    MessageRef {
+                        sender: row.sender,
+                        sent_at: row.sent_at,
+                    },
+                )
+            })
+            .collect();
+        if expired.is_empty() {
+            return Ok(ExpiredSweep::default());
+        }
+        expired.sort_by(|a, b| {
+            a.2.sent_at
+                .cmp(&b.2.sent_at)
+                .then_with(|| a.2.sender.to_string().cmp(&b.2.sender.to_string()))
+        });
+        let mut affected = std::collections::BTreeSet::new();
+        for &(_, conv, _) in &expired {
+            affected.insert(conv);
+        }
+        let mut remaining_unreads: HashMap<ConversationId, u32> =
+            HashMap::with_capacity(affected.len());
+        for &conv in &affected {
+            let unread_limit = self
+                .conversations
+                .get(&conversation_key(conv))
+                .map_or(0, |c| c.unread as usize);
+            let mut incoming: Vec<&Row> = self
+                .in_conversation(conv)
+                .filter(|r| r.direction == Direction::Incoming && !r.deleted)
+                .collect();
+            incoming.sort_by(|a, b| b.point().cmp(&a.point()));
+            incoming.truncate(unread_limit);
+            let surviving = incoming
+                .into_iter()
+                .filter(|r| r.expires_at().is_none_or(|at| at > now))
+                .count();
+            let surviving =
+                u32::try_from(surviving).map_err(|_| StoreError::Corrupt("unread_count"))?;
+            remaining_unreads.insert(conv, surviving);
+        }
+        let mut messages = Vec::with_capacity(expired.len());
+        let mut attachment_paths = Vec::new();
+        for (id, conv, msg_ref) in expired {
+            if let Some(row) = self.rows.remove(&id) {
+                for attachment in row.attachments {
+                    if let AttachmentStatus::Downloaded(path) = attachment.status {
+                        attachment_paths.push(path);
+                    }
+                }
+            }
+            self.by_ref.remove(&msg_ref);
+            self.receipts.remove(&msg_ref);
+            messages.push((conv, msg_ref));
+        }
+        let mut conversations = Vec::with_capacity(affected.len());
+        for conv in affected {
+            let mut newest: Option<&Row> = None;
+            for row in self.in_conversation(conv) {
+                if newest.is_none_or(|n| row.point() > n.point()) {
+                    newest = Some(row);
+                }
+            }
+            let last_activity = newest.map(|r| r.sent_at);
+            let last_message = newest.map(Row::to_message);
+            let unread = remaining_unreads.get(&conv).copied().unwrap_or(0);
+            if let Some(stored) = self.conversations.get_mut(&conversation_key(conv)) {
+                stored.last_activity = last_activity;
+                stored.unread = unread;
+            }
+            conversations.push((conv, last_activity, last_message, unread));
+        }
+        conversations.sort_by_key(|a| a.0);
+        Ok(ExpiredSweep {
+            messages,
+            attachment_paths,
+            conversations,
+        })
+    }
+
+    pub(super) fn next_expiry(&self) -> Result<Option<Timestamp>> {
+        Ok(self.rows.values().filter_map(Row::expires_at).min())
+    }
+
     pub(super) fn stats(&self) -> Result<StoreStats> {
         Ok(StoreStats {
             conversations: self.conversations.len() as u64,
@@ -799,4 +974,10 @@ fn check_mention(mention: &Mention) -> Result<()> {
         i64::try_from(n).map_err(|_| StoreError::OutOfRange("mention"))?;
     }
     Ok(())
+}
+
+fn now() -> Timestamp {
+    let ms = crate::rt::since_unix_epoch()
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
+    Timestamp::from_millis(ms)
 }

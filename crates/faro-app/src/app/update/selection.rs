@@ -382,6 +382,9 @@ pub fn on_popup(state: &mut State, key: PopupKey) -> Vec<Effect> {
             selected,
         } => curation::on_menu_key(state, target, items, selected, key),
         Popup::Mute { target, selected } => curation::on_mute_key(state, target, selected, key),
+        Popup::DisappearingTimer { target, selected } => {
+            curation::on_disappearing_timer_key(state, target, selected, key)
+        }
         Popup::SafetyNumber(peer) => on_safety_number_key(state, peer, key),
     }
 }
@@ -1098,6 +1101,7 @@ fn retry(state: &mut State, target: MessageRef) -> Vec<Effect> {
         mentions: message.mentions.clone(),
         quote: message.quote.clone(),
         attachments,
+        expires_in_secs: message.expires_in_secs,
     };
     let mut effects = on_backend(
         state,

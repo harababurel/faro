@@ -61,6 +61,7 @@ pub fn apply(messages: &mut Vec<Message>, event: &BackendEvent) {
         BackendEvent::Connection(_)
         | BackendEvent::Typing { .. }
         | BackendEvent::ReadElsewhere(_)
+        | BackendEvent::DisappearingTimer { .. }
         | BackendEvent::ContactUpdated(_)
         | BackendEvent::GroupUpdated(_)
         | BackendEvent::IdentityUpdated(_)
@@ -123,6 +124,8 @@ mod tests {
             reactions: vec![],
             edited_at: None,
             deleted: false,
+            expires_in_secs: None,
+            expire_started_at: None,
         }
     }
 

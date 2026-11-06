@@ -76,6 +76,7 @@ engines! {
     messages_around_returns_oldest_first_window,
     each_summary_carries_its_newest_message,
     identities_track_key_changes_and_verification,
+    disappearing_messages_tick_and_sweep,
 }
 
 async fn each_summary_carries_its_newest_message(kind: Kind) {
@@ -141,6 +142,8 @@ fn incoming(conversation: ConversationId, sender: u128, sent_at: u64, body: &str
         reactions: vec![],
         edited_at: None,
         deleted: false,
+        expires_in_secs: None,
+        expire_started_at: None,
     }
 }
 
@@ -1087,4 +1090,96 @@ async fn identities_track_key_changes_and_verification(kind: Kind) {
             key_changed: false,
         })
     );
+}
+
+async fn disappearing_messages_tick_and_sweep(kind: Kind) {
+    use crate::domain::AttachmentStatus;
+
+    let store = kind.open().await;
+
+    // 1. Timer updates via upsert and event.
+    store
+        .upsert_disappearing_timers(vec![(direct(ALICE), 300), (direct(BOB), 3_600)])
+        .await
+        .unwrap();
+    assert_eq!(
+        summary(&store, direct(ALICE)).await.disappearing_timer,
+        Some(300)
+    );
+    assert_eq!(
+        summary(&store, direct(BOB)).await.disappearing_timer,
+        Some(3_600)
+    );
+    store
+        .apply(BackendEvent::DisappearingTimer {
+            conversation: direct(BOB),
+            seconds: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(summary(&store, direct(BOB)).await.disappearing_timer, None);
+
+    // 2. Outgoing message with expires_in_secs starts ticking immediately at sent_at.
+    let mut out = outgoing(direct(ALICE), 1_000, DeliveryStatus::Sent);
+    out.expires_in_secs = Some(10); // expires at 11_000
+    out.attachments = vec![AttachmentRef {
+        status: AttachmentStatus::Downloaded(PathBuf::from("/tmp/expiring-out.jpg")),
+        transcript: Some("secret voice note".to_owned()),
+        ..AttachmentRef::remote("att-out", "image/jpeg")
+    }];
+    store
+        .apply(BackendEvent::Message(out.clone()))
+        .await
+        .unwrap();
+    let stored_out = only_message(&store, direct(ALICE)).await;
+    assert_eq!(stored_out.expires_in_secs, Some(10));
+    assert_eq!(stored_out.expire_started_at, Some(ts(1_000)));
+    assert_eq!(stored_out.expires_at(), Some(ts(11_000)));
+    assert_eq!(store.next_expiry().await.unwrap(), Some(ts(11_000)));
+
+    // 3. Incoming message with expires_in_secs does NOT start ticking until read.
+    let mut inc = incoming(direct(ALICE), ALICE, 2_000, "burn after reading");
+    inc.expires_in_secs = Some(60);
+    store
+        .apply(BackendEvent::Message(inc.clone()))
+        .await
+        .unwrap();
+    let msgs = store.messages(direct(ALICE), None, 10).await.unwrap();
+    assert_eq!(msgs[1].expires_in_secs, Some(60));
+    assert_eq!(msgs[1].expire_started_at, None);
+    assert_eq!(msgs[1].expires_at(), None);
+    assert_eq!(store.next_expiry().await.unwrap(), Some(ts(11_000)));
+
+    // 4. Sweeping at t=11_000 deletes only `out` (and its attachment + transcript),
+    // leaving unread `inc` untouched and updating `last_message`/`last_activity`.
+    let sweep = store.sweep_expired(ts(11_000)).await.unwrap();
+    assert_eq!(sweep.messages, vec![(direct(ALICE), out.reference())]);
+    assert_eq!(
+        sweep.attachment_paths,
+        vec![PathBuf::from("/tmp/expiring-out.jpg")]
+    );
+    assert_eq!(
+        store.search_messages(None, "secret", 10).await.unwrap(),
+        vec![]
+    );
+    assert_eq!(store.next_expiry().await.unwrap(), None);
+    let alice_summary = summary(&store, direct(ALICE)).await;
+    assert_eq!(alice_summary.last_activity, Some(ts(2_000)));
+    assert_eq!(alice_summary.unread, 1);
+
+    // 5. Marking the conversation read starts `inc`'s countdown.
+    store.mark_read(direct(ALICE)).await.unwrap();
+    let stored_inc = only_message(&store, direct(ALICE)).await;
+    assert!(stored_inc.expire_started_at.is_some());
+    let inc_expires_at = stored_inc.expires_at().unwrap();
+    assert_eq!(store.next_expiry().await.unwrap(), Some(inc_expires_at));
+
+    // 6. Sweeping at `inc_expires_at` removes `inc` and clears `last_activity`/`last_message`.
+    let sweep2 = store.sweep_expired(inc_expires_at).await.unwrap();
+    assert_eq!(sweep2.messages, vec![(direct(ALICE), inc.reference())]);
+    assert_eq!(sweep2.conversations, vec![(direct(ALICE), None, None, 0)]);
+    let final_summary = summary(&store, direct(ALICE)).await;
+    assert_eq!(final_summary.last_activity, None);
+    assert_eq!(final_summary.last_message, None);
+    assert_eq!(final_summary.unread, 0);
 }

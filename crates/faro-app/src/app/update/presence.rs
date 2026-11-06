@@ -102,21 +102,49 @@ pub fn on_history(state: &mut State, unread: &[MessageRef]) {
 /// messages" rule goes if it was above them: they aren't new to the user.
 /// (Unread counts are lowered when the store says by how much.)
 pub fn on_read_elsewhere(state: &mut State, read: &[MessageRef]) {
-    let Some(open) = state.open.as_mut() else {
-        return;
-    };
+    let now_wall = super::sending::wall_clock();
+    let now_inst = Instant::now();
     let key = |r: &MessageRef| (r.sent_at, r.sender);
-    let Some(newest) = read
-        .iter()
-        .filter(|r| open.messages.iter().any(|m| m.reference() == **r))
-        .map(key)
-        .max()
-    else {
-        return;
-    };
-    open.unreceipted.retain(|r| key(r) > newest);
-    if open.unread_marker.is_some_and(|m| key(&m) <= newest) {
-        open.unread_marker = None;
+    let mut expiries = Vec::new();
+    for summary in &mut state.conversations {
+        if let Some(last) = summary.last_message.as_mut()
+            && last.direction == Direction::Incoming
+            && last.expires_in_secs.is_some()
+            && last.expire_started_at.is_none()
+            && read.contains(&last.reference())
+        {
+            last.expire_started_at = Some(now_wall);
+            if let Some(at) = last.expires_at() {
+                expiries.push(at);
+            }
+        }
+    }
+    if let Some(open) = state.open.as_mut()
+        && let Some(newest) = read
+            .iter()
+            .filter(|r| open.messages.iter().any(|m| m.reference() == **r))
+            .map(key)
+            .max()
+    {
+        open.unreceipted.retain(|r| key(r) > newest);
+        if open.unread_marker.is_some_and(|m| key(&m) <= newest) {
+            open.unread_marker = None;
+        }
+        for m in &mut open.messages {
+            if m.direction == Direction::Incoming
+                && key(&m.reference()) <= newest
+                && m.expires_in_secs.is_some()
+                && m.expire_started_at.is_none()
+            {
+                m.expire_started_at = Some(now_wall);
+                if let Some(at) = m.expires_at() {
+                    expiries.push(at);
+                }
+            }
+        }
+    }
+    for at in expiries {
+        state.note_expiry(at, now_wall, now_inst);
     }
 }
 
@@ -131,8 +159,35 @@ pub fn catch_up(state: &mut State) -> Vec<Effect> {
     };
     let id = open.id;
     let messages = std::mem::take(&mut open.unreceipted);
+    let now_wall = super::sending::wall_clock();
+    let now_inst = Instant::now();
+    let mut expiries = Vec::new();
+    for m in &mut open.messages {
+        if m.direction == Direction::Incoming
+            && m.expires_in_secs.is_some()
+            && m.expire_started_at.is_none()
+        {
+            m.expire_started_at = Some(now_wall);
+            if let Some(at) = m.expires_at() {
+                expiries.push(at);
+            }
+        }
+    }
     if let Some(summary) = state.conversations.iter_mut().find(|c| c.id == id) {
         summary.unread = 0;
+        if let Some(last) = summary.last_message.as_mut()
+            && last.direction == Direction::Incoming
+            && last.expires_in_secs.is_some()
+            && last.expire_started_at.is_none()
+        {
+            last.expire_started_at = Some(now_wall);
+            if let Some(at) = last.expires_at() {
+                expiries.push(at);
+            }
+        }
+    }
+    for at in expiries {
+        state.note_expiry(at, now_wall, now_inst);
     }
     vec![
         Effect::MarkRead(id),

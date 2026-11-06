@@ -2247,3 +2247,76 @@ fn safety_number_warning_banner_info_sidebar_and_popup_render() {
         "{popup_text}"
     );
 }
+
+#[test]
+fn disappearing_messages_header_sidebar_badges_info_and_picker_render() {
+    use faro_core::domain::Timestamp;
+
+    let mut state = loaded_state();
+    state.panels.right = true;
+    for summary in &mut state.conversations {
+        if summary.id == climbing() {
+            summary.disappearing_timer = Some(86_400);
+        }
+    }
+    let mut expiring = fixtures::text(climbing(), ALICE, NOW_MS, "Self-destructing note");
+    expiring.expires_in_secs = Some(3600);
+    expiring.expire_started_at = Some(Timestamp::from_millis(NOW_MS));
+    let msg_ref = expiring.reference();
+    if let Some(open) = &mut state.open {
+        open.messages.push(expiring);
+    }
+
+    // Unselected: header shows `◷ 1d`, info sidebar shows `Disappearing messages` / `◷ 1d`,
+    // message row shows `◷`.
+    let text = snapshot(&draw(&state, 130, 34));
+    assert!(
+        text.contains("Climbing 🧗 · ◷ 1d"),
+        "header timer badge\n{text}"
+    );
+    assert!(
+        text.contains("Disappearing messages"),
+        "info sidebar section\n{text}"
+    );
+    assert!(
+        text.contains("Self-destructing note ◷"),
+        "unselected message badge\n{text}"
+    );
+
+    // Select the expiring message: shows remaining countdown `◷` in IRC and Bubbles layouts.
+    keys(&mut state, &[Up]);
+    let selected_irc = snapshot(&draw(&state, 130, 34));
+    assert!(
+        selected_irc.contains("Self-destructing note ◷"),
+        "selected IRC countdown\n{selected_irc}"
+    );
+    state.layout = MessageLayout::Bubbles;
+    let selected_bubbles = snapshot(&draw(&state, 130, 34));
+    assert!(
+        selected_bubbles.contains('◷'),
+        "selected bubble countdown\n{selected_bubbles}"
+    );
+
+    // MessageInfo popup shows `Disappears:`.
+    state.popup = Some(crate::app::state::Popup::MessageInfo {
+        target: msg_ref,
+        receipts: vec![],
+    });
+    let info_text = snapshot(&draw(&state, 130, 34));
+    assert!(
+        info_text.contains("Disappears:"),
+        "MessageInfo Disappears row\n{info_text}"
+    );
+
+    // DisappearingTimer picker popup renders all standard intervals and is compatible-drawable.
+    state.popup = Some(crate::app::state::Popup::DisappearingTimer {
+        target: fixtures::bob(),
+        selected: 2,
+    });
+    let picker_text = snapshot(&draw(&state, 130, 34));
+    assert!(
+        picker_text.contains("5 minutes") && picker_text.contains("4 weeks"),
+        "DisappearingTimer choices\n{picker_text}"
+    );
+    assert_drawable(&compatible(state), 130, 34);
+}
