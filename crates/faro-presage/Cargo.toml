@@ -13,11 +13,18 @@ workspace = true
 
 [dependencies]
 faro-core.workspace = true
+flate2 = "1.1"
 futures = "0.3"
+hkdf = "0.13"
 presage = { git = "https://github.com/whisperfish/presage", rev = "6f630791b2c7bf3d5b00c75f5a6c94131bf79c8c" }
 presage-store-sqlite = { git = "https://github.com/whisperfish/presage", rev = "6f630791b2c7bf3d5b00c75f5a6c94131bf79c8c" }
+prost = "0.14"
 # The same version libsignal-service uses, for padding sync messages.
 rand = "0.9"
+reqwest = { version = "0.13", default-features = false, features = ["json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.11"
 # The version presage's store uses: `faro refresh-pictures` clears its
 # picture cache (D160).
 sqlx = { version = "0.9.0", default-features = false, features = ["sqlite", "runtime-tokio"] }

@@ -8,10 +8,20 @@ use std::path::Path;
 
 use anyhow::Context as _;
 use faro_core::backend::BackendEvents;
-use faro_presage::PresageBackend;
+use faro_core::domain::ServiceId;
+use faro_core::guard::Allowlist;
+use faro_core::paths::Paths;
+use faro_core::store::{Profile, Store};
+use faro_presage::{PresageBackend, TransferOutcome, TransferStage};
 
-/// Link this computer as a new device, showing the QR code to scan.
-pub async fn link(data_dir: &Path, device_name: Option<String>) -> anyhow::Result<()> {
+/// Link this computer as a new device, showing the QR code to scan, and
+/// import the link-time history archive if the phone sends one (M11, D164).
+pub async fn link(
+    paths: &Paths,
+    device_name: Option<String>,
+    allowlist: Option<&Allowlist>,
+) -> anyhow::Result<()> {
+    let data_dir = paths.data_dir();
     let file = faro_presage::store_file(data_dir);
     let store = faro_presage::open_store(&file)
         .await
@@ -39,10 +49,88 @@ pub async fn link(data_dir: &Path, device_name: Option<String>) -> anyhow::Resul
     .await
     .context("linking failed")?;
     let aci = linked.registration_data().service_ids.aci;
-    say(&format!(
-        "\nLinked. This account's Signal ID is {aci}.\n\
-         Next: `faro ids --username <your username>` prints the IDs for an allowlist.\n"
-    ));
+    say(&format!("\nLinked. This account's Signal ID is {aci}.\n"));
+
+    if let Some(ephemeral_key) = linked.registration_data().ephemeral_backup_key() {
+        transfer_history(
+            &linked,
+            &ephemeral_key,
+            ServiceId::Aci(aci),
+            paths,
+            allowlist,
+        )
+        .await?;
+    }
+
+    say("Next: `faro ids --username <your username>` prints the IDs for an allowlist.\n");
+    Ok(())
+}
+
+async fn transfer_history(
+    linked: &faro_presage::Linked,
+    ephemeral_key: &[u8; 32],
+    me: ServiceId,
+    paths: &Paths,
+    allowlist: Option<&Allowlist>,
+) -> anyhow::Result<()> {
+    let fetching =
+        faro_presage::fetch_transfer_archive(linked, ephemeral_key, |stage| match stage {
+            TransferStage::WaitingForUpload => {
+                say("Waiting for your phone to upload message history (press Ctrl+C to skip)…\n");
+            }
+            TransferStage::Downloading => {
+                say("Downloading and decrypting message history…\n");
+            }
+        });
+    let outcome = tokio::select! {
+        res = fetching => res,
+        _ = tokio::signal::ctrl_c() => {
+            say("\nSkipped history transfer. The device remains linked.\n");
+            return Ok(());
+        }
+    };
+    match outcome {
+        Ok(TransferOutcome::ContinueWithoutUpload) => {
+            say("Continuing without transferring message history.\n");
+        }
+        Ok(TransferOutcome::RelinkRequested) => {
+            let _ = faro_presage::clear_link(linked).await;
+            anyhow::bail!(
+                "the phone could not finish the history transfer in time and asked to link \
+                 again; run `faro link` again"
+            );
+        }
+        Ok(TransferOutcome::Transferred(history)) => {
+            say("Importing transferred history…\n");
+            let mut presage_store = linked.store().clone();
+            history
+                .save_to_presage_store(&mut presage_store, me)
+                .await
+                .context("saving transferred contacts and groups to presage's database")?;
+            let db_file = paths.db_file();
+            let faro_store = Store::open(&db_file, Profile::Signal)
+                .await
+                .with_context(|| format!("opening {}", db_file.display()))?;
+            let summary = history
+                .save_to_faro_store(&faro_store, &presage_store, me, allowlist)
+                .await
+                .context("importing transferred history into faro's database")?;
+            faro_store
+                .close()
+                .await
+                .context("closing faro's database")?;
+            say(&format!(
+                "Imported {} messages, {} contacts and {} groups.\n",
+                summary.messages, summary.contacts, summary.groups
+            ));
+        }
+        Err(error) => {
+            tracing::warn!(%error, "history transfer failed; continuing with linked device");
+            say(&format!(
+                "History transfer failed ({error}); the device remains linked.\n"
+            ));
+        }
+    }
     Ok(())
 }
 

@@ -15,6 +15,7 @@
 mod backend;
 mod convert;
 mod link;
+pub mod transfer;
 
 use std::path::Path;
 
@@ -25,7 +26,11 @@ use presage::store::StateStore as _;
 use presage_store_sqlite::{SqliteConnectOptions, SqliteStore, SqliteStoreError};
 
 pub use backend::{PresageBackend, start};
-pub use link::{default_device_name, link};
+pub use link::{default_device_name, link, with_backup_capability};
+pub use transfer::{
+    TransferError, TransferOutcome, TransferStage, TransferSummary, TransferredHistory,
+    fetch_transfer_archive,
+};
 
 /// A linked account, ready to start.
 pub type Linked = Manager<SqliteStore, Registered>;
@@ -136,6 +141,15 @@ pub async fn is_linked(store: &SqliteStore) -> bool {
     store.is_registered().await
 }
 
+/// Clear registration data in `presage.db` when the phone returns
+/// `RELINK_REQUESTED` during history transfer, so `faro link` can be run
+/// again without manually deleting `presage.db`.
+pub async fn clear_link(linked: &Linked) -> Result<(), Error> {
+    let mut store = linked.store().clone();
+    store.clear_registration().await?;
+    Ok(())
+}
+
 /// Load the linked account, or [`Error::NotLinked`].
 pub async fn load(store: SqliteStore) -> Result<Linked, Error> {
     if !is_linked(&store).await {
@@ -233,6 +247,16 @@ mod tests {
         );
         assert_eq!(default_device_name(Some("  ")), "faro");
         assert_eq!(default_device_name(None), "faro");
+    }
+
+    #[test]
+    fn link_url_advertises_backup5_capability() {
+        let base: url::Url = "sgnl://linkdevice?uuid=abc&pub_key=def".parse().unwrap();
+        let with_cap = with_backup_capability(base);
+        assert_eq!(
+            with_cap.as_str(),
+            "sgnl://linkdevice?uuid=abc&pub_key=def&capabilities=backup5"
+        );
     }
 
     /// `faro refresh-pictures` (D160) relies on presage's table names: this

@@ -1294,10 +1294,17 @@ name = "faro-presage"
 version = "0.1.10"
 dependencies = [
  "faro-core",
+ "flate2",
  "futures",
+ "hkdf",
  "presage",
  "presage-store-sqlite",
+ "prost",
  "rand 0.9.5",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
  "sqlx",
  "tempfile",
  "thiserror 2.0.21",

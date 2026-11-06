@@ -207,7 +207,9 @@ impl Mem {
         for contact in contacts {
             let recipient = self.recipients.entry(contact.service_id).or_default();
             recipient.contact_name.clone_from(&contact.name);
-            recipient.profile_name.clone_from(&contact.profile_name);
+            if contact.profile_name.is_some() {
+                recipient.profile_name.clone_from(&contact.profile_name);
+            }
             recipient.phone.clone_from(&contact.phone);
             self.ensure_conversation(ConversationId::Direct(contact.service_id));
         }

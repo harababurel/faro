@@ -172,7 +172,7 @@ impl Db {
                  VALUES (?1, ?2, ?3, ?4)
                  ON CONFLICT (service_id) DO UPDATE SET
                      contact_name = excluded.contact_name,
-                     profile_name = excluded.profile_name,
+                     profile_name = coalesce(excluded.profile_name, recipients.profile_name),
                      phone = excluded.phone",
             )
             .bind(contact.service_id.to_string())

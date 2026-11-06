@@ -656,7 +656,7 @@ Refines the DESIGN.md §5.1 sketch:
   - progress and a skip option in `faro link`.
 - **Limits:** it only happens at link time, so existing installs re-link. Media backfill is separate. The format moves with Signal's releases, and libsignal's strict validator may reject archives from newer phones.
 - **Other routes:** legacy Android `.backup` files aren't worth it. Newer on-device backups reportedly use the same format, keyed by the Account Entropy Pool presage already stores, so a later "import a backup" could reuse the parser.
-- **Decision:** not in v0.1; proposed as **M11** in v0.2, after M9 and M10. The owner can reorder it.
+- **Decision:** not in v0.1; proposed as **M11** in v0.2, after M9 and M10. The owner can reorder it. **Built in M11 (D164, 2026-11-06).**
 
 ### D75. Attachments: faro writes the files, images download by themselves up to 25 MB — Judgement (2026-10-08, M9)
 
@@ -1625,5 +1625,22 @@ A developer friend of the owner tried getfaro.dev; the owner agreed with all of 
   - While `key_changed` is `true` for a participant in the open conversation, a warning bar sits at the top of the input box (`⚠ Safety number with <Name> changed — verify before sending`).
   - `Alt+I` Info shows `Safety number`, the verification status (`✓ Verified`, `⚠ Changed — verify`, `⚠ Unverified`, `Not verified`) and the 3×4 five-digit groups in direct chats, and marks group members whose key changed with `⚠`.
   - *Verify safety number…* (`ConversationAction::SafetyNumber`, in the conversation menu and `Ctrl+P`) opens `Popup::SafetyNumber(peer)` showing the 60-digit number and status, with `v`/`Enter` to verify/clear, `u` to mark unverified, `a` to approve a changed key without marking verified, and `y` to copy.
+
+### D164. History transfer on link (M11, owner's request, 2026-11-06)
+
+- **Why no fork is needed:** upstream `presage` (since `f8499031`, PR #442, already in our pinned `6f63079`) exposes `RegistrationData::ephemeral_backup_key(&self) -> Option<[u8; 32]>`, and `libsignal-service` exposes `PushService::new`, `PushService::request`, `PushService::get_attachment`, `BackupKey::derive_backup_id`, and `attachment_cipher::decrypt_in_place`. All history-transfer code lives in `crates/faro-presage/src/transfer.rs` and `crates/faro/src/signal.rs`.
+- **Lenient `prost` decode over `libsignal-message-backup` (Judgement):** `libsignal-message-backup`'s validator rejects unknown fields and new enum/oneof values added by newer Signal mobile releases. Instead, `faro-presage::transfer` defines the subset of `backup.proto` it needs (`BackupInfo`, `Frame`, `Recipient`, `Contact`, `Group`, `Chat`, `ChatItem`, `StandardMessage`, `StickerMessage`, `RemoteDeletedMessage`, `Quote`, `Reaction`, `BodyRange`, `MessageAttachment`, `FilePointer`) with `#[derive(prost::Message)]`, so unknown fields and future frame types are skipped cleanly.
+- **Protocol & crypto (`faro-presage::transfer`):**
+  - `link::with_backup_capability` appends `capabilities=backup5` to the provisioning URL shown as the QR code.
+  - When `ephemeral_backup_key()` is `Some(key)` after linking, `fetch_transfer_archive` long-polls `GET /v1/devices/transfer_archive` (up to 5 minutes, 65 s per poll) using the new device's `PushService` credentials. It handles `204`/`202`/timeout (retry), `CONTINUE_WITHOUT_UPLOAD`, `RELINK_REQUESTED` (`clear_link` clears `presage.db` so `faro link` can be re-run cleanly), and `{cdn, key}` (downloads the encrypted archive from the transit CDN via `PushService::get_attachment`).
+  - `derive_backup_keys` derives the 16-byte `backup_id` (`BackupKey::derive_backup_id(&aci)`) and expands `(hmac_key, aes_key)` via HKDF-SHA256 (`"20241007_SIGNAL_BACKUP_ENCRYPT_MESSAGE_BACKUP:" || backup_id`), tested against `libsignal-message-backup`'s `FAKE_MESSAGE_BACKUP_KEY_LEGACY` vector.
+  - `decrypt_and_decode` strips an optional `SBACKUP\x01` + varint `MetadataPb` header, verifies the trailing 32-byte HMAC-SHA256 and decrypts AES-256-CBC PKCS#7 in place (`decrypt_in_place`), gunzips (capped at 512 MiB), and decodes the varint-delimited `BackupInfo` + `Frame` stream.
+- **Mapping & stores:**
+  - `save_to_presage_store` writes groups (with master keys, revisions, members and timers), contacts (with `verified` state and expire timers), profile keys, and contact identity keys into `presage.db`, so `faro ids` and `PresageBackend` know them immediately without waiting for messages or a contact sync.
+  - `save_to_faro_store` filters all generated `BackendEvent`s (`GroupUpdated`, `ContactUpdated`, `Message`, per-recipient `DeliveryUpdate`, `ReadElsewhere` for read incoming messages, and `IdentityUpdated` with computed 60-digit safety numbers), conversation curation states (`archived`, `pinned`, `muted_until`, `hidden`), and contact nicknames through `Allowlist::filter` / `Allowlist::allows` when `--allowlist` is active, and applies them to `faro.db`.
+  - When a `ChatItem` has `revisions` (ordered oldest to newest), `revisions[0].date_sent` is stored as `sent_at` and the outer `ChatItem.date_sent` as `edited_at`. Transit CDN `FilePointer`s on attachments and voice notes are encoded as `p1:<hex>` `AttachmentPointer`s so faro can download them on demand while still on the transit CDN.
+  - `Store::upsert_contacts` (`db.rs` and `mem.rs`) now preserves an existing `profile_name` when a contact update carries `profile_name: None`, so startup `upsert_contacts` (before background profile fetches complete) never wipes profile names imported from the transfer archive.
+  - During `faro link`, pressing `Ctrl+C` while waiting for or downloading the archive skips history transfer while keeping the device linked.
+
 
 

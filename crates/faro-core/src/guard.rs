@@ -94,6 +94,18 @@ impl Allowlist {
             ConversationId::Group(group) => self.groups.contains(&group),
         }
     }
+
+    /// Filter a batch of events (such as history transferred on link, D164)
+    /// with the same rules as the live guard. Pass `GroupUpdated` events
+    /// before `ContactUpdated` and `ReadElsewhere` so members of allowed
+    /// groups are known.
+    pub fn filter(&self, events: impl IntoIterator<Item = BackendEvent>) -> Vec<BackendEvent> {
+        let shared = Shared {
+            list: self.clone(),
+            members: Mutex::new(HashMap::new()),
+        };
+        events.into_iter().filter_map(|e| shared.admit(e)).collect()
+    }
 }
 
 /// The allowlist and the members of allowed groups, as last seen; shared by

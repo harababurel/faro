@@ -760,4 +760,15 @@ Notes (version, OS, terminal, what went wrong):
 
 - 2026-11-06, owner: all 4 checks passed on personal account (60-digit safety number matched Signal on phone, two-way verification sync worked, and simulated key change showed warning banner, blocked sending, and cleared on approval/verification).
 
+## History transfer on link (M11, D164)
+
+With a fresh scratch `--data-dir` (and `--allowlist` if using the test account):
+
+- [ ] **Transfer prompt on phone:** run `faro link --data-dir <scratch>` and scan the QR code on your phone: Signal on your phone asks whether to transfer message history (*Transfer message history* / *Don't transfer*).
+- [ ] **Transfer & import:** choose *Transfer message history* on your phone: `faro link` prints `Waiting for your phone to upload message history (press Ctrl+C to skip)…`, then `Downloading and decrypting message history…`, `Importing transferred history…`, and `Imported N messages, M contacts and K groups.` Start `faro --data-dir <scratch>`: your past conversations, messages, edits, reactions, quotes, mentions, read states, and pin/mute/archive states are already there, and `faro ids --data-dir <scratch>` lists all groups without needing a new message in each group first.
+- [ ] **Don't transfer / Ctrl+C skip:** if you choose *Don't transfer* on your phone (or press `Ctrl+C` while waiting), `faro link` finishes cleanly and the device remains linked without history.
+
+Notes (version, OS, terminal, what went wrong):
+
+
 

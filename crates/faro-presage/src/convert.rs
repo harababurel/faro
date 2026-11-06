@@ -270,7 +270,7 @@ fn mentions(body: &str, ranges: &[BodyRange]) -> Vec<Mention> {
 
 /// Where the `utf16`th UTF-16 code unit of `text` starts, in bytes; `None`
 /// past the end or inside a character.
-fn byte_offset(text: &str, utf16: usize) -> Option<usize> {
+pub(crate) fn byte_offset(text: &str, utf16: usize) -> Option<usize> {
     let mut units = 0;
     for (at, c) in text.char_indices() {
         if units == utf16 {
@@ -308,7 +308,7 @@ pub fn decode_pointer(id: &AttachmentId) -> Option<AttachmentPointer> {
     AttachmentPointer::decode(bytes.as_slice()).ok()
 }
 
-fn attachment(pointer: &AttachmentPointer) -> AttachmentRef {
+pub(crate) fn attachment(pointer: &AttachmentPointer) -> AttachmentRef {
     let voice_note = (pointer.flags.unwrap_or(0) & 1) != 0;
     AttachmentRef {
         id: encode_pointer(pointer),
@@ -328,7 +328,7 @@ fn attachment(pointer: &AttachmentPointer) -> AttachmentRef {
 
 /// Map a sticker's [`AttachmentPointer`] as an image attachment with no file
 /// name and default `512×512` dimensions when unset (D79).
-fn sticker_attachment(pointer: &AttachmentPointer) -> AttachmentRef {
+pub(crate) fn sticker_attachment(pointer: &AttachmentPointer) -> AttachmentRef {
     let content_type = pointer
         .content_type
         .clone()

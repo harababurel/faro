@@ -76,7 +76,8 @@ fn main() -> anyhow::Result<()> {
     let local = tokio::task::LocalSet::new();
     match cli.command {
         Some(cli::Command::Link { device_name }) => {
-            return local.block_on(&runtime, signal::link(paths.data_dir(), device_name));
+            let link = signal::link(&paths, device_name, allowlist.as_ref());
+            return local.block_on(&runtime, link);
         }
         Some(cli::Command::Ids { usernames }) => {
             return local.block_on(&runtime, signal::ids(paths.data_dir(), &usernames));
@@ -88,13 +89,11 @@ fn main() -> anyhow::Result<()> {
     }
     // The allowlist guard (D62) is for testing: on only with --allowlist
     // (D95); `--no-allowlist` is still accepted and changes nothing.
-    let db_file = paths.db_file();
-    let data_dir = paths.data_dir().to_owned();
     local.block_on(&runtime, async {
         // Refused before anything touches it if it's the other profile's (D87).
-        let store = Store::open(&db_file, profile)
+        let store = Store::open(&paths.db_file(), profile)
             .await
-            .with_context(|| format!("opening the database {}", db_file.display()))?;
+            .with_context(|| format!("opening the database {}", paths.db_file().display()))?;
         let unsent = store.fail_unsent().await?;
         if unsent > 0 {
             tracing::info!(
@@ -117,7 +116,7 @@ fn main() -> anyhow::Result<()> {
             serve_demo(args, allowlist, &store, tz, detected, startup).await
         } else {
             tracing::info!("starting the Signal backend");
-            let (backend, events) = signal::start(&data_dir).await?;
+            let (backend, events) = signal::start(paths.data_dir()).await?;
             if let Some(list) = allowlist {
                 let (backend, events) = guard::guard(backend, events, list);
                 Box::pin(serve(backend, events, &store, tz, detected, startup, true)).await

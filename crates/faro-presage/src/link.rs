@@ -17,6 +17,13 @@ pub fn default_device_name(hostname: Option<&str>) -> String {
     }
 }
 
+/// Add `capabilities=backup5` to the provisioning URL so the phone offers
+/// to transfer message history when linking (M11, D164).
+pub fn with_backup_capability(mut url: Url) -> Url {
+    url.query_pairs_mut().append_pair("capabilities", "backup5");
+    url
+}
+
 /// Link a new device. `show` gets the provisioning URL to present as a QR
 /// code; this returns once the phone has scanned it and confirmed, or fails.
 /// Any earlier link in `store` is cleared first.
@@ -30,6 +37,7 @@ pub async fn link(
         Manager::link_secondary_device(store, SignalServers::Production, device_name, url_tx);
     let presenting = async move {
         if let Ok(url) = url_rx.await {
+            let url = with_backup_capability(url);
             show(&url);
         }
     };
