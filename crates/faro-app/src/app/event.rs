@@ -44,6 +44,12 @@ pub enum AppEvent {
         target: MessageRef,
         messages: Vec<Message>,
     },
+    /// A quote thread loaded for `Popup::Thread` (`Effect::LoadQuoteThread`, D166).
+    QuoteThreadLoaded {
+        conversation: ConversationId,
+        target: MessageRef,
+        messages: Vec<Message>,
+    },
     /// Search hits across message bodies and transcripts (`Effect::SearchMessages`).
     SearchResults {
         conversation: Option<ConversationId>,
@@ -202,6 +208,11 @@ pub enum Effect {
     },
     /// Answered with `AppEvent::MessagesAroundLoaded` (M12).
     LoadMessagesAround {
+        conversation: ConversationId,
+        target: MessageRef,
+    },
+    /// Answered with `AppEvent::QuoteThreadLoaded` (D166).
+    LoadQuoteThread {
         conversation: ConversationId,
         target: MessageRef,
     },

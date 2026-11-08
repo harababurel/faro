@@ -323,6 +323,11 @@ enum Request {
         radius: u32,
         reply: Reply<Vec<Message>>,
     },
+    QuoteThread {
+        conversation: ConversationId,
+        target: MessageRef,
+        reply: Reply<Vec<Message>>,
+    },
     SearchMessages {
         conversation: Option<ConversationId>,
         query: String,
@@ -474,6 +479,22 @@ impl Store {
             conversation,
             target,
             radius,
+            reply,
+        })
+        .await
+    }
+
+    /// Walk up the quote chain from `target` in `conversation` to the root
+    /// message (or missing root reference) and return the root plus every
+    /// direct and transitive quote-reply in chronological order (D166).
+    pub async fn quote_thread(
+        &self,
+        conversation: ConversationId,
+        target: MessageRef,
+    ) -> Result<Vec<Message>> {
+        self.call(|reply| Request::QuoteThread {
+            conversation,
+            target,
             reply,
         })
         .await
@@ -753,6 +774,13 @@ async fn handle(engine: &mut Engine, request: Request) -> Option<Reply<()>> {
             reply,
         } => {
             let _ = reply.send(call!(engine, messages_around(conversation, target, radius)));
+        }
+        Request::QuoteThread {
+            conversation,
+            target,
+            reply,
+        } => {
+            let _ = reply.send(call!(engine, quote_thread(conversation, target)));
         }
         Request::SearchMessages {
             conversation,

@@ -141,6 +141,13 @@ const SAFETY_NUMBER_HINTS: &[(&str, &str)] = &[
     ("esc", "close"),
 ];
 const MESSAGE_INFO_HINTS: &[(&str, &str)] = &[("esc", "close")];
+const THREAD_HINTS: &[(&str, &str)] = &[
+    ("↑↓", "select"),
+    ("enter", "jump to chat"),
+    ("r", "reply"),
+    ("y", "copy"),
+    ("esc", "close"),
+];
 
 pub fn render(
     frame: &mut Frame<'_>,
@@ -254,6 +261,7 @@ fn hints(state: &State, geometry: &Geometry) -> Vec<(String, &'static str)> {
             Popup::ImageViewer { .. } => fixed(IMAGE_VIEWER_HINTS),
             Popup::StagedImage | Popup::About => fixed(STAGED_IMAGE_HINTS),
             Popup::SafetyNumber(_) => fixed(SAFETY_NUMBER_HINTS),
+            Popup::Thread { .. } => fixed(THREAD_HINTS),
         };
     }
     let (focus, hints) = if focused(state, geometry, Focus::Messages) {

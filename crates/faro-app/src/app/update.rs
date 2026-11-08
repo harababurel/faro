@@ -65,6 +65,7 @@ pub fn affects_view(event: &AppEvent) -> bool {
         | AppEvent::MessagesAroundLoaded { .. }
         | AppEvent::SearchResults { .. }
         | AppEvent::MessageReceiptsLoaded { .. }
+        | AppEvent::QuoteThreadLoaded { .. }
         | AppEvent::SendResult { .. }
         | AppEvent::ReactResult { .. }
         | AppEvent::EditResult { .. }
@@ -144,6 +145,14 @@ fn route(state: &mut State, event: AppEvent) -> Vec<Effect> {
             receipts,
         } => {
             selection::on_receipts_loaded(state, conversation, message, receipts);
+            vec![]
+        }
+        AppEvent::QuoteThreadLoaded {
+            conversation,
+            target,
+            messages,
+        } => {
+            selection::on_quote_thread_loaded(state, conversation, target, messages);
             vec![]
         }
         AppEvent::SendResult { sent_at, result } => sending::on_send_result(state, sent_at, result),
@@ -887,12 +896,28 @@ fn on_expired_swept(
                 | Popup::Conversation { .. }
                 | Popup::Mute { .. }
                 | Popup::DisappearingTimer { .. }
-                | Popup::SafetyNumber(_),
+                | Popup::SafetyNumber(_)
+                | Popup::Thread { .. },
             )
             | None => None,
         };
         if popup_target.is_some_and(|t| was_swept(conv, t)) {
             state.popup = None;
+        }
+        if let Some(Popup::Thread {
+            conversation: thread_conv,
+            messages,
+            selected,
+            ..
+        }) = state.popup.as_mut()
+            && *thread_conv == conv
+        {
+            messages.retain(|m| !was_swept(conv, m.reference()));
+            if messages.len() < 2 && messages.first().is_none_or(|m| m.quote.is_none()) {
+                state.popup = None;
+            } else {
+                *selected = (*selected).min(messages.len().saturating_sub(1));
+            }
         }
     }
     for (id, last_activity, last_message, unread) in sweep.conversations {
@@ -912,6 +937,40 @@ fn on_expired_swept(
 /// Apply to the open conversation if it's `conversation` (or, for receipts, which
 /// don't say, whichever is open). While its history loads, the event waits.
 fn apply_to_open(state: &mut State, conversation: Option<ConversationId>, event: &BackendEvent) {
+    if let Some(Popup::Thread {
+        conversation: thread_conv,
+        messages,
+        ..
+    }) = state.popup.as_mut()
+        && conversation.is_none_or(|c| c == *thread_conv)
+    {
+        match event {
+            BackendEvent::Message(msg) => {
+                let joins_thread = msg.quote.as_ref().is_some_and(|q| {
+                    messages.iter().any(|m| m.reference() == q.target)
+                        || messages
+                            .first()
+                            .and_then(|m| m.quote.as_ref())
+                            .is_some_and(|first_q| first_q.target == q.target)
+                });
+                if joins_thread {
+                    timeline::apply(messages, event);
+                }
+            }
+            BackendEvent::DeliveryUpdate { .. }
+            | BackendEvent::Reaction { .. }
+            | BackendEvent::Edited { .. }
+            | BackendEvent::Deleted { .. } => timeline::apply(messages, event),
+            BackendEvent::Connection(_)
+            | BackendEvent::Typing { .. }
+            | BackendEvent::ReadElsewhere(_)
+            | BackendEvent::DisappearingTimer { .. }
+            | BackendEvent::ContactUpdated(_)
+            | BackendEvent::GroupUpdated(_)
+            | BackendEvent::IdentityUpdated(_)
+            | BackendEvent::Error(_) => {}
+        }
+    }
     let Some(open) = state.open.as_mut() else {
         return;
     };

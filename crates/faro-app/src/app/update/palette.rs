@@ -572,7 +572,7 @@ fn switch_search_scope(state: &mut State, scope: Option<ConversationId>) -> Vec<
     }
 }
 
-fn jump_to_message(
+pub(super) fn jump_to_message(
     state: &mut State,
     conversation: ConversationId,
     message: MessageRef,

@@ -1668,6 +1668,22 @@ A developer friend of the owner tried getfaro.dev; the owner agreed with all of 
   - Message row (`ui/messages.rs`, `ui/bubbles.rs`): shows ` ◷ <remaining>` when selected (and ` ◷` otherwise) on messages with `expires_in_secs: Some(_)`.
   - `Popup::MessageInfo` (`ui/popup.rs`): shows `Disappears: in <remaining> (<datetime>)` once ticking, or `<timer> after read` before read.
 
+### D166. Thread lens for quote chains (owner's request, 2026-11-08)
 
-
+- **Problem:** Signal has no native thread primitive — only single-hop `Quote` pointers (`(sender, sent_at)` plus a text preview). In a busy group chat where several topics interleave, following a back-and-forth exchange across dozens of unrelated messages is tedious.
+- **Keybindings & entry points (owner's choice):**
+  - `T` (`Shift+t`) in `Context::Messages` is bound to `Action::ViewThread` (`"message.thread"`, *"View quote thread"*).
+  - `t` remains bound to `Action::TranscribeVoiceNote` (`"message.transcribe"`, *"Transcribe voice note"*), and falls back to `open_thread_for(state, target)` when the selected message does not contain a voice note, so pressing `t` on any text/media message in a quote chain opens its thread lens.
+  - Also reachable via `Enter` message action menu (`MessageAction::ViewThread`, shown when the selected message quotes another message or is quoted by a loaded message in the open conversation) and `Ctrl+P` (`PaletteCommand::Action(Action::ViewThread)`).
+- **Store query (`Store::quote_thread`, `faro-core`):**
+  - Migration `0011_quote_threads.sql` adds a partial composite index `messages_by_quote ON messages (conversation_id, quote_sender, quote_sent_at) WHERE quote_sender IS NOT NULL AND quote_sent_at IS NOT NULL`.
+  - Both SQLite (`db.rs`, single recursive CTE) and in-memory (`mem.rs`, for the web demo) walk up `quote` pointers (capped at 64 hops against cycles) to find the root `(sender, sent_at)` — even when the root message itself predates local history and is only referenced by a child's `quote` — and then walk down all direct and transitive replies in `conversation`, returning up to 200 messages in chronological order (`sent_at ASC, sender ASC`).
+- **UI & interactions (`Popup::Thread`, `faro-app`):**
+  - If `Store::quote_thread` returns fewer than 2 messages and the single message has no `quote`, shows an info notice (`"No quote thread for this message"`) instead of opening a redundant single-message popup.
+  - Otherwise opens `Popup::Thread { conversation, target, messages, selected }` (up to 76 columns wide, 70% of terminal height) with header `Quote thread · N messages`:
+    - **Missing-root stub:** if the root message is not in local history (`messages[0].quote` is `Some` and not present in `messages`), renders a dimmed quoted header `▎ <Author>: <preview> (original message not in history)` at the top of the chain.
+    - **Chronological spine (`│` / `▌`):** each message renders along a left spine (`▌` in `accent` for the focused row, `│` in `border` for others) with coloured sender name, timestamp, `(edited)`, `◷` disappearing marker, delivery status, wrapped body (`messages::thread_body`), reaction summary, and attachment/voice-note summary.
+    - **Branching indicator:** when a message in the chain replies to an ancestor other than the immediately preceding message in the list, renders a compact `↳ <Author>: <preview>` line above its body so sub-branches remain clear.
+  - **Keys & mouse inside `Popup::Thread`:** `↑`/`↓`, `j`/`k`, `Home`/`End` (`g`/`G`), `PgUp`/`PgDn` and the mouse wheel move selection across the chain; `Enter` (or `g`) closes the lens and jumps the main chat selection to that message (fetching surrounding history via `Effect::LoadMessagesAround` if needed); `r` closes the lens and starts a reply to the highlighted thread message in the input box; `y` copies the highlighted message's readable body via OSC 52; `Esc`, `q`, `t`, or `T` closes the lens.
+  - **Live updates:** while `Popup::Thread` is open, new incoming/outgoing messages in the same conversation that quote any message in the open thread are appended live, edits/reactions/remote-deletes update in place, and disappearing-message sweeps (`on_expired_swept`) remove expired messages from the open thread (closing the popup if empty).
 

@@ -125,6 +125,7 @@ impl Router {
                 | Effect::LoadMessages(_)
                 | Effect::LoadOlder { .. }
                 | Effect::LoadMessagesAround { .. }
+                | Effect::LoadQuoteThread { .. }
                 | Effect::SearchMessages { .. }
                 | Effect::LoadMessageReceipts { .. }
                 | Effect::Persist(_)

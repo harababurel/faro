@@ -77,6 +77,7 @@ engines! {
     each_summary_carries_its_newest_message,
     identities_track_key_changes_and_verification,
     disappearing_messages_tick_and_sweep,
+    quote_thread_walks_up_to_root_and_collects_descendants,
 }
 
 async fn each_summary_carries_its_newest_message(kind: Kind) {
@@ -1182,4 +1183,100 @@ async fn disappearing_messages_tick_and_sweep(kind: Kind) {
     assert_eq!(final_summary.last_activity, None);
     assert_eq!(final_summary.last_message, None);
     assert_eq!(final_summary.unread, 0);
+}
+
+async fn quote_thread_walks_up_to_root_and_collects_descendants(kind: Kind) {
+    let store = kind.open().await;
+    let conv = group();
+
+    // m1 (root) <- m2 (quotes m1) <- m4 (quotes m2)
+    //           <- m3 (quotes m1)
+    // plus an unrelated message at t=1_500.
+    let m1 = incoming(conv, ALICE, 1_000, "Who is bringing the rope?");
+    let unrelated = incoming(conv, BOB, 1_500, "Unrelated lunch chat");
+    let mut m2 = incoming(conv, BOB, 2_000, "I have the 60m dynamic");
+    m2.quote = Some(Quote {
+        target: m1.reference(),
+        preview: m1.body.clone(),
+    });
+    let mut m3 = incoming(conv, CAROL, 3_000, "And I have quickdraws");
+    m3.quote = Some(Quote {
+        target: m1.reference(),
+        preview: m1.body.clone(),
+    });
+    let mut m4 = incoming(conv, ALICE, 4_000, "60m is enough for the overhang");
+    m4.quote = Some(Quote {
+        target: m2.reference(),
+        preview: m2.body.clone(),
+    });
+
+    for msg in [&m1, &unrelated, &m2, &m3, &m4] {
+        store
+            .apply(BackendEvent::Message(msg.clone()))
+            .await
+            .unwrap();
+    }
+
+    let expected = vec![
+        m1.reference(),
+        m2.reference(),
+        m3.reference(),
+        m4.reference(),
+    ];
+    for start in [
+        m1.reference(),
+        m2.reference(),
+        m3.reference(),
+        m4.reference(),
+    ] {
+        let thread = store.quote_thread(conv, start).await.unwrap();
+        let refs: Vec<MessageRef> = thread.iter().map(Message::reference).collect();
+        assert_eq!(refs, expected, "started from {start:?}");
+    }
+
+    // Standalone message with no quotes or replies returns only itself.
+    let single = store
+        .quote_thread(conv, unrelated.reference())
+        .await
+        .unwrap();
+    assert_eq!(
+        single.iter().map(Message::reference).collect::<Vec<_>>(),
+        vec![unrelated.reference()]
+    );
+
+    // Missing root (e.g. older than local history): siblings quoting the same missing
+    // `(sender, sent_at)` and their replies still group into one chronological thread.
+    let missing_root = MessageRef {
+        sender: aci(ALICE),
+        sent_at: ts(100),
+    };
+    let mut r1 = incoming(conv, BOB, 5_000, "Replying to old message");
+    r1.quote = Some(Quote {
+        target: missing_root,
+        preview: Some(MessageBody::new("Old root")),
+    });
+    let mut r2 = incoming(conv, CAROL, 6_000, "Also replying to old message");
+    r2.quote = Some(Quote {
+        target: missing_root,
+        preview: Some(MessageBody::new("Old root")),
+    });
+    let mut r3 = incoming(conv, ALICE, 7_000, "Nested under r1");
+    r3.quote = Some(Quote {
+        target: r1.reference(),
+        preview: r1.body.clone(),
+    });
+    for msg in [&r1, &r2, &r3] {
+        store
+            .apply(BackendEvent::Message(msg.clone()))
+            .await
+            .unwrap();
+    }
+    let missing_root_thread = store.quote_thread(conv, r3.reference()).await.unwrap();
+    assert_eq!(
+        missing_root_thread
+            .iter()
+            .map(Message::reference)
+            .collect::<Vec<_>>(),
+        vec![r1.reference(), r2.reference(), r3.reference()]
+    );
 }

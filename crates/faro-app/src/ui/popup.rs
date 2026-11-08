@@ -9,9 +9,9 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
 
 use super::View;
-use super::messages::{to_jiff, zoned};
+use super::messages::{format_time as format_hhmm, reactions, suffix, thread_body, to_jiff, zoned};
 use super::shortcodes::{REACT_SEARCH_LIMIT, REACT_SEARCH_ROWS, search_shortcodes};
-use super::text::{pad_left, sanitize, truncate, width};
+use super::text::{one_line, pad_left, sanitize, truncate, width};
 use faro_core::domain::{
     ConversationId, DeliveryStatus, Direction, MessageRef, ServiceId, Timestamp, VerificationState,
     format_byte_size, format_disappearing_remaining, format_disappearing_timer,
@@ -146,6 +146,9 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &
             remote_consent(frame, anchor, state, *conversation, *selected, view);
         }
         Popup::SafetyNumber(peer) => safety_number(frame, state, *peer, view),
+        Popup::Thread {
+            messages, selected, ..
+        } => thread_viewer(frame, state, messages, *selected, geometry, view),
     }
 }
 
@@ -976,4 +979,173 @@ fn safety_number(frame: &mut Frame<'_>, state: &State, peer: ServiceId, view: &V
         .map(|(text, style)| Line::from(Span::styled(truncate(&text, room).into_owned(), style)))
         .collect();
     frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// `T` (or `t` on a text message): the chronological quote thread lens (D166).
+fn thread_viewer(
+    frame: &mut Frame<'_>,
+    state: &State,
+    messages: &[faro_core::domain::Message],
+    selected: usize,
+    geometry: &Geometry,
+    view: &View<'_>,
+) {
+    let theme = view.theme;
+    let area = geometry.history.unwrap_or_else(|| frame.area());
+    let box_w = area.width.saturating_sub(4).clamp(24, 78).min(area.width);
+    let inner_w = usize::from(box_w.saturating_sub(2)).max(10);
+    let content_w = inner_w.saturating_sub(4).max(6);
+
+    let mut all_lines: Vec<Line<'static>> = Vec::new();
+    if let Some(first_quote) = messages.first().and_then(|m| m.quote.as_ref())
+        && !messages.iter().any(|m| m.reference() == first_quote.target)
+    {
+        let who = sanitize(&state.person_name(first_quote.target.sender)).into_owned();
+        let preview = first_quote
+            .preview
+            .as_ref()
+            .map_or_else(|| "…".to_owned(), |p| one_line(p.expose()));
+        let stub = format!(" ▎ {who}: {preview} (original message not in history)");
+        all_lines.push(Line::from(Span::styled(
+            truncate(&stub, inner_w).into_owned(),
+            theme.muted().add_modifier(Modifier::ITALIC),
+        )));
+        all_lines.push(Line::from(Span::styled(" │", theme.muted())));
+    }
+
+    let clamped = selected.min(messages.len().saturating_sub(1));
+    let mut sel_range = (0usize, 0usize);
+    for (i, message) in messages.iter().enumerate() {
+        if i > 0 {
+            all_lines.push(Line::from(Span::styled(" │", theme.muted())));
+        }
+        let start = if i == 0 { 0 } else { all_lines.len() };
+        let prev_ref = i
+            .checked_sub(1)
+            .and_then(|p| messages.get(p))
+            .map(faro_core::domain::Message::reference);
+        all_lines.extend(thread_message_lines(
+            state,
+            message,
+            prev_ref,
+            i == clamped,
+            inner_w,
+            content_w,
+            view,
+        ));
+        if i == clamped {
+            sel_range = (start, all_lines.len());
+        }
+    }
+
+    let max_inner_h = usize::from(area.height.saturating_sub(4)).max(3);
+    let inner_h = all_lines.len().clamp(3, max_inner_h);
+    let top = if all_lines.len() <= inner_h {
+        0
+    } else {
+        sel_range
+            .1
+            .saturating_sub(inner_h)
+            .min(sel_range.0)
+            .min(all_lines.len() - inner_h)
+    };
+    let count = messages.len();
+    let noun = if count == 1 { "message" } else { "messages" };
+    let title = if all_lines.len() > inner_h {
+        format!("Thread · {}/{} {noun}", clamped + 1, count)
+    } else {
+        format!("Thread · {count} {noun}")
+    };
+    let box_h = u16::try_from(inner_h + 2)
+        .unwrap_or(u16::MAX)
+        .min(area.height);
+    let rect = Rect {
+        x: area.x + area.width.saturating_sub(box_w) / 2,
+        y: area.y + area.height.saturating_sub(box_h) / 2,
+        width: box_w,
+        height: box_h,
+    };
+    let inner = frame_box(frame, rect, &title, view);
+    let visible: Vec<Line<'static>> = all_lines.into_iter().skip(top).take(inner_h).collect();
+    frame.render_widget(Paragraph::new(visible), inner);
+}
+
+fn thread_message_lines(
+    state: &State,
+    message: &faro_core::domain::Message,
+    prev_ref: Option<MessageRef>,
+    chosen: bool,
+    inner_w: usize,
+    content_w: usize,
+    view: &View<'_>,
+) -> Vec<Line<'static>> {
+    let theme = view.theme;
+    let row_bg = if chosen {
+        theme.selected()
+    } else {
+        Style::new()
+    };
+    let spine = if chosen {
+        Span::styled(" ▌ ", row_bg.fg(theme.primary).add_modifier(Modifier::BOLD))
+    } else {
+        Span::styled(" │ ", theme.muted())
+    };
+    let finish_row = |spans: Vec<Span<'static>>| -> Line<'static> {
+        let mut line = Vec::with_capacity(spans.len() + 2);
+        line.push(spine.clone());
+        let mut used = 3usize;
+        for mut span in spans {
+            used += width(&span.content);
+            span.style = row_bg.patch(span.style);
+            line.push(span);
+        }
+        if chosen && used < inner_w {
+            line.push(Span::styled(" ".repeat(inner_w - used), row_bg));
+        }
+        Line::from(line)
+    };
+
+    let sender = sanitize(&state.sender_name(message)).into_owned();
+    let sender_style = if message.direction == Direction::Incoming {
+        theme.sender(message.sender).add_modifier(Modifier::BOLD)
+    } else {
+        Style::new().fg(theme.primary).add_modifier(Modifier::BOLD)
+    };
+    let mut header = vec![
+        Span::styled(
+            truncate(&sender, content_w.saturating_sub(10)).into_owned(),
+            sender_style,
+        ),
+        Span::styled(
+            format!(" · {}", format_hhmm(message.sent_at, view)),
+            theme.muted(),
+        ),
+    ];
+    header.extend(suffix(state, message, view));
+    let mut rows = vec![finish_row(header)];
+
+    if prev_ref.is_some()
+        && let Some(quote) = &message.quote
+        && Some(quote.target) != prev_ref
+    {
+        let who = sanitize(&state.person_name(quote.target.sender)).into_owned();
+        let preview = quote
+            .preview
+            .as_ref()
+            .map_or_else(|| "…".to_owned(), |p| one_line(p.expose()));
+        let text = truncate(&format!("↳ {who}: {preview}"), content_w).into_owned();
+        rows.push(finish_row(vec![Span::styled(
+            text,
+            theme.muted().add_modifier(Modifier::ITALIC),
+        )]));
+    }
+
+    for body_line in thread_body(state, message, content_w, view) {
+        rows.push(finish_row(body_line));
+    }
+    if !message.reactions.is_empty() {
+        let react_line = truncate(&reactions(message), content_w).into_owned();
+        rows.push(finish_row(vec![Span::styled(react_line, theme.muted())]));
+    }
+    rows
 }

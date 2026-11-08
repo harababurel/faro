@@ -2412,6 +2412,7 @@ fn selected_message_commands(state: &State) -> Vec<Item> {
         (Action::ReactPicker, "React"),
         (Action::Copy, "Copy text"),
         (Action::MessageInfo, "Message info"),
+        (Action::ViewThread, "View quote thread"),
         (Action::OpenLink, "Open link"),
     ]
     .into_iter()

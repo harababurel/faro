@@ -136,7 +136,7 @@ Press **`F1`** for every key, or search them in the palette. Every key can be re
 | `e`, `D` | Edit, delete (your own messages) |
 | `y`, `o`, `i` | Copy, open link, info and receipts |
 | `d`, `v`, `s` | Download, view, save an attachment to `Downloads` |
-| `x`, `t` | Play / stop, transcribe a voice note |
+| `x`, `t` / `T` | Play / stop, transcribe a voice note / view quote thread |
 | `/`, `u` | Search, jump to unread |
 
 **Input:** `@name` and `:shortcode:` complete inline; readline keys (`Ctrl+A`/`E`/`U`/`K`/`W`, `Alt+B`/`F`/`D`); `Ctrl+J` is a new line too.

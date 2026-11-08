@@ -151,6 +151,18 @@ fn attachment_label(attachment: &AttachmentRef) -> String {
         .map_or_else(|| attachment.content_type.clone(), str::to_owned)
 }
 
+fn in_loaded_quote_chain(state: &State, message: &Message) -> bool {
+    if message.quote.is_some() {
+        return true;
+    }
+    let msg_ref = message.reference();
+    state.open.as_ref().is_some_and(|open| {
+        open.messages
+            .iter()
+            .any(|m| !m.deleted && m.quote.as_ref().is_some_and(|q| q.target == msg_ref))
+    })
+}
+
 /// What `message` offers, in menu order.
 fn actions(state: &State, message: &Message) -> Vec<MessageAction> {
     let mut items = Vec::new();
@@ -228,6 +240,9 @@ fn actions(state: &State, message: &Message) -> Vec<MessageAction> {
                 }
             }
         }
+        if in_loaded_quote_chain(state, message) {
+            items.push(MessageAction::ViewThread);
+        }
         items.push(MessageAction::Info);
     }
     if matches!(message.direction, Direction::Outgoing(_)) && !message.deleted {
@@ -274,7 +289,13 @@ fn shortcut(c: char) -> Option<fn(&MessageAction) -> bool> {
                 MessageAction::PlayVoiceNote { .. } | MessageAction::StopVoiceNote { .. }
             )
         }),
-        't' => Some(|a| matches!(a, MessageAction::TranscribeVoiceNote { .. })),
+        't' => Some(|a| {
+            matches!(
+                a,
+                MessageAction::TranscribeVoiceNote { .. } | MessageAction::ViewThread
+            )
+        }),
+        'T' => Some(|a| *a == MessageAction::ViewThread),
         'd' => Some(|a| matches!(a, MessageAction::DownloadAttachment { .. })),
         'v' => Some(|a| {
             matches!(
@@ -335,25 +356,7 @@ pub fn on_popup(state: &mut State, key: PopupKey) -> Vec<Effect> {
                 vec![]
             }
         },
-        Popup::ImageViewer { target, index } => match key {
-            PopupKey::Char('s') => {
-                state.popup = Some(Popup::ImageViewer { target, index });
-                save_one(state, target, index)
-            }
-            PopupKey::Char('y') => {
-                state.popup = Some(Popup::ImageViewer { target, index });
-                copy_one_path(state, target, index)
-            }
-            PopupKey::Char('o') if !state.env.over_ssh => {
-                state.popup = Some(Popup::ImageViewer { target, index });
-                open_one_with_system(state, target, index)
-            }
-            PopupKey::Close | PopupKey::Choose | PopupKey::Char('q' | 'v') => vec![],
-            PopupKey::Previous | PopupKey::Next | PopupKey::Backspace | PopupKey::Char(_) => {
-                state.popup = Some(Popup::ImageViewer { target, index });
-                vec![]
-            }
-        },
+        Popup::ImageViewer { target, index } => on_image_viewer_key(state, target, index, key),
         // Look, then close (D91, D94).
         popup @ (Popup::StagedImage | Popup::About) => match key {
             PopupKey::Close | PopupKey::Choose | PopupKey::Char('q') => vec![],
@@ -386,6 +389,117 @@ pub fn on_popup(state: &mut State, key: PopupKey) -> Vec<Effect> {
             curation::on_disappearing_timer_key(state, target, selected, key)
         }
         Popup::SafetyNumber(peer) => on_safety_number_key(state, peer, key),
+        Popup::Thread {
+            conversation,
+            target,
+            messages,
+            selected,
+        } => on_thread_key(state, conversation, target, messages, selected, key),
+    }
+}
+
+fn on_image_viewer_key(
+    state: &mut State,
+    target: MessageRef,
+    index: usize,
+    key: PopupKey,
+) -> Vec<Effect> {
+    match key {
+        PopupKey::Char('s') => {
+            state.popup = Some(Popup::ImageViewer { target, index });
+            save_one(state, target, index)
+        }
+        PopupKey::Char('y') => {
+            state.popup = Some(Popup::ImageViewer { target, index });
+            copy_one_path(state, target, index)
+        }
+        PopupKey::Char('o') if !state.env.over_ssh => {
+            state.popup = Some(Popup::ImageViewer { target, index });
+            open_one_with_system(state, target, index)
+        }
+        PopupKey::Close | PopupKey::Choose | PopupKey::Char('q' | 'v') => vec![],
+        PopupKey::Previous | PopupKey::Next | PopupKey::Backspace | PopupKey::Char(_) => {
+            state.popup = Some(Popup::ImageViewer { target, index });
+            vec![]
+        }
+    }
+}
+
+fn on_thread_key(
+    state: &mut State,
+    conversation: ConversationId,
+    target: MessageRef,
+    messages: Vec<Message>,
+    selected: usize,
+    key: PopupKey,
+) -> Vec<Effect> {
+    match key {
+        PopupKey::Previous | PopupKey::Next => {
+            let selected = cycle(selected, messages.len(), key == PopupKey::Next);
+            state.popup = Some(Popup::Thread {
+                conversation,
+                target,
+                messages,
+                selected,
+            });
+            vec![]
+        }
+        PopupKey::Choose | PopupKey::Char('g') => {
+            if let Some(msg) = messages.get(selected) {
+                super::palette::jump_to_message(state, conversation, msg.reference())
+            } else {
+                vec![]
+            }
+        }
+        PopupKey::Char('r') => {
+            if let Some(msg) = messages.get(selected).filter(|m| !m.deleted) {
+                let msg_ref = msg.reference();
+                let quote = Quote {
+                    target: msg_ref,
+                    preview: state.readable_body(msg).map(MessageBody::new),
+                };
+                if let Some(open) = state.open.as_mut().filter(|o| o.id == conversation) {
+                    open.reply_to = Some(quote);
+                    if open.messages.iter().any(|m| m.reference() == msg_ref) {
+                        open.selected = Some(Selection {
+                            message: msg_ref,
+                            reveal: true,
+                        });
+                    }
+                }
+                state.focus = Focus::Input;
+            }
+            vec![]
+        }
+        PopupKey::Char('y') => {
+            let text = messages
+                .get(selected)
+                .filter(|m| !m.deleted)
+                .and_then(|m| state.readable_body(m));
+            state.popup = Some(Popup::Thread {
+                conversation,
+                target,
+                messages,
+                selected,
+            });
+            if let Some(text) = text {
+                state.notice = Some(Notice::info("Copied to the clipboard"));
+                vec![Effect::Copy(text)]
+            } else {
+                state.notice = Some(Notice::info("Nothing to copy"));
+                vec![]
+            }
+        }
+        PopupKey::Close | PopupKey::Char('q' | 't' | 'T') => vec![],
+        PopupKey::Backspace | PopupKey::Char(_) => {
+            state.popup = Some(Popup::Thread {
+                conversation,
+                target,
+                messages,
+                selected,
+            });
+            vec![]
+        }
     }
 }
 
@@ -476,6 +590,7 @@ pub fn perform(state: &mut State, target: MessageRef, action: MessageAction) -> 
         }
         MessageAction::Copy => copy(state, target),
         MessageAction::Forward => forward_target(state, target),
+        MessageAction::ViewThread => open_thread_for(state, target),
         MessageAction::Info => message_info(state, target),
         MessageAction::Edit => edit_target(state, target),
         MessageAction::Delete => {
@@ -1226,7 +1341,55 @@ pub fn on_playback_finished(
     }
 }
 
-/// `t`: transcribe the selected message's voice note (D82).
+/// `T` (or `t` on a message without a voice note): open the quote thread lens (D166).
+pub fn open_thread(state: &mut State) -> Vec<Effect> {
+    let Some(message) = selected(state).filter(|m| !m.deleted) else {
+        return vec![];
+    };
+    let target = message.reference();
+    open_thread_for(state, target)
+}
+
+fn open_thread_for(state: &mut State, target: MessageRef) -> Vec<Effect> {
+    let Some(open) = state.open.as_ref() else {
+        return vec![];
+    };
+    if find(state, target).is_none_or(|m| m.deleted) {
+        return vec![];
+    }
+    vec![Effect::LoadQuoteThread {
+        conversation: open.id,
+        target,
+    }]
+}
+
+pub fn on_quote_thread_loaded(
+    state: &mut State,
+    conversation: ConversationId,
+    target: MessageRef,
+    messages: Vec<Message>,
+) {
+    if state.open.as_ref().is_none_or(|o| o.id != conversation) {
+        return;
+    }
+    if messages.len() < 2 && messages.first().is_none_or(|m| m.quote.is_none()) {
+        state.notice = Some(Notice::info("No quote thread for this message"));
+        return;
+    }
+    let selected = messages
+        .iter()
+        .position(|m| m.reference() == target)
+        .unwrap_or_else(|| messages.len().saturating_sub(1));
+    state.popup = Some(Popup::Thread {
+        conversation,
+        target,
+        messages,
+        selected,
+    });
+}
+
+/// `t`: transcribe the selected message's voice note (D82), or open the quote
+/// thread lens when the message has no voice note (D166).
 pub fn transcribe_voice_note(state: &mut State) -> Vec<Effect> {
     let Some(message) = selected(state).filter(|m| !m.deleted) else {
         return vec![];
@@ -1238,8 +1401,7 @@ pub fn transcribe_voice_note(state: &mut State) -> Vec<Effect> {
         .enumerate()
         .find(|(_, att)| att.is_voice_note())
     else {
-        state.notice = Some(Notice::info("No voice note in this message"));
-        return vec![];
+        return open_thread_for(state, target);
     };
     transcribe_one_voice_note(state, target, index, true)
 }

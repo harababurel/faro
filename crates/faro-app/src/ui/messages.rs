@@ -908,8 +908,52 @@ fn text_lines(
         .collect()
 }
 
+/// Body lines for a message inside `Popup::Thread` (D166): text (or deleted
+/// placeholder), voice notes and attachments, without inline image reservation
+/// or the standard quote line (which the thread popup draws itself when branching).
+pub(super) fn thread_body(
+    state: &State,
+    message: &Message,
+    max: usize,
+    view: &View<'_>,
+) -> Vec<Vec<Span<'static>>> {
+    let theme = view.theme;
+    let mut body: Vec<Vec<Span<'static>>> = Vec::new();
+    if message.deleted {
+        body.push(vec![Span::styled(
+            "This message was deleted",
+            theme.muted().add_modifier(Modifier::ITALIC),
+        )]);
+    } else if let Some(text) = &message.body {
+        body.extend(text_lines(state, message, text.expose(), max, view));
+    }
+    let msg_ref = message.reference();
+    for (index, attachment) in message.attachments.iter().enumerate() {
+        if attachment.is_voice_note() {
+            body.extend(voice_note_lines(
+                state, msg_ref, index, attachment, max, view,
+            ));
+            continue;
+        }
+        let name = attachment.file_name.as_deref().map_or_else(
+            || attachment.content_type.clone(),
+            |n| sanitize(n).into_owned(),
+        );
+        let size = attachment.size.map(format_size).unwrap_or_default();
+        let text = format!("📎 {name}{size}");
+        body.push(vec![Span::styled(
+            truncate(&text, max).into_owned(),
+            Style::new().fg(theme.secondary),
+        )]);
+    }
+    if body.is_empty() {
+        body.push(vec![Span::styled("(empty message)", theme.muted())]);
+    }
+    body
+}
+
 /// `(edited)`, the disappearing-message timer, and the delivery status of own messages.
-fn suffix(state: &State, message: &Message, view: &View<'_>) -> Vec<Span<'static>> {
+pub(super) fn suffix(state: &State, message: &Message, view: &View<'_>) -> Vec<Span<'static>> {
     let theme = view.theme;
     let mut spans = Vec::new();
     if message.edited_at.is_some() && !message.deleted {

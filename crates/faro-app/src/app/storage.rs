@@ -81,6 +81,14 @@ async fn run(store: &Store, effect: Effect) -> Result<Option<AppEvent>, StoreErr
                 .messages_around(conversation, target.sent_at, 100)
                 .await?,
         }),
+        Effect::LoadQuoteThread {
+            conversation,
+            target,
+        } => Some(AppEvent::QuoteThreadLoaded {
+            conversation,
+            target,
+            messages: store.quote_thread(conversation, target).await?,
+        }),
         Effect::SearchMessages {
             conversation,
             query,
@@ -203,6 +211,7 @@ async fn write(store: &Store, effect: Effect) -> Result<(), StoreError> {
         | Effect::LoadMessagesAround { .. }
         | Effect::SearchMessages { .. }
         | Effect::LoadMessageReceipts { .. }
+        | Effect::LoadQuoteThread { .. }
         | Effect::ReadElsewhere(_)
         | Effect::SweepExpired(_)
         | Effect::Backend(_)

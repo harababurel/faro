@@ -71,6 +71,7 @@ pub fn on_action(state: &mut State, action: Action) -> Vec<Effect> {
         Action::OpenLink => return selection::open_link(state),
         Action::PlayVoiceNote => return selection::play_voice_note(state),
         Action::TranscribeVoiceNote => return selection::transcribe_voice_note(state),
+        Action::ViewThread => return selection::open_thread(state),
         Action::DownloadAttachment => return selection::download_attachment(state),
         Action::OpenAttachment => return selection::open_attachment(state),
         Action::SaveAttachment => return selection::save_attachment(state),
@@ -523,6 +524,18 @@ pub fn on_mouse(state: &mut State, mouse: MouseEvent) -> Vec<Effect> {
         let row = usize::from(at.y.saturating_sub(sidebar.y));
         geometry.sidebar_rows.get(row).copied()
     });
+    if let Some(crate::app::state::Popup::Thread {
+        messages, selected, ..
+    }) = state.popup.as_mut()
+        && let MouseEventKind::ScrollUp | MouseEventKind::ScrollDown = mouse.kind
+    {
+        if mouse.kind == MouseEventKind::ScrollUp {
+            *selected = selected.saturating_sub(1);
+        } else if *selected + 1 < messages.len() {
+            *selected += 1;
+        }
+        return vec![];
+    }
     if state.popup.is_some() && mouse_affects_view(mouse) {
         // A click or scroll outside the popup closes it.
         state.popup = None;

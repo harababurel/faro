@@ -48,6 +48,7 @@ pub enum Action {
     /// What the selected message offers (`Enter`).
     MessageMenu,
     MessageInfo,
+    ViewThread,
     Reply,
     ReactPicker,
     Copy,

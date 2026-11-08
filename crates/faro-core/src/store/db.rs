@@ -710,6 +710,73 @@ impl Db {
         Ok(messages)
     }
 
+    /// Walk up the quote chain from `target` in `conversation` to the root
+    /// message (or missing root reference) and return the root plus every
+    /// direct and transitive quote-reply in chronological order (D166).
+    pub(super) async fn quote_thread(
+        &mut self,
+        conversation: ConversationId,
+        target: MessageRef,
+    ) -> Result<Vec<Message>> {
+        let key = conversation_key(conversation);
+        let sender_db = target.sender.to_string();
+        let sent_at_db = timestamp_to_db(target.sent_at)?;
+        let rows: Vec<MessageRow> = sqlx::query_as(
+            "WITH RECURSIVE
+             ancestors(sender, sent_at, depth) AS (
+                 VALUES (?2, ?3, 0)
+                 UNION
+                 SELECT m.quote_sender, m.quote_sent_at, a.depth + 1
+                 FROM messages m
+                 JOIN ancestors a
+                   ON m.sender = a.sender AND m.sent_at = a.sent_at
+                 WHERE m.conversation_id = ?1
+                   AND m.quote_sender IS NOT NULL
+                   AND m.quote_sent_at IS NOT NULL
+                   AND a.depth < 64
+             ),
+             root(sender, sent_at) AS (
+                 SELECT sender, sent_at
+                 FROM ancestors
+                 ORDER BY depth DESC
+                 LIMIT 1
+             ),
+             thread_refs(sender, sent_at, depth) AS (
+                 SELECT sender, sent_at, 0 FROM root
+                 UNION
+                 SELECT m.sender, m.sent_at, t.depth + 1
+                 FROM messages m
+                 JOIN thread_refs t
+                   ON m.quote_sender = t.sender
+                  AND m.quote_sent_at = t.sent_at
+                 WHERE m.conversation_id = ?1
+                   AND t.depth < 64
+             )
+             SELECT id, sender, sent_at, body, quote_sender, quote_sent_at, quote_preview,
+                    edited_at, deleted, direction, status, expires_in_secs, expire_started_at
+             FROM messages
+             WHERE conversation_id = ?1
+               AND (sender, sent_at) IN (SELECT sender, sent_at FROM thread_refs)
+             ORDER BY sent_at ASC, sender ASC
+             LIMIT 200",
+        )
+        .bind(&key)
+        .bind(sender_db)
+        .bind(sent_at_db)
+        .fetch_all(&mut self.conn)
+        .await?;
+
+        let mut ids = Vec::with_capacity(rows.len());
+        let mut messages = Vec::with_capacity(rows.len());
+        for row in rows {
+            let (id, message) = decode_message_row(conversation, row)?;
+            ids.push(id);
+            messages.push(message);
+        }
+        self.attach_extras(&ids, &mut messages).await?;
+        Ok(messages)
+    }
+
     /// Search non-deleted messages matching all whitespace-separated tokens of
     /// `query` in `body` or attachment `transcript`, ordered newest first (M12).
     pub(super) async fn search_messages(

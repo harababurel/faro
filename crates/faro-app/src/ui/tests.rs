@@ -2320,3 +2320,69 @@ fn disappearing_messages_header_sidebar_badges_info_and_picker_render() {
     );
     assert_drawable(&compatible(state), 130, 34);
 }
+
+#[test]
+fn quote_thread_popup_renders_chain_missing_root_and_branch_quotes() {
+    use faro_core::domain::{MessageBody, MessageRef, Quote, Timestamp};
+
+    let mut state = loaded_state();
+    let history = fixtures::climbing_history();
+    let root = history[0].clone();
+    let reply = history[3].clone();
+    let mut branch = fixtures::text(
+        climbing(),
+        fixtures::ALICE,
+        NOW_MS + 500,
+        "I can bring the extra quickdraws",
+    );
+    branch.quote = Some(Quote {
+        target: root.reference(),
+        preview: root.body.clone(),
+    });
+
+    state.popup = Some(crate::app::state::Popup::Thread {
+        conversation: climbing(),
+        target: reply.reference(),
+        messages: vec![root, reply.clone(), branch],
+        selected: 1,
+    });
+    let text = snapshot(&draw(&state, 120, 32));
+    assert!(
+        text.contains("Thread · 3 messages"),
+        "thread popup title\n{text}"
+    );
+    assert!(
+        text.contains("Anyone up for the wall on Thursday?"),
+        "root message body\n{text}"
+    );
+    assert!(
+        text.contains("↳ Alice 🌸: Anyone up for the wall on Thursday?"),
+        "branching quote indicator on non-adjacent reply\n{text}"
+    );
+    assert!(
+        text.contains("enter jump to chat"),
+        "thread footer hints\n{text}"
+    );
+
+    // When the root message is missing from local history, renders the missing-root stub.
+    let mut orphan = reply;
+    orphan.quote = Some(Quote {
+        target: MessageRef {
+            sender: fixtures::ALICE,
+            sent_at: Timestamp::from_millis(1234),
+        },
+        preview: Some(MessageBody::new("Pre-link question")),
+    });
+    state.popup = Some(crate::app::state::Popup::Thread {
+        conversation: climbing(),
+        target: orphan.reference(),
+        messages: vec![orphan],
+        selected: 0,
+    });
+    let stub_text = snapshot(&draw(&state, 120, 32));
+    assert!(
+        stub_text.contains("Pre-link question (original message not in history)"),
+        "missing root stub\n{stub_text}"
+    );
+    assert_drawable(&compatible(state), 120, 32);
+}

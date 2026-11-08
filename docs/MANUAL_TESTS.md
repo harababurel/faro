@@ -781,6 +781,12 @@ Notes (version, OS, terminal, what went wrong):
 
 Notes (version, OS, terminal, what went wrong):
 
+## Quote thread lens (D166)
 
+- [ ] **Open via `t` / `T` / menu:** in a chat with a reply chain (e.g. `faro demo` › *Scranton Branch* or *Climbing*, or a real group chat), select any message in a quote chain and press `t` (on a non-voice-note message), `T` (works on voice notes too), or `Enter` › *View quote thread*: `Popup::Thread` opens showing the root message and all direct and transitive replies in chronological order, with the message you invoked it on pre-selected (`▌` accent bar).
+- [ ] **Standalone message:** press `t` or `T` on a message that neither quotes another message nor has any replies: the footer shows `No quote thread for this message` instead of opening an empty popup.
+- [ ] **Navigation & actions (`↑↓`/`j k`, `Enter`, `r`, `y`, `Esc`):** step through the thread with `j`/`k` (or `↑`/`↓` / mouse wheel); press `y` to copy a message's body; press `r` to close the lens and start a reply to that message in the input box; or press `Enter` to close the lens and jump the main chat selection directly to that message.
+- [ ] **Live updates & branching:** when multiple messages in the thread reply to the root (or an earlier message rather than the immediately preceding one), a dim `↳ Author: preview` indicator shows which message they branched from; if a new reply arrives in the chain while `Popup::Thread` is open, it appends to the bottom live.
 
+Notes (version, OS, terminal, what went wrong):
 

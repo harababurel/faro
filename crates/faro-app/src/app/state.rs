@@ -556,6 +556,13 @@ pub enum Popup {
         target: MessageRef,
         receipts: Vec<RecipientReceipt>,
     },
+    /// Chronological quote chain rooted at `target`'s ancestor (`T` / `t`, D166).
+    Thread {
+        conversation: ConversationId,
+        target: MessageRef,
+        messages: Vec<Message>,
+        selected: usize,
+    },
     /// Larger inline preview of a downloaded image attachment (`v`, D75).
     ImageViewer { target: MessageRef, index: usize },
     /// Consent prompt before sending a voice note to a remote transcription
@@ -662,6 +669,7 @@ pub enum MessageAction {
     Copy,
     Forward,
     Info,
+    ViewThread,
     Edit,
     Delete,
     OpenLink(String),
@@ -685,6 +693,7 @@ impl MessageAction {
             Self::Copy => ("Copy text".to_owned(), "y"),
             Self::Forward => ("Forward…".to_owned(), "f"),
             Self::Info => ("Message info".to_owned(), "i"),
+            Self::ViewThread => ("View quote thread".to_owned(), "T"),
             Self::Edit => ("Edit message".to_owned(), "e"),
             Self::Delete => ("Delete for everyone".to_owned(), "D"),
             Self::OpenLink(url) => (format!("Open {url}"), "o"),

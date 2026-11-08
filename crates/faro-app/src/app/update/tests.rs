@@ -2752,6 +2752,168 @@ fn incoming_disappearing_message_starts_countdown_on_read_and_sweeps_when_due() 
     assert_eq!(state.next_expiry, None);
 }
 
+#[test]
+fn quote_thread_lens_opens_and_receives_live_replies() {
+    use faro_core::domain::Quote;
+
+    let mut state = loaded_state();
+    let history = climbing_history();
+    let root = history[0].clone();
+    let reply = history[3].clone();
+    let reply_ref = reply.reference();
+
+    // Select the newest message ("See you at the wall") which has no voice note and no quote thread.
+    update(&mut state, key(KeyCode::Up, KeyModifiers::NONE));
+    let standalone_ref = selected_ref(&state).unwrap();
+    // Pressing `t` on a non-voice-note message falls back to `Effect::LoadQuoteThread`.
+    let effects = press(&mut state, 't');
+    assert_eq!(
+        effects,
+        vec![Effect::LoadQuoteThread {
+            conversation: climbing(),
+            target: standalone_ref,
+        }]
+    );
+    update(
+        &mut state,
+        AppEvent::QuoteThreadLoaded {
+            conversation: climbing(),
+            target: standalone_ref,
+            messages: vec![history.last().unwrap().clone()],
+        },
+    );
+    assert!(state.popup.is_none());
+    assert_eq!(
+        state.notice.as_ref().map(|n| n.text.as_str()),
+        Some("No quote thread for this message")
+    );
+
+    // Step up to `reply` (index 3) and press `T` (`Shift+T`).
+    while selected_ref(&state) != Some(reply_ref) {
+        press(&mut state, 'k');
+    }
+    let effects = update(&mut state, key(KeyCode::Char('T'), KeyModifiers::SHIFT));
+    assert_eq!(
+        effects,
+        vec![Effect::LoadQuoteThread {
+            conversation: climbing(),
+            target: reply_ref,
+        }]
+    );
+
+    // Load thread `[root, reply]`: opens `Popup::Thread` with `selected == 1` (`reply`).
+    update(
+        &mut state,
+        AppEvent::QuoteThreadLoaded {
+            conversation: climbing(),
+            target: reply_ref,
+            messages: vec![root.clone(), reply.clone()],
+        },
+    );
+    assert_eq!(
+        state.popup,
+        Some(Popup::Thread {
+            conversation: climbing(),
+            target: reply_ref,
+            messages: vec![root.clone(), reply.clone()],
+            selected: 1,
+        })
+    );
+
+    // Live incoming reply to `reply` joins the open `Popup::Thread` automatically.
+    let mut sub_reply = text(climbing(), ALICE, fixtures::NOW_MS + 900, "Count me in too");
+    sub_reply.quote = Some(Quote {
+        target: reply_ref,
+        preview: reply.body.clone(),
+    });
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::Message(sub_reply.clone())),
+    );
+    assert_eq!(
+        state.popup,
+        Some(Popup::Thread {
+            conversation: climbing(),
+            target: reply_ref,
+            messages: vec![root, reply, sub_reply],
+            selected: 1,
+        })
+    );
+}
+
+#[test]
+fn quote_thread_lens_steps_copies_replies_and_jumps_to_chat() {
+    use faro_core::domain::Quote;
+
+    let mut state = loaded_state();
+    let history = climbing_history();
+    let root = history[0].clone();
+    let reply = history[3].clone();
+    let root_ref = root.reference();
+    let reply_ref = reply.reference();
+    let mut sub_reply = text(climbing(), ALICE, fixtures::NOW_MS + 900, "Count me in too");
+    sub_reply.quote = Some(Quote {
+        target: reply_ref,
+        preview: reply.body.clone(),
+    });
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::Message(sub_reply.clone())),
+    );
+    update(
+        &mut state,
+        AppEvent::QuoteThreadLoaded {
+            conversation: climbing(),
+            target: reply_ref,
+            messages: vec![root.clone(), reply.clone(), sub_reply.clone()],
+        },
+    );
+
+    // `k` steps up to `root` (index 0); `y` copies its body while keeping the popup open.
+    press(&mut state, 'k');
+    let copy_effects = press(&mut state, 'y');
+    assert_eq!(
+        copy_effects,
+        vec![Effect::Copy(
+            "Anyone up for the wall on Thursday?".to_owned()
+        )]
+    );
+    assert!(matches!(
+        state.popup,
+        Some(Popup::Thread { selected: 0, .. })
+    ));
+
+    // `Enter` jumps to `root` in the main chat and closes the popup.
+    let jump_effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(jump_effects, vec![]);
+    assert!(state.popup.is_none());
+    assert_eq!(state.focus, Focus::Messages);
+    assert_eq!(selected_ref(&state), Some(root_ref));
+
+    // Reopen thread and press `r` on `sub_reply` to reply to it in the input box.
+    update(
+        &mut state,
+        AppEvent::QuoteThreadLoaded {
+            conversation: climbing(),
+            target: root_ref,
+            messages: vec![root, reply, sub_reply.clone()],
+        },
+    );
+    press(&mut state, 'j');
+    press(&mut state, 'j');
+    press(&mut state, 'r');
+    assert!(state.popup.is_none());
+    assert_eq!(state.focus, Focus::Input);
+    assert_eq!(
+        state
+            .open
+            .as_ref()
+            .and_then(|o| o.reply_to.as_ref())
+            .map(|q| q.target),
+        Some(sub_reply.reference())
+    );
+}
+
 mod clipboard;
 mod curation;
 mod focus;

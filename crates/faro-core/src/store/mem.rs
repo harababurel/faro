@@ -557,6 +557,69 @@ impl Mem {
             .collect())
     }
 
+    /// Walk up the quote chain from `target` in `conversation` to the root
+    /// message (or missing root reference) and return the root plus every
+    /// direct and transitive quote-reply in chronological order (D166).
+    pub(super) fn quote_thread(
+        &self,
+        conversation: ConversationId,
+        target: MessageRef,
+    ) -> Result<Vec<Message>> {
+        timestamp_to_db(target.sent_at)?;
+        let mut root = target;
+        let mut visited = std::collections::HashSet::from([root]);
+        for _ in 0..64 {
+            let Some(parent) = self
+                .by_ref
+                .get(&root)
+                .and_then(|id| self.rows.get(id))
+                .filter(|r| r.conversation == conversation)
+                .and_then(|r| r.quote.as_ref())
+                .map(|q| q.target)
+            else {
+                break;
+            };
+            if !visited.insert(parent) {
+                break;
+            }
+            root = parent;
+        }
+        let mut thread_refs = std::collections::HashSet::from([root]);
+        let mut frontier = vec![root];
+        for _ in 0..64 {
+            let mut next = Vec::new();
+            for row in self.in_conversation(conversation) {
+                if let Some(q) = &row.quote
+                    && frontier.contains(&q.target)
+                {
+                    let msg_ref = MessageRef {
+                        sender: row.sender,
+                        sent_at: row.sent_at,
+                    };
+                    if thread_refs.insert(msg_ref) {
+                        next.push(msg_ref);
+                    }
+                }
+            }
+            if next.is_empty() {
+                break;
+            }
+            frontier = next;
+        }
+        let mut rows: Vec<&Row> = self
+            .in_conversation(conversation)
+            .filter(|r| {
+                thread_refs.contains(&MessageRef {
+                    sender: r.sender,
+                    sent_at: r.sent_at,
+                })
+            })
+            .collect();
+        rows.sort_by(|a, b| a.point().cmp(&b.point()));
+        rows.truncate(200);
+        Ok(rows.into_iter().map(Row::to_message).collect())
+    }
+
     /// Search non-deleted messages matching all whitespace-separated tokens of
     /// `query` in `body` or attachment `transcript`, ordered newest first (M12).
     pub(super) fn search_messages(

@@ -31,6 +31,7 @@ fn saved(effects: &[Effect], id: ConversationId) -> Option<ConversationState> {
         | Effect::LoadMessagesAround { .. }
         | Effect::SearchMessages { .. }
         | Effect::LoadMessageReceipts { .. }
+        | Effect::LoadQuoteThread { .. }
         | Effect::Persist(_)
         | Effect::SaveAttachment { .. }
         | Effect::MarkRead(_)
