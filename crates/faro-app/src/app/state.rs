@@ -10,8 +10,9 @@ use faro_core::config::{
     BubbleStyle, ColorChoice, Config, InlineImages, MessageDensity, TimestampFormat, TranscribeMode,
 };
 use faro_core::domain::{
-    AttachmentRef, BodyPart, ConnectionState, Contact, ConversationId, Direction, Group, GroupId,
-    IdentityRecord, Message, MessageRef, Quote, ServiceId, Timestamp, mention_parts,
+    AttachmentRef, BodyPart, CallKind, CallState, ConnectionState, Contact, ConversationId,
+    Direction, Group, GroupId, IdentityRecord, Message, MessageRef, Quote, ServiceId, SystemEvent,
+    Timestamp, format_disappearing_timer, mention_parts,
 };
 use faro_core::rt::Instant;
 use faro_core::store::{ConversationSummary, NotifyLevel, Profile, RecipientReceipt};
@@ -1182,11 +1183,79 @@ impl State {
         }
     }
 
-    /// A message's text as people read it: mentions written as `@Name`
-    /// (D72), or a voice note's transcript if there is no text body (D82).
-    /// For copying and quoting; drawing styles the names too
+    /// Human-readable status text for a [`SystemEvent`] in `message` (D167).
+    pub fn system_event_text(&self, message: &Message, event: &SystemEvent) -> String {
+        match event {
+            SystemEvent::DisappearingTimer { seconds } => {
+                let who = self.sender_name(message);
+                match seconds {
+                    Some(secs) => format!(
+                        "◷ {who} set disappearing messages to {}",
+                        format_disappearing_timer(*secs)
+                    ),
+                    None => format!("◷ {who} turned off disappearing messages"),
+                }
+            }
+            SystemEvent::GroupRenamed { title } => {
+                let who = self.sender_name(message);
+                format!("{who} named the group \"{title}\"")
+            }
+            SystemEvent::MembersJoined { members } => {
+                if members.as_slice() == [message.sender] {
+                    format!("{} joined the group", self.person_name(message.sender))
+                } else {
+                    let names = members
+                        .iter()
+                        .map(|&m| self.person_name(m))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("{} added {names}", self.sender_name(message))
+                }
+            }
+            SystemEvent::MembersLeft { members } => {
+                if members.as_slice() == [message.sender] {
+                    format!("{} left the group", self.person_name(message.sender))
+                } else {
+                    let names = members
+                        .iter()
+                        .map(|&m| self.person_name(m))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("{} removed {names}", self.sender_name(message))
+                }
+            }
+            SystemEvent::Call { kind, state } => {
+                let label = match kind {
+                    CallKind::Voice => "voice call",
+                    CallKind::Video => "video call",
+                    CallKind::Group => "group call",
+                };
+                let own = matches!(message.direction, Direction::Outgoing(_))
+                    || message.sender == self.me;
+                match state {
+                    CallState::Incoming => {
+                        format!(
+                            "☎ Incoming {label} from {}",
+                            self.person_name(message.sender)
+                        )
+                    }
+                    CallState::Missed if own => format!("☎ Unanswered {label}"),
+                    CallState::Missed => format!("☎ Missed {label}"),
+                    CallState::Accepted if own => format!("☎ Outgoing {label}"),
+                    CallState::Accepted => format!("☎ Answered {label}"),
+                }
+            }
+        }
+    }
+
+    /// A message's text as people read it: system events (D167), mentions
+    /// written as `@Name` (D72), or a voice note's transcript if there is no
+    /// text body (D82). For copying and quoting; drawing styles the names too
     /// (`ui::messages::content`).
     pub fn readable_body(&self, message: &Message) -> Option<String> {
+        if let Some(event) = &message.system_event {
+            return Some(self.system_event_text(message, event));
+        }
         if let Some(body) = message.body.as_ref() {
             let parts = mention_parts(body.expose(), &message.mentions);
             return Some(

@@ -211,13 +211,22 @@ fn message_info_rows(
         ("From", sender, text_style.add_modifier(Modifier::BOLD)),
         ("Sent", format_datetime(message.sent_at, view), text_style),
     ];
+    if let Some(event) = &message.system_event {
+        rows.push((
+            "Event",
+            sanitize(&state.system_event_text(message, event)).into_owned(),
+            text_style,
+        ));
+    }
     if let Some(edited_at) = message.edited_at {
         rows.push(("Edited", format_datetime(edited_at, view), text_style));
     }
     if let Some(value) = disappears_value(message, view) {
         rows.push(("Disappears", value, text_style));
     }
-    if let Direction::Outgoing(status) = message.direction {
+    if !message.is_system()
+        && let Direction::Outgoing(status) = message.direction
+    {
         let (label, style) = match status {
             DeliveryStatus::Sending => ("Sending…", theme.muted()),
             DeliveryStatus::Sent => ("Sent ✓", theme.muted()),

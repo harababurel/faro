@@ -109,6 +109,7 @@ pub fn text(conversation: ConversationId, sender: ServiceId, at: u64, body: &str
         deleted: false,
         expires_in_secs: None,
         expire_started_at: None,
+        system_event: None,
     }
 }
 

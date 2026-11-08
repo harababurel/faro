@@ -2386,3 +2386,76 @@ fn quote_thread_popup_renders_chain_missing_root_and_branch_quotes() {
     );
     assert_drawable(&compatible(state), 120, 32);
 }
+
+#[test]
+fn system_lines_render_in_irc_bubbles_sidebar_and_info_popup() {
+    use crate::app::term_event::KeyCode::Up;
+    use faro_core::backend::BackendEvent;
+    use faro_core::domain::{CallKind, CallState, Direction, Message, SystemEvent, Timestamp};
+
+    let mut state = loaded_state();
+    state.config.conversations.previews = true;
+    let joined = Message::system(
+        climbing(),
+        fixtures::BOB,
+        Timestamp::from_millis(NOW_MS + 1_000),
+        Direction::Incoming,
+        SystemEvent::MembersJoined {
+            members: vec![fixtures::BOB],
+        },
+    );
+    let missed = Message::system(
+        climbing(),
+        fixtures::ALICE,
+        Timestamp::from_millis(NOW_MS + 2_000),
+        Direction::Incoming,
+        SystemEvent::Call {
+            kind: CallKind::Voice,
+            state: CallState::Missed,
+        },
+    );
+    let missed_ref = missed.reference();
+    update(&mut state, AppEvent::Backend(BackendEvent::Message(joined)));
+    update(&mut state, AppEvent::Backend(BackendEvent::Message(missed)));
+
+    // IRC layout renders `* Bob joined the group` and `* ☎ Missed voice call`,
+    // and the sidebar preview shows `☎ Missed voice call` without a `Sender:` prefix.
+    let irc_text = snapshot(&draw(&state, 120, 32));
+    assert!(
+        irc_text.contains("* Bob joined the group"),
+        "IRC member joined line\n{irc_text}"
+    );
+    assert!(
+        irc_text.contains("* ☎ Missed voice call"),
+        "IRC missed call line\n{irc_text}"
+    );
+    assert!(
+        irc_text.contains("╰─ ☎ Missed voice call"),
+        "sidebar system preview without sender prefix\n{irc_text}"
+    );
+
+    // Bubbles layout renders centered system lines with timestamps.
+    state.layout = MessageLayout::Bubbles;
+    let bubbles_text = snapshot(&draw(&state, 120, 32));
+    assert!(
+        bubbles_text.contains("Bob joined the group · 18:00"),
+        "Bubbles member joined line\n{bubbles_text}"
+    );
+    assert!(
+        bubbles_text.contains("☎ Missed voice call · 18:00"),
+        "Bubbles missed call line\n{bubbles_text}"
+    );
+
+    // Selecting the system line and opening MessageInfo shows `Event:`.
+    keys(&mut state, &[Up]);
+    state.popup = Some(crate::app::state::Popup::MessageInfo {
+        target: missed_ref,
+        receipts: vec![],
+    });
+    let info_text = snapshot(&draw(&state, 120, 32));
+    assert!(
+        info_text.contains("Event:") && info_text.contains("☎ Missed voice call"),
+        "MessageInfo Event row\n{info_text}"
+    );
+    assert_drawable(&compatible(state), 120, 32);
+}

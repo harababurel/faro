@@ -165,6 +165,9 @@ fn in_loaded_quote_chain(state: &State, message: &Message) -> bool {
 
 /// What `message` offers, in menu order.
 fn actions(state: &State, message: &Message) -> Vec<MessageAction> {
+    if message.is_system() {
+        return vec![MessageAction::Copy, MessageAction::Info];
+    }
     let mut items = Vec::new();
     if message.direction == Direction::Outgoing(DeliveryStatus::Failed) {
         items.push(MessageAction::Retry);
@@ -622,7 +625,7 @@ pub fn perform(state: &mut State, target: MessageRef, action: MessageAction) -> 
 
 /// `f`: forward the selected message to another conversation.
 pub fn forward_message(state: &mut State) -> Vec<Effect> {
-    let Some(message) = selected(state).filter(|m| !m.deleted) else {
+    let Some(message) = selected(state).filter(|m| !m.deleted && !m.is_system()) else {
         return vec![];
     };
     let target = message.reference();
@@ -630,7 +633,7 @@ pub fn forward_message(state: &mut State) -> Vec<Effect> {
 }
 
 fn forward_target(state: &mut State, target: MessageRef) -> Vec<Effect> {
-    let Some(message) = find(state, target).filter(|m| !m.deleted) else {
+    let Some(message) = find(state, target).filter(|m| !m.deleted && !m.is_system()) else {
         return vec![];
     };
     let has_text = state
@@ -721,7 +724,7 @@ pub fn on_selected(state: &mut State, action: MessageAction) -> Vec<Effect> {
 
 /// `e`: start editing the selected outgoing message.
 pub fn edit_message(state: &mut State) -> Vec<Effect> {
-    let Some(message) = selected(state).filter(|m| !m.deleted) else {
+    let Some(message) = selected(state).filter(|m| !m.deleted && !m.is_system()) else {
         return vec![];
     };
     if !matches!(message.direction, Direction::Outgoing(_)) {
@@ -740,8 +743,8 @@ fn edit_target(state: &mut State, target: MessageRef) -> Vec<Effect> {
     if !state.capabilities.supports(Capability::Edit) {
         return vec![];
     }
-    let Some(message) =
-        find(state, target).filter(|m| matches!(m.direction, Direction::Outgoing(_)) && !m.deleted)
+    let Some(message) = find(state, target)
+        .filter(|m| matches!(m.direction, Direction::Outgoing(_)) && !m.deleted && !m.is_system())
     else {
         return vec![];
     };
@@ -769,7 +772,7 @@ fn edit_target(state: &mut State, target: MessageRef) -> Vec<Effect> {
 
 /// `D`: prompt to delete the selected outgoing message for everyone.
 pub fn delete_message(state: &mut State) -> Vec<Effect> {
-    let Some(message) = selected(state).filter(|m| !m.deleted) else {
+    let Some(message) = selected(state).filter(|m| !m.deleted && !m.is_system()) else {
         return vec![];
     };
     if !matches!(message.direction, Direction::Outgoing(_)) {
@@ -793,9 +796,9 @@ fn delete_target(state: &mut State, target: MessageRef) {
     if !state.capabilities.supports(Capability::DeleteForEveryone) {
         return;
     }
-    if find(state, target)
-        .is_some_and(|m| matches!(m.direction, Direction::Outgoing(_)) && !m.deleted)
-    {
+    if find(state, target).is_some_and(|m| {
+        matches!(m.direction, Direction::Outgoing(_)) && !m.deleted && !m.is_system()
+    }) {
         state.popup = Some(Popup::ConfirmDelete { target });
     }
 }
@@ -804,9 +807,9 @@ fn confirm_delete(state: &mut State, target: MessageRef) -> Vec<Effect> {
     let Some(conversation) = state.open.as_ref().map(|o| o.id) else {
         return vec![];
     };
-    if !find(state, target)
-        .is_some_and(|m| matches!(m.direction, Direction::Outgoing(_)) && !m.deleted)
-    {
+    if !find(state, target).is_some_and(|m| {
+        matches!(m.direction, Direction::Outgoing(_)) && !m.deleted && !m.is_system()
+    }) {
         return vec![];
     }
     if let Some(open) = state.open.as_mut()
@@ -835,7 +838,7 @@ fn confirm_delete(state: &mut State, target: MessageRef) -> Vec<Effect> {
 }
 
 fn reply(state: &mut State, target: MessageRef) {
-    let Some(message) = find(state, target).filter(|m| !m.deleted) else {
+    let Some(message) = find(state, target).filter(|m| !m.deleted && !m.is_system()) else {
         return;
     };
     // Mentions as `@Name`: the quote goes out without them (D72).
@@ -852,7 +855,7 @@ fn reply(state: &mut State, target: MessageRef) {
 use crate::ui::shortcodes::REACT_SEARCH_LIMIT;
 
 pub fn react_picker(state: &mut State, target: MessageRef) {
-    let Some(message) = find(state, target).filter(|m| !m.deleted) else {
+    let Some(message) = find(state, target).filter(|m| !m.deleted && !m.is_system()) else {
         return;
     };
     let mine = own_reaction(state, message);

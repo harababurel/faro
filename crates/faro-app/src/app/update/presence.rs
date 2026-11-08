@@ -73,7 +73,7 @@ pub fn on_new_message(state: &mut State, message: &Message) {
     let Some(open) = state.open.as_mut().filter(|o| o.id == message.conversation) else {
         return;
     };
-    if message.direction != Direction::Incoming || message.deleted {
+    if message.direction != Direction::Incoming || message.deleted || message.is_system() {
         return;
     }
     let reference = message.reference();

@@ -18,8 +18,9 @@ use std::time::{Duration, Instant};
 
 use faro_core::backend::{BackendEvent, IdentityUpdate};
 use faro_core::domain::{
-    Contact, ConversationId, DeliveryStatus, Direction, Group, GroupId, Mention, Message,
-    MessageBody, MessageRef, PhoneNumber, Quote, Reaction, ServiceId, Timestamp, VerificationState,
+    CallKind, CallState, Contact, ConversationId, DeliveryStatus, Direction, Group, GroupId,
+    Mention, Message, MessageBody, MessageRef, PhoneNumber, Quote, Reaction, ServiceId,
+    SystemEvent, Timestamp, VerificationState,
 };
 use faro_core::guard::Allowlist;
 use faro_core::store::{ConversationState, NotifyLevel, RemoteTranscription, Store};
@@ -843,12 +844,25 @@ impl HistoryBuilder {
                 receipt_updates = updates;
                 Direction::Outgoing(status)
             }
-            Some(proto::chat_item::DirectionalDetails::Directionless(_)) | None => return,
+            Some(proto::chat_item::DirectionalDetails::Directionless(_)) => {
+                if sender == self.me {
+                    Direction::Outgoing(DeliveryStatus::Sent)
+                } else {
+                    Direction::Incoming
+                }
+            }
+            None => return,
         };
 
         let Some(content) = item.item else {
             return;
         };
+        if let proto::chat_item::Item::UpdateMessage(update) = content {
+            for msg in self.update_messages(&update, conversation, sender, sent_at, direction) {
+                self.message_events.push(BackendEvent::Message(msg));
+            }
+            return;
+        }
         let expires_in_secs = item
             .expires_in_ms
             .map(|ms| u32::try_from(ms / 1_000).unwrap_or(u32::MAX))
@@ -917,6 +931,7 @@ impl HistoryBuilder {
                     deleted: false,
                     expires_in_secs: None,
                     expire_started_at: None,
+                    system_event: None,
                 })
             }
             proto::chat_item::Item::Sticker(sticker_msg) => {
@@ -945,6 +960,7 @@ impl HistoryBuilder {
                     deleted: false,
                     expires_in_secs: None,
                     expire_started_at: None,
+                    system_event: None,
                 })
             }
             proto::chat_item::Item::RemoteDeleted(_) => Some(Message {
@@ -961,8 +977,207 @@ impl HistoryBuilder {
                 deleted: true,
                 expires_in_secs: None,
                 expire_started_at: None,
+                system_event: None,
             }),
+            proto::chat_item::Item::UpdateMessage(_) => None,
         }
+    }
+
+    fn update_messages(
+        &self,
+        update: &proto::ChatUpdateMessage,
+        conversation: ConversationId,
+        default_sender: ServiceId,
+        sent_at: Timestamp,
+        default_direction: Direction,
+    ) -> Vec<Message> {
+        let Some(body) = &update.update else {
+            return vec![];
+        };
+        let direction_for = |who: ServiceId| {
+            if who == self.me {
+                Direction::Outgoing(DeliveryStatus::Sent)
+            } else {
+                Direction::Incoming
+            }
+        };
+        match body {
+            proto::chat_update_message::Update::ExpirationTimerChange(timer) => {
+                let seconds = u32::try_from(timer.expires_in_ms / 1_000)
+                    .ok()
+                    .filter(|&s| s > 0);
+                vec![Message::system(
+                    conversation,
+                    default_sender,
+                    sent_at,
+                    default_direction,
+                    SystemEvent::DisappearingTimer { seconds },
+                )]
+            }
+            proto::chat_update_message::Update::IndividualCall(call) => {
+                let kind = if call.r#type == 2 {
+                    CallKind::Video
+                } else {
+                    CallKind::Voice
+                };
+                let state = if call.state == 1 {
+                    CallState::Accepted
+                } else {
+                    CallState::Missed
+                };
+                let direction = if call.direction == 2 {
+                    Direction::Outgoing(DeliveryStatus::Sent)
+                } else {
+                    Direction::Incoming
+                };
+                let call_ts = if call.started_call_timestamp > 0 {
+                    Timestamp::from_millis(call.started_call_timestamp)
+                } else {
+                    sent_at
+                };
+                vec![Message::system(
+                    conversation,
+                    default_sender,
+                    call_ts,
+                    direction,
+                    SystemEvent::Call { kind, state },
+                )]
+            }
+            proto::chat_update_message::Update::GroupCall(call) => {
+                let state = if call.state == 4 || call.state == 5 {
+                    CallState::Accepted
+                } else {
+                    CallState::Missed
+                };
+                let who = call
+                    .ringer_recipient_id
+                    .and_then(|id| self.recipient_service_id(id))
+                    .unwrap_or(default_sender);
+                let call_ts = if call.started_call_timestamp > 0 {
+                    Timestamp::from_millis(call.started_call_timestamp)
+                } else {
+                    sent_at
+                };
+                vec![Message::system(
+                    conversation,
+                    who,
+                    call_ts,
+                    direction_for(who),
+                    SystemEvent::Call {
+                        kind: CallKind::Group,
+                        state,
+                    },
+                )]
+            }
+            proto::chat_update_message::Update::GroupChange(change) => {
+                self.group_change_messages(change, conversation, default_sender, sent_at)
+            }
+        }
+    }
+
+    fn group_change_messages(
+        &self,
+        change: &proto::GroupChangeChatUpdate,
+        conversation: ConversationId,
+        default_sender: ServiceId,
+        sent_at: Timestamp,
+    ) -> Vec<Message> {
+        use proto::group_change_chat_update::update::Body;
+
+        let direction_for = |who: ServiceId| {
+            if who == self.me {
+                Direction::Outgoing(DeliveryStatus::Sent)
+            } else {
+                Direction::Incoming
+            }
+        };
+        let aci_or_default = |bytes: Option<&[u8]>| {
+            bytes
+                .and_then(|b| Uuid::from_slice(b).ok())
+                .map_or(default_sender, ServiceId::Aci)
+        };
+        let mut out = Vec::new();
+        for (idx, entry) in change.updates.iter().enumerate() {
+            let Some(update_body) = &entry.body else {
+                continue;
+            };
+            let ts = Timestamp::from_millis(sent_at.as_millis().saturating_add(idx as u64));
+            let parsed = match update_body {
+                Body::GroupNameUpdate(rename) => rename
+                    .new_group_name
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(|title| {
+                        (
+                            aci_or_default(rename.updater_aci.as_deref()),
+                            SystemEvent::GroupRenamed {
+                                title: title.to_owned(),
+                            },
+                        )
+                    }),
+                Body::GroupExpirationTimerUpdate(timer) => {
+                    let seconds = u32::try_from(timer.expires_in_ms / 1_000)
+                        .ok()
+                        .filter(|&s| s > 0);
+                    Some((
+                        aci_or_default(timer.updater_aci.as_deref()),
+                        SystemEvent::DisappearingTimer { seconds },
+                    ))
+                }
+                Body::GroupMemberAddedUpdate(added) => {
+                    Uuid::from_slice(&added.new_member_aci).ok().map(|u| {
+                        (
+                            aci_or_default(added.updater_aci.as_deref()),
+                            SystemEvent::MembersJoined {
+                                members: vec![ServiceId::Aci(u)],
+                            },
+                        )
+                    })
+                }
+                Body::GroupMemberJoinedUpdate(joined)
+                | Body::GroupMemberJoinedByLinkUpdate(joined) => {
+                    Uuid::from_slice(&joined.new_member_aci).ok().map(|u| {
+                        let member = ServiceId::Aci(u);
+                        (
+                            member,
+                            SystemEvent::MembersJoined {
+                                members: vec![member],
+                            },
+                        )
+                    })
+                }
+                Body::GroupMemberRemovedUpdate(removed) => {
+                    Uuid::from_slice(&removed.removed_aci).ok().map(|u| {
+                        (
+                            aci_or_default(removed.remover_aci.as_deref()),
+                            SystemEvent::MembersLeft {
+                                members: vec![ServiceId::Aci(u)],
+                            },
+                        )
+                    })
+                }
+                Body::GroupMemberLeftUpdate(left) => Uuid::from_slice(&left.aci).ok().map(|u| {
+                    let member = ServiceId::Aci(u);
+                    (
+                        member,
+                        SystemEvent::MembersLeft {
+                            members: vec![member],
+                        },
+                    )
+                }),
+            };
+            if let Some((who, event)) = parsed {
+                out.push(Message::system(
+                    conversation,
+                    who,
+                    ts,
+                    direction_for(who),
+                    event,
+                ));
+            }
+        }
+        out
     }
 
     fn outgoing_status(
@@ -1439,7 +1654,7 @@ mod proto {
         pub revisions: Vec<ChatItem>,
         #[prost(oneof = "chat_item::DirectionalDetails", tags = "8, 9, 10")]
         pub directional_details: Option<chat_item::DirectionalDetails>,
-        #[prost(oneof = "chat_item::Item", tags = "11, 13, 14")]
+        #[prost(oneof = "chat_item::Item", tags = "11, 13, 14, 15")]
         pub item: Option<chat_item::Item>,
     }
 
@@ -1485,6 +1700,144 @@ mod proto {
             Sticker(super::StickerMessage),
             #[prost(message, tag = "14")]
             RemoteDeleted(super::RemoteDeletedMessage),
+            #[prost(message, tag = "15")]
+            UpdateMessage(super::ChatUpdateMessage),
+        }
+    }
+
+    #[derive(Clone, PartialEq, prost::Message)]
+    pub struct ChatUpdateMessage {
+        #[prost(oneof = "chat_update_message::Update", tags = "2, 3, 10, 11")]
+        pub update: Option<chat_update_message::Update>,
+    }
+
+    pub mod chat_update_message {
+        #[derive(Clone, PartialEq, prost::Oneof)]
+        pub enum Update {
+            #[prost(message, tag = "2")]
+            ExpirationTimerChange(super::ExpirationTimerChatUpdate),
+            #[prost(message, tag = "3")]
+            GroupChange(super::GroupChangeChatUpdate),
+            #[prost(message, tag = "10")]
+            IndividualCall(super::IndividualCall),
+            #[prost(message, tag = "11")]
+            GroupCall(super::GroupCall),
+        }
+    }
+
+    #[derive(Clone, PartialEq, prost::Message)]
+    pub struct ExpirationTimerChatUpdate {
+        #[prost(uint64, tag = "1")]
+        pub expires_in_ms: u64,
+    }
+
+    #[derive(Clone, PartialEq, prost::Message)]
+    pub struct IndividualCall {
+        #[prost(int32, tag = "2")]
+        pub r#type: i32,
+        #[prost(int32, tag = "3")]
+        pub direction: i32,
+        #[prost(int32, tag = "4")]
+        pub state: i32,
+        #[prost(uint64, tag = "5")]
+        pub started_call_timestamp: u64,
+        #[prost(bool, tag = "6")]
+        pub read: bool,
+    }
+
+    #[derive(Clone, PartialEq, prost::Message)]
+    pub struct GroupCall {
+        #[prost(int32, tag = "2")]
+        pub state: i32,
+        #[prost(uint64, optional, tag = "3")]
+        pub ringer_recipient_id: Option<u64>,
+        #[prost(uint64, tag = "5")]
+        pub started_call_timestamp: u64,
+        #[prost(uint64, optional, tag = "6")]
+        pub ended_call_timestamp: Option<u64>,
+        #[prost(bool, tag = "7")]
+        pub read: bool,
+    }
+
+    #[derive(Clone, PartialEq, prost::Message)]
+    pub struct GroupChangeChatUpdate {
+        #[prost(message, repeated, tag = "1")]
+        pub updates: Vec<group_change_chat_update::Update>,
+    }
+
+    pub mod group_change_chat_update {
+        #[derive(Clone, PartialEq, prost::Message)]
+        pub struct Update {
+            #[prost(oneof = "update::Body", tags = "2, 6, 8, 9, 10, 11, 22")]
+            pub body: Option<update::Body>,
+        }
+
+        pub mod update {
+            #[expect(
+                clippy::enum_variant_names,
+                reason = "prost oneof variant names match Signal backup.proto"
+            )]
+            #[derive(Clone, PartialEq, prost::Oneof)]
+            pub enum Body {
+                #[prost(message, tag = "2")]
+                GroupNameUpdate(super::GroupNameUpdate),
+                #[prost(message, tag = "6")]
+                GroupExpirationTimerUpdate(super::GroupExpirationTimerUpdate),
+                #[prost(message, tag = "8")]
+                GroupMemberAddedUpdate(super::GroupMemberAddedUpdate),
+                #[prost(message, tag = "9")]
+                GroupMemberJoinedUpdate(super::GroupMemberJoinedUpdate),
+                #[prost(message, tag = "10")]
+                GroupMemberJoinedByLinkUpdate(super::GroupMemberJoinedUpdate),
+                #[prost(message, tag = "11")]
+                GroupMemberRemovedUpdate(super::GroupMemberRemovedUpdate),
+                #[prost(message, tag = "22")]
+                GroupMemberLeftUpdate(super::GroupMemberLeftUpdate),
+            }
+        }
+
+        #[derive(Clone, PartialEq, prost::Message)]
+        pub struct GroupNameUpdate {
+            #[prost(bytes = "vec", optional, tag = "1")]
+            pub updater_aci: Option<Vec<u8>>,
+            #[prost(string, optional, tag = "2")]
+            pub new_group_name: Option<String>,
+        }
+
+        #[derive(Clone, PartialEq, prost::Message)]
+        pub struct GroupExpirationTimerUpdate {
+            #[prost(uint64, tag = "1")]
+            pub expires_in_ms: u64,
+            #[prost(bytes = "vec", optional, tag = "2")]
+            pub updater_aci: Option<Vec<u8>>,
+        }
+
+        #[derive(Clone, PartialEq, prost::Message)]
+        pub struct GroupMemberAddedUpdate {
+            #[prost(bytes = "vec", optional, tag = "1")]
+            pub updater_aci: Option<Vec<u8>>,
+            #[prost(bytes = "vec", tag = "2")]
+            pub new_member_aci: Vec<u8>,
+        }
+
+        #[derive(Clone, PartialEq, prost::Message)]
+        pub struct GroupMemberJoinedUpdate {
+            #[prost(bytes = "vec", tag = "1")]
+            pub new_member_aci: Vec<u8>,
+        }
+
+        #[derive(Clone, PartialEq, prost::Message)]
+        pub struct GroupMemberRemovedUpdate {
+            #[prost(bytes = "vec", optional, tag = "1")]
+            pub remover_aci: Option<Vec<u8>>,
+            #[prost(bytes = "vec", tag = "2")]
+            pub removed_aci: Vec<u8>,
+        }
+
+        #[derive(Clone, PartialEq, prost::Message)]
+        pub struct GroupMemberLeftUpdate {
+            #[prost(bytes = "vec", tag = "1")]
+            pub aci: Vec<u8>,
         }
     }
 

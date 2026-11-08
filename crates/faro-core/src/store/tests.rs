@@ -78,6 +78,7 @@ engines! {
     identities_track_key_changes_and_verification,
     disappearing_messages_tick_and_sweep,
     quote_thread_walks_up_to_root_and_collects_descendants,
+    system_events_persist_coalesce_calls_and_skip_unreads,
 }
 
 async fn each_summary_carries_its_newest_message(kind: Kind) {
@@ -145,6 +146,7 @@ fn incoming(conversation: ConversationId, sender: u128, sent_at: u64, body: &str
         deleted: false,
         expires_in_secs: None,
         expire_started_at: None,
+        system_event: None,
     }
 }
 
@@ -1279,4 +1281,113 @@ async fn quote_thread_walks_up_to_root_and_collects_descendants(kind: Kind) {
             .collect::<Vec<_>>(),
         vec![r1.reference(), r2.reference(), r3.reference()]
     );
+}
+
+async fn system_events_persist_coalesce_calls_and_skip_unreads(kind: Kind) {
+    use crate::domain::{CallKind, CallState, SystemEvent};
+
+    let store = kind.open().await;
+    let conv = group();
+
+    // 1. Timer change system event persists without incrementing unread, and
+    // duplicate timer events from the same sender within 10s are deduplicated.
+    let timer1 = Message::system(
+        conv,
+        aci(ALICE),
+        ts(1_000),
+        Direction::Incoming,
+        SystemEvent::DisappearingTimer {
+            seconds: Some(3_600),
+        },
+    );
+    let timer_dup = Message::system(
+        conv,
+        aci(ALICE),
+        ts(5_000),
+        Direction::Incoming,
+        SystemEvent::DisappearingTimer {
+            seconds: Some(3_600),
+        },
+    );
+    store.apply(BackendEvent::Message(timer1)).await.unwrap();
+    store.apply(BackendEvent::Message(timer_dup)).await.unwrap();
+    assert_eq!(summary(&store, conv).await.unread, 0);
+    assert_eq!(store.messages(conv, None, 10).await.unwrap().len(), 1);
+
+    // 2. Group rename and member join/leave round-trip cleanly.
+    let rename = Message::system(
+        conv,
+        aci(ALICE),
+        ts(20_000),
+        Direction::Incoming,
+        SystemEvent::GroupRenamed {
+            title: "Peak District".to_owned(),
+        },
+    );
+    let joined = Message::system(
+        conv,
+        aci(ALICE),
+        ts(21_000),
+        Direction::Incoming,
+        SystemEvent::MembersJoined {
+            members: vec![aci(BOB), aci(CAROL)],
+        },
+    );
+    let left = Message::system(
+        conv,
+        aci(CAROL),
+        ts(22_000),
+        Direction::Incoming,
+        SystemEvent::MembersLeft {
+            members: vec![aci(CAROL)],
+        },
+    );
+    for msg in [&rename, &joined, &left] {
+        store
+            .apply(BackendEvent::Message(msg.clone()))
+            .await
+            .unwrap();
+    }
+    assert_eq!(summary(&store, conv).await.unread, 0);
+
+    // 3. Incoming call ringing coalesces in place when Missed arrives within 5m.
+    let call_ringing = Message::system(
+        direct(ALICE),
+        aci(ALICE),
+        ts(30_000),
+        Direction::Incoming,
+        SystemEvent::Call {
+            kind: CallKind::Voice,
+            state: CallState::Incoming,
+        },
+    );
+    let call_missed = Message::system(
+        direct(ALICE),
+        aci(ALICE),
+        ts(45_000),
+        Direction::Incoming,
+        SystemEvent::Call {
+            kind: CallKind::Voice,
+            state: CallState::Missed,
+        },
+    );
+    store
+        .apply(BackendEvent::Message(call_ringing))
+        .await
+        .unwrap();
+    store
+        .apply(BackendEvent::Message(call_missed))
+        .await
+        .unwrap();
+    let direct_msgs = store.messages(direct(ALICE), None, 10).await.unwrap();
+    assert_eq!(direct_msgs.len(), 1);
+    assert_eq!(direct_msgs[0].sent_at, ts(30_000));
+    assert_eq!(
+        direct_msgs[0].system_event,
+        Some(SystemEvent::Call {
+            kind: CallKind::Voice,
+            state: CallState::Missed,
+        })
+    );
+    assert_eq!(summary(&store, direct(ALICE)).await.unread, 0);
 }

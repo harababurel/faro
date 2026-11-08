@@ -689,7 +689,9 @@ fn preview_spans(
     } else {
         theme.muted()
     };
-    let who = if matches!(message.direction, Direction::Outgoing(_)) || message.sender == state.me {
+    let who = if message.is_system() {
+        String::new()
+    } else if matches!(message.direction, Direction::Outgoing(_)) || message.sender == state.me {
         "You: ".to_owned()
     } else if matches!(summary.id, ConversationId::Group(_)) {
         format!("{}: ", state.person_name(message.sender))
@@ -710,6 +712,9 @@ fn preview_spans(
 /// One line for a message: its text (mentions as names) after a 📎 if it
 /// carries a file, or what the file is when there's no text.
 fn message_preview(state: &State, message: &Message) -> String {
+    if let Some(event) = &message.system_event {
+        return state.system_event_text(message, event);
+    }
     let attachment = message.attachments.first();
     if let Some(voice) = attachment.filter(|a| a.is_voice_note()) {
         return match voice.duration_secs {

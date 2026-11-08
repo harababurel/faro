@@ -790,3 +790,13 @@ Notes (version, OS, terminal, what went wrong):
 
 Notes (version, OS, terminal, what went wrong):
 
+## System lines for groups, timers and calls (D167)
+
+- [ ] **Disappearing timer changes:** in a direct chat (or from your phone), change the disappearing-message timer (e.g. `Space` › *Disappearing messages…* › *1 hour*, then *Off*): a muted system line (`◷ You set disappearing messages to 1h` / `◷ <Name> turned off disappearing messages`) appears in the timeline (centered with `· HH:MM` in Bubbles layout, `* ◷ …` in IRC layout) and in the sidebar preview (`╰─ ◷ …` without a redundant `You:` prefix).
+- [ ] **Group renames & member joins/leaves:** in a test group, rename the group or add/remove a member from your phone while `faro` is running: `faro` appends a muted system line (`<Name> named the group "<Title>"`, `<Name> added <Member>`, `<Member> left the group`).
+- [ ] **Voice, video & group calls:** place a voice or video call to or from the test account and let it ring then hang up (or answer it on the phone): `faro` shows a transient footer notice while ringing (`☎ Incoming voice call from <Name>`) and a timeline entry (`☎ Incoming voice call from <Name>`), which updates in place to `☎ Missed voice call` / `☎ Answered voice call` / `☎ Outgoing voice call` when the call ends, without incrementing the conversation's unread count or ringing the message bell.
+- [ ] **Selection & actions (`y`, `i`):** select a system line in the message pane and press `Enter`: the menu offers only *Copy text* (`y`) and *Message info* (`i`, showing `Event:`); pressing `r`, `+`, `e`, `D`, or `f` does nothing.
+
+Notes (version, OS, terminal, what went wrong):
+
+

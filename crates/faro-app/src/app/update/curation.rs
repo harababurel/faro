@@ -1,13 +1,16 @@
 //! Curating the conversation list (M4 task 5, D41): pin, mute, hide, archive,
 //! the allowlist, and switching between the chats and the archive.
 
+use faro_core::backend::BackendEvent;
 use faro_core::config::{TranscribeMode, key};
-use faro_core::domain::{ConversationId, Timestamp};
+use faro_core::domain::{
+    ConversationId, DeliveryStatus, Direction, Message, SystemEvent, Timestamp,
+};
 use faro_core::store::{ConversationState, NotifyLevel, RemoteTranscription};
 
 use super::selection::cycle;
-use super::sending::wall_clock;
-use super::{open_conversation, save_draft, settings};
+use super::sending::{next_sent_at, wall_clock};
+use super::{on_backend, open_conversation, save_draft, settings};
 use crate::app::event::{Command, Effect};
 use crate::app::keymap::{Curate, PopupKey};
 use crate::app::palette::INACTIVE_CHOICES;
@@ -266,20 +269,35 @@ pub fn set_disappearing_timer(
     let Some(&(label, seconds)) = DISAPPEARING_CHOICES.get(choice) else {
         return vec![];
     };
+    let previous = state.summary(target).and_then(|s| s.disappearing_timer);
     if let Some(summary) = state.conversations.iter_mut().find(|c| c.id == target) {
         summary.disappearing_timer = seconds;
+    }
+    let mut effects = Vec::new();
+    if previous != seconds {
+        let sent_at = next_sent_at(state.last_sent_at, wall_clock());
+        state.last_sent_at = sent_at;
+        let system_msg = Message::system(
+            target,
+            state.me,
+            sent_at,
+            Direction::Outgoing(DeliveryStatus::Sent),
+            SystemEvent::DisappearingTimer { seconds },
+        );
+        effects.extend(on_backend(state, BackendEvent::Message(system_msg)));
     }
     state.notice = Some(Notice::info(match seconds {
         Some(_) => format!("Disappearing messages set to {label}"),
         None => "Disappearing messages turned off".to_owned(),
     }));
-    vec![
+    effects.extend([
         Effect::SaveDisappearingTimer(target, seconds),
         Effect::Backend(Command::SetDisappearingTimer {
             conversation: target,
             seconds,
         }),
-    ]
+    ]);
+    effects
 }
 
 /// Hide every conversation with no message for `INACTIVE_CHOICES[choice]`

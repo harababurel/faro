@@ -18,9 +18,9 @@ use super::{
 };
 use crate::backend::{BackendEvent, IdentityUpdate};
 use crate::domain::{
-    AttachmentRef, AttachmentStatus, Contact, ConversationId, DeliveryStatus, Direction, Group,
-    IdentityRecord, Mention, Message, MessageBody, MessageRef, PhoneNumber, Quote, Reaction,
-    ServiceId, Timestamp, VerificationState,
+    AttachmentRef, AttachmentStatus, CallState, Contact, ConversationId, DeliveryStatus, Direction,
+    Group, IdentityRecord, Mention, Message, MessageBody, MessageRef, PhoneNumber, Quote, Reaction,
+    ServiceId, SystemEvent, Timestamp, VerificationState,
 };
 
 #[derive(Debug, Default)]
@@ -57,6 +57,7 @@ struct Row {
     direction: Direction,
     expires_in_secs: Option<u32>,
     expire_started_at: Option<Timestamp>,
+    system_event: Option<SystemEvent>,
     /// In row-id order: a replaced reaction keeps its place.
     reactions: Vec<Reaction>,
     attachments: Vec<AttachmentRef>,
@@ -95,6 +96,7 @@ impl Row {
             deleted: self.deleted,
             expires_in_secs: self.expires_in_secs,
             expire_started_at: self.expire_started_at,
+            system_event: self.system_event.clone(),
         }
     }
 }
@@ -215,6 +217,7 @@ impl Mem {
                     r.conversation == conversation
                         && r.direction == Direction::Incoming
                         && !r.deleted
+                        && r.system_event.is_none()
                         && r.point() > (sent_at, sender.as_str())
                 })
                 .count();
@@ -273,6 +276,9 @@ impl Mem {
             None
         };
         expire_started_at.map(timestamp_to_db).transpose()?;
+        if self.coalesce_system_event(message) {
+            return Ok(());
+        }
         let reference = message.reference();
         if self.by_ref.contains_key(&reference) {
             // Already stored (a duplicate delivery): keep the first copy, but
@@ -308,6 +314,7 @@ impl Mem {
             direction: message.direction,
             expires_in_secs,
             expire_started_at,
+            system_event: message.system_event.clone(),
             reactions: Vec::new(),
             attachments: message.attachments.clone(),
             mentions: BTreeMap::new(),
@@ -325,7 +332,10 @@ impl Mem {
                 conv.last_activity
                     .map_or(message.sent_at, |last| last.max(message.sent_at)),
             );
-            if message.direction == Direction::Incoming && !message.deleted {
+            if message.direction == Direction::Incoming
+                && !message.deleted
+                && message.system_event.is_none()
+            {
                 conv.unread = conv.unread.saturating_add(1);
             }
             if expires_in_secs.is_some() {
@@ -333,6 +343,58 @@ impl Mem {
             }
         }
         Ok(())
+    }
+
+    fn coalesce_system_event(&mut self, message: &Message) -> bool {
+        if let Some(SystemEvent::Call { state, .. }) = &message.system_event
+            && *state != CallState::Incoming
+        {
+            self.ensure_recipient(message.sender);
+            self.ensure_conversation(message.conversation);
+            let existing = self
+                .rows
+                .iter()
+                .filter(|(_, r)| {
+                    r.conversation == message.conversation
+                        && matches!(
+                            r.system_event,
+                            Some(SystemEvent::Call {
+                                state: CallState::Incoming,
+                                ..
+                            })
+                        )
+                        && r.sent_at.as_millis().abs_diff(message.sent_at.as_millis()) <= 300_000
+                })
+                .max_by_key(|(id, r)| (r.sent_at, *id))
+                .map(|(id, _)| *id);
+            if let Some(existing_id) = existing {
+                if let Some(row) = self.rows.get_mut(&existing_id)
+                    && let Some(SystemEvent::Call { kind, .. }) = row.system_event
+                {
+                    row.system_event = Some(SystemEvent::Call {
+                        kind,
+                        state: *state,
+                    });
+                }
+                return true;
+            }
+        }
+        if matches!(
+            message.system_event,
+            Some(SystemEvent::DisappearingTimer { .. })
+        ) {
+            self.ensure_recipient(message.sender);
+            self.ensure_conversation(message.conversation);
+            if self.rows.values().any(|r| {
+                r.conversation == message.conversation
+                    && r.sender == message.sender
+                    && r.system_event == message.system_event
+                    && r.sent_at.as_millis().abs_diff(message.sent_at.as_millis()) <= 10_000
+            }) {
+                return true;
+            }
+        }
+        false
     }
 
     /// Receipts arrive late, twice or out of order: never move a status backwards.
@@ -924,7 +986,9 @@ impl Mem {
                 .map_or(0, |c| c.unread as usize);
             let mut incoming: Vec<&Row> = self
                 .in_conversation(conv)
-                .filter(|r| r.direction == Direction::Incoming && !r.deleted)
+                .filter(|r| {
+                    r.direction == Direction::Incoming && !r.deleted && r.system_event.is_none()
+                })
                 .collect();
             incoming.sort_by(|a, b| b.point().cmp(&a.point()));
             incoming.truncate(unread_limit);

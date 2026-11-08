@@ -79,35 +79,10 @@ pub fn send(state: &mut State) -> Vec<Effect> {
         sender: state.me,
         sent_at,
     };
-    let (attachments, outgoing_attachments) = match staged {
-        Some(staged) => {
-            let file_name = file_names::attachment_file_name(
-                msg_ref,
-                0,
-                Some(&staged.name),
-                &staged.content_type,
-            );
-            let dest = state.attachments_dir.join(file_name);
-            let att = AttachmentRef {
-                file_name: Some(staged.name.clone()),
-                size: Some(staged.size),
-                width: staged.width,
-                height: staged.height,
-                status: AttachmentStatus::Downloaded(dest),
-                ..AttachmentRef::remote(String::new(), staged.content_type.clone())
-            };
-            let out = OutgoingAttachment {
-                path: staged.path,
-                content_type: staged.content_type,
-                file_name: Some(staged.name),
-                size: staged.size,
-                width: staged.width,
-                height: staged.height,
-            };
-            (vec![att], vec![out])
-        }
-        None => (vec![], vec![]),
-    };
+    let (attachments, outgoing_attachments) = staged.map_or_else(
+        || (vec![], vec![]),
+        |s| stage_attachment(s, msg_ref, &state.attachments_dir),
+    );
     let (body_text, mentions) = extract_mentions(&text, &known);
     let body = MessageBody::new(body_text.clone());
     let expires_in_secs = state
@@ -127,6 +102,7 @@ pub fn send(state: &mut State) -> Vec<Effect> {
         deleted: false,
         expires_in_secs,
         expire_started_at: expires_in_secs.map(|_| sent_at),
+        system_event: None,
     };
     let mut effects = clear_draft(state, conversation);
     // Shown and stored like any new message (`Persist` runs before later receipts).
@@ -143,6 +119,33 @@ pub fn send(state: &mut State) -> Vec<Effect> {
         },
     }));
     effects
+}
+
+fn stage_attachment(
+    staged: crate::app::state::StagedAttachment,
+    msg_ref: MessageRef,
+    attachments_dir: &std::path::Path,
+) -> (Vec<AttachmentRef>, Vec<OutgoingAttachment>) {
+    let file_name =
+        file_names::attachment_file_name(msg_ref, 0, Some(&staged.name), &staged.content_type);
+    let dest = attachments_dir.join(file_name);
+    let att = AttachmentRef {
+        file_name: Some(staged.name.clone()),
+        size: Some(staged.size),
+        width: staged.width,
+        height: staged.height,
+        status: AttachmentStatus::Downloaded(dest),
+        ..AttachmentRef::remote(String::new(), staged.content_type.clone())
+    };
+    let out = OutgoingAttachment {
+        path: staged.path,
+        content_type: staged.content_type,
+        file_name: Some(staged.name),
+        size: staged.size,
+        width: staged.width,
+        height: staged.height,
+    };
+    (vec![att], vec![out])
 }
 
 /// Forward `text` and `source_attachments` as a new outgoing message to `conversation`.
@@ -216,6 +219,7 @@ pub fn forward(
         deleted: false,
         expires_in_secs,
         expire_started_at: expires_in_secs.map(|_| sent_at),
+        system_event: None,
     };
     state.notice = Some(Notice::info(format!(
         "Forwarded to {}",
@@ -501,7 +505,7 @@ fn clear_draft(state: &mut State, conversation: ConversationId) -> Vec<Effect> {
 }
 
 /// Now, but always after the previous send.
-fn next_sent_at(last: Timestamp, now: Timestamp) -> Timestamp {
+pub(super) fn next_sent_at(last: Timestamp, now: Timestamp) -> Timestamp {
     if now > last {
         now
     } else {

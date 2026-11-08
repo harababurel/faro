@@ -2606,9 +2606,20 @@ fn disappearing_timer_picker_sets_timer_and_stamps_outgoing_messages() {
     press(&mut state, 'j');
     let effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
     assert!(state.popup.is_none());
+    assert!(effects.iter().any(|e| matches!(
+        e,
+        Effect::Persist(ev) if matches!(
+            &**ev,
+            BackendEvent::Message(m)
+                if m.system_event
+                    == Some(faro_core::domain::SystemEvent::DisappearingTimer {
+                        seconds: Some(3600)
+                    })
+        )
+    )));
     assert_eq!(
-        effects,
-        vec![
+        &effects[1..],
+        &[
             Effect::SaveDisappearingTimer(bob(), Some(3600)),
             Effect::Backend(Command::SetDisappearingTimer {
                 conversation: bob(),
@@ -2911,6 +2922,114 @@ fn quote_thread_lens_steps_copies_replies_and_jumps_to_chat() {
             .and_then(|o| o.reply_to.as_ref())
             .map(|q| q.target),
         Some(sub_reply.reference())
+    );
+}
+
+#[test]
+fn system_events_skip_unreads_coalesce_calls_and_restrict_actions() {
+    use faro_core::domain::{CallKind, CallState, SystemEvent};
+
+    let mut state = loaded_state();
+    // Alice's chat starts with unread == 1 in fixtures.
+    let alice_unread_before = state.summary(alice()).unwrap().unread;
+
+    // 1. Incoming call in closed conversation: does NOT increment unread or ring bell,
+    //    sets transient footer notice, and updates sidebar preview.
+    let offer = Message::system(
+        alice(),
+        ALICE,
+        Timestamp::from_millis(fixtures::NOW_MS + 100),
+        Direction::Incoming,
+        SystemEvent::Call {
+            kind: CallKind::Video,
+            state: CallState::Incoming,
+        },
+    );
+    let effects = update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::Message(offer.clone())),
+    );
+    assert_eq!(
+        effects,
+        vec![Effect::Persist(Box::new(BackendEvent::Message(offer)))],
+        "system events never ring Bell or DesktopNotify"
+    );
+    assert_eq!(state.summary(alice()).unwrap().unread, alice_unread_before);
+    assert_eq!(
+        state.notice.as_ref().map(|n| n.text.as_str()),
+        Some("☎ Incoming video call from Alice 🌸")
+    );
+
+    // 2. Missed call coalesces onto the incoming video call in `last_message`
+    //    (preserving `CallKind::Video`).
+    let missed = Message::system(
+        alice(),
+        ALICE,
+        Timestamp::from_millis(fixtures::NOW_MS + 5_000),
+        Direction::Incoming,
+        SystemEvent::Call {
+            kind: CallKind::Voice,
+            state: CallState::Missed,
+        },
+    );
+    update(&mut state, AppEvent::Backend(BackendEvent::Message(missed)));
+    let last_msg = state
+        .summary(alice())
+        .unwrap()
+        .last_message
+        .as_ref()
+        .unwrap();
+    assert_eq!(
+        last_msg.system_event,
+        Some(SystemEvent::Call {
+            kind: CallKind::Video,
+            state: CallState::Missed,
+        })
+    );
+
+    // 3. In the open conversation (Climbing), group rename and member join appear in
+    //    timeline, do not queue read receipts, and offer only Copy + Info in menu.
+    let rename = Message::system(
+        climbing(),
+        ALICE,
+        Timestamp::from_millis(fixtures::NOW_MS + 10_000),
+        Direction::Incoming,
+        SystemEvent::GroupRenamed {
+            title: "Bouldering".to_owned(),
+        },
+    );
+    let rename_ref = rename.reference();
+    update(&mut state, AppEvent::Backend(BackendEvent::Message(rename)));
+    let open = state.open.as_ref().unwrap();
+    assert!(!open.unreceipted.contains(&rename_ref));
+
+    // Select the newest message (the system line) and open its action menu.
+    update(&mut state, key(KeyCode::Up, KeyModifiers::NONE));
+    assert_eq!(selected_ref(&state), Some(rename_ref));
+    update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(
+        state.popup,
+        Some(Popup::Actions {
+            target: rename_ref,
+            items: vec![
+                crate::app::state::MessageAction::Copy,
+                crate::app::state::MessageAction::Info,
+            ],
+            selected: 0,
+        })
+    );
+    // Close menu; `r` (reply) and `+` (react) do nothing on a system line, while `y` copies.
+    update(&mut state, key(KeyCode::Esc, KeyModifiers::NONE));
+    press(&mut state, 'r');
+    assert!(state.open.as_ref().unwrap().reply_to.is_none());
+    press(&mut state, '+');
+    assert!(state.popup.is_none());
+    let copy_effects = press(&mut state, 'y');
+    assert_eq!(
+        copy_effects,
+        vec![Effect::Copy(
+            "Alice 🌸 named the group \"Bouldering\"".to_owned()
+        )]
     );
 }
 

@@ -17,8 +17,8 @@ use std::path::PathBuf;
 
 use super::{Result, StoreError};
 use crate::domain::{
-    AttachmentStatus, ConversationId, DeliveryStatus, Direction, ServiceId, Timestamp,
-    TranscriptSource, VerificationState,
+    AttachmentStatus, CallKind, CallState, ConversationId, DeliveryStatus, Direction, ServiceId,
+    SystemEvent, Timestamp, TranscriptSource, VerificationState,
 };
 
 /// `direct:<service id>` or `group:<hex>` (`ConversationId`'s string form).
@@ -145,6 +145,88 @@ pub(super) fn verification_from_db(value: &str) -> Result<VerificationState> {
     VerificationState::parse(value).ok_or(StoreError::Corrupt("recipients.verified"))
 }
 
+pub(super) fn system_event_to_db(event: &SystemEvent) -> String {
+    match event {
+        SystemEvent::DisappearingTimer { seconds } => {
+            format!("timer:{}", seconds.unwrap_or(0))
+        }
+        SystemEvent::GroupRenamed { title } => format!("rename:{title}"),
+        SystemEvent::MembersJoined { members } => {
+            let list: Vec<String> = members.iter().map(ToString::to_string).collect();
+            format!("joined:{}", list.join(","))
+        }
+        SystemEvent::MembersLeft { members } => {
+            let list: Vec<String> = members.iter().map(ToString::to_string).collect();
+            format!("left:{}", list.join(","))
+        }
+        SystemEvent::Call { kind, state } => {
+            let k = match kind {
+                CallKind::Voice => "voice",
+                CallKind::Video => "video",
+                CallKind::Group => "group",
+            };
+            let s = match state {
+                CallState::Incoming => "incoming",
+                CallState::Missed => "missed",
+                CallState::Accepted => "accepted",
+            };
+            format!("call:{k}:{s}")
+        }
+    }
+}
+
+pub(super) fn system_event_from_db(value: &str) -> Result<SystemEvent> {
+    if let Some(rest) = value.strip_prefix("timer:") {
+        let secs: u32 = rest
+            .parse()
+            .map_err(|_| StoreError::Corrupt("messages.system_event"))?;
+        return Ok(SystemEvent::DisappearingTimer {
+            seconds: (secs > 0).then_some(secs),
+        });
+    }
+    if let Some(title) = value.strip_prefix("rename:") {
+        return Ok(SystemEvent::GroupRenamed {
+            title: title.to_owned(),
+        });
+    }
+    if let Some(rest) = value.strip_prefix("joined:") {
+        let members = parse_member_list(rest)?;
+        return Ok(SystemEvent::MembersJoined { members });
+    }
+    if let Some(rest) = value.strip_prefix("left:") {
+        let members = parse_member_list(rest)?;
+        return Ok(SystemEvent::MembersLeft { members });
+    }
+    if let Some(rest) = value.strip_prefix("call:") {
+        let (kind_str, state_str) = rest
+            .split_once(':')
+            .ok_or(StoreError::Corrupt("messages.system_event"))?;
+        let kind = match kind_str {
+            "voice" => CallKind::Voice,
+            "video" => CallKind::Video,
+            "group" => CallKind::Group,
+            _ => return Err(StoreError::Corrupt("messages.system_event")),
+        };
+        let state = match state_str {
+            "incoming" => CallState::Incoming,
+            "missed" => CallState::Missed,
+            "accepted" => CallState::Accepted,
+            _ => return Err(StoreError::Corrupt("messages.system_event")),
+        };
+        return Ok(SystemEvent::Call { kind, state });
+    }
+    Err(StoreError::Corrupt("messages.system_event"))
+}
+
+fn parse_member_list(rest: &str) -> Result<Vec<ServiceId>> {
+    if rest.is_empty() {
+        return Ok(Vec::new());
+    }
+    rest.split(',')
+        .map(|s| service_id_from_db(s, "messages.system_event"))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use uuid::Uuid;
@@ -212,5 +294,43 @@ mod tests {
         }
         assert!(attachment_status_from_db("downloaded", None).is_err());
         assert!(attachment_status_from_db("unknown", None).is_err());
+    }
+
+    #[test]
+    fn system_events_round_trip() {
+        let a = ServiceId::Aci(Uuid::from_u128(1));
+        let b = ServiceId::Pni(Uuid::from_u128(2));
+        let events = [
+            SystemEvent::DisappearingTimer { seconds: None },
+            SystemEvent::DisappearingTimer {
+                seconds: Some(3600),
+            },
+            SystemEvent::GroupRenamed {
+                title: "Scranton: Finer Things".into(),
+            },
+            SystemEvent::MembersJoined {
+                members: vec![a, b],
+            },
+            SystemEvent::MembersLeft { members: vec![a] },
+            SystemEvent::Call {
+                kind: CallKind::Voice,
+                state: CallState::Incoming,
+            },
+            SystemEvent::Call {
+                kind: CallKind::Video,
+                state: CallState::Missed,
+            },
+            SystemEvent::Call {
+                kind: CallKind::Group,
+                state: CallState::Accepted,
+            },
+        ];
+        for e in events {
+            let encoded = system_event_to_db(&e);
+            assert_eq!(system_event_from_db(&encoded).unwrap(), e);
+        }
+        assert!(system_event_from_db("unknown:1").is_err());
+        assert!(system_event_from_db("timer:abc").is_err());
+        assert!(system_event_from_db("call:voice: weird").is_err());
     }
 }

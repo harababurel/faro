@@ -25,9 +25,79 @@ pub struct Message {
     /// When the expiration countdown started: `sent_at` for outgoing messages,
     /// or when read (`mark_read` / `ReadElsewhere`) for incoming messages (D165).
     pub expire_started_at: Option<Timestamp>,
+    /// When `Some`, this row is an inline system event (group change, timer
+    /// change, or call) rather than a regular chat message (D167).
+    pub system_event: Option<SystemEvent>,
+}
+
+/// An inline system event in a conversation's timeline (D167).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SystemEvent {
+    /// Disappearing-message timer changed (`None` = turned off).
+    DisappearingTimer { seconds: Option<u32> },
+    /// Group renamed (or name cleared when `title` is empty).
+    GroupRenamed { title: String },
+    /// Members joined or were added to the group by `message.sender`.
+    MembersJoined { members: Vec<ServiceId> },
+    /// Members left or were removed from the group by `message.sender`.
+    MembersLeft { members: Vec<ServiceId> },
+    /// A voice, video, or group call event.
+    Call { kind: CallKind, state: CallState },
+}
+
+/// Kind of Signal call (D167).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CallKind {
+    Voice,
+    Video,
+    Group,
+}
+
+/// Lifecycle state of a Signal call event (D167).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CallState {
+    /// Actively ringing / offer received.
+    Incoming,
+    /// Unanswered, declined, or missed.
+    Missed,
+    /// Answered on this account's primary/other device, or completed outgoing call.
+    Accepted,
 }
 
 impl Message {
+    /// A system status line in `conversation` (group change, timer change, or call; D167).
+    #[must_use]
+    pub fn system(
+        conversation: ConversationId,
+        sender: ServiceId,
+        sent_at: Timestamp,
+        direction: Direction,
+        event: SystemEvent,
+    ) -> Self {
+        Self {
+            conversation,
+            sender,
+            sent_at,
+            direction,
+            body: None,
+            mentions: Vec::new(),
+            quote: None,
+            attachments: Vec::new(),
+            reactions: Vec::new(),
+            edited_at: None,
+            deleted: false,
+            expires_in_secs: None,
+            expire_started_at: None,
+            system_event: Some(event),
+        }
+    }
+
+    /// Whether this row is an inline system event rather than a user message (D167).
+    #[must_use]
+    pub fn is_system(&self) -> bool {
+        self.system_event.is_some()
+    }
+
     pub fn reference(&self) -> MessageRef {
         MessageRef {
             sender: self.sender,
@@ -408,6 +478,7 @@ mod tests {
             deleted: false,
             expires_in_secs: None,
             expire_started_at: None,
+            system_event: None,
         };
         msg.apply_reaction(bob, Some("👍".into()));
         msg.apply_reaction(alice, Some("❤️".into()));

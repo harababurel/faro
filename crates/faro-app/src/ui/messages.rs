@@ -391,18 +391,22 @@ fn block(context: &Context<'_>, i: usize) -> Block {
                 block.push(Line::default());
             }
             let rules = block.len();
-            bubbles::render(
-                state,
-                message,
-                *width,
-                view,
-                bubbles::Run {
-                    first: !continued,
-                    ..run(context, i)
-                },
-                &mut block,
-                &mut images,
-            );
+            if let Some(event) = &message.system_event {
+                render_system_bubble(state, message, event, *width, view, &mut block);
+            } else {
+                bubbles::render(
+                    state,
+                    message,
+                    *width,
+                    view,
+                    bubbles::Run {
+                        first: !continued,
+                        ..run(context, i)
+                    },
+                    &mut block,
+                    &mut images,
+                );
+            }
             rules
         }
     };
@@ -424,7 +428,9 @@ fn continues(context: &Context<'_>, i: usize) -> bool {
     ) else {
         return false;
     };
-    previous.sender == message.sender
+    !previous.is_system()
+        && !message.is_system()
+        && previous.sender == message.sender
         && date_of_message(previous, context.view) == date_of_message(message, context.view)
         && message
             .sent_at
@@ -578,6 +584,24 @@ fn render_message(
     let indent = " ".repeat(columns.text_start);
     let time = message_time(state, message, view)
         .map_or_else(|| " ".repeat(TIME_WIDTH), |t| pad_left(&t, TIME_WIDTH));
+    if let Some(event) = &message.system_event {
+        let label = format!("* {}", sanitize(&state.system_event_text(message, event)));
+        let wrapped = wrap_pieces(&[(label.as_str(), theme.muted())], columns.text_width);
+        let name = " ".repeat(columns.name);
+        for (i, spans) in wrapped.into_iter().enumerate() {
+            let mut line = if i == 0 {
+                vec![
+                    Span::styled(format!("{time} "), theme.muted()),
+                    Span::raw(format!("{name} ")),
+                ]
+            } else {
+                vec![Span::raw(indent.clone())]
+            };
+            line.extend(spans.into_iter().map(|(t, s)| Span::styled(t, s)));
+            out.push(Line::from(line));
+        }
+        return;
+    }
     let name = if show_name {
         let name = sanitize(&state.sender_name(message)).into_owned();
         pad_left(&truncate(&name, columns.name), columns.name)
@@ -621,6 +645,32 @@ fn render_message(
                 path: pending.path,
             });
         }
+    }
+}
+
+fn render_system_bubble(
+    state: &State,
+    message: &Message,
+    event: &faro_core::domain::SystemEvent,
+    width: usize,
+    view: &View<'_>,
+    out: &mut Vec<Line<'static>>,
+) {
+    let style = view.theme.muted();
+    let text = sanitize(&state.system_event_text(message, event)).into_owned();
+    let full = match message_time(state, message, view) {
+        Some(time) => format!("{text} · {time}"),
+        None => text,
+    };
+    let max = width.saturating_sub(4).max(8);
+    for wrapped in wrap_pieces(&[(full.as_str(), style)], max) {
+        let line_text: String = wrapped.into_iter().map(|(t, _)| t).collect();
+        let line_w = super::text::width(&line_text);
+        let left = width.saturating_sub(line_w) / 2;
+        out.push(Line::from(vec![
+            Span::raw(" ".repeat(left)),
+            Span::styled(line_text, style),
+        ]));
     }
 }
 

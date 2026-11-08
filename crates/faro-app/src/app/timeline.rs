@@ -3,7 +3,7 @@
 //! regress, only newer edits win, deletes drop content.
 
 use faro_core::backend::BackendEvent;
-use faro_core::domain::{Direction, Message, MessageRef};
+use faro_core::domain::{CallState, Direction, Message, MessageRef, SystemEvent};
 
 /// Apply `event` to `messages` (oldest first). Events about messages that aren't
 /// loaded are ignored.
@@ -70,7 +70,38 @@ pub fn apply(messages: &mut Vec<Message>, event: &BackendEvent) {
 }
 
 /// Insert in `(sent_at, sender)` order; a duplicate keeps the first copy.
+/// Call state transitions coalesce onto a recent `Incoming` call row, and
+/// duplicate disappearing-timer changes within 10s are dropped (D167).
 fn insert(messages: &mut Vec<Message>, message: &Message) {
+    if let Some(SystemEvent::Call {
+        state: new_state @ (CallState::Missed | CallState::Accepted),
+        ..
+    }) = &message.system_event
+        && let Some(existing) = messages.iter_mut().rev().find(|m| {
+            matches!(
+                m.system_event,
+                Some(SystemEvent::Call {
+                    state: CallState::Incoming,
+                    ..
+                })
+            ) && m.sent_at.as_millis().abs_diff(message.sent_at.as_millis()) <= 300_000
+        })
+    {
+        if let Some(SystemEvent::Call { state, .. }) = &mut existing.system_event {
+            *state = *new_state;
+        }
+        return;
+    }
+    if matches!(
+        message.system_event,
+        Some(SystemEvent::DisappearingTimer { .. })
+    ) && messages.iter().any(|m| {
+        m.sender == message.sender
+            && m.system_event == message.system_event
+            && m.sent_at.as_millis().abs_diff(message.sent_at.as_millis()) <= 10_000
+    }) {
+        return;
+    }
     let key = |m: &Message| (m.sent_at, m.sender);
     let at = messages.partition_point(|m| key(m) < key(message));
     if messages.get(at).is_some_and(|m| key(m) == key(message)) {
@@ -126,6 +157,7 @@ mod tests {
             deleted: false,
             expires_in_secs: None,
             expire_started_at: None,
+            system_event: None,
         }
     }
 

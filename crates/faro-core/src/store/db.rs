@@ -10,7 +10,8 @@ use sqlx::{ConnectOptions as _, Connection as _};
 use super::codec::{
     conversation_from_key, conversation_key, count_from_db, direction_from_db, direction_to_db,
     optional_timestamp_from_db, service_id_from_db, status_from_db, status_to_db,
-    timestamp_from_db, timestamp_to_db, verification_from_db,
+    system_event_from_db, system_event_to_db, timestamp_from_db, timestamp_to_db,
+    verification_from_db,
 };
 use super::{
     ConversationState, ConversationSummary, ExpiredSweep, NotifyLevel, PROFILE_KEY, Profile,
@@ -18,8 +19,9 @@ use super::{
 };
 use crate::backend::{BackendEvent, IdentityUpdate};
 use crate::domain::{
-    Contact, ConversationId, DeliveryStatus, Direction, Group, IdentityRecord, Mention, Message,
-    MessageBody, MessageRef, PhoneNumber, Quote, Reaction, ServiceId, Timestamp, VerificationState,
+    CallState, Contact, ConversationId, DeliveryStatus, Direction, Group, IdentityRecord, Mention,
+    Message, MessageBody, MessageRef, PhoneNumber, Quote, Reaction, ServiceId, SystemEvent,
+    Timestamp, VerificationState,
 };
 
 mod attachments;
@@ -40,6 +42,7 @@ type MessageRow = (
     Option<String>,
     Option<i64>,
     Option<i64>,
+    Option<String>,
 );
 
 pub(super) struct Db {
@@ -159,7 +162,8 @@ impl Db {
                 "SELECT c.unread_count,
                         (SELECT count(*) FROM messages m
                          WHERE m.conversation_id = c.id AND m.direction = 'incoming'
-                           AND m.deleted = 0 AND (m.sent_at, m.sender) > (?2, ?3))
+                           AND m.deleted = 0 AND m.system_event IS NULL
+                           AND (m.sent_at, m.sender) > (?2, ?3))
                  FROM conversations c WHERE c.id = ?1",
             )
             .bind(&key)
@@ -251,20 +255,22 @@ impl Db {
             .transpose()?;
         let edited_at = message.edited_at.map(timestamp_to_db).transpose()?;
         let expires_in_secs = message.expires_in_secs.filter(|&s| s > 0);
-        let expire_started_at = if expires_in_secs.is_some() {
+        let expire_started_at = expires_in_secs.and_then(|_| {
             message.expire_started_at.or_else(|| {
                 matches!(message.direction, Direction::Outgoing(_)).then_some(message.sent_at)
             })
-        } else {
-            None
-        };
+        });
         let expire_started_at_db = expire_started_at.map(timestamp_to_db).transpose()?;
-
+        if coalesce_system_event(&mut tx, &conversation, message, sent_at).await? {
+            tx.commit().await?;
+            return Ok(());
+        }
+        let system_event_db = message.system_event.as_ref().map(system_event_to_db);
         let inserted = sqlx::query(
             "INSERT INTO messages (conversation_id, sender, sent_at, received_at, body,
                  quote_sender, quote_sent_at, quote_preview, edited_at, deleted, direction, status,
-                 expires_in_secs, expire_started_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                 expires_in_secs, expire_started_at, system_event)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
              ON CONFLICT (sender, sent_at) DO NOTHING",
         )
         .bind(&conversation)
@@ -287,27 +293,19 @@ impl Db {
         .bind(status)
         .bind(expires_in_secs.map(i64::from))
         .bind(expire_started_at_db)
+        .bind(system_event_db)
         .execute(&mut *tx)
         .await?;
 
-        // Already stored (a duplicate delivery): keep the first copy, but
-        // refresh attachment pointers/dimensions if they were stored pre-M9.
         if inserted.rows_affected() == 0 {
-            if expires_in_secs.is_some() {
-                sqlx::query(
-                    "UPDATE messages
-                     SET expires_in_secs = coalesce(expires_in_secs, ?1),
-                         expire_started_at = coalesce(expire_started_at, ?2)
-                     WHERE sender = ?3 AND sent_at = ?4",
-                )
-                .bind(expires_in_secs.map(i64::from))
-                .bind(expire_started_at_db)
-                .bind(message.sender.to_string())
-                .bind(sent_at)
-                .execute(&mut *tx)
-                .await?;
-            }
-            attachments::refresh(&mut tx, message.reference(), &message.attachments).await?;
+            refresh_duplicate_message(
+                &mut tx,
+                message,
+                sent_at,
+                expires_in_secs,
+                expire_started_at_db,
+            )
+            .await?;
             tx.commit().await?;
             return Ok(());
         }
@@ -319,7 +317,11 @@ impl Db {
             attachments::insert(&mut tx, id, attachment).await?;
         }
         insert_mentions(&mut tx, id, &message.mentions).await?;
-        let unread = i64::from(message.direction == Direction::Incoming && !message.deleted);
+        let unread = i64::from(
+            message.direction == Direction::Incoming
+                && !message.deleted
+                && message.system_event.is_none(),
+        );
         sqlx::query(
             "UPDATE conversations
              SET last_activity = max(coalesce(last_activity, ?1), ?1),
@@ -591,12 +593,13 @@ impl Db {
             Option<String>,
             Option<i64>,
             Option<i64>,
+            Option<String>,
         );
         let rows: Vec<Row> = sqlx::query_as(
             "SELECT c.id, m.id, m.sender, m.sent_at, m.body,
                         m.quote_sender, m.quote_sent_at, m.quote_preview,
                         m.edited_at, m.deleted, m.direction, m.status,
-                        m.expires_in_secs, m.expire_started_at
+                        m.expires_in_secs, m.expire_started_at, m.system_event
                  FROM conversations c
                  JOIN messages m ON m.id = (
                      SELECT id FROM messages
@@ -611,7 +614,7 @@ impl Db {
             let conversation = conversation_from_key(&row.0)?;
             let message_row = (
                 row.1, row.2, row.3, row.4, row.5, row.6, row.7, row.8, row.9, row.10, row.11,
-                row.12, row.13,
+                row.12, row.13, row.14,
             );
             let (id, message) = decode_message_row(conversation, message_row)?;
             // One message at a time: the row IDs of different conversations'
@@ -635,7 +638,8 @@ impl Db {
         let key = conversation_key(conversation);
         let rows: Vec<MessageRow> = sqlx::query_as(
             "SELECT id, sender, sent_at, body, quote_sender, quote_sent_at, quote_preview,
-                    edited_at, deleted, direction, status, expires_in_secs, expire_started_at
+                    edited_at, deleted, direction, status, expires_in_secs, expire_started_at,
+                    system_event
              FROM messages
              WHERE conversation_id = ?1
                AND (?2 IS NULL OR (sent_at, sender) < (?2, ?3))
@@ -673,7 +677,8 @@ impl Db {
         let limit = i64::from(radius);
         let older: Vec<MessageRow> = sqlx::query_as(
             "SELECT id, sender, sent_at, body, quote_sender, quote_sent_at, quote_preview,
-                    edited_at, deleted, direction, status, expires_in_secs, expire_started_at
+                    edited_at, deleted, direction, status, expires_in_secs, expire_started_at,
+                    system_event
              FROM messages
              WHERE conversation_id = ?1 AND sent_at <= ?2
              ORDER BY sent_at DESC, sender DESC
@@ -686,7 +691,8 @@ impl Db {
         .await?;
         let newer: Vec<MessageRow> = sqlx::query_as(
             "SELECT id, sender, sent_at, body, quote_sender, quote_sent_at, quote_preview,
-                    edited_at, deleted, direction, status, expires_in_secs, expire_started_at
+                    edited_at, deleted, direction, status, expires_in_secs, expire_started_at,
+                    system_event
              FROM messages
              WHERE conversation_id = ?1 AND sent_at > ?2
              ORDER BY sent_at ASC, sender ASC
@@ -753,7 +759,8 @@ impl Db {
                    AND t.depth < 64
              )
              SELECT id, sender, sent_at, body, quote_sender, quote_sent_at, quote_preview,
-                    edited_at, deleted, direction, status, expires_in_secs, expire_started_at
+                    edited_at, deleted, direction, status, expires_in_secs, expire_started_at,
+                    system_event
              FROM messages
              WHERE conversation_id = ?1
                AND (sender, sent_at) IN (SELECT sender, sent_at FROM thread_refs)
@@ -800,6 +807,7 @@ impl Db {
             Option<String>,
             Option<i64>,
             Option<i64>,
+            Option<String>,
         );
         let tokens: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
         if tokens.is_empty() || limit == 0 {
@@ -809,7 +817,7 @@ impl Db {
             "SELECT m.conversation_id, m.id, m.sender, m.sent_at, m.body,
                     m.quote_sender, m.quote_sent_at, m.quote_preview,
                     m.edited_at, m.deleted, m.direction, m.status,
-                    m.expires_in_secs, m.expire_started_at
+                    m.expires_in_secs, m.expire_started_at, m.system_event
              FROM messages m
              WHERE m.deleted = 0",
         );
@@ -837,7 +845,7 @@ impl Db {
             let conv = conversation_from_key(&row.0)?;
             let msg_row = (
                 row.1, row.2, row.3, row.4, row.5, row.6, row.7, row.8, row.9, row.10, row.11,
-                row.12, row.13,
+                row.12, row.13, row.14,
             );
             let (id, message) = decode_message_row(conv, msg_row)?;
             ids.push(id);
@@ -1224,6 +1232,7 @@ impl Db {
                 "SELECT count(*) FROM (
                      SELECT expires_in_secs, expire_started_at FROM messages
                      WHERE conversation_id = ?1 AND direction = 'incoming' AND deleted = 0
+                       AND system_event IS NULL
                      ORDER BY sent_at DESC, sender DESC
                      LIMIT (SELECT unread_count FROM conversations WHERE id = ?1)
                  ) WHERE NOT (
@@ -1309,7 +1318,8 @@ impl Db {
                 .await?;
         let newest: Option<MessageRow> = sqlx::query_as(
             "SELECT id, sender, sent_at, body, quote_sender, quote_sent_at, quote_preview,
-                    edited_at, deleted, direction, status, expires_in_secs, expire_started_at
+                    edited_at, deleted, direction, status, expires_in_secs, expire_started_at,
+                    system_event
              FROM messages
              WHERE conversation_id = ?1
              ORDER BY sent_at DESC, sender DESC
@@ -1507,8 +1517,15 @@ async fn insert_mentions(
 fn decode_message_row(conversation: ConversationId, row: MessageRow) -> Result<(i64, Message)> {
     let (id, sender, sent_at, body, quote_sender, quote_sent_at, quote_preview) =
         (row.0, row.1, row.2, row.3, row.4, row.5, row.6);
-    let (edited_at, deleted, direction, status, expires_in_secs, expire_started_at) =
-        (row.7, row.8, row.9, row.10, row.11, row.12);
+    let (
+        edited_at,
+        deleted,
+        direction,
+        status,
+        expires_in_secs,
+        expire_started_at,
+        system_event_raw,
+    ) = (row.7, row.8, row.9, row.10, row.11, row.12, row.13);
     let quote = match (quote_sender, quote_sent_at) {
         (Some(sender), Some(sent_at)) => Some(Quote {
             target: MessageRef {
@@ -1520,6 +1537,10 @@ fn decode_message_row(conversation: ConversationId, row: MessageRow) -> Result<(
         (None, None) => None,
         (Some(_), None) | (None, Some(_)) => return Err(StoreError::Corrupt("quote")),
     };
+    let system_event = system_event_raw
+        .as_deref()
+        .map(system_event_from_db)
+        .transpose()?;
     let message = Message {
         conversation,
         sender: service_id_from_db(&sender, "sender")?,
@@ -1536,6 +1557,7 @@ fn decode_message_row(conversation: ConversationId, row: MessageRow) -> Result<(
             .map(|s| count_from_db(s, "expires_in_secs"))
             .transpose()?,
         expire_started_at: optional_timestamp_from_db(expire_started_at, "expire_started_at")?,
+        system_event,
     };
     Ok((id, message))
 }
@@ -1558,4 +1580,91 @@ fn now() -> Timestamp {
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
     Timestamp::from_millis(ms)
+}
+
+async fn coalesce_system_event(
+    tx: &mut SqliteConnection,
+    conversation: &str,
+    message: &Message,
+    sent_at: i64,
+) -> Result<bool> {
+    if let Some(SystemEvent::Call { state, .. }) = &message.system_event
+        && *state != CallState::Incoming
+    {
+        let existing: Option<(i64, String)> = sqlx::query_as(
+            "SELECT id, system_event FROM messages
+             WHERE conversation_id = ?1
+               AND system_event IN ('call:voice:incoming', 'call:video:incoming', 'call:group:incoming')
+               AND abs(sent_at - ?2) <= 300000
+             ORDER BY sent_at DESC, id DESC
+             LIMIT 1",
+        )
+        .bind(conversation)
+        .bind(sent_at)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some((existing_id, existing_sys)) = existing {
+            let kind =
+                if let Ok(SystemEvent::Call { kind, .. }) = system_event_from_db(&existing_sys) {
+                    kind
+                } else {
+                    crate::domain::CallKind::Voice
+                };
+            let updated = system_event_to_db(&SystemEvent::Call {
+                kind,
+                state: *state,
+            });
+            sqlx::query("UPDATE messages SET system_event = ?1 WHERE id = ?2")
+                .bind(&updated)
+                .bind(existing_id)
+                .execute(&mut *tx)
+                .await?;
+            return Ok(true);
+        }
+    }
+    if let Some(event @ SystemEvent::DisappearingTimer { .. }) = &message.system_event {
+        let sys_str = system_event_to_db(event);
+        let dup: Option<(i64,)> = sqlx::query_as(
+            "SELECT id FROM messages
+             WHERE conversation_id = ?1
+               AND sender = ?2
+               AND system_event = ?3
+               AND abs(sent_at - ?4) <= 10000
+             LIMIT 1",
+        )
+        .bind(conversation)
+        .bind(message.sender.to_string())
+        .bind(&sys_str)
+        .bind(sent_at)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if dup.is_some() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+async fn refresh_duplicate_message(
+    tx: &mut SqliteConnection,
+    message: &Message,
+    sent_at: i64,
+    expires_in_secs: Option<u32>,
+    expire_started_at_db: Option<i64>,
+) -> Result<()> {
+    if expires_in_secs.is_some() {
+        sqlx::query(
+            "UPDATE messages
+             SET expires_in_secs = coalesce(expires_in_secs, ?1),
+                 expire_started_at = coalesce(expire_started_at, ?2)
+             WHERE sender = ?3 AND sent_at = ?4",
+        )
+        .bind(expires_in_secs.map(i64::from))
+        .bind(expire_started_at_db)
+        .bind(message.sender.to_string())
+        .bind(sent_at)
+        .execute(&mut *tx)
+        .await?;
+    }
+    attachments::refresh(tx, message.reference(), &message.attachments).await
 }

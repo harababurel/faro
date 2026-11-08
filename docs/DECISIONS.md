@@ -1687,3 +1687,28 @@ A developer friend of the owner tried getfaro.dev; the owner agreed with all of 
   - **Keys & mouse inside `Popup::Thread`:** `↑`/`↓`, `j`/`k`, `Home`/`End` (`g`/`G`), `PgUp`/`PgDn` and the mouse wheel move selection across the chain; `Enter` (or `g`) closes the lens and jumps the main chat selection to that message (fetching surrounding history via `Effect::LoadMessagesAround` if needed); `r` closes the lens and starts a reply to the highlighted thread message in the input box; `y` copies the highlighted message's readable body via OSC 52; `Esc`, `q`, `t`, or `T` closes the lens.
   - **Live updates:** while `Popup::Thread` is open, new incoming/outgoing messages in the same conversation that quote any message in the open thread are appended live, edits/reactions/remote-deletes update in place, and disappearing-message sweeps (`on_expired_swept`) remove expired messages from the open thread (closing the popup if empty).
 
+### D167. System lines for groups, timers and calls (owner's request, 2026-11-08)
+
+- **Problem:** Group membership/title changes, disappearing-message timer changes, and voice/video/group calls produced no timeline entry at all. When someone changed the disappearing timer, renamed a group, joined/left, or called while `faro` was running (or in transferred link history), the conversation timeline stayed completely silent.
+- **Domain (`faro-core::domain`):**
+  - `Message` carries `system_event: Option<SystemEvent>` (`Message::system(...)`, `Message::is_system()`), where `SystemEvent` has 5 variants:
+    - `DisappearingTimer { seconds: Option<u32> }`
+    - `GroupRenamed { title: String }`
+    - `MembersJoined { members: Vec<ServiceId> }`
+    - `MembersLeft { members: Vec<ServiceId> }`
+    - `Call { kind: CallKind, state: CallState }` (`CallKind::{Voice, Video, Group}`, `CallState::{Incoming, Missed, Accepted}`)
+- **Storage, coalescing & non-unread semantics (`faro-core::store`):**
+  - Migration `0012_system_events.sql` adds `system_event TEXT` to `messages`, encoded compactly by `codec::system_event_to_db` / `system_event_from_db` (`"timer:<u32>"`, `"rename:<title>"`, `"joined:<csv>"`, `"left:<csv>"`, `"call:<kind>:<state>"`) so no extra tables or history-query joins are needed.
+  - System messages **never** increment `conversations.unread_count`, never ring the terminal bell or desktop notifications, and never queue outgoing read receipts, though they do update `last_activity` and `last_message` (for sidebar previews) and unhide hidden conversations.
+  - Both SQLite (`db.rs`), in-memory (`mem.rs`), and the open timeline (`timeline.rs`, `update::on_message`) coalesce a `CallState::{Missed, Accepted}` event onto an active `CallState::Incoming` row in the same conversation within 5 minutes (`300_000` ms) while preserving the existing row's `CallKind` (since `Hangup` frames do not repeat the offer's media type), and deduplicate identical `DisappearingTimer` events from the same sender within 10 seconds (`10_000` ms).
+- **Signal mapping (`faro-presage`):**
+  - `convert.rs` and `backend.rs` emit `SystemEvent::DisappearingTimer` alongside `BackendEvent::DisappearingTimer` on `ExpirationTimerUpdate` `DataMessage`s (both incoming and synced), map `CallMessage` (`offer`, `hangup`, `busy`), `SyncMessage::CallEvent`, and `DataMessage.group_call_update` to `SystemEvent::Call`, diff group revisions in `announce_group` (`convert::group_diff`) to emit `GroupRenamed`, `MembersJoined`, and `MembersLeft` when a group's revision advances, and decode `ChatUpdateMessage` (`SimpleUpdate`, `GroupChange`, `ExpirationTimerChange`, `IndividualCall`, `GroupCall`) during `faro link` history transfer (`transfer.rs`).
+  - Changing a direct chat's disappearing timer locally from `faro` (`curation::set_disappearing_timer`) also records a local `SystemEvent::DisappearingTimer` line immediately.
+- **UI & actions (`faro-app`):**
+  - `State::system_event_text` formats status lines with current contact/nickname resolution (`◷ You set disappearing messages to 1h`, `Alice named the group "Bouldering"`, `Bob joined the group`, `☎ Missed voice call`, etc.), using 1-cell geometric/telephone glyphs (`◷` U+25F7, `☎` U+260E) that are width-safe across kitty, tmux and mosh.
+  - In `MessageLayout::Bubbles`, system lines render centered in `theme.muted()` (`<text> · <time>`) and never join adjacent bubble runs (`continues` is `false` when either neighbour `is_system()`); in `MessageLayout::Irc`, they render as `<time>              * <text>` in `theme.muted()`.
+  - Sidebar previews (`ui/sidebar.rs`) omit the `You: ` / `Sender: ` prefix for system messages so the preview reads naturally (`╰─ ☎ Missed voice call`).
+  - Live `CallState::Incoming` events show a transient footer notice (`Notice::info`).
+  - Selecting a system line offers `[MessageAction::Copy, MessageAction::Info]` (`y` copies the formatted event text, `i` opens `Popup::MessageInfo` with an `Event` row), while `r`/`+`/`e`/`D`/`f` are ignored.
+
+

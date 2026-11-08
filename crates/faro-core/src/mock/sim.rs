@@ -171,6 +171,7 @@ impl Content {
             deleted: false,
             expires_in_secs: None,
             expire_started_at: None,
+            system_event: None,
         }
     }
 }

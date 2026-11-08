@@ -217,7 +217,7 @@ presage keeps its own store for keys, sessions and protocol state; faro never to
 | `conversations` | id (PK; `direct:<service id>` or `group:<hex>`), kind (direct/group), peer (direct: recipient), title (groups), last_activity, unread_count, disappearing_timer (seconds, nullable; D165) |
 | `group_members` | group_id, service_id |
 | `conversation_state` | conversation_id, **hidden**, **archived**, **pinned** (order), **muted_until**, draft text, **allowed** (allowlist, D41) |
-| `messages` | id, conversation_id, sender, sent_at (sender's timestamp), received_at, body, quote_sender, quote_sent_at, quote_preview, edited_at, deleted, direction, status (sending/sent/delivered/read/failed; outgoing only), expires_in_secs (nullable), expire_started_at (nullable; D165) |
+| `messages` | id, conversation_id, sender, sent_at (sender's timestamp), received_at, body, quote_sender, quote_sent_at, quote_preview, edited_at, deleted, direction, status (sending/sent/delivered/read/failed; outgoing only), expires_in_secs (nullable), expire_started_at (nullable; D165), system_event (nullable; D167) |
 | `reactions` | message_id, sender, emoji (one per sender) |
 | `attachments` | id, message_id, backend_id, content_type, file_name, size, local_path (nullable), width, height, status (remote/downloaded/failed; D75) |
 | `app_state` | key/value: sidebar widths, last open conversation, etc. |

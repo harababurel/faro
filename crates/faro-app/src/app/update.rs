@@ -6,8 +6,8 @@ use crate::app::term_event::Event;
 use faro_core::backend::BackendEvent;
 use faro_core::config::{BubbleStyle, InlineImages};
 use faro_core::domain::{
-    ConnectionState, ConversationId, Direction, Message, MessageBody, MessageRef, ServiceId,
-    TypingState,
+    CallState, ConnectionState, ConversationId, Direction, Message, MessageBody, MessageRef,
+    ServiceId, SystemEvent, TypingState,
 };
 use faro_core::store::{ConversationState, ConversationSummary};
 use std::time::Duration;
@@ -583,7 +583,7 @@ fn last_unread(messages: &[Message], unread: u32) -> Vec<MessageRef> {
     let mut refs: Vec<MessageRef> = messages
         .iter()
         .rev()
-        .filter(|m| m.direction == Direction::Incoming && !m.deleted)
+        .filter(|m| m.direction == Direction::Incoming && !m.deleted && !m.is_system())
         .take(n)
         .map(Message::reference)
         .collect();
@@ -724,16 +724,51 @@ fn on_message(state: &mut State, message: &Message, effects: &mut Vec<Effect>) {
         typists.retain(|t| t.who != message.sender);
     }
     let is_open = state.open.as_ref().is_some_and(|o| o.id == id);
-    // Unread unless it's in front of the user (D42).
+    // Unread unless it's in front of the user (D42). System lines never count
+    // as unread or ring notifications (D167).
     let seen = is_open && state.seeing_open();
-    let incoming = message.direction == Direction::Incoming && !message.deleted;
+    let incoming =
+        message.direction == Direction::Incoming && !message.deleted && !message.is_system();
+    if !state.loading
+        && let Some(
+            event @ SystemEvent::Call {
+                state: CallState::Incoming,
+                ..
+            },
+        ) = &message.system_event
+    {
+        state.notice = Some(Notice::info(state.system_event_text(message, event)));
+    }
     if let Some(summary) = summary_entry(state, id) {
         summary.last_activity = summary.last_activity.max(Some(message.sent_at));
         if message.expires_in_secs.is_some() {
             summary.disappearing_timer = message.expires_in_secs;
         }
         // The list's preview (D154): only drawing, never a read (D42).
-        if summary
+        if let (
+            Some(last),
+            Some(SystemEvent::Call {
+                state: new_state @ (CallState::Missed | CallState::Accepted),
+                ..
+            }),
+        ) = (summary.last_message.as_mut(), &message.system_event)
+            && matches!(
+                last.system_event,
+                Some(SystemEvent::Call {
+                    state: CallState::Incoming,
+                    ..
+                })
+            )
+            && last
+                .sent_at
+                .as_millis()
+                .abs_diff(message.sent_at.as_millis())
+                <= 300_000
+        {
+            if let Some(SystemEvent::Call { state, .. }) = &mut last.system_event {
+                *state = *new_state;
+            }
+        } else if summary
             .last_message
             .as_ref()
             .is_none_or(|last| (last.sent_at, last.sender) < (message.sent_at, message.sender))
@@ -763,6 +798,7 @@ fn on_message(state: &mut State, message: &Message, effects: &mut Vec<Effect>) {
         apply_to_open(state, Some(id), &BackendEvent::Message(message.clone()));
         if let Some(open) = state.open.as_mut()
             && open.scroll.is_some()
+            && !message.is_system()
         {
             open.unseen += 1;
         }

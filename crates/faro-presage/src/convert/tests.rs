@@ -613,3 +613,125 @@ fn verified_sync_messages_round_trip_and_reject_strangers() {
     // Never accept a verified sync sent by someone else.
     assert_eq!(verified_sync(&from(ALICE, sync), ME), None);
 }
+
+#[test]
+fn timer_updates_and_calls_emit_system_events() {
+    // 1. Standalone ExpirationTimerUpdate emits both DisappearingTimer and a system Message.
+    let timer_data = timer_update(Some(3_600), 1_000, None);
+    let evs = events(&from(ALICE, timer_data), ME);
+    assert_eq!(
+        evs,
+        vec![
+            BackendEvent::DisappearingTimer {
+                conversation: ConversationId::Direct(ALICE),
+                seconds: Some(3_600),
+            },
+            BackendEvent::Message(Message::system(
+                ConversationId::Direct(ALICE),
+                ALICE,
+                Timestamp::from_millis(1_000),
+                Direction::Incoming,
+                SystemEvent::DisappearingTimer {
+                    seconds: Some(3_600),
+                },
+            )),
+        ]
+    );
+
+    // 2. CallMessage offer and hangup map to Incoming and Missed/Accepted call events.
+    let offer = CallMessage {
+        offer: Some(call_message::Offer {
+            id: Some(1),
+            r#type: Some(call_message::offer::Type::OfferVideoCall.into()),
+            ..call_message::Offer::default()
+        }),
+        ..CallMessage::default()
+    };
+    assert_eq!(
+        only(events(&from(ALICE, offer), ME)),
+        BackendEvent::Message(Message::system(
+            ConversationId::Direct(ALICE),
+            ALICE,
+            Timestamp::from_millis(0),
+            Direction::Incoming,
+            SystemEvent::Call {
+                kind: CallKind::Video,
+                state: CallState::Incoming,
+            },
+        ))
+    );
+    let hangup = CallMessage {
+        hangup: Some(call_message::Hangup {
+            id: Some(1),
+            r#type: Some(call_message::hangup::Type::HangupNormal.into()),
+            ..call_message::Hangup::default()
+        }),
+        ..CallMessage::default()
+    };
+    assert_eq!(
+        only(events(&from(ALICE, hangup), ME)),
+        BackendEvent::Message(Message::system(
+            ConversationId::Direct(ALICE),
+            ALICE,
+            Timestamp::from_millis(0),
+            Direction::Incoming,
+            SystemEvent::Call {
+                kind: CallKind::Voice,
+                state: CallState::Missed,
+            },
+        ))
+    );
+
+    // 3. SyncMessage::CallEvent maps direct and group calls.
+    let call_sync = SyncMessage {
+        content: Some(sync_message::Content::CallEvent(sync_message::CallEvent {
+            conversation_id: Some(ALICE.uuid().as_bytes().to_vec()),
+            call_id: Some(99),
+            timestamp: Some(5_000),
+            r#type: Some(sync_message::call_event::Type::AudioCall.into()),
+            direction: Some(sync_message::call_event::Direction::Incoming.into()),
+            event: Some(sync_message::call_event::Event::Accepted.into()),
+        })),
+        ..SyncMessage::default()
+    };
+    assert_eq!(
+        only(events(&from(ME, call_sync), ME)),
+        BackendEvent::Message(Message::system(
+            ConversationId::Direct(ALICE),
+            ALICE,
+            Timestamp::from_millis(5_000),
+            Direction::Incoming,
+            SystemEvent::Call {
+                kind: CallKind::Voice,
+                state: CallState::Accepted,
+            },
+        ))
+    );
+}
+
+#[test]
+fn group_diffs_emit_system_events() {
+    let bob = ServiceId::Aci(Uuid::from_u128(3));
+    let carol = ServiceId::Aci(Uuid::from_u128(4));
+    let diffs = group_diff(
+        "Old Name",
+        &[ME, ALICE, bob],
+        None,
+        "New Name",
+        &[ME, ALICE, carol],
+        Some(600),
+    );
+    assert_eq!(
+        diffs,
+        vec![
+            SystemEvent::GroupRenamed {
+                title: "New Name".to_owned(),
+            },
+            SystemEvent::MembersJoined {
+                members: vec![carol],
+            },
+            SystemEvent::MembersLeft { members: vec![bob] },
+            SystemEvent::DisappearingTimer { seconds: Some(600) },
+        ]
+    );
+}

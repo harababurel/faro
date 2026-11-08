@@ -10,8 +10,9 @@ use faro_core::backend::{
     EVENT_CHANNEL_CAPACITY, IdentityUpdate, OutgoingEdit, OutgoingMessage, ReactionChange, Result,
 };
 use faro_core::domain::{
-    AttachmentRef, ConnectionState, Contact, ConversationId, Group, GroupId, MessageRef,
-    PhoneNumber, ServiceId, TypingState, VerificationState,
+    AttachmentRef, ConnectionState, Contact, ConversationId, DeliveryStatus, Direction, Group,
+    GroupId, Message, MessageRef, PhoneNumber, ServiceId, Timestamp, TypingState,
+    VerificationState,
 };
 use futures::StreamExt as _;
 use presage::libsignal_service::content::ContentBody;
@@ -38,14 +39,26 @@ const PICTURE_TIMEOUT: Duration = Duration::from_secs(20);
 /// presage fetches a new sender's profile in the background; look again then.
 const PROFILE_RECHECK: Duration = Duration::from_secs(5);
 
+/// Snapshot of a group's known state so `announce_group` can emit system lines
+/// when a newer revision renames the group, changes membership, or changes the
+/// disappearing timer (D167).
+#[derive(Clone)]
+struct KnownGroup {
+    key: MasterKey,
+    revision: u32,
+    title: String,
+    members: Vec<ServiceId>,
+    timer_secs: Option<u32>,
+}
+
 /// A linked Signal account. Cheap to clone: presage's manager shares its
 /// connections and store.
 #[derive(Clone)]
 pub struct PresageBackend {
     manager: Linked,
     me: ServiceId,
-    /// Master key and revision of each group seen, by faro's group ID.
-    groups: Rc<RefCell<HashMap<GroupId, (MasterKey, u32)>>>,
+    /// Known state of each group seen, by faro's group ID.
+    groups: Rc<RefCell<HashMap<GroupId, KnownGroup>>>,
     /// Last seen serialized identity key for each peer in this session (D163).
     identity_keys: Rc<RefCell<HashMap<ServiceId, Vec<u8>>>>,
     /// For contacts whose profile arrives later.
@@ -123,7 +136,7 @@ impl PresageBackend {
             .groups
             .borrow()
             .get(&group)
-            .copied()
+            .map(|g| (g.key, g.revision))
             .ok_or(BackendError::NotFound)?;
         Ok(convert::group_context(&key, revision))
     }
@@ -145,7 +158,7 @@ impl PresageBackend {
                     .groups
                     .borrow()
                     .get(&group)
-                    .map(|(key, _)| *key)
+                    .map(|g| g.key)
                     .ok_or(BackendError::NotFound)?;
                 Box::pin(manager.send_message_to_group(&key, content, sent_at)).await
             }
@@ -160,7 +173,7 @@ impl PresageBackend {
             }
             ConversationId::Direct(_) => {}
             ConversationId::Group(group) => {
-                let key = self.groups.borrow().get(&group).map(|(k, _)| *k);
+                let key = self.groups.borrow().get(&group).map(|g| g.key);
                 if let Some(key) = key
                     && let Ok(Some(g)) = self.manager.store().group(key).await
                 {
@@ -298,7 +311,24 @@ impl PresageBackend {
         for entry in groups {
             let Ok((key, group)) = entry else { continue };
             let id = convert::group_id(&key);
-            self.groups.borrow_mut().insert(id, (key, group.revision));
+            let members: Vec<ServiceId> = group
+                .members
+                .iter()
+                .map(|m| ServiceId::Aci(Uuid::from(m.aci)))
+                .collect();
+            let timer_secs = group
+                .disappearing_messages_timer
+                .and_then(|t| (t.duration > 0).then_some(t.duration));
+            self.groups.borrow_mut().insert(
+                id,
+                KnownGroup {
+                    key,
+                    revision: group.revision,
+                    title: group.title.clone(),
+                    members: members.clone(),
+                    timer_secs,
+                },
+            );
             for member in &group.members {
                 self.save_profile_key(Uuid::from(member.aci), member.profile_key)
                     .await;
@@ -306,11 +336,7 @@ impl PresageBackend {
             found.push(Group {
                 id,
                 title: group.title,
-                members: group
-                    .members
-                    .iter()
-                    .map(|m| ServiceId::Aci(Uuid::from(m.aci)))
-                    .collect(),
+                members,
             });
         }
         Ok(found)
@@ -593,7 +619,7 @@ impl Backend for PresageBackend {
             let thread = match conversation {
                 ConversationId::Direct(peer) => Thread::Contact(convert::signal_id(peer)),
                 ConversationId::Group(group) => {
-                    let Some((key, _)) = self.groups.borrow().get(&group).copied() else {
+                    let Some(key) = self.groups.borrow().get(&group).map(|g| g.key) else {
                         continue;
                     };
                     Thread::Group(key)
@@ -618,7 +644,7 @@ impl Backend for PresageBackend {
             let thread = match conversation {
                 ConversationId::Direct(peer) => Thread::Contact(convert::signal_id(peer)),
                 ConversationId::Group(group) => {
-                    let Some((key, _)) = self.groups.borrow().get(&group).copied() else {
+                    let Some(key) = self.groups.borrow().get(&group).map(|g| g.key) else {
                         continue;
                     };
                     Thread::Group(key)
@@ -947,12 +973,14 @@ async fn on_received(
             true
         }
         Received::Content(content) => {
+            let sender = convert::service_id(&content.metadata.sender);
+            let sent_at_ms = u64::try_from(content.metadata.client_timestamp.timestamp_millis())
+                .unwrap_or_else(|_| now_millis());
             if let Some((key, revision)) = convert::group_of(&content)
-                && !announce_group(backend, events, key, revision).await
+                && !announce_group(backend, events, key, revision, sender, sent_at_ms).await
             {
                 return false;
             }
-            let sender = convert::service_id(&content.metadata.sender);
             if sender != backend.me {
                 if seen.people.insert(sender) {
                     if events
@@ -968,33 +996,10 @@ async fn on_received(
                     return false;
                 }
             }
-            if let Some(sync) = convert::verified_sync(&content, backend.me) {
-                let mut store = backend.manager.store().clone();
-                if let Ok(Some(mut contact)) =
-                    store.contact_by_id(&convert::signal_id(sync.peer)).await
-                {
-                    contact
-                        .verified
-                        .set_state(convert::proto_verification_state(sync.state));
-                    if let Some(key) = &sync.identity_key {
-                        contact.verified.identity_key = Some(key.clone());
-                    }
-                    let _ = store.save_contact(&contact).await;
-                }
-                if let Some(mut update) = backend.identity_update(sync.peer).await {
-                    if sync.identity_key.is_none()
-                        || backend.peer_identity_key(sync.peer).await == sync.identity_key
-                    {
-                        update.verified = Some(sync.state);
-                    }
-                    if events
-                        .send(BackendEvent::IdentityUpdated(update))
-                        .await
-                        .is_err()
-                    {
-                        return false;
-                    }
-                }
+            if let Some(sync) = convert::verified_sync(&content, backend.me)
+                && !apply_verified_sync(backend, events, sync).await
+            {
+                return false;
             }
             for event in convert::events(&content, backend.me) {
                 if events.send(event).await.is_err() {
@@ -1006,16 +1011,50 @@ async fn on_received(
     }
 }
 
+async fn apply_verified_sync(
+    backend: &PresageBackend,
+    events: &mpsc::Sender<BackendEvent>,
+    sync: convert::VerifiedSync,
+) -> bool {
+    let mut store = backend.manager.store().clone();
+    if let Ok(Some(mut contact)) = store.contact_by_id(&convert::signal_id(sync.peer)).await {
+        contact
+            .verified
+            .set_state(convert::proto_verification_state(sync.state));
+        if let Some(key) = &sync.identity_key {
+            contact.verified.identity_key = Some(key.clone());
+        }
+        let _ = store.save_contact(&contact).await;
+    }
+    if let Some(mut update) = backend.identity_update(sync.peer).await {
+        if sync.identity_key.is_none()
+            || backend.peer_identity_key(sync.peer).await == sync.identity_key
+        {
+            update.verified = Some(sync.state);
+        }
+        if events
+            .send(BackendEvent::IdentityUpdated(update))
+            .await
+            .is_err()
+        {
+            return false;
+        }
+    }
+    true
+}
+
 /// Tell the app about a group the first time it's seen and when it changes.
 async fn announce_group(
     backend: &PresageBackend,
     events: &mpsc::Sender<BackendEvent>,
     key: MasterKey,
     revision: u32,
+    sender: ServiceId,
+    sent_at_ms: u64,
 ) -> bool {
     let id = convert::group_id(&key);
-    let known = backend.groups.borrow().get(&id).map(|(_, r)| *r);
-    if known.is_some_and(|r| r >= revision) {
+    let previous = backend.groups.borrow().get(&id).cloned();
+    if previous.as_ref().is_some_and(|g| g.revision >= revision) {
         return true;
     }
     // presage stored the group (fetched from the server) before handing
@@ -1028,35 +1067,80 @@ async fn announce_group(
             .save_profile_key(Uuid::from(member.aci), member.profile_key)
             .await;
     }
-    backend
-        .groups
-        .borrow_mut()
-        .insert(id, (key, group.revision.max(revision)));
+    let members: Vec<ServiceId> = group
+        .members
+        .iter()
+        .map(|m| ServiceId::Aci(Uuid::from(m.aci)))
+        .collect();
     let timer_secs = group
         .disappearing_messages_timer
         .and_then(|t| (t.duration > 0).then_some(t.duration));
+    let sys_events = previous
+        .as_ref()
+        .map(|old| {
+            convert::group_diff(
+                &old.title,
+                &old.members,
+                old.timer_secs,
+                &group.title,
+                &members,
+                timer_secs,
+            )
+        })
+        .unwrap_or_default();
+    backend.groups.borrow_mut().insert(
+        id,
+        KnownGroup {
+            key,
+            revision: group.revision.max(revision),
+            title: group.title.clone(),
+            members: members.clone(),
+            timer_secs,
+        },
+    );
     if events
         .send(BackendEvent::GroupUpdated(Group {
             id,
             title: group.title,
-            members: group
-                .members
-                .iter()
-                .map(|m| ServiceId::Aci(Uuid::from(m.aci)))
-                .collect(),
+            members,
         }))
         .await
         .is_err()
     {
         return false;
     }
-    events
+    if events
         .send(BackendEvent::DisappearingTimer {
             conversation: ConversationId::Group(id),
             seconds: timer_secs,
         })
         .await
-        .is_ok()
+        .is_err()
+    {
+        return false;
+    }
+    let direction = if sender == backend.me {
+        Direction::Outgoing(DeliveryStatus::Sent)
+    } else {
+        Direction::Incoming
+    };
+    for (idx, sys_event) in sys_events.into_iter().enumerate() {
+        let ts = Timestamp::from_millis(sent_at_ms.saturating_add(idx as u64));
+        if events
+            .send(BackendEvent::Message(Message::system(
+                ConversationId::Group(id),
+                sender,
+                ts,
+                direction,
+                sys_event,
+            )))
+            .await
+            .is_err()
+        {
+            return false;
+        }
+    }
+    true
 }
 
 /// presage fetches a new sender's profile in the background: announce the

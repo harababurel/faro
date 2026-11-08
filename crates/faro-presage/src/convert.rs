@@ -5,9 +5,9 @@ use faro_core::backend::{
     BackendEvent, OutgoingAttachment, OutgoingEdit, OutgoingMessage, ReactionChange,
 };
 use faro_core::domain::{
-    AttachmentId, AttachmentRef, AttachmentStatus, ConversationId, DeliveryStatus, Direction,
-    GroupId, Mention, Message, MessageBody, MessageRef, Quote, ServiceId, Timestamp, TypingState,
-    VerificationState,
+    AttachmentId, AttachmentRef, AttachmentStatus, CallKind, CallState, ConversationId,
+    DeliveryStatus, Direction, GroupId, Mention, Message, MessageBody, MessageRef, Quote,
+    ServiceId, SystemEvent, Timestamp, TypingState, VerificationState,
 };
 use presage::libsignal_service::content::{Content, ContentBody};
 use presage::libsignal_service::prelude::ProtobufMessage as _;
@@ -15,13 +15,14 @@ use presage::libsignal_service::protocol::{Aci, Pni, ServiceId as SignalId};
 use presage::libsignal_service::sender::AttachmentSpec;
 use presage::libsignal_service::zkgroup::groups::{GroupMasterKey, GroupSecretParams};
 use presage::proto::body_range::AssociatedValue;
+use presage::proto::call_message;
 use presage::proto::data_message::{self, Delete};
 use presage::proto::receipt_message;
 use presage::proto::sync_message::{self, Sent};
 use presage::proto::typing_message;
 use presage::proto::{
-    AttachmentPointer, BodyRange, DataMessage, EditMessage, GroupContextV2, ReceiptMessage,
-    SyncMessage, TypingMessage, Verified, verified,
+    AttachmentPointer, BodyRange, CallMessage, DataMessage, EditMessage, GroupContextV2,
+    ReceiptMessage, SyncMessage, TypingMessage, Verified, verified,
 };
 use uuid::Uuid;
 
@@ -110,8 +111,14 @@ pub fn events(content: &Content, me: ServiceId) -> Vec<BackendEvent> {
             me,
         ),
         ContentBody::TypingMessage(typing) => vec![typed(typing, sender)],
+        ContentBody::CallMessage(call) => call_message(
+            call,
+            sender,
+            direct,
+            Direction::Incoming,
+            u64::try_from(content.metadata.client_timestamp.timestamp_millis()).unwrap_or(0),
+        ),
         ContentBody::NullMessage(_)
-        | ContentBody::CallMessage(_)
         | ContentBody::DecryptionErrorMessage(_)
         | ContentBody::StoryMessage(_) => vec![],
     }
@@ -136,11 +143,17 @@ pub fn stored(content: &Content, me: ServiceId) -> Vec<BackendEvent> {
             ),
             ContentBody::EditMessage(edit) => edited(edit, me, direct).into_iter().collect(),
             ContentBody::SynchronizeMessage(sync) => synced(sync, me),
+            ContentBody::CallMessage(call) => call_message(
+                call,
+                me,
+                direct,
+                Direction::Outgoing(DeliveryStatus::Sent),
+                u64::try_from(content.metadata.client_timestamp.timestamp_millis()).unwrap_or(0),
+            ),
             // Receipts and typing indicators we sent mean nothing to us.
             ContentBody::ReceiptMessage(_)
             | ContentBody::TypingMessage(_)
             | ContentBody::NullMessage(_)
-            | ContentBody::CallMessage(_)
             | ContentBody::DecryptionErrorMessage(_)
             | ContentBody::StoryMessage(_) => vec![],
         }
@@ -217,18 +230,46 @@ fn data_message(data: &DataMessage, author: &Author, fallback_sent_at: u64) -> V
     let timer_update =
         (data.flags.unwrap_or(0) & (data_message::Flags::ExpirationTimerUpdate as u32)) != 0;
     let expires_in_secs = data.expire_timer.filter(|&s| s > 0);
+    let sent_at = Timestamp::from_millis(data.timestamp.unwrap_or(fallback_sent_at));
     let mut out = Vec::new();
     if timer_update {
         out.push(BackendEvent::DisappearingTimer {
             conversation,
             seconds: expires_in_secs,
         });
+        if body.is_none() && attachments.is_empty() {
+            out.push(BackendEvent::Message(Message::system(
+                conversation,
+                author.sender,
+                sent_at,
+                author.direction,
+                SystemEvent::DisappearingTimer {
+                    seconds: expires_in_secs,
+                },
+            )));
+        }
     }
     if body.is_none() && attachments.is_empty() {
-        // Profile key, timer and group changes, payments, calls…: nothing to show.
+        if data
+            .group_call_update
+            .as_ref()
+            .and_then(|u| u.era_id.as_deref())
+            .is_some_and(|e| !e.is_empty())
+        {
+            out.push(BackendEvent::Message(Message::system(
+                conversation,
+                author.sender,
+                sent_at,
+                author.direction,
+                SystemEvent::Call {
+                    kind: CallKind::Group,
+                    state: CallState::Incoming,
+                },
+            )));
+        }
+        // Profile key, timer and group changes, payments, calls…: nothing else to show.
         return out;
     }
-    let sent_at = Timestamp::from_millis(data.timestamp.unwrap_or(fallback_sent_at));
     let expire_started_at = expires_in_secs
         .and_then(|_| matches!(author.direction, Direction::Outgoing(_)).then_some(sent_at));
     out.push(BackendEvent::Message(Message {
@@ -249,6 +290,7 @@ fn data_message(data: &DataMessage, author: &Author, fallback_sent_at: u64) -> V
         deleted: false,
         expires_in_secs,
         expire_started_at,
+        system_event: None,
     }));
     out
 }
@@ -444,6 +486,9 @@ fn synced(sync: &SyncMessage, me: ServiceId) -> Vec<BackendEvent> {
     if !read.is_empty() {
         return vec![BackendEvent::ReadElsewhere(read)];
     }
+    if let Some(sync_message::Content::CallEvent(ev)) = &sync.content {
+        return call_event_sync(ev, me).into_iter().collect();
+    }
     let Some(sync_message::Content::Sent(sent)) = &sync.content else {
         // Contacts, keys, viewed…: handled elsewhere or not yet.
         return vec![];
@@ -465,6 +510,113 @@ fn synced(sync: &SyncMessage, me: ServiceId) -> Vec<BackendEvent> {
         events.extend(edited(edit, me, direct));
     }
     events
+}
+
+fn call_message(
+    call: &CallMessage,
+    sender: ServiceId,
+    direct: ConversationId,
+    direction: Direction,
+    timestamp_ms: u64,
+) -> Vec<BackendEvent> {
+    let sent_at = Timestamp::from_millis(timestamp_ms);
+    if let Some(offer) = &call.offer {
+        if direction != Direction::Incoming {
+            return vec![];
+        }
+        let kind = match offer.r#type() {
+            call_message::offer::Type::OfferVideoCall => CallKind::Video,
+            call_message::offer::Type::OfferAudioCall => CallKind::Voice,
+        };
+        return vec![BackendEvent::Message(Message::system(
+            direct,
+            sender,
+            sent_at,
+            direction,
+            SystemEvent::Call {
+                kind,
+                state: CallState::Incoming,
+            },
+        ))];
+    }
+    if let Some(hangup) = &call.hangup {
+        let state = match hangup.r#type() {
+            call_message::hangup::Type::HangupAccepted => CallState::Accepted,
+            call_message::hangup::Type::HangupNormal
+            | call_message::hangup::Type::HangupDeclined
+            | call_message::hangup::Type::HangupBusy
+            | call_message::hangup::Type::HangupNeedPermission => CallState::Missed,
+        };
+        return vec![BackendEvent::Message(Message::system(
+            direct,
+            sender,
+            sent_at,
+            direction,
+            SystemEvent::Call {
+                kind: CallKind::Voice,
+                state,
+            },
+        ))];
+    }
+    if call.busy.is_some() {
+        return vec![BackendEvent::Message(Message::system(
+            direct,
+            sender,
+            sent_at,
+            direction,
+            SystemEvent::Call {
+                kind: CallKind::Voice,
+                state: CallState::Missed,
+            },
+        ))];
+    }
+    vec![]
+}
+
+fn call_event_sync(ev: &sync_message::CallEvent, me: ServiceId) -> Option<BackendEvent> {
+    let conv_bytes = ev.conversation_id.as_deref()?;
+    let conversation = if let Ok(uuid) = Uuid::from_slice(conv_bytes) {
+        ConversationId::Direct(ServiceId::Aci(uuid))
+    } else if let Ok(group_bytes) = <[u8; GroupId::LEN]>::try_from(conv_bytes) {
+        ConversationId::Group(GroupId::from_bytes(group_bytes))
+    } else {
+        return None;
+    };
+    let kind = match ev.r#type() {
+        sync_message::call_event::Type::AudioCall => CallKind::Voice,
+        sync_message::call_event::Type::VideoCall => CallKind::Video,
+        sync_message::call_event::Type::GroupCall | sync_message::call_event::Type::AdHocCall => {
+            CallKind::Group
+        }
+        sync_message::call_event::Type::UnknownType => return None,
+    };
+    let state = match ev.event() {
+        sync_message::call_event::Event::Accepted => CallState::Accepted,
+        sync_message::call_event::Event::NotAccepted
+        | sync_message::call_event::Event::Observed => CallState::Missed,
+        sync_message::call_event::Event::Delete | sync_message::call_event::Event::UnknownEvent => {
+            return None;
+        }
+    };
+    let direction = match ev.direction() {
+        sync_message::call_event::Direction::Outgoing => Direction::Outgoing(DeliveryStatus::Sent),
+        sync_message::call_event::Direction::Incoming
+        | sync_message::call_event::Direction::UnknownDirection => Direction::Incoming,
+    };
+    let sender =
+        if let (Direction::Incoming, ConversationId::Direct(peer)) = (direction, conversation) {
+            peer
+        } else {
+            me
+        };
+    let sent_at = Timestamp::from_millis(ev.timestamp?);
+    Some(BackendEvent::Message(Message::system(
+        conversation,
+        sender,
+        sent_at,
+        direction,
+        SystemEvent::Call { kind, state },
+    )))
 }
 
 fn sent_to(sent: &Sent) -> Option<ServiceId> {
@@ -770,6 +922,44 @@ pub fn typing(state: TypingState, now: u64, group: Option<GroupId>) -> TypingMes
         ),
         group_id: group.map(|g| g.as_bytes().to_vec()),
     }
+}
+
+/// System events for changes between a previously known group snapshot and a
+/// newer revision (`old_revision < new_revision`, D167).
+pub fn group_diff(
+    old_title: &str,
+    old_members: &[ServiceId],
+    old_timer: Option<u32>,
+    new_title: &str,
+    new_members: &[ServiceId],
+    new_timer: Option<u32>,
+) -> Vec<SystemEvent> {
+    let mut events = Vec::new();
+    if old_title != new_title && !new_title.trim().is_empty() {
+        events.push(SystemEvent::GroupRenamed {
+            title: new_title.to_owned(),
+        });
+    }
+    let joined: Vec<ServiceId> = new_members
+        .iter()
+        .copied()
+        .filter(|m| !old_members.contains(m))
+        .collect();
+    if !joined.is_empty() {
+        events.push(SystemEvent::MembersJoined { members: joined });
+    }
+    let left: Vec<ServiceId> = old_members
+        .iter()
+        .copied()
+        .filter(|m| !new_members.contains(m))
+        .collect();
+    if !left.is_empty() {
+        events.push(SystemEvent::MembersLeft { members: left });
+    }
+    if old_timer != new_timer {
+        events.push(SystemEvent::DisappearingTimer { seconds: new_timer });
+    }
+    events
 }
 
 #[cfg(test)]
