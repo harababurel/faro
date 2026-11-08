@@ -1145,6 +1145,8 @@ impl Sim {
             | BackendEvent::IdentityUpdated(_)
             | BackendEvent::GroupUpdated(_)
             | BackendEvent::DisappearingTimer { .. }
+            | BackendEvent::BlockedSynced { .. }
+            | BackendEvent::MessageRequestResponded { .. }
             | BackendEvent::Error(_) => {}
         }
         out.push(event);
@@ -1420,6 +1422,8 @@ mod tests {
                             | BackendEvent::IdentityUpdated(_)
                             | BackendEvent::DisappearingTimer { .. }
                             | BackendEvent::GroupUpdated(_)
+                            | BackendEvent::BlockedSynced { .. }
+                            | BackendEvent::MessageRequestResponded { .. }
                             | BackendEvent::Error(_) => {}
                         }
                     }

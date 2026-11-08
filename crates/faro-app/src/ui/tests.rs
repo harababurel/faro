@@ -2459,3 +2459,75 @@ fn system_lines_render_in_irc_bubbles_sidebar_and_info_popup() {
     );
     assert_drawable(&compatible(state), 120, 32);
 }
+
+#[test]
+fn message_request_and_blocked_banners_and_sidebar_sections() {
+    use crate::app::state::SidebarView;
+    use faro_core::domain::{ConversationId, ServiceId};
+
+    let mut state = loaded_state();
+    state.panels.right = true;
+    let stranger = ServiceId::Aci(uuid::Uuid::from_u128(0x9999));
+    let request_conv = ConversationId::Direct(stranger);
+    let incoming = fixtures::text(
+        request_conv,
+        stranger,
+        NOW_MS + 1_000,
+        "Hello from stranger",
+    );
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::Message(incoming)),
+    );
+
+    // Main Chats view shows `▸ Requests (1)` at the bottom of the sidebar.
+    let chats_text = snapshot(&draw(&state, 120, 24));
+    assert!(
+        chats_text.contains("▸ Requests (1)"),
+        "Chats view should show Requests switch row:\n{chats_text}"
+    );
+
+    // Open the request in Archive view: shows `▾ Message requests`, `?` marker, and request banner.
+    state.list.view = SidebarView::Archive;
+    update(
+        &mut state,
+        AppEvent::MessagesLoaded {
+            conversation: request_conv,
+            messages: vec![],
+        },
+    );
+    crate::app::update::open_conversation(&mut state, request_conv);
+    let archive_text = snapshot(&draw(&state, 120, 24));
+    assert!(
+        archive_text.contains("▾ Message requests"),
+        "Archive view should show Message requests header:\n{archive_text}"
+    );
+    assert!(
+        archive_text.contains("? Message request y accept · D delete · b block · ! spam"),
+        "Input box should show message request banner:\n{archive_text}"
+    );
+    assert!(
+        archive_text.contains("Silenced (request)"),
+        "Info pane should show silenced status:\n{archive_text}"
+    );
+
+    // Block Alice: shows `▾ Blocked` and blocked banner when opened.
+    let alice_conv = ConversationId::Direct(fixtures::ALICE);
+    if let Some(alice_summary) = state.conversations.iter_mut().find(|c| c.id == alice_conv) {
+        alice_summary.state.blocked = true;
+    }
+    crate::app::update::open_conversation(&mut state, alice_conv);
+    let blocked_text = snapshot(&draw(&state, 120, 24));
+    assert!(
+        blocked_text.contains("▾ Blocked"),
+        "Archive view should show Blocked header:\n{blocked_text}"
+    );
+    assert!(
+        blocked_text.contains("⊘ Conversation is blocked — unblock to send"),
+        "Input box should show blocked banner:\n{blocked_text}"
+    );
+    assert!(
+        blocked_text.contains("Silenced (blocked)"),
+        "Info pane should show Silenced (blocked):\n{blocked_text}"
+    );
+}

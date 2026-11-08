@@ -2,7 +2,8 @@
 //! tested with hand-built contents and no network.
 
 use faro_core::backend::{
-    BackendEvent, OutgoingAttachment, OutgoingEdit, OutgoingMessage, ReactionChange,
+    BackendEvent, MessageRequestAction, OutgoingAttachment, OutgoingEdit, OutgoingMessage,
+    ReactionChange,
 };
 use faro_core::domain::{
     AttachmentId, AttachmentRef, AttachmentStatus, CallKind, CallState, ConversationId,
@@ -172,7 +173,9 @@ fn kept(event: &BackendEvent) -> bool {
         | BackendEvent::Edited { .. }
         | BackendEvent::Deleted { .. }
         | BackendEvent::ReadElsewhere(_)
-        | BackendEvent::DisappearingTimer { .. } => true,
+        | BackendEvent::DisappearingTimer { .. }
+        | BackendEvent::BlockedSynced { .. }
+        | BackendEvent::MessageRequestResponded { .. } => true,
         BackendEvent::Connection(_)
         | BackendEvent::Typing { .. }
         | BackendEvent::ContactUpdated(_)
@@ -489,6 +492,12 @@ fn synced(sync: &SyncMessage, me: ServiceId) -> Vec<BackendEvent> {
     if let Some(sync_message::Content::CallEvent(ev)) = &sync.content {
         return call_event_sync(ev, me).into_iter().collect();
     }
+    if let Some(sync_message::Content::Blocked(blocked)) = &sync.content {
+        return vec![blocked_sync(blocked)];
+    }
+    if let Some(sync_message::Content::MessageRequestResponse(resp)) = &sync.content {
+        return message_request_response(resp).into_iter().collect();
+    }
     let Some(sync_message::Content::Sent(sent)) = &sync.content else {
         // Contacts, keys, viewed…: handled elsewhere or not yet.
         return vec![];
@@ -617,6 +626,63 @@ fn call_event_sync(ev: &sync_message::CallEvent, me: ServiceId) -> Option<Backen
         direction,
         SystemEvent::Call { kind, state },
     )))
+}
+
+fn blocked_sync(blocked: &sync_message::Blocked) -> BackendEvent {
+    let mut conversations = Vec::new();
+    let mut push = |conv: ConversationId| {
+        if !conversations.contains(&conv) {
+            conversations.push(conv);
+        }
+    };
+    for aci in &blocked.acis {
+        if let Ok(uuid) = Uuid::parse_str(aci) {
+            push(ConversationId::Direct(ServiceId::Aci(uuid)));
+        }
+    }
+    for bytes in &blocked.acis_binary {
+        if let Ok(uuid) = Uuid::from_slice(bytes) {
+            push(ConversationId::Direct(ServiceId::Aci(uuid)));
+        }
+    }
+    for group_bytes in &blocked.group_ids {
+        if let Ok(arr) = <[u8; GroupId::LEN]>::try_from(group_bytes.as_slice()) {
+            push(ConversationId::Group(GroupId::from_bytes(arr)));
+        }
+    }
+    BackendEvent::BlockedSynced { conversations }
+}
+
+fn message_request_response(resp: &sync_message::MessageRequestResponse) -> Option<BackendEvent> {
+    let conversation = if let Some(peer) = author(
+        resp.thread_aci.as_deref(),
+        resp.thread_aci_binary.as_deref(),
+    ) {
+        ConversationId::Direct(peer)
+    } else if let Some(group_bytes) = resp.group_id.as_deref()
+        && let Ok(arr) = <[u8; GroupId::LEN]>::try_from(group_bytes)
+    {
+        ConversationId::Group(GroupId::from_bytes(arr))
+    } else {
+        return None;
+    };
+    let action = match resp.r#type() {
+        sync_message::message_request_response::Type::Accept => MessageRequestAction::Accept,
+        sync_message::message_request_response::Type::Delete => MessageRequestAction::Delete,
+        sync_message::message_request_response::Type::Block => MessageRequestAction::Block,
+        sync_message::message_request_response::Type::BlockAndDelete => {
+            MessageRequestAction::BlockAndDelete
+        }
+        sync_message::message_request_response::Type::Spam => MessageRequestAction::Spam,
+        sync_message::message_request_response::Type::BlockAndSpam => {
+            MessageRequestAction::BlockAndSpam
+        }
+        sync_message::message_request_response::Type::Unknown => return None,
+    };
+    Some(BackendEvent::MessageRequestResponded {
+        conversation,
+        action,
+    })
 }
 
 fn sent_to(sent: &Sent) -> Option<ServiceId> {
@@ -908,6 +974,83 @@ pub fn verified_sync_message(
         })),
         ..SyncMessage::default()
     })
+}
+
+/// Ask the primary device to send its current blocklist (`SyncMessage::Blocked`, D176).
+pub fn request_blocked_sync() -> SyncMessage {
+    SyncMessage {
+        content: Some(sync_message::Content::Request(sync_message::Request {
+            r#type: Some(sync_message::request::Type::Blocked.into()),
+        })),
+        ..SyncMessage::default()
+    }
+}
+
+/// Build a `SyncMessage::MessageRequestResponse` to sync an accept/delete/block/spam
+/// decision across this account's linked devices (D176).
+pub fn message_request_response_sync(
+    conversation: ConversationId,
+    action: MessageRequestAction,
+) -> Option<SyncMessage> {
+    let response_type = match action {
+        MessageRequestAction::Accept => sync_message::message_request_response::Type::Accept,
+        MessageRequestAction::Delete => sync_message::message_request_response::Type::Delete,
+        MessageRequestAction::Block => sync_message::message_request_response::Type::Block,
+        MessageRequestAction::BlockAndDelete => {
+            sync_message::message_request_response::Type::BlockAndDelete
+        }
+        MessageRequestAction::Spam => sync_message::message_request_response::Type::Spam,
+        MessageRequestAction::BlockAndSpam => {
+            sync_message::message_request_response::Type::BlockAndSpam
+        }
+        MessageRequestAction::Unblock => return None,
+    };
+    let (thread_aci, thread_aci_binary, group_id) = match conversation {
+        ConversationId::Direct(ServiceId::Aci(aci)) => {
+            (Some(aci.to_string()), Some(aci.as_bytes().to_vec()), None)
+        }
+        ConversationId::Direct(ServiceId::Pni(_)) => return None,
+        ConversationId::Group(group) => (None, None, Some(group.as_bytes().to_vec())),
+    };
+    Some(SyncMessage {
+        content: Some(sync_message::Content::MessageRequestResponse(
+            sync_message::MessageRequestResponse {
+                thread_aci,
+                thread_aci_binary,
+                group_id,
+                r#type: Some(response_type.into()),
+            },
+        )),
+        ..SyncMessage::default()
+    })
+}
+
+/// Build a `SyncMessage::Blocked` carrying this account's full blocked set (D176).
+pub fn blocked_sync_message(conversations: &[ConversationId]) -> SyncMessage {
+    let mut acis = Vec::new();
+    let mut acis_binary = Vec::new();
+    let mut group_ids = Vec::new();
+    for &conversation in conversations {
+        match conversation {
+            ConversationId::Direct(ServiceId::Aci(aci)) => {
+                acis.push(aci.to_string());
+                acis_binary.push(aci.as_bytes().to_vec());
+            }
+            ConversationId::Direct(ServiceId::Pni(_)) => {}
+            ConversationId::Group(group) => {
+                group_ids.push(group.as_bytes().to_vec());
+            }
+        }
+    }
+    SyncMessage {
+        content: Some(sync_message::Content::Blocked(sync_message::Blocked {
+            numbers: Vec::new(),
+            acis,
+            group_ids,
+            acis_binary,
+        })),
+        ..SyncMessage::default()
+    }
 }
 
 pub fn typing(state: TypingState, now: u64, group: Option<GroupId>) -> TypingMessage {

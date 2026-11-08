@@ -1,8 +1,8 @@
 //! SQL for the store. Owned by the store task (`store.rs`); nothing else touches
 //! the connection (D22).
 
-use std::collections::HashMap;
-use std::path::Path;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 
 use sqlx::sqlite::{SqliteConnectOptions, SqliteConnection};
 use sqlx::{ConnectOptions as _, Connection as _};
@@ -17,7 +17,7 @@ use super::{
     ConversationState, ConversationSummary, ExpiredSweep, NotifyLevel, PROFILE_KEY, Profile,
     RecipientReceipt, Result, SearchHit, StoreError, StoreStats, StoredProfile, decide,
 };
-use crate::backend::{BackendEvent, IdentityUpdate};
+use crate::backend::{BackendEvent, IdentityUpdate, MessageRequestAction};
 use crate::domain::{
     CallState, Contact, ConversationId, DeliveryStatus, Direction, Group, IdentityRecord, Mention,
     Message, MessageBody, MessageRef, PhoneNumber, Quote, Reaction, ServiceId, SystemEvent,
@@ -104,6 +104,16 @@ impl Db {
                 conversation,
                 seconds,
             } => self.set_disappearing_timer(conversation, seconds).await,
+            BackendEvent::BlockedSynced { conversations } => {
+                self.sync_blocked(&conversations).await
+            }
+            BackendEvent::MessageRequestResponded {
+                conversation,
+                action,
+            } => {
+                self.apply_message_request_response(conversation, action)
+                    .await
+            }
             BackendEvent::Connection(_) | BackendEvent::Typing { .. } | BackendEvent::Error(_) => {
                 Ok(())
             }
@@ -487,29 +497,33 @@ impl Db {
     /// Every conversation: pinned first (in pin order), then most recent activity,
     /// then empty ones. Filtering (hidden, archived, empty) is the UI's job.
     pub(super) async fn conversations(&mut self) -> Result<Vec<ConversationSummary>> {
-        type Row = (
-            String,
-            Option<String>,
-            Option<i64>,
-            i64,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<bool>,
-            Option<bool>,
-            Option<i64>,
-            Option<i64>,
-            Option<String>,
-            Option<bool>,
-            Option<String>,
-            Option<bool>,
-            Option<i64>,
-        );
+        #[derive(sqlx::FromRow)]
+        struct Row {
+            id: String,
+            title: Option<String>,
+            last_activity: Option<i64>,
+            unread_count: i64,
+            contact_name: Option<String>,
+            profile_name: Option<String>,
+            phone: Option<String>,
+            hidden: Option<bool>,
+            archived: Option<bool>,
+            pinned: Option<i64>,
+            muted_until: Option<i64>,
+            draft: Option<String>,
+            allowed: Option<bool>,
+            notify: Option<String>,
+            remote_transcription: Option<bool>,
+            message_request: Option<bool>,
+            blocked: Option<bool>,
+            disappearing_timer: Option<i64>,
+        }
         let rows: Vec<Row> = sqlx::query_as(
             "SELECT c.id, c.title, c.last_activity, c.unread_count,
                     r.contact_name, r.profile_name, r.phone,
                     s.hidden, s.archived, s.pinned, s.muted_until, s.draft, s.allowed,
-                    s.notify, s.remote_transcription, c.disappearing_timer
+                    s.notify, s.remote_transcription, s.message_request, s.blocked,
+                    c.disappearing_timer
              FROM conversations c
              LEFT JOIN recipients r ON r.service_id = c.peer
              LEFT JOIN conversation_state s ON s.conversation_id = c.id
@@ -522,18 +536,13 @@ impl Db {
         let mut summaries = rows
             .into_iter()
             .map(|row| {
-                let (key, title, last_activity, unread, contact, profile, phone) =
-                    (row.0, row.1, row.2, row.3, row.4, row.5, row.6);
-                let (hidden, archived, pinned, muted_until, draft, allowed, notify, remote_tx) =
-                    (row.7, row.8, row.9, row.10, row.11, row.12, row.13, row.14);
-                let disappearing_timer = row.15;
-                let id = conversation_from_key(&key)?;
+                let id = conversation_from_key(&row.id)?;
                 let title = match id {
-                    ConversationId::Group(_) => title,
+                    ConversationId::Group(_) => row.title,
                     ConversationId::Direct(service_id) => Contact {
                         service_id,
-                        name: contact,
-                        profile_name: profile,
+                        name: row.contact_name,
+                        profile_name: row.profile_name,
                         phone: None,
                     }
                     .display_name()
@@ -542,26 +551,30 @@ impl Db {
                 Ok(ConversationSummary {
                     id,
                     title,
-                    phone: phone.map(PhoneNumber::new),
-                    last_activity: optional_timestamp_from_db(last_activity, "last_activity")?,
-                    unread: count_from_db(unread, "unread_count")?,
-                    disappearing_timer: disappearing_timer
+                    phone: row.phone.map(PhoneNumber::new),
+                    last_activity: optional_timestamp_from_db(row.last_activity, "last_activity")?,
+                    unread: count_from_db(row.unread_count, "unread_count")?,
+                    disappearing_timer: row
+                        .disappearing_timer
                         .map(|t| count_from_db(t, "disappearing_timer"))
                         .transpose()?,
                     state: ConversationState {
-                        hidden: hidden.unwrap_or(false),
-                        archived: archived.unwrap_or(false),
-                        pinned: pinned.map(|p| count_from_db(p, "pinned")).transpose()?,
-                        muted_until: optional_timestamp_from_db(muted_until, "muted_until")?,
-                        draft: draft.map(MessageBody::new),
-                        allowed: allowed.unwrap_or(false),
-                        notify: notify
+                        hidden: row.hidden.unwrap_or(false),
+                        archived: row.archived.unwrap_or(false),
+                        pinned: row.pinned.map(|p| count_from_db(p, "pinned")).transpose()?,
+                        muted_until: optional_timestamp_from_db(row.muted_until, "muted_until")?,
+                        draft: row.draft.map(MessageBody::new),
+                        allowed: row.allowed.unwrap_or(false),
+                        notify: row
+                            .notify
                             .map(|n| NotifyLevel::parse(&n).ok_or(StoreError::Corrupt("notify")))
                             .transpose()?
                             .unwrap_or_default(),
                         remote_transcription: super::RemoteTranscription::from_bool(
-                            remote_tx.unwrap_or(false),
+                            row.remote_transcription.unwrap_or(false),
                         ),
+                        request: row.message_request.unwrap_or(false),
+                        blocked: row.blocked.unwrap_or(false),
                     },
                     last_message: None,
                 })
@@ -963,14 +976,16 @@ impl Db {
         sqlx::query(
             "INSERT INTO conversation_state
                  (conversation_id, hidden, archived, pinned, muted_until, draft, allowed, notify,
-                  remote_transcription)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                  remote_transcription, message_request, blocked)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
              ON CONFLICT (conversation_id) DO UPDATE SET
                  hidden = excluded.hidden, archived = excluded.archived,
                  pinned = excluded.pinned, muted_until = excluded.muted_until,
                  draft = excluded.draft, allowed = excluded.allowed,
                  notify = excluded.notify,
-                 remote_transcription = excluded.remote_transcription",
+                 remote_transcription = excluded.remote_transcription,
+                 message_request = excluded.message_request,
+                 blocked = excluded.blocked",
         )
         .bind(&key)
         .bind(state.hidden)
@@ -981,6 +996,8 @@ impl Db {
         .bind(state.allowed)
         .bind(state.notify.as_str())
         .bind(state.remote_transcription.as_bool())
+        .bind(state.request)
+        .bind(state.blocked)
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
@@ -1202,6 +1219,159 @@ impl Db {
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
+        Ok(())
+    }
+
+    pub(super) async fn delete_conversation(
+        &mut self,
+        conversation: ConversationId,
+    ) -> Result<Vec<PathBuf>> {
+        let key = conversation_key(conversation);
+        let mut tx = self.conn.begin().await?;
+        let rows: Vec<(i64, String, i64)> = sqlx::query_as(
+            "SELECT id, sender, sent_at FROM messages WHERE conversation_id = ?1 ORDER BY id",
+        )
+        .bind(&key)
+        .fetch_all(&mut *tx)
+        .await?;
+        let mut attachment_paths = Vec::new();
+        for (id, sender, sent_at) in rows {
+            let paths: Vec<(String,)> = sqlx::query_as(
+                "SELECT local_path FROM attachments
+                 WHERE message_id = ?1 AND status = 'downloaded' AND local_path IS NOT NULL
+                 ORDER BY id",
+            )
+            .bind(id)
+            .fetch_all(&mut *tx)
+            .await?;
+            for (path,) in paths {
+                attachment_paths.push(PathBuf::from(path));
+            }
+            for table in [
+                "DELETE FROM reactions WHERE message_id = ?1",
+                "DELETE FROM attachments WHERE message_id = ?1",
+                "DELETE FROM mentions WHERE message_id = ?1",
+                "DELETE FROM messages WHERE id = ?1",
+            ] {
+                sqlx::query(table).bind(id).execute(&mut *tx).await?;
+            }
+            sqlx::query("DELETE FROM message_receipts WHERE sender = ?1 AND sent_at = ?2")
+                .bind(sender)
+                .bind(sent_at)
+                .execute(&mut *tx)
+                .await?;
+        }
+        sqlx::query(
+            "UPDATE conversations SET last_activity = NULL, unread_count = 0 WHERE id = ?1",
+        )
+        .bind(&key)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "UPDATE conversation_state SET message_request = 0, draft = NULL
+             WHERE conversation_id = ?1",
+        )
+        .bind(&key)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(attachment_paths)
+    }
+
+    async fn sync_blocked(&mut self, conversations: &[ConversationId]) -> Result<()> {
+        let mut tx = self.conn.begin().await?;
+        let mut blocked_keys = HashSet::with_capacity(conversations.len());
+        for &conv in conversations {
+            let key = ensure_conversation(&mut tx, conv).await?;
+            blocked_keys.insert(key.clone());
+            sqlx::query(
+                "INSERT INTO conversation_state (conversation_id, blocked, message_request)
+                 VALUES (?1, 1, 0)
+                 ON CONFLICT (conversation_id) DO UPDATE SET
+                     blocked = 1, message_request = 0",
+            )
+            .bind(&key)
+            .execute(&mut *tx)
+            .await?;
+        }
+        let currently_blocked: Vec<(String,)> =
+            sqlx::query_as("SELECT conversation_id FROM conversation_state WHERE blocked != 0")
+                .fetch_all(&mut *tx)
+                .await?;
+        for (key,) in currently_blocked {
+            if !blocked_keys.contains(&key) {
+                sqlx::query("UPDATE conversation_state SET blocked = 0 WHERE conversation_id = ?1")
+                    .bind(&key)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn apply_message_request_response(
+        &mut self,
+        conversation: ConversationId,
+        action: MessageRequestAction,
+    ) -> Result<()> {
+        match action {
+            MessageRequestAction::Accept => {
+                let mut tx = self.conn.begin().await?;
+                let key = ensure_conversation(&mut tx, conversation).await?;
+                sqlx::query(
+                    "INSERT INTO conversation_state (conversation_id, message_request, blocked)
+                     VALUES (?1, 0, 0)
+                     ON CONFLICT (conversation_id) DO UPDATE SET
+                         message_request = 0, blocked = 0",
+                )
+                .bind(&key)
+                .execute(&mut *tx)
+                .await?;
+                tx.commit().await?;
+            }
+            MessageRequestAction::Delete | MessageRequestAction::Spam => {
+                self.delete_conversation(conversation).await?;
+            }
+            MessageRequestAction::Block => {
+                let mut tx = self.conn.begin().await?;
+                let key = ensure_conversation(&mut tx, conversation).await?;
+                sqlx::query(
+                    "INSERT INTO conversation_state (conversation_id, message_request, blocked)
+                     VALUES (?1, 0, 1)
+                     ON CONFLICT (conversation_id) DO UPDATE SET
+                         message_request = 0, blocked = 1",
+                )
+                .bind(&key)
+                .execute(&mut *tx)
+                .await?;
+                tx.commit().await?;
+            }
+            MessageRequestAction::BlockAndDelete | MessageRequestAction::BlockAndSpam => {
+                self.delete_conversation(conversation).await?;
+                let mut tx = self.conn.begin().await?;
+                let key = ensure_conversation(&mut tx, conversation).await?;
+                sqlx::query(
+                    "INSERT INTO conversation_state (conversation_id, message_request, blocked)
+                     VALUES (?1, 0, 1)
+                     ON CONFLICT (conversation_id) DO UPDATE SET
+                         message_request = 0, blocked = 1",
+                )
+                .bind(&key)
+                .execute(&mut *tx)
+                .await?;
+                tx.commit().await?;
+            }
+            MessageRequestAction::Unblock => {
+                let mut tx = self.conn.begin().await?;
+                let key = ensure_conversation(&mut tx, conversation).await?;
+                sqlx::query("UPDATE conversation_state SET blocked = 0 WHERE conversation_id = ?1")
+                    .bind(&key)
+                    .execute(&mut *tx)
+                    .await?;
+                tx.commit().await?;
+            }
+        }
         Ok(())
     }
 

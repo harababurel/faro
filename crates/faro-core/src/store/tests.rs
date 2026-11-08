@@ -79,6 +79,7 @@ engines! {
     disappearing_messages_tick_and_sweep,
     quote_thread_walks_up_to_root_and_collects_descendants,
     system_events_persist_coalesce_calls_and_skip_unreads,
+    message_requests_blocking_and_conversation_deletion,
 }
 
 async fn each_summary_carries_its_newest_message(kind: Kind) {
@@ -636,6 +637,8 @@ async fn conversation_and_app_state_round_trip(kind: Kind) {
         allowed: true,
         notify: NotifyLevel::Mentions,
         remote_transcription: RemoteTranscription::Allowed,
+        request: true,
+        blocked: true,
     };
     store
         .set_conversation_state(group(), state.clone())
@@ -1390,4 +1393,82 @@ async fn system_events_persist_coalesce_calls_and_skip_unreads(kind: Kind) {
         })
     );
     assert_eq!(summary(&store, direct(ALICE)).await.unread, 0);
+}
+
+async fn message_requests_blocking_and_conversation_deletion(kind: Kind) {
+    use crate::backend::MessageRequestAction;
+    use crate::domain::AttachmentStatus;
+
+    let store = kind.open().await;
+    let mut m1 = incoming(direct(ALICE), ALICE, 1_000, "stranger hello");
+    m1.attachments = vec![AttachmentRef {
+        status: AttachmentStatus::Downloaded(PathBuf::from("/tmp/req-att.jpg")),
+        ..AttachmentRef::remote("att-req", "image/jpeg")
+    }];
+    store.apply(BackendEvent::Message(m1)).await.unwrap();
+    store
+        .set_conversation_state(
+            direct(ALICE),
+            ConversationState {
+                request: true,
+                draft: Some(MessageBody::new("draft reply")),
+                ..ConversationState::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert!(summary(&store, direct(ALICE)).await.state.request);
+
+    // Accepting clears `request`.
+    store
+        .apply(BackendEvent::MessageRequestResponded {
+            conversation: direct(ALICE),
+            action: MessageRequestAction::Accept,
+        })
+        .await
+        .unwrap();
+    assert!(!summary(&store, direct(ALICE)).await.state.request);
+
+    // BlockAndSpam deletes messages, returns attachment paths via delete_conversation,
+    // clears `request` and `draft`, and marks `blocked = true`.
+    store
+        .apply(BackendEvent::MessageRequestResponded {
+            conversation: direct(ALICE),
+            action: MessageRequestAction::BlockAndSpam,
+        })
+        .await
+        .unwrap();
+    let alice_summary = summary(&store, direct(ALICE)).await;
+    assert!(alice_summary.state.blocked);
+    assert!(!alice_summary.state.request);
+    assert_eq!(alice_summary.state.draft, None);
+    assert_eq!(alice_summary.last_activity, None);
+    assert_eq!(alice_summary.unread, 0);
+    assert_eq!(
+        store.messages(direct(ALICE), None, 10).await.unwrap(),
+        Vec::new()
+    );
+
+    // BlockedSynced replaces the blocked set across conversations.
+    store
+        .apply(BackendEvent::BlockedSynced {
+            conversations: vec![direct(BOB)],
+        })
+        .await
+        .unwrap();
+    assert!(!summary(&store, direct(ALICE)).await.state.blocked);
+    assert!(summary(&store, direct(BOB)).await.state.blocked);
+
+    // Direct `delete_conversation` returns downloaded attachment paths and wipes messages.
+    let mut m2 = incoming(direct(CAROL), CAROL, 2_000, "spam offer");
+    m2.attachments = vec![AttachmentRef {
+        status: AttachmentStatus::Downloaded(PathBuf::from("/tmp/carol-att.jpg")),
+        ..AttachmentRef::remote("att-carol", "image/jpeg")
+    }];
+    store.apply(BackendEvent::Message(m2)).await.unwrap();
+    let paths = store.delete_conversation(direct(CAROL)).await.unwrap();
+    assert_eq!(paths, vec![PathBuf::from("/tmp/carol-att.jpg")]);
+    let carol_summary = summary(&store, direct(CAROL)).await;
+    assert_eq!(carol_summary.last_activity, None);
+    assert_eq!(carol_summary.unread, 0);
 }

@@ -62,6 +62,7 @@ fn saved(effects: &[Effect], id: ConversationId) -> Option<ConversationState> {
         | Effect::CheckTerminal
         | Effect::Bell
         | Effect::DesktopNotify { .. }
+        | Effect::DeleteConversation(_)
         | Effect::ReleaseFocus => None,
     })
 }
@@ -488,4 +489,158 @@ fn with_nothing_open_the_list_moves_without_reading() {
     assert_eq!(open_id(&state), Some(climbing()));
     assert!(effects.contains(&Effect::MarkRead(climbing())));
     assert_eq!(unread(&state, climbing()), Some(0));
+}
+
+#[test]
+fn message_requests_suppress_receipts_and_typing_until_accepted_or_replied() {
+    use faro_core::backend::MessageRequestAction;
+
+    let mut state = loaded_state();
+    let stranger = ServiceId::Aci(uuid::Uuid::from_u128(0xABCD));
+    let conv = ConversationId::Direct(stranger);
+    let incoming = text(
+        conv,
+        stranger,
+        fixtures::NOW_MS + 100,
+        "Hey, do I know you?",
+    );
+
+    let effects = update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::Message(incoming.clone())),
+    );
+    // Quarantined in Archive under Section::Request; no bell or desktop notification.
+    assert!(!effects.contains(&Effect::Bell));
+    assert!(
+        !effects
+            .iter()
+            .any(|e| matches!(e, Effect::DesktopNotify { .. }))
+    );
+    let summary = state.summary(conv).unwrap();
+    assert!(summary.state.request);
+    assert_eq!(state.section(summary), Section::Request);
+    assert!(!listed(&state).contains(&conv));
+
+    // Switch to Archive and open the request: history loads, but no read receipt is sent.
+    sidebar_key(&mut state, 'A');
+    assert_eq!(listed(&state), vec![conv]);
+    let effects = super::open_conversation(&mut state, conv);
+    assert!(effects.contains(&Effect::LoadMessages(conv)));
+    let effects = update(
+        &mut state,
+        AppEvent::MessagesLoaded {
+            conversation: conv,
+            messages: vec![incoming.clone()],
+        },
+    );
+    assert!(
+        !effects
+            .iter()
+            .any(|e| matches!(e, Effect::Backend(Command::MarkRead(_)))),
+        "must not send network read receipts for unaccepted requests: {effects:?}"
+    );
+    assert_eq!(
+        state.open.as_ref().unwrap().unreceipted,
+        vec![incoming.reference()]
+    );
+
+    // Typing in an unaccepted request does not emit typing indicators.
+    state.focus = Focus::Input;
+    let effects = update(&mut state, key(KeyCode::Char('h'), KeyModifiers::NONE));
+    assert!(
+        !effects
+            .iter()
+            .any(|e| matches!(e, Effect::Backend(Command::Typing { .. }))),
+        "must not send typing indicators for unaccepted requests: {effects:?}"
+    );
+
+    // Accepting with `y` in the sidebar flushes the held read receipt and moves to Chats.
+    let effects = sidebar_key(&mut state, 'y');
+    assert!(!conversation_state(&state, conv).request);
+    assert!(
+        effects.contains(&Effect::Backend(Command::RespondMessageRequest {
+            conversation: conv,
+            action: MessageRequestAction::Accept,
+        }))
+    );
+    assert!(effects.contains(&Effect::Backend(Command::MarkRead(vec![
+        incoming.reference()
+    ]))));
+    assert_eq!(state.list.view, SidebarView::Chats);
+    assert!(listed(&state).contains(&conv));
+}
+
+#[test]
+fn blocking_unblocking_deleting_and_spam_sync() {
+    use faro_core::backend::MessageRequestAction;
+
+    let mut state = loaded_state();
+    // Open Alice and block her with `b`.
+    update(&mut state, key(KeyCode::Char('j'), KeyModifiers::ALT));
+    assert_eq!(open_id(&state), Some(alice()));
+    let effects = sidebar_key(&mut state, 'b');
+    assert!(conversation_state(&state, alice()).blocked);
+    assert!(
+        effects.contains(&Effect::Backend(Command::RespondMessageRequest {
+            conversation: alice(),
+            action: MessageRequestAction::Block,
+        }))
+    );
+    assert!(!listed(&state).contains(&alice()));
+
+    // Incoming messages and typing from a blocked peer are ignored (no unread, no bell).
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::Typing {
+            conversation: alice(),
+            sender: ALICE,
+            state: TypingState::Started,
+        }),
+    );
+    assert_eq!(state.typists(alice()), &[]);
+    let blocked_msg = text(alice(), ALICE, fixtures::NOW_MS + 500, "spam");
+    let effects = update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::Message(blocked_msg)),
+    );
+    assert!(!effects.contains(&Effect::Bell));
+    assert_eq!(state.summary(alice()).unwrap().unread, 0);
+
+    // Attempting to send to a blocked conversation is rejected with a warning.
+    super::open_conversation(&mut state, alice());
+    state.focus = Focus::Input;
+    typed(&mut state, "can I send?");
+    let effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(effects, Vec::new());
+    assert!(notice(&state).contains("blocked"));
+
+    // Unblock via synced event from another device.
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::MessageRequestResponded {
+            conversation: alice(),
+            action: MessageRequestAction::Unblock,
+        }),
+    );
+    assert!(!conversation_state(&state, alice()).blocked);
+
+    // Stranger request deleted via `D` removes the conversation and emits DeleteConversation.
+    let stranger = ServiceId::Aci(uuid::Uuid::from_u128(0xDEAD));
+    let conv = ConversationId::Direct(stranger);
+    let req_msg = text(conv, stranger, fixtures::NOW_MS + 600, "buy crypto");
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::Message(req_msg)),
+    );
+    sidebar_key(&mut state, 'A');
+    super::open_conversation(&mut state, conv);
+    let effects = sidebar_key(&mut state, 'D');
+    assert!(state.summary(conv).is_none());
+    assert!(effects.contains(&Effect::DeleteConversation(conv)));
+    assert!(
+        effects.contains(&Effect::Backend(Command::RespondMessageRequest {
+            conversation: conv,
+            action: MessageRequestAction::Delete,
+        }))
+    );
 }

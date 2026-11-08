@@ -114,6 +114,21 @@ async fn run(store: &Store, effect: Effect) -> Result<Option<AppEvent>, StoreErr
             let next_expiry = store.next_expiry().await?;
             Some(AppEvent::ExpiredSwept { sweep, next_expiry })
         }
+        Effect::DeleteConversation(conversation) => {
+            let attachment_paths = store.delete_conversation(conversation).await?;
+            if attachment_paths.is_empty() {
+                None
+            } else {
+                let next_expiry = store.next_expiry().await?;
+                Some(AppEvent::ExpiredSwept {
+                    sweep: faro_core::store::ExpiredSweep {
+                        attachment_paths,
+                        ..Default::default()
+                    },
+                    next_expiry,
+                })
+            }
+        }
         Effect::LoadUpdateState => Some(load_update_state(store).await?),
         Effect::Persist(_)
         | Effect::SaveAttachment { .. }
@@ -214,6 +229,7 @@ async fn write(store: &Store, effect: Effect) -> Result<(), StoreError> {
         | Effect::LoadQuoteThread { .. }
         | Effect::ReadElsewhere(_)
         | Effect::SweepExpired(_)
+        | Effect::DeleteConversation(_)
         | Effect::Backend(_)
         | Effect::Copy(_)
         | Effect::OpenUrl(_)

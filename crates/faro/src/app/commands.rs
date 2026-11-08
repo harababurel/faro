@@ -576,6 +576,7 @@ async fn execute<B: Backend>(
         | Command::Typing { .. }
         | Command::SetVerification { .. }
         | Command::SetDisappearingTimer { .. }
+        | Command::RespondMessageRequest { .. }
         | Command::PurgeExpired(_)) => other,
     };
     shared::execute(backend, command).await

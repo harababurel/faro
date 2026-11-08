@@ -361,6 +361,7 @@ async fn command_task(
             | Command::Typing { .. }
             | Command::SetVerification { .. }
             | Command::SetDisappearingTimer { .. }
+            | Command::RespondMessageRequest { .. }
             | Command::PurgeExpired(_)) => commands::execute(&backend, command).await,
         };
         if let Some(event) = event

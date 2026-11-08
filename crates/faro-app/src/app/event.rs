@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use faro_core::backend::{
-    BackendError, BackendEvent, OutgoingEdit, OutgoingMessage, ReactionChange,
+    BackendError, BackendEvent, MessageRequestAction, OutgoingEdit, OutgoingMessage, ReactionChange,
 };
 use faro_core::clipboard::ReadError;
 use faro_core::config::{SettingEdit, Voice};
@@ -242,6 +242,8 @@ pub enum Effect {
     SweepExpired(Timestamp),
     /// Store the disappearing-message timer (`seconds`) for a conversation (D165).
     SaveDisappearingTimer(ConversationId, Option<u32>),
+    /// Delete every message in `conversation` from the store (D176).
+    DeleteConversation(ConversationId),
     /// Store hide/archive/pin/mute/draft for a conversation.
     SaveConversationState(ConversationId, Box<ConversationState>),
     /// Reopen this conversation on the next start.
@@ -403,6 +405,12 @@ pub enum Command {
     SetDisappearingTimer {
         conversation: ConversationId,
         seconds: Option<u32>,
+    },
+    /// Sync a message-request response or block/unblock change across our
+    /// linked devices (D176). No answer; failures are only logged.
+    RespondMessageRequest {
+        conversation: ConversationId,
+        action: MessageRequestAction,
     },
     /// Delete expired messages from the backend's own message store so they
     /// cannot be replayed on restart (D165). No answer; failures are only logged.

@@ -2243,6 +2243,7 @@ fn open_conversation_commands(state: &State) -> Vec<Item> {
             "Links & files in this chat…",
         ),
     ];
+    request_and_block_commands(state, current, &mut items);
     if state.open.as_ref().and_then(|o| o.unread_marker).is_some() {
         items.push(command(
             PaletteCommand::JumpUnread,
@@ -2303,6 +2304,9 @@ fn open_conversation_commands(state: &State) -> Vec<Item> {
             ConversationAction::DisappearingTimer.label().0,
             None,
         ));
+        if !current.request && !current.blocked {
+            items.push(item(ConversationAction::Block, "Block", Curate::Block));
+        }
     }
     if has_safety_number_command(state, summary.id) {
         items.push(command(
@@ -2329,6 +2333,48 @@ fn has_safety_number_command(state: &State, id: ConversationId) -> bool {
                     .is_some()
         }
         ConversationId::Group(_) => !state.changed_identities(id).is_empty(),
+    }
+}
+
+fn request_and_block_commands(
+    state: &State,
+    current: &faro_core::store::ConversationState,
+    items: &mut Vec<Item>,
+) {
+    let item = |action, title: &str, curate| {
+        let hint = state
+            .keymap
+            .hint(&[Action::Curate(curate)], Focus::Conversations);
+        command(PaletteCommand::Conversation(action), title, hint)
+    };
+    if current.request {
+        items.extend([
+            item(
+                ConversationAction::AcceptRequest,
+                "Accept request",
+                Curate::AcceptRequest,
+            ),
+            item(
+                ConversationAction::DeleteRequest,
+                "Delete conversation",
+                Curate::DeleteRequest,
+            ),
+            item(ConversationAction::Block, "Block", Curate::Block),
+            item(
+                ConversationAction::ReportSpam,
+                "Block & report spam",
+                Curate::ReportSpam,
+            ),
+        ]);
+    } else if current.blocked {
+        items.extend([
+            item(ConversationAction::Unblock, "Unblock", Curate::Block),
+            item(
+                ConversationAction::DeleteRequest,
+                "Delete conversation",
+                Curate::DeleteRequest,
+            ),
+        ]);
     }
 }
 
@@ -2468,10 +2514,9 @@ fn forward_destinations(state: &State, target: MessageRef) -> Vec<Item> {
         .into_iter()
         .filter_map(|mut item| {
             if let ItemKind::Conversation(destination) = item.kind {
-                if state
-                    .summary(destination)
-                    .is_some_and(|s| state.section(s) == Section::NotAllowed)
-                {
+                if state.summary(destination).is_some_and(|s| {
+                    matches!(state.section(s), Section::NotAllowed | Section::Blocked)
+                }) {
                     return None;
                 }
                 item.kind = ItemKind::ForwardTo {
@@ -2508,9 +2553,11 @@ fn conversations(state: &State) -> Vec<Item> {
             match state.section(summary) {
                 Section::Pinned => notes.push("pinned".to_owned()),
                 Section::Recent => {}
+                Section::Request => notes.push("message request".to_owned()),
                 Section::Archived => notes.push("archived".to_owned()),
                 Section::Hidden => notes.push("hidden".to_owned()),
                 Section::NotAllowed => notes.push("not on the allowlist".to_owned()),
+                Section::Blocked => notes.push("blocked".to_owned()),
             }
             if open == Some(summary.id) {
                 notes.push("open".to_owned());

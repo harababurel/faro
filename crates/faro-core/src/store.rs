@@ -188,6 +188,10 @@ pub struct ExpiredSweep {
 }
 
 /// Per-conversation UI state, local to this device.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "orthogonal per-conversation curation flags mirroring SQLite columns"
+)]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ConversationState {
     pub hidden: bool,
@@ -202,6 +206,11 @@ pub struct ConversationState {
     pub notify: NotifyLevel,
     /// Whether remote voice note transcription is allowed in this chat (M10, D82).
     pub remote_transcription: RemoteTranscription,
+    /// Unaccepted message request: quarantined in Archive with receipts,
+    /// typing indicators and auto-downloads suppressed until accepted (D176).
+    pub request: bool,
+    /// Blocked conversation: quarantined in Archive and silenced (D176).
+    pub blocked: bool,
 }
 
 /// Which new messages in a conversation notify (bell, window title), D49.
@@ -351,6 +360,7 @@ enum Request {
     SetVerification(ServiceId, VerificationState, Reply<()>),
     UpsertDisappearingTimers(Vec<(ConversationId, u32)>, Reply<()>),
     SetDisappearingTimer(ConversationId, Option<u32>, Reply<()>),
+    DeleteConversation(ConversationId, Reply<Vec<PathBuf>>),
     SweepExpired(Timestamp, Reply<ExpiredSweep>),
     NextExpiry(Reply<Option<Timestamp>>),
     Stats(Reply<StoreStats>),
@@ -659,6 +669,14 @@ impl Store {
             .await
     }
 
+    /// Delete every message in `conversation` (cascading to reactions,
+    /// attachments, mentions and receipts), clear its `request` flag and draft,
+    /// and return local downloaded attachment paths to unlink from disk (D176).
+    pub async fn delete_conversation(&self, conversation: ConversationId) -> Result<Vec<PathBuf>> {
+        self.call(|reply| Request::DeleteConversation(conversation, reply))
+            .await
+    }
+
     /// Hard-delete every message whose disappearing countdown has reached or
     /// passed `now`, cascading to reactions, attachments, mentions and
     /// receipts, and recomputing affected conversation summaries (D165).
@@ -843,6 +861,9 @@ async fn handle(engine: &mut Engine, request: Request) -> Option<Reply<()>> {
         }
         Request::SetDisappearingTimer(conversation, seconds, reply) => {
             let _ = reply.send(call!(engine, set_disappearing_timer(conversation, seconds)));
+        }
+        Request::DeleteConversation(conversation, reply) => {
+            let _ = reply.send(call!(engine, delete_conversation(conversation)));
         }
         Request::SweepExpired(now, reply) => {
             let _ = reply.send(call!(engine, sweep_expired(now)));

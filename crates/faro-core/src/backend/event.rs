@@ -4,6 +4,25 @@ use crate::domain::{
     MessageRef, ServiceId, Timestamp, TypingState,
 };
 
+/// An action taken on a message-request or conversation block state (D176).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MessageRequestAction {
+    /// Accept the message request into the main conversation list.
+    Accept,
+    /// Delete the conversation and its messages without blocking.
+    Delete,
+    /// Block the conversation without deleting its history.
+    Block,
+    /// Block the conversation and delete its local message history.
+    BlockAndDelete,
+    /// Report the conversation as spam without blocking.
+    Spam,
+    /// Block the conversation, report it as spam, and delete its history.
+    BlockAndSpam,
+    /// Unblock a previously blocked conversation.
+    Unblock,
+}
+
 /// Something that happened on the Signal side, delivered to the app core.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BackendEvent {
@@ -74,6 +93,18 @@ pub enum BackendEvent {
     DisappearingTimer {
         conversation: ConversationId,
         seconds: Option<u32>,
+    },
+
+    /// The full set of blocked conversations synced from another device (D176).
+    BlockedSynced {
+        conversations: Vec<ConversationId>,
+    },
+
+    /// Another of our linked devices responded to a message request or
+    /// changed block state (D176).
+    MessageRequestResponded {
+        conversation: ConversationId,
+        action: MessageRequestAction,
     },
 
     /// A problem that didn't come from a request, e.g. a message that failed to

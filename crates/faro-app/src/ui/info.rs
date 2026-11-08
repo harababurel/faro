@@ -142,9 +142,11 @@ fn section_place(
     match state.section(summary) {
         Section::Pinned => Some("Pinned"),
         Section::Recent => None,
+        Section::Request => Some("Message request"),
         Section::Archived => Some("Archived"),
         Section::Hidden => Some("Hidden until a message"),
         Section::NotAllowed => Some("Not on the allowlist"),
+        Section::Blocked => Some("Blocked"),
     }
 }
 
@@ -202,6 +204,12 @@ fn format_media_item(att: &AttachmentRef) -> String {
 
 /// "On", "Mentions only", "Muted", or "Muted until Thu 19:00".
 fn notifications(state: Option<&ConversationState>, view: &View<'_>) -> String {
+    if state.is_some_and(|s| s.blocked) {
+        return "Silenced (blocked)".to_owned();
+    }
+    if state.is_some_and(|s| s.request) {
+        return "Silenced (request)".to_owned();
+    }
     let Some(until) = state
         .filter(|s| s.muted_at(view.now_timestamp()))
         .and_then(|s| s.muted_until)

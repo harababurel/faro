@@ -632,6 +632,16 @@ pub enum ConversationAction {
     DisappearingTimer,
     /// View and verify a safety number (D163).
     SafetyNumber,
+    /// Accept an unaccepted message request (D176).
+    AcceptRequest,
+    /// Delete a message request or blocked conversation (D176).
+    DeleteRequest,
+    /// Block a conversation (D176).
+    Block,
+    /// Unblock a blocked conversation (D176).
+    Unblock,
+    /// Block and report spam on a message request (D176).
+    ReportSpam,
 }
 
 impl ConversationAction {
@@ -659,6 +669,11 @@ impl ConversationAction {
             Self::Nickname => ("Set a nickname…", ""),
             Self::DisappearingTimer => ("Disappearing messages…", ""),
             Self::SafetyNumber => ("Verify safety number…", ""),
+            Self::AcceptRequest => ("Accept request", "y"),
+            Self::DeleteRequest => ("Delete conversation", "D"),
+            Self::Block => ("Block", "b"),
+            Self::Unblock => ("Unblock", "b"),
+            Self::ReportSpam => ("Block & report spam", "!"),
         }
     }
 }
@@ -760,23 +775,27 @@ pub struct ConversationList {
     pub cursor: Option<ConversationId>,
 }
 
-/// Where a conversation is listed, in display order (D41).
+/// Where a conversation is listed, in display order (D41, D176).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Section {
     Pinned,
     Recent,
+    Request,
     Archived,
     /// Comes back to `Recent` when a message arrives.
     Hidden,
     /// Allowlist mode is on and this conversation isn't on the list.
     NotAllowed,
+    Blocked,
 }
 
 impl Section {
     pub fn view(self) -> SidebarView {
         match self {
             Self::Pinned | Self::Recent => SidebarView::Chats,
-            Self::Archived | Self::Hidden | Self::NotAllowed => SidebarView::Archive,
+            Self::Request | Self::Archived | Self::Hidden | Self::NotAllowed | Self::Blocked => {
+                SidebarView::Archive
+            }
         }
     }
 }
@@ -1056,11 +1075,18 @@ impl State {
     }
 
     /// Conversations listed in `view`, in display order. Empty conversations
-    /// aren't listed (DESIGN.md §7.7) unless open, pinned or allowed.
+    /// aren't listed (DESIGN.md §7.7) unless open, pinned, a request/blocked
+    /// conversation, or allowed.
     pub fn listed_in(&self, view: SidebarView) -> impl Iterator<Item = &ConversationSummary> {
         let sections: &[Section] = match view {
             SidebarView::Chats => &[Section::Pinned, Section::Recent],
-            SidebarView::Archive => &[Section::Archived, Section::Hidden, Section::NotAllowed],
+            SidebarView::Archive => &[
+                Section::Request,
+                Section::Archived,
+                Section::Hidden,
+                Section::NotAllowed,
+                Section::Blocked,
+            ],
         };
         let open = self.open.as_ref().map(|o| o.id);
         sections.iter().flat_map(move |&section| {
@@ -1069,6 +1095,8 @@ impl State {
                     && (c.last_activity.is_some()
                         || Some(c.id) == open
                         || c.state.pinned.is_some()
+                        || c.state.request
+                        || c.state.blocked
                         || (self.list.allowlist && c.state.allowed))
             })
         })
@@ -1077,7 +1105,11 @@ impl State {
     /// Where `summary` is listed.
     pub fn section(&self, summary: &ConversationSummary) -> Section {
         let state = &summary.state;
-        if state.archived {
+        if state.blocked {
+            Section::Blocked
+        } else if state.request {
+            Section::Request
+        } else if state.archived {
             Section::Archived
         } else if state.hidden {
             Section::Hidden
@@ -1087,6 +1119,27 @@ impl State {
             Section::NotAllowed
         } else {
             Section::Recent
+        }
+    }
+
+    /// Whether `id` is an unaccepted message request or blocked (D176):
+    /// read receipts, typing indicators and automatic attachment downloads are
+    /// suppressed until accepted or unblocked.
+    pub fn is_restricted(&self, id: ConversationId) -> bool {
+        self.summary(id)
+            .is_some_and(|s| s.state.request || s.state.blocked)
+    }
+
+    /// Whether `peer` is not in the address book (has neither a contact name
+    /// nor a phone number), so a new incoming direct chat from them starts as a
+    /// message request (D176).
+    pub fn is_unknown_peer(&self, peer: ServiceId) -> bool {
+        if peer == self.me {
+            return false;
+        }
+        match self.contacts.get(&peer) {
+            Some(c) => c.name.is_none() && c.phone.is_none(),
+            None => !self.contacts.is_empty(),
         }
     }
 

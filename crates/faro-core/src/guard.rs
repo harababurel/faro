@@ -29,7 +29,8 @@ use tokio::sync::mpsc;
 
 use crate::backend::{
     Account, Backend, BackendError, BackendEvent, BackendEvents, Capabilities,
-    EVENT_CHANNEL_CAPACITY, IdentityUpdate, OutgoingEdit, OutgoingMessage, ReactionChange, Result,
+    EVENT_CHANNEL_CAPACITY, IdentityUpdate, MessageRequestAction, OutgoingEdit, OutgoingMessage,
+    ReactionChange, Result,
 };
 use crate::domain::{
     AttachmentRef, Contact, ConversationId, Group, GroupId, MessageRef, ServiceId, TypingState,
@@ -143,13 +144,15 @@ impl Shared {
             // timestamp only; one we don't have changes nothing).
             BackendEvent::Connection(_)
             | BackendEvent::Error(_)
-            | BackendEvent::DeliveryUpdate { .. } => true,
+            | BackendEvent::DeliveryUpdate { .. }
+            | BackendEvent::BlockedSynced { .. } => true,
             BackendEvent::Message(message) => self.list.allows(message.conversation),
             BackendEvent::Reaction { conversation, .. }
             | BackendEvent::Edited { conversation, .. }
             | BackendEvent::Deleted { conversation, .. }
             | BackendEvent::Typing { conversation, .. }
-            | BackendEvent::DisappearingTimer { conversation, .. } => {
+            | BackendEvent::DisappearingTimer { conversation, .. }
+            | BackendEvent::MessageRequestResponded { conversation, .. } => {
                 self.list.allows(*conversation)
             }
             BackendEvent::ContactUpdated(contact) => self.knows(contact.service_id),
@@ -172,6 +175,10 @@ impl Shared {
         if let BackendEvent::ReadElsewhere(mut messages) = event {
             messages.retain(|m| self.knows(m.sender));
             return (!messages.is_empty()).then_some(BackendEvent::ReadElsewhere(messages));
+        }
+        if let BackendEvent::BlockedSynced { mut conversations } = event {
+            conversations.retain(|c| self.list.allows(*c));
+            return Some(BackendEvent::BlockedSynced { conversations });
         }
         self.admits(&event).then_some(event)
     }
@@ -301,6 +308,17 @@ impl<B: Backend> Backend for Guarded<B> {
         self.shared.check(conversation)?;
         self.inner
             .set_disappearing_timer(conversation, seconds)
+            .await
+    }
+
+    async fn respond_message_request(
+        &self,
+        conversation: ConversationId,
+        action: MessageRequestAction,
+    ) -> Result<()> {
+        self.shared.check(conversation)?;
+        self.inner
+            .respond_message_request(conversation, action)
             .await
     }
 

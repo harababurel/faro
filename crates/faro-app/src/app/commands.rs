@@ -66,11 +66,25 @@ pub async fn execute<B: Backend>(backend: &B, command: Command) -> Option<AppEve
         Command::Fetch { .. } | Command::Transcribe { .. } | Command::FetchPicture(_) => {
             return None;
         }
+        other @ (Command::MarkRead(_)
+        | Command::Typing { .. }
+        | Command::SetVerification { .. }
+        | Command::SetDisappearingTimer { .. }
+        | Command::RespondMessageRequest { .. }
+        | Command::PurgeExpired(_)) => {
+            execute_background(backend, other).await;
+            return None;
+        }
+    };
+    Some(event)
+}
+
+async fn execute_background<B: Backend>(backend: &B, command: Command) {
+    match command {
         Command::MarkRead(messages) => {
             if let Err(error) = backend.mark_read(&messages).await {
                 tracing::warn!(%error, count = messages.len(), "sending read receipts failed");
             }
-            return None;
         }
         Command::Typing {
             conversation,
@@ -79,13 +93,11 @@ pub async fn execute<B: Backend>(backend: &B, command: Command) -> Option<AppEve
             if let Err(error) = backend.send_typing(conversation, state).await {
                 tracing::debug!(%error, %conversation, "sending a typing indicator failed");
             }
-            return None;
         }
         Command::SetVerification { peer, verified } => {
             if let Err(error) = backend.set_verification(peer, verified).await {
                 tracing::warn!(%error, %peer, "updating verification state failed");
             }
-            return None;
         }
         Command::SetDisappearingTimer {
             conversation,
@@ -94,14 +106,26 @@ pub async fn execute<B: Backend>(backend: &B, command: Command) -> Option<AppEve
             if let Err(error) = backend.set_disappearing_timer(conversation, seconds).await {
                 tracing::warn!(%error, %conversation, "updating disappearing timer failed");
             }
-            return None;
+        }
+        Command::RespondMessageRequest {
+            conversation,
+            action,
+        } => {
+            if let Err(error) = backend.respond_message_request(conversation, action).await {
+                tracing::warn!(%error, %conversation, ?action, "syncing message request response failed");
+            }
         }
         Command::PurgeExpired(messages) => {
             if let Err(error) = backend.purge_expired(&messages).await {
                 tracing::warn!(%error, count = messages.len(), "purging expired messages from backend failed");
             }
-            return None;
         }
-    };
-    Some(event)
+        Command::Send { .. }
+        | Command::React { .. }
+        | Command::Edit { .. }
+        | Command::DeleteForEveryone { .. }
+        | Command::Fetch { .. }
+        | Command::Transcribe { .. }
+        | Command::FetchPicture(_) => {}
+    }
 }
