@@ -823,6 +823,8 @@ pub enum ItemKind {
         conversation: ConversationId,
         message: MessageRef,
     },
+    /// A saved/pinned search query in `Level::Search` (#26).
+    SavedQuery(String),
     /// A shared URL in the open conversation (`Level::ChatLinks`, M12).
     ChatLink {
         message: MessageRef,
@@ -1053,6 +1055,11 @@ impl Palette {
                 self.items
                     .iter()
                     .position(|item| matches!(item.kind, ItemKind::SearchHit { .. }))
+                    .or_else(|| {
+                        self.items
+                            .iter()
+                            .position(|item| matches!(item.kind, ItemKind::SavedQuery(_)))
+                    })
                     .unwrap_or(0)
             } else {
                 0
@@ -1367,7 +1374,8 @@ fn chat_links_and_files(state: &State) -> Vec<Item> {
 }
 
 /// `Level::Search(scope)`: a toggle between the open chat and all
-/// conversations, followed by any SQLite search hits (`Palette::search_hits`).
+/// conversations, saved queries when the input is empty, and SQLite search
+/// hits (`Palette::search_hits`).
 fn search_items(state: &State, scope: Option<ConversationId>) -> Vec<Item> {
     let mut items = Vec::new();
     match (scope, &state.open) {
@@ -1386,6 +1394,21 @@ fn search_items(state: &State, scope: Option<ConversationId>) -> Vec<Item> {
         }
         (None, None) => {}
     }
+    let query_empty = state
+        .palette
+        .as_ref()
+        .is_none_or(|p| p.query().trim().is_empty());
+    if query_empty && !state.saved_searches.is_empty() {
+        items.push(Item::new(ItemKind::Header, "Saved queries"));
+        for (idx, saved) in state.saved_searches.iter().enumerate() {
+            let detail = if idx < 9 {
+                format!("alt+{} · ctrl+s unpin", idx + 1)
+            } else {
+                "ctrl+s unpin".to_owned()
+            };
+            items.push(Item::new(ItemKind::SavedQuery(saved.clone()), saved.clone()).detail(detail));
+        }
+    }
     let hits = state
         .palette
         .as_ref()
@@ -1399,10 +1422,27 @@ fn search_items(state: &State, scope: Option<ConversationId>) -> Vec<Item> {
         {
             continue;
         }
-        let raw = state
-            .readable_body(&hit.message)
-            .or_else(|| hit.matched_transcript.clone())
-            .unwrap_or_default();
+        let file_label = hit
+            .message
+            .attachments
+            .iter()
+            .find_map(|a| a.file_name.as_deref());
+        let raw = match (
+            state
+                .readable_body(&hit.message)
+                .or_else(|| hit.matched_transcript.clone()),
+            file_label,
+        ) {
+            (Some(text), Some(name)) if !text.contains(name) => format!("{text} · {name}"),
+            (Some(text), _) => text,
+            (None, Some(name)) => name.to_owned(),
+            (None, None) => hit
+                .message
+                .attachments
+                .first()
+                .map(|a| a.content_type.clone())
+                .unwrap_or_default(),
+        };
         let snippet = raw.split_whitespace().collect::<Vec<_>>().join(" ");
         let sender = state.sender_name(&hit.message);
         let detail = match scope {
@@ -1895,6 +1935,12 @@ pub fn note(state: &State, level: Level) -> Option<String> {
                 env!("CARGO_PKG_VERSION")
             ),
         });
+    }
+    if matches!(level, Level::Search(_)) {
+        return Some(
+            "Operators: from:name  in:chat  has:image|file|voice|link  before:YYYY-MM  after:YYYY-MM  is:unread · ctrl+s pin"
+                .to_owned(),
+        );
     }
     if level != Level::Themes {
         return None;

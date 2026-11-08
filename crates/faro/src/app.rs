@@ -51,6 +51,7 @@ pub struct Directory {
     pub capabilities: faro_core::backend::Capabilities,
     /// Earliest message expiration timestamp in the store on startup (D165).
     pub next_expiry: Option<faro_core::domain::Timestamp>,
+    pub saved_searches: Vec<String>,
 }
 
 /// Read the account, contacts and groups from the backend (local data, no
@@ -112,6 +113,15 @@ pub async fn load_directory<B: Backend>(backend: &B, store: &Store) -> anyhow::R
     let next_expiry = store.next_expiry().await?;
     let nicknames = store.nicknames().await?;
     let identities = store.identities().await?;
+    let saved_searches = store
+        .app_state(faro_app::app::storage::SAVED_SEARCHES)
+        .await?
+        .unwrap_or_default()
+        .lines()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .collect();
     Ok(Directory {
         me: account.service_id,
         contacts,
@@ -121,6 +131,7 @@ pub async fn load_directory<B: Backend>(backend: &B, store: &Store) -> anyhow::R
         guarded: false,
         capabilities: backend.capabilities(),
         next_expiry,
+        saved_searches,
     })
 }
 
@@ -130,6 +141,7 @@ fn initial_state(directory: Directory, detected: state::Detected, startup: &mut 
     let mut state = State::new(directory.me, directory.contacts, directory.groups)
         .with_nicknames(directory.nicknames)
         .with_identities(directory.identities)
+        .with_saved_searches(directory.saved_searches)
         .with_passphrase_verifier(startup.passphrase_verifier.take());
     state.capabilities = directory.capabilities;
     state.set_next_expiry(directory.next_expiry, update::wall_clock(), Instant::now());
@@ -566,6 +578,7 @@ impl Router {
             | Effect::SaveNickname(..)
             | Effect::SaveVerification(..)
             | Effect::SaveRecentReactions(_)
+            | Effect::SaveSavedSearches(_)
             | Effect::LoadUpdateState
             | Effect::SaveUpdateState { .. }
             | Effect::LoadSession

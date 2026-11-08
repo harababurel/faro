@@ -188,6 +188,8 @@ pub struct State {
     /// Reactions last sent from here, most recent first, at most
     /// `REACTIONS.len()` (D104); kept in `app_state`.
     pub recent_reactions: Vec<String>,
+    /// Saved/pinned search queries (`Level::Search`, #26); kept in `app_state`.
+    pub saved_searches: Vec<String>,
     /// `sent_at` of the last message sent from here; the next one is later, so
     /// two quick sends can't share an identity.
     pub last_sent_at: Timestamp,
@@ -1157,6 +1159,7 @@ impl State {
             palette: None,
             recent_commands: Vec::new(),
             recent_reactions: Vec::new(),
+            saved_searches: Vec::new(),
             last_sent_at: Timestamp::from_millis(0),
             config: Config::default(),
             config_problems: Vec::new(),
@@ -1256,6 +1259,13 @@ impl State {
     #[must_use]
     pub fn with_identities(mut self, identities: HashMap<ServiceId, IdentityRecord>) -> Self {
         self.identities = identities;
+        self
+    }
+
+    /// With saved/pinned search queries (#26).
+    #[must_use]
+    pub fn with_saved_searches(mut self, saved_searches: Vec<String>) -> Self {
+        self.saved_searches = saved_searches;
         self
     }
 

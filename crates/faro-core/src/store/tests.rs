@@ -73,6 +73,7 @@ engines! {
     profiles_never_cross,
     nicknames_are_kept_apart_from_contact_updates,
     search_messages_matches_bodies_and_transcripts,
+    search_operators_and_filenames_filter_across_store,
     messages_around_returns_oldest_first_window,
     each_summary_carries_its_newest_message,
     identities_track_key_changes_and_verification,
@@ -988,6 +989,106 @@ async fn search_messages_matches_bodies_and_transcripts(kind: Kind) {
         store.search_messages(None, "   ", 10).await.unwrap(),
         vec![]
     );
+}
+
+async fn search_operators_and_filenames_filter_across_store(kind: Kind) {
+    // 2026-09-15T00:00:00Z and 2026-10-15T00:00:00Z in epoch milliseconds.
+    const SEP_2026: u64 = 1_789_430_400_000;
+    const OCT_2026: u64 = 1_792_022_400_000;
+
+    let mut photo_early = incoming(direct(ALICE), ALICE, SEP_2026, "route topo");
+    photo_early.attachments = vec![AttachmentRef {
+        file_name: Some("el-cap.png".to_owned()),
+        ..AttachmentRef::remote("att-img-1", "image/png")
+    }];
+
+    let mut pdf_late = incoming(group(), ALICE, OCT_2026, "receipt attached");
+    pdf_late.attachments = vec![AttachmentRef {
+        file_name: Some("Q3-invoice.pdf".to_owned()),
+        ..AttachmentRef::remote("att-pdf-1", "application/pdf")
+    }];
+    pdf_late.reactions = vec![Reaction {
+        sender: aci(BOB),
+        emoji: "👍".to_owned(),
+    }];
+
+    let mut link_reply = outgoing(direct(BOB), OCT_2026 + 1_000, DeliveryStatus::Sent);
+    link_reply.body = Some(MessageBody::new("see https://example.com/gear"));
+    link_reply.quote = Some(Quote {
+        target: photo_early.reference(),
+        preview: Some(MessageBody::new("route topo")),
+    });
+    link_reply.edited_at = Some(ts(OCT_2026 + 2_000));
+
+    let store = store_with(
+        kind,
+        &[photo_early.clone(), pdf_late.clone(), link_reply.clone()],
+    )
+    .await;
+    store
+        .upsert_contacts(vec![
+            Contact {
+                service_id: aci(ALICE),
+                name: Some("Ana".to_owned()),
+                profile_name: Some("Ana Ruiz".to_owned()),
+                phone: None,
+            },
+            Contact {
+                service_id: aci(BOB),
+                name: Some("Bob".to_owned()),
+                profile_name: None,
+                phone: None,
+            },
+        ])
+        .await
+        .unwrap();
+    store
+        .upsert_groups(vec![Group {
+            id: GroupId::from_bytes([9; GroupId::LEN]),
+            title: "Climbing Crew".to_owned(),
+            members: vec![aci(ALICE), aci(BOB)],
+        }])
+        .await
+        .unwrap();
+    // Mark the group read so `pdf_late` is read while `photo_early` in
+    // direct(ALICE) remains unread.
+    store.mark_read(group()).await.unwrap();
+
+    // Filename search (`invoice.pdf`).
+    let by_file = store
+        .search_messages(None, "invoice.pdf", 10)
+        .await
+        .unwrap();
+    assert_eq!(by_file.len(), 1);
+    assert_eq!(by_file[0].message.sent_at, ts(OCT_2026));
+
+    // Combined deck query: `from:ana has:image before:2026-10 is:unread`.
+    let deck_query = store
+        .search_messages(None, "from:ana has:image before:2026-10 is:unread", 10)
+        .await
+        .unwrap();
+    assert_eq!(deck_query.len(), 1);
+    assert_eq!(deck_query[0].message.sent_at, ts(SEP_2026));
+
+    // `from:me`, `has:link`, `has:reply`, `is:edited`, `after:2026-10`.
+    let from_me = store
+        .search_messages(
+            None,
+            "from:me has:link has:reply is:edited after:2026-10",
+            10,
+        )
+        .await
+        .unwrap();
+    assert_eq!(from_me.len(), 1);
+    assert_eq!(from_me[0].message.sent_at, ts(OCT_2026 + 1_000));
+
+    // `in:climbing has:file has:reaction is:read`.
+    let in_group = store
+        .search_messages(None, "in:climbing has:file has:reaction is:read", 10)
+        .await
+        .unwrap();
+    assert_eq!(in_group.len(), 1);
+    assert_eq!(in_group[0].conversation, group());
 }
 
 async fn messages_around_returns_oldest_first_window(kind: Kind) {

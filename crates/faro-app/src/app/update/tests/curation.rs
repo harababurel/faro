@@ -44,6 +44,7 @@ fn saved(effects: &[Effect], id: ConversationId) -> Option<ConversationState> {
         | Effect::SaveNickname(..)
         | Effect::SaveVerification(..)
         | Effect::SaveRecentReactions(_)
+        | Effect::SaveSavedSearches(_)
         | Effect::LoadUpdateState
         | Effect::SaveUpdateState { .. }
         | Effect::CheckForUpdate

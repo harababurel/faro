@@ -261,6 +261,8 @@ pub enum Effect {
     SaveVerification(ServiceId, VerificationState),
     /// Store the reactions last sent from here, most recent first (D104).
     SaveRecentReactions(Vec<String>),
+    /// Store the user's saved/pinned search queries (#26).
+    SaveSavedSearches(Vec<String>),
     /// Read what the last run knew about updates (D148); answered with
     /// `UpdateEvent::StateLoaded`.
     LoadUpdateState,

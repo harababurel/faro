@@ -784,14 +784,22 @@ impl Db {
         Ok(messages)
     }
 
-    /// Search non-deleted messages matching all whitespace-separated tokens of
-    /// `query` in `body` or attachment `transcript`, ordered newest first (M12).
+    /// Search non-deleted messages matching `query` (free-text tokens across
+    /// `body`, attachment `transcript`, and attachment `file_name`, plus
+    /// `from:`, `in:`, `has:`, `is:`, `before:`, `after:` operators), ordered
+    /// newest first (M12, #26).
+    #[expect(
+        clippy::too_many_lines,
+        reason = "SQL query builder covers every search operator in one pass"
+    )]
     pub(super) async fn search_messages(
         &mut self,
         conversation: Option<ConversationId>,
         query: &str,
         limit: u32,
     ) -> Result<Vec<SearchHit>> {
+        use super::search::{HasFilter, IsFilter, SearchQuery};
+
         type SearchRow = (
             String,
             i64,
@@ -809,8 +817,8 @@ impl Db {
             Option<i64>,
             Option<String>,
         );
-        let tokens: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
-        if tokens.is_empty() || limit == 0 {
+        let parsed = SearchQuery::parse(query);
+        if parsed.is_empty() || limit == 0 {
             return Ok(vec![]);
         }
         let mut builder: sqlx::QueryBuilder<sqlx::Sqlite> = sqlx::QueryBuilder::new(
@@ -825,15 +833,102 @@ impl Db {
             builder.push(" AND m.conversation_id = ");
             builder.push_bind(conversation_key(conv));
         }
-        for token in &tokens {
+        for token in &parsed.terms {
             let pattern = like_pattern(token);
             builder.push(" AND (lower(coalesce(m.body, '')) LIKE ");
             builder.push_bind(pattern.clone());
             builder.push(
-                " ESCAPE '\\' OR EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id AND lower(coalesce(a.transcript, '')) LIKE ",
+                " ESCAPE '\\' OR EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id AND (lower(coalesce(a.transcript, '')) LIKE ",
             );
+            builder.push_bind(pattern.clone());
+            builder.push(" ESCAPE '\\' OR lower(coalesce(a.file_name, '')) LIKE ");
+            builder.push_bind(pattern);
+            builder.push(" ESCAPE '\\')))");
+        }
+        for who in &parsed.from {
+            if who == "me" || who == "you" {
+                builder.push(" AND m.direction = 'outgoing'");
+            } else {
+                let pattern = like_pattern(who);
+                builder.push(" AND (lower(m.sender) LIKE ");
+                builder.push_bind(pattern.clone());
+                builder.push(
+                    " ESCAPE '\\' OR EXISTS (SELECT 1 FROM recipients r WHERE r.service_id = m.sender AND (lower(coalesce(r.nickname, '')) LIKE ",
+                );
+                builder.push_bind(pattern.clone());
+                builder.push(" ESCAPE '\\' OR lower(coalesce(r.contact_name, '')) LIKE ");
+                builder.push_bind(pattern.clone());
+                builder.push(" ESCAPE '\\' OR lower(coalesce(r.profile_name, '')) LIKE ");
+                builder.push_bind(pattern.clone());
+                builder.push(" ESCAPE '\\' OR lower(coalesce(r.phone, '')) LIKE ");
+                builder.push_bind(pattern);
+                builder.push(" ESCAPE '\\')))");
+            }
+        }
+        for chat in &parsed.in_chat {
+            let pattern = like_pattern(chat);
+            builder.push(
+                " AND EXISTS (SELECT 1 FROM conversations c LEFT JOIN recipients r ON r.service_id = c.peer WHERE c.id = m.conversation_id AND (lower(coalesce(c.title, '')) LIKE ",
+            );
+            builder.push_bind(pattern.clone());
+            builder.push(" ESCAPE '\\' OR lower(coalesce(r.nickname, '')) LIKE ");
+            builder.push_bind(pattern.clone());
+            builder.push(" ESCAPE '\\' OR lower(coalesce(r.contact_name, '')) LIKE ");
+            builder.push_bind(pattern.clone());
+            builder.push(" ESCAPE '\\' OR lower(coalesce(r.profile_name, '')) LIKE ");
+            builder.push_bind(pattern.clone());
+            builder.push(" ESCAPE '\\' OR lower(coalesce(r.phone, '')) LIKE ");
             builder.push_bind(pattern);
             builder.push(" ESCAPE '\\'))");
+        }
+        for filter in &parsed.has {
+            let clause = match filter {
+                HasFilter::Image => {
+                    " AND EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id AND lower(a.content_type) LIKE 'image/%')"
+                }
+                HasFilter::Video => {
+                    " AND EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id AND lower(a.content_type) LIKE 'video/%')"
+                }
+                HasFilter::Voice => {
+                    " AND EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id AND (a.voice_note = 1 OR lower(a.content_type) LIKE 'audio/%'))"
+                }
+                HasFilter::File => {
+                    " AND EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id)"
+                }
+                HasFilter::Link => {
+                    " AND (lower(coalesce(m.body, '')) LIKE '%http://%' OR lower(coalesce(m.body, '')) LIKE '%https://%')"
+                }
+                HasFilter::Transcript => {
+                    " AND EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id AND coalesce(a.transcript, '') != '')"
+                }
+                HasFilter::Reaction => {
+                    " AND EXISTS (SELECT 1 FROM reactions rx WHERE rx.message_id = m.id)"
+                }
+                HasFilter::Reply => " AND m.quote_sent_at IS NOT NULL",
+            };
+            builder.push(clause);
+        }
+        for filter in &parsed.is {
+            let clause = match filter {
+                IsFilter::Unread => {
+                    " AND (m.direction = 'incoming' AND m.system_event IS NULL AND (SELECT count(*) FROM messages m2 WHERE m2.conversation_id = m.conversation_id AND m2.direction = 'incoming' AND m2.deleted = 0 AND m2.system_event IS NULL AND (m2.sent_at, m2.sender) >= (m.sent_at, m.sender)) <= (SELECT coalesce(c.unread_count, 0) FROM conversations c WHERE c.id = m.conversation_id))"
+                }
+                IsFilter::Read => {
+                    " AND NOT (m.direction = 'incoming' AND m.system_event IS NULL AND (SELECT count(*) FROM messages m2 WHERE m2.conversation_id = m.conversation_id AND m2.direction = 'incoming' AND m2.deleted = 0 AND m2.system_event IS NULL AND (m2.sent_at, m2.sender) >= (m.sent_at, m.sender)) <= (SELECT coalesce(c.unread_count, 0) FROM conversations c WHERE c.id = m.conversation_id))"
+                }
+                IsFilter::Edited => " AND m.edited_at IS NOT NULL",
+                IsFilter::Incoming => " AND m.direction = 'incoming'",
+                IsFilter::Outgoing => " AND m.direction = 'outgoing'",
+            };
+            builder.push(clause);
+        }
+        if let Some(before_ms) = parsed.before_ms {
+            builder.push(" AND m.sent_at < ");
+            builder.push_bind(before_ms);
+        }
+        if let Some(after_ms) = parsed.after_ms {
+            builder.push(" AND m.sent_at >= ");
+            builder.push_bind(after_ms);
         }
         builder.push(" ORDER BY m.sent_at DESC, m.sender ASC LIMIT ");
         builder.push_bind(i64::from(limit));
@@ -858,10 +953,19 @@ impl Db {
                 let matched_transcript = message.attachments.iter().find_map(|att| {
                     let text = att.transcript.as_ref()?;
                     let lower = text.to_lowercase();
-                    tokens
-                        .iter()
-                        .any(|token| lower.contains(token))
-                        .then(|| text.clone())
+                    if parsed.terms.is_empty() {
+                        parsed
+                            .has
+                            .iter()
+                            .any(|h| matches!(h, HasFilter::Voice | HasFilter::Transcript))
+                            .then(|| text.clone())
+                    } else {
+                        parsed
+                            .terms
+                            .iter()
+                            .any(|token| lower.contains(token))
+                            .then(|| text.clone())
+                    }
                 });
                 SearchHit {
                     conversation: message.conversation,

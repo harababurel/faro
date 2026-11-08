@@ -91,6 +91,13 @@ const PALETTE_LEVEL_HINTS: &[(&str, &str)] = &[
     ("←", "back"),
     ("esc", "close"),
 ];
+const SEARCH_HINTS: &[(&str, &str)] = &[
+    ("↑↓", "move"),
+    ("enter", "open"),
+    ("ctrl+s", "pin/unpin"),
+    ("←", "back"),
+    ("esc", "close"),
+];
 /// Typing a nickname: the query is the name (D65).
 const NICKNAME_HINTS: &[(&str, &str)] = &[("enter", "save"), ("esc", "cancel")];
 /// Settings cycle in place with `←`/`→`; `Enter` flips on/off or opens values (D57).
@@ -236,8 +243,8 @@ fn hints(state: &State, geometry: &Geometry) -> Vec<(String, &'static str)> {
             Level::Setting(setting) if setting.previews() => PREVIEW_HINTS,
             Level::Settings => SETTINGS_HINTS,
             Level::Nickname(_) | Level::SettingText(_) => NICKNAME_HINTS,
+            Level::Search(_) => SEARCH_HINTS,
             Level::Chats
-            | Level::Search(_)
             | Level::Setting(_)
             | Level::Commands
             | Level::Keys

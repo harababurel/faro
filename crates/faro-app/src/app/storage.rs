@@ -19,6 +19,8 @@ const SESSION: &str = "ui.session";
 /// `app_state` key of the reactions last sent from here, most recent first,
 /// separated by spaces (D104).
 const RECENT_REACTIONS: &str = "ui.recent_reactions";
+/// `app_state` key of saved/pinned search queries, newline-separated (#26).
+pub const SAVED_SEARCHES: &str = "ui.saved_searches";
 /// `app_state` key of the last successful update check, in seconds since
 /// the epoch (D148).
 const UPDATES_CHECKED_AT: &str = "updates.checked_at";
@@ -136,6 +138,7 @@ async fn run(store: &Store, effect: Effect) -> Result<Option<AppEvent>, StoreErr
         | Effect::SaveNickname(..)
         | Effect::SaveVerification(..)
         | Effect::SaveRecentReactions(_)
+        | Effect::SaveSavedSearches(_)
         | Effect::SaveUpdateState { .. } => {
             write(store, effect).await?;
             None
@@ -207,6 +210,9 @@ async fn write(store: &Store, effect: Effect) -> Result<(), StoreError> {
             store
                 .set_app_state(RECENT_REACTIONS, &recent.join(" "))
                 .await
+        }
+        Effect::SaveSavedSearches(saved) => {
+            store.set_app_state(SAVED_SEARCHES, &saved.join("\n")).await
         }
         Effect::SaveUpdateState { checked_at, latest } => {
             store

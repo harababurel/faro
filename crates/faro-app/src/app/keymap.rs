@@ -102,6 +102,10 @@ pub enum PaletteKey {
     Close,
     /// Put the selected setting back to its default (D100).
     Reset,
+    /// Pin or unpin the current/selected search query in `Level::Search` (`Ctrl+S`, #26).
+    PinQuery,
+    /// Run the Nth saved search query (`0..9`) in `Level::Search` (`Alt+1`…`Alt+9` / `Ctrl+1`…`Ctrl+9`, #26).
+    SavedQuery(u8),
     Edit(Edit),
 }
 
@@ -464,6 +468,10 @@ pub fn palette_action(keymap: &Keymap, key: KeyEvent) -> Option<Action> {
         (KeyCode::Enter, KeyModifiers::NONE) => PaletteKey::Choose,
         (KeyCode::Esc, _) => PaletteKey::Close,
         (KeyCode::Char('r'), KeyModifiers::CONTROL) => PaletteKey::Reset,
+        (KeyCode::Char('s'), KeyModifiers::CONTROL) => PaletteKey::PinQuery,
+        (KeyCode::Char(d @ '1'..='9'), KeyModifiers::ALT | KeyModifiers::CONTROL) => {
+            PaletteKey::SavedQuery((d as u8) - b'1')
+        }
         _ => {
             let Some(Action::Edit(edit)) = keymap.lookup(key, Focus::Input) else {
                 return None;

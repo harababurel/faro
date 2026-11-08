@@ -34,6 +34,7 @@ mod codec;
 #[cfg(feature = "sqlite")]
 mod db;
 mod mem;
+pub mod search;
 #[cfg(test)]
 #[cfg(feature = "sqlite")]
 mod tests;

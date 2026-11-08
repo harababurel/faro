@@ -271,6 +271,7 @@ fn result_line(
             | ItemKind::EnterDir(_)
             | ItemKind::AttachFile(_)
             | ItemKind::SearchHit { .. }
+            | ItemKind::SavedQuery(_)
             | ItemKind::ChatLink { .. }
             | ItemKind::ChatAttachment { .. }
             | ItemKind::Command(_)

@@ -1365,6 +1365,89 @@ fn search_messages_across_all_conversations_loads_around() {
     assert_eq!(open.selected.map(|s| s.message), Some(older_msg));
 }
 
+#[test]
+fn saved_search_queries_pin_unpin_run_by_key_and_show_filenames() {
+    use faro_core::domain::AttachmentRef;
+    use faro_core::store::SearchHit;
+
+    let mut state = loaded_state();
+    update(&mut state, ctrl('f'));
+    assert_eq!(level(&state), Level::Search(Some(climbing())));
+
+    let query = "from:alice has:image before:2026-10 is:unread";
+    typed(&mut state, query);
+
+    // Pin the typed query with Ctrl+S.
+    let effects = update(&mut state, ctrl('s'));
+    assert_eq!(state.saved_searches, vec![query.to_owned()]);
+    assert_eq!(
+        effects,
+        vec![Effect::SaveSavedSearches(vec![query.to_owned()])]
+    );
+    assert_eq!(
+        state.notice.as_ref().map(|n| n.text.as_str()),
+        Some("Pinned search query \"from:alice has:image before:2026-10 is:unread\" (alt+1)")
+    );
+
+    // Clear input: saved queries appear under "Saved queries" with Alt+1 key hint.
+    update(&mut state, ctrl('u'));
+    assert_eq!(
+        selected(&state),
+        Some(ItemKind::SavedQuery(query.to_owned()))
+    );
+    let item = state.palette.as_ref().unwrap().selected_item().unwrap();
+    assert_eq!(item.detail, "alt+1 · ctrl+s unpin");
+
+    // Pressing Enter on the saved query populates the input and runs the search.
+    let effects = enter(&mut state);
+    assert_eq!(state.palette.as_ref().unwrap().input.text(), query);
+    assert_eq!(
+        effects,
+        vec![Effect::SearchMessages {
+            conversation: Some(climbing()),
+            query: query.to_owned(),
+        }]
+    );
+
+    // Clear input and trigger via Alt+1 shortcut directly.
+    update(&mut state, ctrl('u'));
+    let effects = update(&mut state, key(KeyCode::Char('1'), KeyModifiers::ALT));
+    assert_eq!(state.palette.as_ref().unwrap().input.text(), query);
+    assert_eq!(
+        effects,
+        vec![Effect::SearchMessages {
+            conversation: Some(climbing()),
+            query: query.to_owned(),
+        }]
+    );
+
+    // Attachment filename appears in SearchHit snippet when body is empty.
+    let mut file_msg = text(climbing(), ALICE, 900, "");
+    file_msg.body = None;
+    file_msg.attachments = vec![AttachmentRef {
+        file_name: Some("invoice.pdf".to_owned()),
+        ..AttachmentRef::remote("att-inv", "application/pdf")
+    }];
+    update(
+        &mut state,
+        AppEvent::SearchResults {
+            conversation: Some(climbing()),
+            query: query.to_owned(),
+            hits: vec![SearchHit {
+                conversation: climbing(),
+                message: file_msg,
+                matched_transcript: None,
+            }],
+        },
+    );
+    assert_eq!(selected_title(&state), "invoice.pdf");
+
+    // Pressing Ctrl+S while the pinned query is active unpins it.
+    let effects = update(&mut state, ctrl('s'));
+    assert_eq!(state.saved_searches, Vec::<String>::new());
+    assert_eq!(effects, vec![Effect::SaveSavedSearches(vec![])]);
+}
+
 /// A search result's window that arrives after the user moved on (another
 /// chat, or none) is dropped: it used to reopen the result's chat and lose
 /// what leaving the current one does (its draft saved, audio stopped).

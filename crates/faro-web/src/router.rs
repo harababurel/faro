@@ -138,6 +138,7 @@ impl Router {
                 | Effect::SaveNickname(..)
                 | Effect::SaveVerification(..)
                 | Effect::SaveRecentReactions(_)
+                | Effect::SaveSavedSearches(_)
                 | Effect::LoadUpdateState
                 | Effect::SaveUpdateState { .. }
                 | Effect::LoadSession

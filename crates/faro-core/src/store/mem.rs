@@ -682,36 +682,27 @@ impl Mem {
         Ok(rows.into_iter().map(Row::to_message).collect())
     }
 
-    /// Search non-deleted messages matching all whitespace-separated tokens of
-    /// `query` in `body` or attachment `transcript`, ordered newest first (M12).
+    /// Search non-deleted messages matching `query` (free-text tokens across
+    /// `body`, attachment `transcript`, and attachment `file_name`, plus
+    /// `from:`, `in:`, `has:`, `is:`, `before:`, `after:` operators), ordered
+    /// newest first (M12, #26).
     pub(super) fn search_messages(
         &self,
         conversation: Option<ConversationId>,
         query: &str,
         limit: u32,
     ) -> Result<Vec<SearchHit>> {
-        let tokens: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
-        if tokens.is_empty() || limit == 0 {
+        use super::search::{HasFilter, SearchQuery};
+
+        let parsed = SearchQuery::parse(query);
+        if parsed.is_empty() || limit == 0 {
             return Ok(vec![]);
         }
-        let matches = |row: &Row| {
-            let body = row.body.as_deref().unwrap_or("").to_ascii_lowercase();
-            tokens.iter().all(|token| {
-                body.contains(token.as_str())
-                    || row.attachments.iter().any(|a| {
-                        a.transcript
-                            .as_deref()
-                            .unwrap_or("")
-                            .to_ascii_lowercase()
-                            .contains(token.as_str())
-                    })
-            })
-        };
         let mut rows: Vec<&Row> = self
             .rows
             .values()
             .filter(|r| !r.deleted && conversation.is_none_or(|c| r.conversation == c))
-            .filter(|r| matches(r))
+            .filter(|r| self.row_matches_search(r, &parsed))
             .collect();
         // ORDER BY sent_at DESC, sender ASC
         rows.sort_by(|a, b| {
@@ -727,10 +718,19 @@ impl Mem {
                 let matched_transcript = message.attachments.iter().find_map(|att| {
                     let text = att.transcript.as_ref()?;
                     let lower = text.to_lowercase();
-                    tokens
-                        .iter()
-                        .any(|token| lower.contains(token))
-                        .then(|| text.clone())
+                    if parsed.terms.is_empty() {
+                        parsed
+                            .has
+                            .iter()
+                            .any(|h| matches!(h, HasFilter::Voice | HasFilter::Transcript))
+                            .then(|| text.clone())
+                    } else {
+                        parsed
+                            .terms
+                            .iter()
+                            .any(|token| lower.contains(token))
+                            .then(|| text.clone())
+                    }
                 });
                 SearchHit {
                     conversation: message.conversation,
@@ -739,6 +739,131 @@ impl Mem {
                 }
             })
             .collect())
+    }
+
+    fn row_matches_search(&self, row: &Row, parsed: &super::search::SearchQuery) -> bool {
+        use super::search::{HasFilter, IsFilter};
+
+        let body = row.body.as_deref().unwrap_or("").to_ascii_lowercase();
+        let terms_ok = parsed.terms.iter().all(|token| {
+            body.contains(token.as_str())
+                || row.attachments.iter().any(|a| {
+                    a.transcript
+                        .as_deref()
+                        .unwrap_or("")
+                        .to_ascii_lowercase()
+                        .contains(token.as_str())
+                        || a.file_name
+                            .as_deref()
+                            .unwrap_or("")
+                            .to_ascii_lowercase()
+                            .contains(token.as_str())
+                })
+        });
+        if !terms_ok {
+            return false;
+        }
+        let from_ok = parsed.from.iter().all(|who| {
+            if who == "me" || who == "you" {
+                matches!(row.direction, Direction::Outgoing(_))
+            } else {
+                row.sender_key.to_ascii_lowercase().contains(who.as_str())
+                    || self
+                        .recipients
+                        .get(&row.sender)
+                        .is_some_and(|r| recipient_matches(r, who))
+            }
+        });
+        if !from_ok {
+            return false;
+        }
+        let chat_ok = parsed.in_chat.iter().all(|chat| {
+            let key = conversation_key(row.conversation);
+            let title_match = self
+                .conversations
+                .get(&key)
+                .and_then(|c| c.title.as_deref())
+                .is_some_and(|t| t.to_ascii_lowercase().contains(chat.as_str()));
+            let peer_match = match row.conversation {
+                ConversationId::Direct(peer) => self
+                    .recipients
+                    .get(&peer)
+                    .is_some_and(|r| recipient_matches(r, chat)),
+                ConversationId::Group(_) => false,
+            };
+            title_match || peer_match
+        });
+        if !chat_ok {
+            return false;
+        }
+        let has_ok = parsed.has.iter().all(|filter| match filter {
+            HasFilter::Image => row
+                .attachments
+                .iter()
+                .any(|a| a.content_type.to_ascii_lowercase().starts_with("image/")),
+            HasFilter::Video => row
+                .attachments
+                .iter()
+                .any(|a| a.content_type.to_ascii_lowercase().starts_with("video/")),
+            HasFilter::Voice => row
+                .attachments
+                .iter()
+                .any(|a| a.voice_note || a.content_type.to_ascii_lowercase().starts_with("audio/")),
+            HasFilter::File => !row.attachments.is_empty(),
+            HasFilter::Link => body.contains("http://") || body.contains("https://"),
+            HasFilter::Transcript => row
+                .attachments
+                .iter()
+                .any(|a| a.transcript.as_deref().is_some_and(|t| !t.is_empty())),
+            HasFilter::Reaction => !row.reactions.is_empty(),
+            HasFilter::Reply => row.quote.is_some(),
+        });
+        if !has_ok {
+            return false;
+        }
+        let state_ok = parsed.is.iter().all(|filter| match filter {
+            IsFilter::Unread => self.is_row_unread(row),
+            IsFilter::Read => !self.is_row_unread(row),
+            IsFilter::Edited => row.edited_at.is_some(),
+            IsFilter::Incoming => row.direction == Direction::Incoming,
+            IsFilter::Outgoing => matches!(row.direction, Direction::Outgoing(_)),
+        });
+        if !state_ok {
+            return false;
+        }
+        let sent_ms = i64::try_from(row.sent_at.as_millis()).unwrap_or(i64::MAX);
+        if parsed.before_ms.is_some_and(|before| sent_ms >= before) {
+            return false;
+        }
+        if parsed.after_ms.is_some_and(|after| sent_ms < after) {
+            return false;
+        }
+        true
+    }
+
+    fn is_row_unread(&self, row: &Row) -> bool {
+        if row.direction != Direction::Incoming || row.deleted || row.system_event.is_some() {
+            return false;
+        }
+        let unread = self
+            .conversations
+            .get(&conversation_key(row.conversation))
+            .map_or(0, |c| c.unread);
+        if unread == 0 {
+            return false;
+        }
+        let newer_or_equal = self
+            .rows
+            .values()
+            .filter(|r2| {
+                r2.conversation == row.conversation
+                    && r2.direction == Direction::Incoming
+                    && !r2.deleted
+                    && r2.system_event.is_none()
+                    && r2.point() >= row.point()
+            })
+            .count();
+        newer_or_equal <= unread as usize
     }
 
     /// Per-recipient delivery and read receipts for `message`, ordered by
@@ -1101,6 +1226,18 @@ fn check_mention(mention: &Mention) -> Result<()> {
         i64::try_from(n).map_err(|_| StoreError::OutOfRange("mention"))?;
     }
     Ok(())
+}
+
+fn recipient_matches(recipient: &Recipient, needle: &str) -> bool {
+    [
+        recipient.nickname.as_deref(),
+        recipient.contact_name.as_deref(),
+        recipient.profile_name.as_deref(),
+        recipient.phone.as_ref().map(PhoneNumber::expose),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|field| field.to_ascii_lowercase().contains(needle))
 }
 
 fn now() -> Timestamp {

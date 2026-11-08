@@ -201,6 +201,8 @@ pub fn on_key(state: &mut State, key: PaletteKey) -> Vec<Effect> {
                 return reset(state, setting);
             }
         }
+        PaletteKey::PinQuery => return toggle_pin_query(state),
+        PaletteKey::SavedQuery(slot) => return run_saved_query_slot(state, usize::from(slot)),
     }
     vec![]
 }
@@ -227,6 +229,7 @@ fn selected_setting(palette: &Palette) -> Option<Setting> {
             | ItemKind::EnterDir(_)
             | ItemKind::AttachFile(_)
             | ItemKind::SearchHit { .. }
+            | ItemKind::SavedQuery(_)
             | ItemKind::ChatLink { .. }
             | ItemKind::ChatAttachment { .. },
         )
@@ -314,19 +317,16 @@ fn on_search_edited(state: &mut State, scope: Option<ConversationId>) -> Vec<Eff
         .as_ref()
         .map(|p| p.query().to_owned())
         .unwrap_or_default();
-    if query.trim().is_empty() {
-        if let Some(palette) = state.palette.as_mut() {
-            palette.search_hits.clear();
-        }
-        let items = palette::items(state, Level::Search(scope), &state.recent_commands);
-        if let Some(palette) = state.palette.as_mut() {
-            palette.items = items;
-            palette.refilter();
-        }
-        return vec![];
-    }
     if let Some(palette) = state.palette.as_mut() {
+        palette.search_hits.clear();
+    }
+    let items = palette::items(state, Level::Search(scope), &state.recent_commands);
+    if let Some(palette) = state.palette.as_mut() {
+        palette.items = items;
         palette.refilter();
+    }
+    if query.trim().is_empty() {
+        return vec![];
     }
     vec![Effect::SearchMessages {
         conversation: scope,
@@ -366,6 +366,7 @@ fn jump_by_prefix(state: &mut State) -> Vec<Effect> {
 fn enter(state: &mut State, level: Level, query: &str) {
     if let Some(palette) = state.palette.as_mut() {
         palette.search_hits.clear();
+        palette.input = crate::app::input::Input::new(query);
     }
     let items = palette::items(state, level, &state.recent_commands);
     let current = current_item(&items);
@@ -498,6 +499,9 @@ fn choose(state: &mut State) -> Vec<Effect> {
         up(state);
         return effects;
     }
+    if let ItemKind::SavedQuery(query) = kind {
+        return activate_saved_query(state, query);
+    }
     state.palette = None;
     match kind {
         ItemKind::Conversation(id) => show_conversation(state, id),
@@ -542,8 +546,85 @@ fn choose(state: &mut State) -> Vec<Effect> {
         | ItemKind::Theme(_)
         | ItemKind::Switch(_)
         | ItemKind::SetText(_)
+        | ItemKind::SavedQuery(_)
         | ItemKind::Header => vec![],
     }
+}
+
+const MAX_SAVED_SEARCHES: usize = 9;
+
+fn activate_saved_query(state: &mut State, query: String) -> Vec<Effect> {
+    let Some(Level::Search(scope)) = state.palette.as_ref().map(Palette::level) else {
+        return vec![];
+    };
+    if let Some(palette) = state.palette.as_mut() {
+        palette.search_hits.clear();
+        palette.input = crate::app::input::Input::new(&query);
+    }
+    let items = palette::items(state, Level::Search(scope), &state.recent_commands);
+    if let Some(palette) = state.palette.as_mut() {
+        palette.items = items;
+        palette.refilter();
+    }
+    vec![Effect::SearchMessages {
+        conversation: scope,
+        query,
+    }]
+}
+
+fn run_saved_query_slot(state: &mut State, slot: usize) -> Vec<Effect> {
+    if !matches!(
+        state.palette.as_ref().map(Palette::level),
+        Some(Level::Search(_))
+    ) {
+        return vec![];
+    }
+    let Some(query) = state.saved_searches.get(slot).cloned() else {
+        return vec![];
+    };
+    activate_saved_query(state, query)
+}
+
+fn toggle_pin_query(state: &mut State) -> Vec<Effect> {
+    let Some(Level::Search(scope)) = state.palette.as_ref().map(Palette::level) else {
+        return vec![];
+    };
+    let typed = state
+        .palette
+        .as_ref()
+        .map(|p| p.query().trim().to_owned())
+        .unwrap_or_default();
+    let target = if !typed.is_empty() {
+        typed
+    } else if let Some(ItemKind::SavedQuery(saved)) = state
+        .palette
+        .as_ref()
+        .and_then(Palette::selected_item)
+        .map(|i| i.kind.clone())
+    {
+        saved
+    } else {
+        return vec![];
+    };
+    let removed = if let Some(pos) = state.saved_searches.iter().position(|q| *q == target) {
+        state.saved_searches.remove(pos);
+        true
+    } else {
+        state.saved_searches.insert(0, target.clone());
+        state.saved_searches.truncate(MAX_SAVED_SEARCHES);
+        false
+    };
+    state.notice = Some(Notice::info(if removed {
+        format!("Unpinned search query \"{target}\"")
+    } else {
+        format!("Pinned search query \"{target}\" (alt+1)")
+    }));
+    let items = palette::items(state, Level::Search(scope), &state.recent_commands);
+    if let Some(palette) = state.palette.as_mut() {
+        palette.items = items;
+        palette.refilter();
+    }
+    vec![Effect::SaveSavedSearches(state.saved_searches.clone())]
 }
 
 fn choose_level(state: &mut State, level: Level) -> Vec<Effect> {
