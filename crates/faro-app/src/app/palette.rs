@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 use faro_core::config::{
     AutoDownload, Avatars, BubbleStyle, Choice as _, ColorChoice, DesktopNotifications,
-    EmojiChoice, InlineImages, MessageDensity, NotificationPrivacy, SIDEBAR_WIDTH_MAX,
+    EmojiChoice, InlineImages, LogoBeam, MessageDensity, NotificationPrivacy, SIDEBAR_WIDTH_MAX,
     SIDEBAR_WIDTH_MIN, TimestampFormat, TranscribeMode, key,
 };
 use faro_core::domain::{ConversationId, MessageRef, ServiceId};
@@ -197,6 +197,7 @@ pub enum Setting {
     Density,
     Timestamps,
     ReduceMotion,
+    Beam,
     Bell,
     Title,
     Desktop,
@@ -325,6 +326,7 @@ impl SettingsGroup {
                 Setting::Emoji,
                 Setting::SidebarWidth,
                 Setting::ReduceMotion,
+                Setting::Beam,
             ],
             Self::Messages => &[Setting::Layout, Setting::Timestamps],
             Self::Bubbles => &[
@@ -381,6 +383,7 @@ impl Setting {
             Self::Density => "Message density",
             Self::Timestamps => "Timestamps",
             Self::ReduceMotion => "Reduce motion",
+            Self::Beam => "Logo beam",
             Self::Bell => "Bell",
             Self::Title => "Unread count in the window title",
             Self::Desktop => "Desktop notifications",
@@ -420,6 +423,7 @@ impl Setting {
             Self::Density => key::DENSITY,
             Self::Timestamps => key::TIMESTAMPS,
             Self::ReduceMotion => key::REDUCE_MOTION,
+            Self::Beam => key::BEAM,
             Self::Bell => key::BELL,
             Self::Title => key::TITLE,
             Self::Desktop => key::DESKTOP,
@@ -493,6 +497,7 @@ impl Setting {
             | Self::Layout
             | Self::Timestamps
             | Self::ReduceMotion
+            | Self::Beam
             | Self::Bell
             | Self::Title
             | Self::Desktop
@@ -528,6 +533,7 @@ impl Setting {
             | Self::Density
             | Self::Timestamps
             | Self::ReduceMotion
+            | Self::Beam
             | Self::Bell
             | Self::Title
             | Self::Desktop
@@ -568,6 +574,7 @@ impl Setting {
             Self::Colors
             | Self::Emoji
             | Self::SidebarWidth
+            | Self::Beam
             | Self::Avatars
             | Self::Layout
             | Self::BubbleStyle
@@ -596,6 +603,7 @@ impl Setting {
         match self {
             Self::Colors
             | Self::SidebarWidth
+            | Self::Beam
             | Self::Avatars
             | Self::Layout
             | Self::BubbleStyle
@@ -702,6 +710,7 @@ pub enum SettingChoice {
     Title(bool),
     ReduceMotion(bool),
     AutoLock(u32),
+    Beam(LogoBeam),
     UpdateCheck(bool),
 }
 
@@ -1835,6 +1844,7 @@ fn transcription_note(state: &State, level: Level) -> Option<String> {
             | Setting::Density
             | Setting::Timestamps
             | Setting::ReduceMotion
+            | Setting::Beam
             | Setting::Bell
             | Setting::Title
             | Setting::Desktop
@@ -1934,6 +1944,10 @@ fn value_detail(state: &State, choice: SettingChoice) -> &'static str {
             TranscribeMode::Local => "Whisper on this computer",
             TranscribeMode::Remote => "an API you choose; each chat asks first",
         },
+        SettingChoice::Beam(beam) => match beam {
+            LogoBeam::Ambient => "colour follows connection state, density follows unread pressure",
+            LogoBeam::Static => "fixed warm lamp colour and standard fan",
+        },
         SettingChoice::Colors(_)
         | SettingChoice::Layout(_)
         | SettingChoice::BubbleStyle(_)
@@ -1992,18 +2006,6 @@ fn presets(
     reason = "flat match over every Setting variant's choice list"
 )]
 fn values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)> {
-    let on_off = |make: fn(bool) -> SettingChoice, current: bool| {
-        [true, false]
-            .into_iter()
-            .map(|on| {
-                (
-                    make(on),
-                    if on { "on" } else { "off" }.into(),
-                    on == current,
-                )
-            })
-            .collect()
-    };
     match setting {
         Setting::Colors => ColorChoice::ALL
             .iter()
@@ -2022,6 +2024,7 @@ fn values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)>
             state.config.ui.emoji,
             SettingChoice::Emoji,
         ),
+        Setting::Beam => choice_values(LogoBeam::ALL, state.config.beam, SettingChoice::Beam),
         Setting::Layout => MessageLayout::ALL
             .iter()
             .map(|&l| {
@@ -2057,7 +2060,6 @@ fn values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)>
             state.config.notifications.privacy,
             SettingChoice::Privacy,
         ),
-        Setting::Allowlist => on_off(SettingChoice::Allowlist, state.list.allowlist),
         Setting::SidebarWidth => sidebar_widths(state),
         Setting::Avatars => avatar_values(state),
         Setting::InlineImages => inline_images_values(state),
@@ -2077,17 +2079,15 @@ fn values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)>
             state.config.voice.transcribe,
             SettingChoice::Transcribe,
         ),
-        Setting::TranscribeAuto => on_off(
-            SettingChoice::TranscribeAuto,
-            state.config.voice.auto_transcribe,
-        ),
         Setting::TranscribeMaxSecs
         | Setting::TranscribeModel
         | Setting::TranscribeCommand
         | Setting::TranscribeRemoteModel
         | Setting::TranscribeEndpoint
         | Setting::TranscribeLanguage => transcription_values(state, setting),
-        Setting::ReduceMotion
+        Setting::Allowlist
+        | Setting::TranscribeAuto
+        | Setting::ReduceMotion
         | Setting::BubblePadding
         | Setting::MatchWidths
         | Setting::Bell
@@ -2136,6 +2136,11 @@ fn sidebar_widths(state: &State) -> Vec<(SettingChoice, String, bool)> {
 fn switch_values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)> {
     let config = &state.config;
     let (make, current): (fn(bool) -> SettingChoice, bool) = match setting {
+        Setting::Allowlist => (SettingChoice::Allowlist, state.list.allowlist),
+        Setting::TranscribeAuto => (
+            SettingChoice::TranscribeAuto,
+            config.voice.auto_transcribe,
+        ),
         Setting::ReduceMotion => (SettingChoice::ReduceMotion, config.reduce_motion),
         Setting::BubblePadding => (SettingChoice::BubblePadding, config.messages.bubble_padding),
         Setting::MatchWidths => (SettingChoice::MatchWidths, config.messages.match_widths),
@@ -2158,19 +2163,18 @@ fn switch_values(state: &State, setting: Setting) -> Vec<(SettingChoice, String,
         Setting::UpdateCheck => (SettingChoice::UpdateCheck, config.updates.check),
         Setting::Colors
         | Setting::Emoji
+        | Setting::Beam
         | Setting::Layout
         | Setting::BubbleStyle
         | Setting::Density
         | Setting::Timestamps
         | Setting::Desktop
         | Setting::Privacy
-        | Setting::Allowlist
         | Setting::Avatars
         | Setting::SidebarWidth
         | Setting::InlineImages
         | Setting::AutoDownload
         | Setting::Transcribe
-        | Setting::TranscribeAuto
         | Setting::TranscribeMaxSecs
         | Setting::TranscribeModel
         | Setting::TranscribeLanguage
@@ -2241,6 +2245,7 @@ fn transcription_values(state: &State, setting: Setting) -> Vec<(SettingChoice, 
             .collect(),
         Setting::Colors
         | Setting::Emoji
+        | Setting::Beam
         | Setting::Layout
         | Setting::BubbleStyle
         | Setting::BubblePadding

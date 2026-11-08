@@ -1,7 +1,9 @@
 //! The command palette (M4 task 8, D44).
 
 use crate::app::term_event::{MouseButton, MouseEvent, MouseEventKind};
-use faro_core::config::{BubbleStyle, ColorChoice, ConfigValue, EmojiChoice, SettingEdit, key};
+use faro_core::config::{
+    BubbleStyle, ColorChoice, ConfigValue, EmojiChoice, LogoBeam, SettingEdit, key,
+};
 use faro_core::store::ConversationState;
 use ratatui::layout::Rect;
 
@@ -254,12 +256,13 @@ fn prefixes_jump_into_a_category() {
 }
 
 /// `Settings ›` with nothing typed: every setting under its section.
-const SETTINGS_LIST: [&str; 43] = [
+const SETTINGS_LIST: [&str; 44] = [
     "Appearance",
     "Colours",
     "Emoji",
     "Sidebar width",
     "Reduce motion",
+    "Logo beam",
     "Messages",
     "Message layout",
     "Timestamps",
@@ -386,7 +389,7 @@ fn headers_are_skipped() {
     press(&mut state, KeyCode::Down);
     press(&mut state, KeyCode::Down);
     assert_eq!(selected_title(&state), "Colours", "wraps past Appearance");
-    for _ in 0..6 {
+    for _ in 0..7 {
         press(&mut state, KeyCode::Down);
     }
     assert_eq!(selected_title(&state), "Bell", "skips Notifications");
@@ -1168,8 +1171,27 @@ fn left_and_right_cycle_setting_values_in_place_at_settings_level() {
         "16 (system theme)"
     );
 
+    // Move down to Logo beam and cycle with Right and Left.
+    for _ in 0..4 {
+        press(&mut state, KeyCode::Down);
+    }
+    assert_eq!(selected_title(&state), "Logo beam");
+    assert_eq!(state.config.beam, LogoBeam::Ambient);
+    let effects = update(&mut state, key(KeyCode::Right, KeyModifiers::NONE));
+    assert_eq!(state.config.beam, LogoBeam::Static);
+    assert_eq!(
+        effects,
+        vec![saved(key::BEAM, ConfigValue::Text("static".into()))]
+    );
+    let effects = update(&mut state, key(KeyCode::Left, KeyModifiers::NONE));
+    assert_eq!(state.config.beam, LogoBeam::Ambient);
+    assert_eq!(
+        effects,
+        vec![saved(key::BEAM, ConfigValue::Text("ambient".into()))]
+    );
+
     // Move down to Bell (a switch) and cycle with Right and Left.
-    for _ in 0..6 {
+    for _ in 0..3 {
         press(&mut state, KeyCode::Down);
     }
     assert_eq!(selected_title(&state), "Bell");
@@ -1185,56 +1207,32 @@ fn left_and_right_cycle_setting_values_in_place_at_settings_level() {
     press(&mut state, KeyCode::Down);
     press(&mut state, KeyCode::Down);
     assert_eq!(selected_title(&state), "Desktop notifications");
-    assert_eq!(
-        state.config.notifications.desktop,
-        DesktopNotifications::Auto
-    );
+    assert_eq!(state.config.notifications.desktop, DesktopNotifications::Auto);
     let effects = update(&mut state, key(KeyCode::Right, KeyModifiers::NONE));
-    assert_eq!(
-        state.config.notifications.desktop,
-        DesktopNotifications::Osc
-    );
+    assert_eq!(state.config.notifications.desktop, DesktopNotifications::Osc);
     assert_eq!(
         effects,
         vec![saved(key::DESKTOP, ConfigValue::Text("osc".into()))]
     );
     update(&mut state, key(KeyCode::Right, KeyModifiers::NONE));
-    assert_eq!(
-        state.config.notifications.desktop,
-        DesktopNotifications::Native
-    );
+    assert_eq!(state.config.notifications.desktop, DesktopNotifications::Native);
     update(&mut state, key(KeyCode::Right, KeyModifiers::NONE));
-    assert_eq!(
-        state.config.notifications.desktop,
-        DesktopNotifications::Off
-    );
+    assert_eq!(state.config.notifications.desktop, DesktopNotifications::Off);
     update(&mut state, key(KeyCode::Right, KeyModifiers::NONE));
-    assert_eq!(
-        state.config.notifications.desktop,
-        DesktopNotifications::Auto
-    );
+    assert_eq!(state.config.notifications.desktop, DesktopNotifications::Auto);
 
     // Move down to Notification privacy and cycle backward: Sender -> None -> Preview.
     press(&mut state, KeyCode::Down);
     assert_eq!(selected_title(&state), "Notification privacy");
-    assert_eq!(
-        state.config.notifications.privacy,
-        NotificationPrivacy::Sender
-    );
+    assert_eq!(state.config.notifications.privacy, NotificationPrivacy::Sender);
     let effects = update(&mut state, key(KeyCode::Left, KeyModifiers::NONE));
-    assert_eq!(
-        state.config.notifications.privacy,
-        NotificationPrivacy::None
-    );
+    assert_eq!(state.config.notifications.privacy, NotificationPrivacy::None);
     assert_eq!(
         effects,
         vec![saved(key::PRIVACY, ConfigValue::Text("none".into()))]
     );
     update(&mut state, key(KeyCode::Left, KeyModifiers::NONE));
-    assert_eq!(
-        state.config.notifications.privacy,
-        NotificationPrivacy::Preview
-    );
+    assert_eq!(state.config.notifications.privacy, NotificationPrivacy::Preview);
 
     // Backspace on an empty query still goes back to Root.
     press(&mut state, KeyCode::Backspace);

@@ -21,6 +21,7 @@ mod art;
 #[cfg(test)]
 mod tests;
 
+pub use art::Beam;
 use art::{Art, LIGHTHOUSE_HEIGHT, LIGHTHOUSE_WIDTH, Picture, SMALL_HEIGHT, SMALL_WIDTH};
 
 /// Seconds into the animation the still picture shows (the prototype's
@@ -132,7 +133,8 @@ pub fn render(
     geometry: &mut Geometry,
 ) {
     let theme = view.theme;
-    let art = Art::new(theme, state.colors());
+    let beam = Beam::from_state(state, view.now_timestamp());
+    let art = Art::new(theme, state.colors()).map(|a| a.with_beam(theme, beam));
     let tagline = width_of(TAGLINE);
     let mut notes = notes(state, geometry);
     let tier = choose(area, art.is_some(), tagline, &mut notes);
@@ -149,7 +151,7 @@ pub fn render(
             draw_stacked(buffer, area, block, (art, scale, t), theme, &version);
         }
         (Tier::Full | Tier::Stacked(_), None) | (Tier::Small, _) => {
-            draw_small(buffer, area, block, theme, &version);
+            draw_small(buffer, area, block, beam, theme, &version);
         }
         (Tier::Word, _) => draw_text(buffer, area, centred(area, w), top, WORD, brand(theme)),
     }
@@ -298,8 +300,15 @@ fn draw_stacked(
     }
 }
 
-fn draw_small(buffer: &mut Buffer, area: Rect, block: Rect, theme: &Theme, version: &str) {
-    let picture = art::small(theme);
+fn draw_small(
+    buffer: &mut Buffer,
+    area: Rect,
+    block: Rect,
+    beam: Beam,
+    theme: &Theme,
+    version: &str,
+) {
+    let picture = art::small_with_beam(theme, beam);
     if block.width > SMALL_WIDTH {
         // Beside: the word level with the tower, the tagline under it.
         draw_picture(buffer, area, block.x, block.y, &picture, theme);

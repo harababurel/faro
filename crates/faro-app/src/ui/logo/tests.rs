@@ -157,3 +157,79 @@ fn the_largest_form_that_fits_with_its_hints() {
     // The terminal's own colours: never the big picture.
     assert_eq!(tier(200, 60, false), (Tier::Small, 4));
 }
+
+#[test]
+fn ambient_beam_recolours_by_connection_state_and_scales_density_by_unread_pressure() {
+    use super::Beam;
+    use faro_core::domain::ConnectionState;
+
+    let theme = Theme::faro_dark();
+    let base = on(&theme, ColorDepth::Truecolor);
+
+    let states = [
+        ConnectionState::Connected,
+        ConnectionState::Connecting,
+        ConnectionState::Disconnected,
+        ConnectionState::Unlinked,
+    ];
+    // Lamp pixel (col 20, row 2) and beam cells (x > 21, y <= 6) change colour across all four
+    // connection states, and `Beam::Static` preserves the fixed prototype picture.
+    let static_pic = base.with_beam(&theme, Beam::Static).lighthouse(STILL);
+    assert_eq!(static_pic, base.lighthouse(STILL));
+
+    let lamp_colours: Vec<Color> = states
+        .iter()
+        .map(|&connection| {
+            let pic = base
+                .with_beam(&theme, Beam::Ambient { connection, unread: 2 })
+                .lighthouse(STILL);
+            pic.get(20, 2).expect("lamp cell").fg
+        })
+        .collect();
+    for (i, a) in lamp_colours.iter().enumerate() {
+        for b in &lamp_colours[i + 1..] {
+            assert_ne!(a, b, "each ConnectionState has a distinct lamp colour: {lamp_colours:?}");
+        }
+    }
+
+    // Small lighthouse lamp row (y == 1) also tracks all four connection states.
+    let small_lamps: Vec<Color> = states
+        .iter()
+        .map(|&connection| {
+            art::small_with_beam(&theme, Beam::Ambient { connection, unread: 0 })
+                .get(4, 1)
+                .expect("small lamp cell")
+                .fg
+        })
+        .collect();
+    assert_eq!(
+        small_lamps,
+        vec![theme.success, theme.warning, theme.error, theme.border]
+    );
+
+    // Unread pressure monotonically increases the number of lit braille dots in the beam fan
+    // (to the right of the tower: x >= 22, y <= 6).
+    let beam_dots = |unread: u32| -> u32 {
+        let pic = base
+            .with_beam(
+                &theme,
+                Beam::Ambient {
+                    connection: ConnectionState::Connected,
+                    unread,
+                },
+            )
+            .lighthouse(STILL);
+        pic.glyphs()
+            .filter(|&(x, y, g)| x >= 22 && y <= 6 && ('\u{2801}'..='\u{28FF}').contains(&g.symbol))
+            .map(|(_, _, g)| (u32::from(g.symbol) - 0x2800).count_ones())
+            .sum()
+    };
+    let d0 = beam_dots(0);
+    let d2 = beam_dots(2);
+    let d6 = beam_dots(6);
+    let d15 = beam_dots(15);
+    assert!(
+        d0 < d2 && d2 < d6 && d6 < d15,
+        "beam braille dot density scales with unread pressure: 0={d0}, 2={d2}, 6={d6}, 15={d15}"
+    );
+}

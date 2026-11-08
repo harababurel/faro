@@ -14,14 +14,14 @@ expression: "snapshot(&draw(&with_palette(\":\"), 100, 30))"
 │           │   Emoji ›                                                           auto │           │
 │           │   Sidebar width ›                                           30 (default) │────────── │
 │           │   Reduce motion                                                      off │hursday?   │
-│           │ Messages                                                                 │ss         │
+│           │   Logo beam ›                                                    ambient │ss         │
+│           │ Messages                                                                 │           │
 │           │   Message layout ›                                                 * IRC │           │
 │           │   Timestamps ›                                                * absolute │           │
 │           │ Bubbles                                                                  │           │
-│           │   Bubble style                                       bubbles layout only │           │
-│           │   Bubble padding                                     bubbles layout only │────────── │
-│           │   Match bubble widths                                bubbles layout only │ast week   │
-│           │   Message density                                    bubbles layout only │bring your │
+│           │   Bubble style                                       bubbles layout only │────────── │
+│           │   Bubble padding                                     bubbles layout only │ast week   │
+│           │   Match bubble widths                                bubbles layout only │bring your │
 │           ╰──────────────────────────────────────────────────────────────────────────╯for your   │
 │                            ││                  fingers.                                          │
 │                            ││ 17:54        You On my way ✓                                       │

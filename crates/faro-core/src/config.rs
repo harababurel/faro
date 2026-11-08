@@ -221,11 +221,26 @@ choice! {
     }
 }
 
+choice! {
+    /// How the startup lighthouse's lamp and beam reflect app state.
+    LogoBeam {
+        /// Beam colour tracks the connection state; beam density tracks unread pressure.
+        #[default]
+        Ambient = "ambient",
+        /// Fixed warm lamp colour and standard beam fan.
+        Static = "static",
+    }
+}
+
+/// Alias for [`LogoBeam`].
+pub type BeamChoice = LogoBeam;
+
 /// Everything the config file sets. `Default` is what faro does without one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
     pub theme: String,
     pub reduce_motion: bool,
+    pub beam: LogoBeam,
     pub ui: Ui,
     pub conversations: Conversations,
     pub messages: Messages,
@@ -435,6 +450,7 @@ impl Default for Config {
         Self {
             theme: DEFAULT_THEME.to_owned(),
             reduce_motion: false,
+            beam: LogoBeam::default(),
             ui: Ui::default(),
             conversations: Conversations::default(),
             messages: Messages::default(),
@@ -458,6 +474,7 @@ impl Default for Config {
 pub mod key {
     pub const THEME: &str = "theme";
     pub const REDUCE_MOTION: &str = "reduce_motion";
+    pub const BEAM: &str = "beam";
     pub const EMOJI: &str = "ui.emoji";
     pub const COLORS: &str = "ui.colors";
     pub const SIDEBAR_WIDTH: &str = "ui.sidebar_width";
@@ -582,6 +599,17 @@ pub static SETTINGS: &[Setting] = &[
         get: |c| ConfigValue::Bool(c.reduce_motion),
         set: |c, v| {
             c.reduce_motion = boolean(v)?;
+            Ok(())
+        },
+    },
+    Setting {
+        path: key::BEAM,
+        help: "Lighthouse beam while no chat is open: \"ambient\" (beam colour follows \
+               connection state and density follows unread pressure) or \"static\" (fixed \
+               warm lamp colour and fan).",
+        get: |c| text(c.beam),
+        set: |c, v| {
+            c.beam = choice(v)?;
             Ok(())
         },
     },
@@ -943,11 +971,18 @@ const PLANNED: &[&str] = &[];
 
 /// Settings that were renamed: still read (with a warning) when the new name
 /// isn't set.
-const RENAMED: &[Renamed] = &[Renamed {
-    old: "messages.bubble_corners",
-    new: key::BUBBLE_STYLE,
-    values: &[("rounded", "rounded"), ("square", "bar")],
-}];
+const RENAMED: &[Renamed] = &[
+    Renamed {
+        old: "messages.bubble_corners",
+        new: key::BUBBLE_STYLE,
+        values: &[("rounded", "rounded"), ("square", "bar")],
+    },
+    Renamed {
+        old: "ui.beam",
+        new: key::BEAM,
+        values: &[("ambient", "ambient"), ("static", "static")],
+    },
+];
 
 /// A renamed setting: its old path, the new one, and old values → new ones.
 struct Renamed {

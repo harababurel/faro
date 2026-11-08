@@ -48,6 +48,8 @@ fn uncommenting_every_default_changes_nothing() {
 fn key_constants_name_settings() {
     for path in [
         key::THEME,
+        key::REDUCE_MOTION,
+        key::BEAM,
         key::EMOJI,
         key::SIDEBAR_WIDTH,
         key::ALLOWLIST,

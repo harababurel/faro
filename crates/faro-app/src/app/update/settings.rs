@@ -4,7 +4,7 @@
 
 use faro_core::config::{
     self, AutoDownload, Avatars, BubbleStyle, Config, DesktopNotifications, EmojiChoice,
-    InlineImages, MessageDensity, NotificationPrivacy, Problem, SIDEBAR_WIDTH_MAX,
+    InlineImages, LogoBeam, MessageDensity, NotificationPrivacy, Problem, SIDEBAR_WIDTH_MAX,
     SIDEBAR_WIDTH_MIN, Severity, TimestampFormat, TranscribeMode, key,
 };
 
@@ -264,6 +264,7 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
             save_with_notice(state, key::TIMESTAMPS, msg)
         }
         SettingChoice::Allowlist(on) => curation::set_allowlist_mode(state, on),
+        SettingChoice::Beam(beam) => choose_beam(state, beam),
         SettingChoice::Emoji(emoji) => {
             state.config.ui.emoji = emoji;
             let mut effects = apply_emoji(state);
@@ -327,6 +328,17 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
     }
 }
 
+fn choose_beam(state: &mut State, beam: LogoBeam) -> Vec<Effect> {
+    state.config.beam = beam;
+    let msg = match beam {
+        LogoBeam::Ambient => {
+            "Logo beam: colour follows connection state, density follows unread pressure"
+        }
+        LogoBeam::Static => "Logo beam: fixed warm lamp colour and standard fan",
+    };
+    save_with_notice(state, key::BEAM, msg)
+}
+
 fn choose_media_and_notifications(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
     match choice {
         SettingChoice::Desktop(mode) => {
@@ -388,6 +400,7 @@ fn choose_media_and_notifications(state: &mut State, choice: SettingChoice) -> V
         }
         SettingChoice::Colors(_)
         | SettingChoice::Emoji(_)
+        | SettingChoice::Beam(_)
         | SettingChoice::Layout(_)
         | SettingChoice::BubbleStyle(_)
         | SettingChoice::Density(_)
@@ -481,6 +494,7 @@ fn choose_transcription(state: &mut State, choice: SettingChoice) -> Vec<Effect>
         }
         SettingChoice::Colors(_)
         | SettingChoice::Emoji(_)
+        | SettingChoice::Beam(_)
         | SettingChoice::Layout(_)
         | SettingChoice::BubbleStyle(_)
         | SettingChoice::Density(_)
@@ -605,6 +619,7 @@ pub fn set_text(state: &mut State, setting: Setting, text: &str) -> Vec<Effect> 
         }
         Setting::Colors
         | Setting::Emoji
+        | Setting::Beam
         | Setting::Layout
         | Setting::BubbleStyle
         | Setting::BubblePadding
@@ -718,6 +733,7 @@ fn choose_toggle(state: &mut State, choice: SettingChoice, on: bool) -> Vec<Effe
         SettingChoice::UpdateCheck(_) => choose_update_check(state, on),
         SettingChoice::Colors(_)
         | SettingChoice::Emoji(_)
+        | SettingChoice::Beam(_)
         | SettingChoice::Desktop(_)
         | SettingChoice::Privacy(_)
         | SettingChoice::Layout(_)

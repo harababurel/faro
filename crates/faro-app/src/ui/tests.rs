@@ -2459,3 +2459,54 @@ fn system_lines_render_in_irc_bubbles_sidebar_and_info_popup() {
     );
     assert_drawable(&compatible(state), 120, 32);
 }
+
+#[test]
+fn logo_beam_tracks_connection_state_and_unread_pressure_unless_static() {
+    use faro_core::config::LogoBeam;
+    use faro_core::domain::ConnectionState;
+
+    let theme = Theme::default();
+    let mut state = logo_state();
+    assert_eq!(state.config.beam, LogoBeam::Ambient);
+
+    // Connected vs Disconnected recolours the lighthouse beam on the rendered screen.
+    state.connection = ConnectionState::Connected;
+    let connected_buf = draw_with(&state, 140, 24, &theme);
+    state.connection = ConnectionState::Disconnected;
+    let disconnected_buf = draw_with(&state, 140, 24, &theme);
+    assert_ne!(
+        connected_buf.content, disconnected_buf.content,
+        "ambient beam recolours when connection state changes"
+    );
+
+    // Zero unread vs high unread pressure changes the rendered braille beam density.
+    state.connection = ConnectionState::Connected;
+    for summary in &mut state.conversations {
+        summary.unread = 0;
+    }
+    let calm_text = snapshot(&draw_with(&state, 140, 24, &theme));
+    state.conversations[0].unread = 12;
+    let busy_text = snapshot(&draw_with(&state, 140, 24, &theme));
+    assert_ne!(
+        calm_text, busy_text,
+        "ambient beam density changes between 0 and 12 unread messages"
+    );
+
+    // `beam = "static"` keeps the fixed logo regardless of connection state or unread count.
+    state.config.beam = LogoBeam::Static;
+    state.connection = ConnectionState::Connected;
+    state.conversations[0].unread = 0;
+    let static_calm = draw_with(&state, 140, 24, &theme);
+    state.connection = ConnectionState::Disconnected;
+    state.conversations[0].unread = 20;
+    let static_busy = draw_with(&state, 140, 24, &theme);
+    for y in 2..15 {
+        for x in 32..80 {
+            assert_eq!(
+                static_calm[(x, y)],
+                static_busy[(x, y)],
+                "beam=static keeps the lighthouse picture fixed at ({x}, {y})"
+            );
+        }
+    }
+}

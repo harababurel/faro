@@ -9,9 +9,38 @@
 //! Only `▀ ▄ █`, braille and spaces are drawn: one cell wide in every
 //! terminal, tmux and mosh measure (`tests::only_single_cell_symbols`).
 
+use faro_core::config::LogoBeam;
+use faro_core::domain::{ConnectionState, Timestamp};
 use ratatui::style::Color;
 
+use crate::app::state::State;
 use crate::theme::{ColorDepth, Rgb, Theme, indexed_rgb, luminance, nearest_256};
+
+/// How the lighthouse's lamp and beam reflect app state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Beam {
+    /// Fixed warm lamp colour and standard fan (`beam = "static"`).
+    #[default]
+    Static,
+    /// Beam colour tracks `connection`; beam density tracks `unread`.
+    Ambient {
+        connection: ConnectionState,
+        unread: u32,
+    },
+}
+
+impl Beam {
+    /// The beam state to draw for `state` at `now`.
+    pub fn from_state(state: &State, now: Timestamp) -> Self {
+        match state.logo_beam() {
+            LogoBeam::Static => Self::Static,
+            LogoBeam::Ambient => Self::Ambient {
+                connection: state.connection,
+                unread: state.unread_total(now),
+            },
+        }
+    }
+}
 
 /// One cell of a picture.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,6 +126,8 @@ pub struct Art {
     background: Rgb,
     light: bool,
     depth: ColorDepth,
+    lamp: Option<Rgb>,
+    beam: Beam,
 }
 
 /// The logo's colours on a dark and on a light background. On a light one
@@ -149,7 +180,30 @@ impl Art {
             background,
             light: luminance(background) > LIGHT,
             depth,
+            lamp: None,
+            beam: Beam::Static,
         })
+    }
+
+    /// Recolour the lamp and beam for `beam` using `theme`'s connection-state
+    /// roles, and scale the beam's density by unread pressure.
+    #[must_use]
+    pub fn with_beam(mut self, theme: &Theme, beam: Beam) -> Self {
+        self.beam = beam;
+        self.lamp = match beam {
+            Beam::Static => None,
+            Beam::Ambient { connection, .. } => rgb(match connection {
+                ConnectionState::Connected => theme.success,
+                ConnectionState::Connecting => theme.warning,
+                ConnectionState::Disconnected => theme.error,
+                ConnectionState::Unlinked => theme.text_muted,
+            }),
+        };
+        self
+    }
+
+    fn lamp_colour(self) -> Rgb {
+        self.lamp.unwrap_or_else(|| self.colours().lamp)
     }
 
     fn colours(self) -> &'static Colours {
@@ -185,9 +239,17 @@ impl Art {
         }
         let theta = t * 1.4;
         let glow = 0.6 + 0.4 * theta.sin().max(0.0);
+        let lamp_colour = self.lamp_colour();
+        let lamp_strength = match self.beam {
+            Beam::Ambient {
+                connection: ConnectionState::Unlinked,
+                ..
+            } => 0.35 + 0.25 * glow,
+            Beam::Static | Beam::Ambient { .. } => 0.55 + 0.45 * glow,
+        };
         for y in 4..=6 {
             for x in -1..=1 {
-                let lamp = self.fade(colours.lamp, 0.55 + 0.45 * glow);
+                let lamp = self.fade(lamp_colour, lamp_strength);
                 scene.pixel(cx + f64::from(x), f64::from(y), lamp);
             }
         }
@@ -214,23 +276,23 @@ impl Art {
     /// makes it (it points at the viewer, then away).
     fn beam(self, scene: &mut Scene, cx: f64, theta: f64) {
         let (bx, by) = (2.0 * cx + 1.0, 10.0);
-        let length = theta.cos() * 38.0;
-        if length.abs() <= 1.0 {
+        let profile = BeamProfile::for_beam(self.beam, theta.cos() * 38.0);
+        if profile.length.abs() <= 1.0 {
             return;
         }
-        let spread = 2.0 + length.abs() / 7.0;
-        let lamp = self.colours().lamp;
-        let strength = 0.45 + 0.55 * theta.sin().max(0.0);
-        let reach = floor(spread).unwrap_or(0);
+        let lamp = self.lamp_colour();
+        let strength = ((0.45 + 0.55 * theta.sin().max(0.0)) * profile.strength_scale).min(1.0);
+        let reach = floor(profile.spread).unwrap_or(0);
         for s in -reach..=reach {
-            let frac = f64::from(s.abs()) / (spread + 1.0);
+            let frac = f64::from(s.abs()) / (profile.spread + 1.0);
             let near = self.fade(lamp, strength * (1.0 - 0.6 * frac));
-            let far = self.fade(lamp, strength * 0.2);
-            scene.line(
+            let far = self.fade(lamp, strength * profile.far_fade);
+            scene.line_stepped(
                 (bx, by),
-                (bx + length, by + f64::from(s)),
+                (bx + profile.length, by + f64::from(s)),
                 (near, far),
                 0.3 - frac * 0.1,
+                profile.step,
             );
         }
     }
@@ -270,6 +332,50 @@ impl Art {
             left += GLYPH_WIDTH * scale + scale;
         }
         scene.picture(|c| self.draw(c))
+    }
+}
+
+/// Geometry and intensity parameters for the lighthouse beam fan.
+struct BeamProfile {
+    length: f64,
+    spread: f64,
+    step: usize,
+    strength_scale: f64,
+    far_fade: f64,
+}
+
+impl BeamProfile {
+    fn for_beam(beam: Beam, raw_length: f64) -> Self {
+        match beam {
+            Beam::Static => Self {
+                length: raw_length,
+                spread: 2.0 + raw_length.abs() / 7.0,
+                step: 1,
+                strength_scale: 1.0,
+                far_fade: 0.2,
+            },
+            Beam::Ambient { connection, unread } => {
+                let (length_scale, conn_strength) = match connection {
+                    ConnectionState::Connected | ConnectionState::Connecting => (1.0, 1.0),
+                    ConnectionState::Disconnected => (1.0, 0.85),
+                    ConnectionState::Unlinked => (0.55, 0.6),
+                };
+                let length = raw_length * length_scale;
+                let (spread, step, unread_strength, far_fade) = match unread {
+                    0 => (1.0 + length.abs() / 14.0, 2, 0.8, 0.15),
+                    1..=3 => (2.0 + length.abs() / 7.0, 1, 1.0, 0.2),
+                    4..=9 => (3.5 + length.abs() / 5.5, 1, 1.1, 0.3),
+                    10.. => (5.0 + length.abs() / 4.2, 1, 1.25, 0.4),
+                };
+                Self {
+                    length,
+                    spread,
+                    step,
+                    strength_scale: conn_strength * unread_strength,
+                    far_fade,
+                }
+            }
+        }
     }
 }
 
@@ -313,12 +419,26 @@ const SMALL: [(&str, Part); SMALL_HEIGHT as usize] = [
 /// The small lighthouse in `theme`'s colours: red and white are its error
 /// and text colours, the lamp its warning colour, stone its border colour.
 pub fn small(theme: &Theme) -> Picture {
+    small_with_beam(theme, Beam::Static)
+}
+
+/// The small lighthouse with its lamp coloured for `beam`.
+pub fn small_with_beam(theme: &Theme, beam: Beam) -> Picture {
+    let lamp = match beam {
+        Beam::Static => theme.warning,
+        Beam::Ambient { connection, .. } => match connection {
+            ConnectionState::Connected => theme.success,
+            ConnectionState::Connecting => theme.warning,
+            ConnectionState::Disconnected => theme.error,
+            ConnectionState::Unlinked => theme.border,
+        },
+    };
     let mut cells = Vec::with_capacity(usize::from(SMALL_WIDTH * SMALL_HEIGHT));
     for (row, part) in SMALL {
         let fg = match part {
             Part::Red => theme.error,
             Part::White => theme.text,
-            Part::Lamp => theme.warning,
+            Part::Lamp => lamp,
             Part::Stone => theme.border,
         };
         cells.extend(row.chars().map(|symbol| {
@@ -376,11 +496,18 @@ impl Scene {
     }
 
     /// A line of dots from `from` to `to`, its colour going from the first
-    /// of `colours` to the second.
-    fn line(&mut self, from: (f64, f64), to: (f64, f64), colours: (Rgb, Rgb), priority: f64) {
+    /// of `colours` to the second, plotting every `step`-th dot along the ray.
+    fn line_stepped(
+        &mut self,
+        from: (f64, f64),
+        to: (f64, f64),
+        colours: (Rgb, Rgb),
+        priority: f64,
+        step: usize,
+    ) {
         let (dx, dy) = (to.0 - from.0, to.1 - from.1);
         let steps = floor(dx.abs().max(dy.abs())).unwrap_or(0) + 1;
-        for k in 0..=steps {
+        for k in (0..=steps).step_by(step.max(1)) {
             let t = f64::from(k) / f64::from(steps);
             let colour = lerp(colours.0, colours.1, t);
             self.dot(from.0 + dx * t, from.1 + dy * t, colour, priority);

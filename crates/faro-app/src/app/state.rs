@@ -1639,6 +1639,15 @@ impl State {
         }
     }
 
+    /// How the lighthouse's lamp and beam reflect app state: the value being
+    /// previewed in the palette (D59), else the config's `beam`.
+    pub fn logo_beam(&self) -> faro_core::config::LogoBeam {
+        match self.previewed() {
+            Some(SettingChoice::Beam(beam)) => beam,
+            Some(_) | None => self.config.beam,
+        }
+    }
+
     /// Whether the logo should move (D61): it's on screen (nothing is open),
     /// the terminal has focus and `reduce_motion` is off. It also needs the
     /// last frame to have drawn its moving form (`Geometry::logo_animated`;
