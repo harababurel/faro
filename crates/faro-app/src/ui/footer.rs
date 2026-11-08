@@ -244,7 +244,8 @@ fn hints(state: &State, geometry: &Geometry) -> Vec<(String, &'static str)> {
             | Level::People
             | Level::AttachFile
             | Level::ChatLinks
-            | Level::ForwardTo(_) => PALETTE_LEVEL_HINTS,
+            | Level::ForwardTo(_)
+            | Level::ReleaseNotes => PALETTE_LEVEL_HINTS,
         });
     }
     if let Some(popup) = &state.popup {

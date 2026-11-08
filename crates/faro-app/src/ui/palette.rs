@@ -160,7 +160,8 @@ fn draw_query(frame: &mut Frame<'_>, area: Rect, palette: &Palette, view: &View<
         | Level::SettingText(_)
         | Level::AttachFile
         | Level::ChatLinks
-        | Level::ForwardTo(_) => BACK_HINT,
+        | Level::ForwardTo(_)
+        | Level::ReleaseNotes => BACK_HINT,
     };
     if text.is_empty() && usize::from(area.width) > width(hint) + 20 {
         let gap = usize::from(area.width) - 3 - width(hint) - 1;

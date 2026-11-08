@@ -79,7 +79,12 @@ async fn latest() -> Result<Release, String> {
     parse(&body)
 }
 
-/// The release in GitHub's answer: its tag and when it was published.
+/// Maximum bytes of markdown release notes cached in `updates.latest`.
+#[cfg(feature = "update-check")]
+const MAX_NOTES: usize = 16 * 1024;
+
+/// The release in GitHub's answer: its tag, when it was published, and its
+/// markdown notes (`body`).
 #[cfg(feature = "update-check")]
 fn parse(body: &[u8]) -> Result<Release, String> {
     let value: serde_json::Value =
@@ -101,10 +106,25 @@ fn parse(body: &[u8]) -> Result<Release, String> {
         .parse::<jiff::Timestamp>()
         .map_err(|e| format!("published_at {published:?}: {e}"))?
         .as_second();
-    Ok(Release {
-        version,
-        published_at,
-    })
+    let raw_notes = value
+        .get("body")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .trim();
+    let notes = truncate_utf8(raw_notes, MAX_NOTES).to_owned();
+    Ok(Release::with_notes(version, published_at, notes))
+}
+
+#[cfg(feature = "update-check")]
+fn truncate_utf8(text: &str, max_bytes: usize) -> &str {
+    if text.len() <= max_bytes {
+        return text;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text.get(..end).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -115,7 +135,8 @@ mod tests {
     #[test]
     fn github_s_answer_gives_the_version_and_date() {
         let body = br#"{"tag_name":"v0.2.0","name":"faro 0.2.0","draft":false,
-            "prerelease":false,"published_at":"2026-10-20T09:30:00Z","assets":[]}"#;
+            "prerelease":false,"published_at":"2026-10-20T09:30:00Z",
+            "body":"- Added offline release notes\n- Added digest","assets":[]}"#;
         let release = parse(body).unwrap();
         assert_eq!(release.version.to_string(), "0.2.0");
         assert_eq!(
@@ -124,6 +145,10 @@ mod tests {
                 .parse::<jiff::Timestamp>()
                 .unwrap()
                 .as_second()
+        );
+        assert_eq!(
+            release.notes,
+            "- Added offline release notes\n- Added digest"
         );
     }
 

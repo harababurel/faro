@@ -67,6 +67,11 @@ fn on_state_loaded(
         return vec![];
     }
     if state.updates.latest.is_none() {
+        if let (Some(prev), Some(current)) = (latest.as_ref(), Version::current())
+            && prev.version < current
+        {
+            state.updates.since_version = Some(prev.version);
+        }
         state.updates.latest = latest;
     }
     evaluate(state, now);
@@ -96,7 +101,7 @@ fn on_checked(
     match result {
         Ok(release) => {
             tracing::info!(latest = %release.version, "update check done");
-            state.updates.latest = Some(release);
+            state.updates.latest = Some(release.clone());
             evaluate(state, now);
             schedule(state, CHECK_INTERVAL, (now, instant));
             vec![Effect::SaveUpdateState {
@@ -133,6 +138,7 @@ fn schedule(state: &mut State, after: Duration, (now, instant): (i64, Instant)) 
     let grace_left = state
         .updates
         .latest
+        .as_ref()
         .filter(|r| Version::current().is_some_and(|current| r.version > current))
         .and_then(|r| u64::try_from(r.published_at.saturating_add(GRACE_SECS) - now).ok())
         .filter(|&secs| secs > 0)
@@ -151,14 +157,16 @@ fn evaluate(state: &mut State, now: i64) {
     state.updates.available = state
         .updates
         .latest
+        .clone()
         .filter(|r| r.announceable(current, now));
-    let Some(release) = state.updates.available else {
+    let Some(release) = state.updates.available.as_ref() else {
         return;
     };
-    if state.updates.announced == Some(release.version) {
+    let version = release.version;
+    if state.updates.announced == Some(version) {
         return;
     }
-    state.updates.announced = Some(release.version);
+    state.updates.announced = Some(version);
     if state
         .notice
         .as_ref()
@@ -168,18 +176,43 @@ fn evaluate(state: &mut State, now: i64) {
     }
     state.notice = Some(Notice {
         text: format!(
-            "faro {} is available (you have {current}); release notes in Ctrl+P › Commands",
-            release.version
+            "faro {version} is available (you have {current}); release notes in Ctrl+P › Commands",
         ),
         level: NoticeLevel::Info,
         until: Some(Instant::now() + NOTICE_TIME),
     });
 }
 
-/// `PaletteCommand::ReleaseNotes`: the release notes, opened (or copied,
-/// over SSH).
+/// `PaletteCommand::ReleaseNotes`: render release notes and the "what's new
+/// since you" digest in the palette (`Level::ReleaseNotes`), or fall back to
+/// opening/copying the GitHub tag URL when the terminal is too small for
+/// legible notes (< 80×24) or when a remote release has no cached notes.
 pub fn release_notes(state: &mut State) -> Vec<Effect> {
-    let Some(url) = state.update_available().map(Release::url) else {
+    let cramped = state
+        .geometry
+        .palette
+        .is_some_and(|g| g.area.width < 60 || g.list.height < 5);
+    if cramped {
+        return open_release_url(state);
+    }
+    if let Some(release) = state.update_available()
+        && release.notes.trim().is_empty()
+        && !crate::app::updates::has_bundled_notes(release.version)
+    {
+        return open_release_url(state);
+    }
+    super::palette::open(state, crate::app::palette::Level::ReleaseNotes);
+    vec![]
+}
+
+/// `PaletteCommand::OpenReleaseUrl`: open (or copy, over SSH) the GitHub tag
+/// page for the available update, or for this build's version.
+pub fn open_release_url(state: &mut State) -> Vec<Effect> {
+    let url = state
+        .update_available()
+        .map(Release::url)
+        .or_else(|| Version::current().map(Release::url_for));
+    let Some(url) = url else {
         return vec![];
     };
     super::selection::open_shared_url(state, url)

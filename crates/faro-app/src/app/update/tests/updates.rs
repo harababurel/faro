@@ -12,14 +12,26 @@ use faro_core::store::Profile;
 
 /// Far newer than any real version.
 fn newer(published_at: i64) -> Release {
-    Release {
-        version: Version {
+    Release::new(
+        Version {
             major: 99,
             minor: 0,
             patch: 0,
         },
         published_at,
-    }
+    )
+}
+
+fn newer_with_notes(published_at: i64, notes: &str) -> Release {
+    Release::with_notes(
+        Version {
+            major: 99,
+            minor: 0,
+            patch: 0,
+        },
+        published_at,
+        notes,
+    )
 }
 
 fn now() -> i64 {
@@ -290,6 +302,119 @@ fn release_notes_open_the_tag_s_page() {
     assert_eq!(
         effects,
         vec![Effect::OpenUrl(format!(
+            "{}/releases/tag/v99.0.0",
+            crate::app::updates::REPOSITORY
+        ))]
+    );
+}
+
+#[test]
+fn cached_release_notes_and_digest_open_in_the_palette_and_respect_opt_out() {
+    use crate::app::palette::{ItemKind, Level, PaletteCommand};
+    use crate::app::state::PaletteGeometry;
+    use faro_core::config::TranscribeMode;
+    use ratatui::layout::Rect;
+
+    let mut state = state_with(true);
+    // User customized sidebar_width and local voice-note transcription, and
+    // upgraded from 0.1.7 stored in `updates.latest`.
+    state.config.ui.sidebar_width = 40;
+    state.config.voice.transcribe = TranscribeMode::Local;
+    let v017 = Version {
+        major: 0,
+        minor: 1,
+        patch: 7,
+    };
+    update(
+        &mut state,
+        AppEvent::Updates(UpdateEvent::StateLoaded {
+            checked_at: Some(now() - 60),
+            latest: Some(Release::new(v017, 0)),
+        }),
+    );
+    assert_eq!(state.updates.since_version, Some(v017));
+    assert_eq!(state.notice, None, "no second notice channel on upgrade");
+
+    // GitHub returns a newer release with markdown tag body notes.
+    let release = newer_with_notes(
+        0,
+        "## What's Changed\n\
+         - Added `sidebar_width` double-click reset on the border\n\
+         - Improved group sync performance\n",
+    );
+    let effects = update(
+        &mut state,
+        AppEvent::Updates(UpdateEvent::Checked(Ok(release.clone()))),
+    );
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::SaveUpdateState { latest, .. }] if latest.notes == release.notes
+    ));
+
+    // Running ReleaseNotes opens `Level::ReleaseNotes` in the palette.
+    let effects = reducer::release_notes(&mut state);
+    assert_eq!(effects, vec![]);
+    let palette = state.palette.as_ref().expect("palette opened");
+    assert_eq!(palette.level(), Level::ReleaseNotes);
+    let titles: Vec<&str> = palette.items.iter().map(|i| i.title.as_str()).collect();
+    assert!(
+        titles.contains(&"What's new for you · since 0.1.7"),
+        "{titles:?}"
+    );
+    assert!(titles.contains(&"faro 99.0.0 · available"), "{titles:?}");
+    assert!(
+        titles
+            .iter()
+            .any(|t| t.contains("Added sidebar_width double-click reset")),
+        "{titles:?}"
+    );
+    assert!(
+        titles.contains(&"Resizable conversation list via drag or keys"),
+        "personalized digest includes sidebar_width change since 0.1.7: {titles:?}"
+    );
+    assert!(
+        palette
+            .items
+            .iter()
+            .any(|i| i.kind == ItemKind::Command(PaletteCommand::OpenReleaseUrl)),
+        "includes GitHub release page action"
+    );
+
+    // Turning update checks off hides the cached remote release notes while
+    // keeping offline release notes accessible.
+    choose(&mut state, SettingChoice::UpdateCheck(false));
+    state.palette = None;
+    reducer::release_notes(&mut state);
+    let palette = state.palette.as_ref().expect("offline notes open");
+    assert!(
+        !palette.items.iter().any(|i| i.title.contains("99.0.0")),
+        "opt-out hides cached remote release"
+    );
+    assert!(
+        palette
+            .items
+            .iter()
+            .any(|i| i.title.starts_with("faro 0.1.10")),
+        "offline bundled notes remain available"
+    );
+
+    // If the terminal is too small for legible notes (< 80x24 palette box),
+    // `release_notes` falls back to opening/copying the tag URL.
+    choose(&mut state, SettingChoice::UpdateCheck(true));
+    update(
+        &mut state,
+        AppEvent::Updates(UpdateEvent::Checked(Ok(release))),
+    );
+    state.env.over_ssh = true;
+    state.geometry.palette = Some(PaletteGeometry {
+        area: Rect::new(0, 0, 48, 8),
+        list: Rect::new(1, 3, 46, 4),
+        offset: 0,
+    });
+    let effects = reducer::release_notes(&mut state);
+    assert_eq!(
+        effects,
+        vec![Effect::Copy(format!(
             "{}/releases/tag/v99.0.0",
             crate::app::updates::REPOSITORY
         ))]

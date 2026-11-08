@@ -161,6 +161,8 @@ pub enum Level {
     ChatLinks,
     /// Pick a conversation to forward a message to.
     ForwardTo(MessageRef),
+    /// In-app release notes and the "what's new since you" digest.
+    ReleaseNotes,
 }
 
 /// The sections of `Settings ›`, each under a header.
@@ -257,6 +259,7 @@ impl Level {
             Self::AttachFile => "Send a file",
             Self::ChatLinks => "Links & files",
             Self::ForwardTo(_) => "Forward to",
+            Self::ReleaseNotes => "Release notes",
         }
     }
 
@@ -276,7 +279,8 @@ impl Level {
             | Self::SettingText(_)
             | Self::AttachFile
             | Self::ChatLinks
-            | Self::ForwardTo(_) => None,
+            | Self::ForwardTo(_)
+            | Self::ReleaseNotes => None,
         }
     }
 
@@ -667,9 +671,11 @@ pub enum PaletteCommand {
     ShowKeys,
     /// Show `Popup::About` (D94).
     About,
-    /// Open (or copy, over SSH) the notes of the release update checks
-    /// found (D148).
+    /// Open in-app release notes in the palette (`Level::ReleaseNotes`), or
+    /// fall back to opening/copying the GitHub tag URL (D148).
     ReleaseNotes,
+    /// Open (or copy, over SSH) the GitHub release tag URL in a browser.
+    OpenReleaseUrl,
 }
 
 /// A value for a setting (D48); choosing it applies it and saves it to the
@@ -1141,7 +1147,76 @@ pub fn items(state: &State, level: Level, recent: &[PaletteCommand]) -> Vec<Item
         Level::AttachFile => Vec::new(),
         Level::ChatLinks => chat_links_and_files(state),
         Level::ForwardTo(target) => forward_destinations(state, target),
+        Level::ReleaseNotes => release_notes_items(state),
     }
+}
+
+/// `Level::ReleaseNotes`: the 2–3 item "What's new for you" digest touching
+/// keys and settings the user uses, any cached release notes from
+/// `updates.latest`, and the compiled-in offline release history.
+fn release_notes_items(state: &State) -> Vec<Item> {
+    let mut items = Vec::new();
+    let digest = super::updates::digest_for_user(state);
+    if !digest.is_empty() {
+        let header = match state.updates.since_version {
+            Some(since) => format!("What's new for you · since {since}"),
+            None => "What's new for you".to_owned(),
+        };
+        items.push(Item::new(ItemKind::Header, header));
+        for (summary, detail) in digest {
+            items.push(Item::new(ItemKind::Key, summary).detail(detail));
+        }
+    }
+
+    let url_hint = if state.env.over_ssh {
+        "copy link"
+    } else {
+        "open"
+    };
+
+    if let Some(release) = state.update_available() {
+        items.push(Item::new(
+            ItemKind::Header,
+            format!("faro {} · available", release.version),
+        ));
+        for line in super::updates::parse_markdown_notes(&release.notes) {
+            items.push(Item::new(ItemKind::Key, line).detail(release.version.to_string()));
+        }
+        items.push(command(
+            PaletteCommand::OpenReleaseUrl,
+            format!("Open faro {} release page on GitHub", release.version),
+            Some(url_hint.to_owned()),
+        ));
+    }
+
+    for bundled in super::updates::BUNDLED_RELEASES {
+        if state
+            .update_available()
+            .is_some_and(|r| r.version == bundled.version && !r.notes.trim().is_empty())
+        {
+            continue;
+        }
+        items.push(Item::new(
+            ItemKind::Header,
+            format!("faro {} · {}", bundled.version, bundled.date),
+        ));
+        for entry in bundled.entries {
+            items.push(Item::new(ItemKind::Key, entry.summary).detail(entry.detail));
+        }
+    }
+
+    if state.update_available().is_none() {
+        items.push(command(
+            PaletteCommand::OpenReleaseUrl,
+            format!(
+                "Open faro {} release page on GitHub",
+                env!("CARGO_PKG_VERSION")
+            ),
+            Some(url_hint.to_owned()),
+        ));
+    }
+
+    items
 }
 
 /// `Level::ChatLinks`: attachments and URLs shared in the open conversation,
@@ -1352,7 +1427,8 @@ fn categories(state: &State) -> Vec<Item> {
                 | Level::SettingText(_)
                 | Level::AttachFile
                 | Level::ChatLinks
-                | Level::ForwardTo(_) => level.prefix().map(String::from).unwrap_or_default(),
+                | Level::ForwardTo(_)
+                | Level::ReleaseNotes => level.prefix().map(String::from).unwrap_or_default(),
             };
             Item::new(ItemKind::Level(level), level.title()).detail(detail)
         })
@@ -1457,13 +1533,14 @@ fn commands(state: &State) -> Vec<Item> {
         "Show keybindings",
         key(Action::Help, Focus::Input),
     ));
-    if let Some(release) = state.update_available() {
-        items.push(command(
-            PaletteCommand::ReleaseNotes,
-            format!("Release notes for faro {}", release.version),
-            None,
-        ));
-    }
+    let notes_version = state
+        .update_available()
+        .map_or_else(|| env!("CARGO_PKG_VERSION").to_owned(), |r| r.version.to_string());
+    items.push(command(
+        PaletteCommand::ReleaseNotes,
+        format!("Release notes for faro {notes_version}"),
+        None,
+    ));
     items.push(command(PaletteCommand::About, "About faro", None));
     items.push(global(Action::Quit, "Quit"));
     items
@@ -1735,6 +1812,19 @@ pub fn note(state: &State, level: Level) -> Option<String> {
     if matches!(level, Level::ForwardTo(_)) {
         return Some("Choose a conversation to forward this message to.".to_owned());
     }
+    if level == Level::ReleaseNotes {
+        return Some(match state.update_available() {
+            Some(release) => format!(
+                "faro {} is available (you have {}). Type to filter notes or keys.",
+                release.version,
+                env!("CARGO_PKG_VERSION")
+            ),
+            None => format!(
+                "faro {} · release notes and changes touching your keys & settings.",
+                env!("CARGO_PKG_VERSION")
+            ),
+        });
+    }
     if level != Level::Themes {
         return None;
     }
@@ -1773,7 +1863,8 @@ fn sidebar_width_note(level: Level) -> Option<String> {
         | Level::SettingText(_)
         | Level::AttachFile
         | Level::ChatLinks
-        | Level::ForwardTo(_) => None,
+        | Level::ForwardTo(_)
+        | Level::ReleaseNotes => None,
     }
 }
 
@@ -1876,7 +1967,8 @@ fn transcription_note(state: &State, level: Level) -> Option<String> {
         | Level::Nickname(_)
         | Level::AttachFile
         | Level::ChatLinks
-        | Level::ForwardTo(_) => return None,
+        | Level::ForwardTo(_)
+        | Level::ReleaseNotes => return None,
     };
     Some(note)
 }

@@ -328,7 +328,8 @@ fn up(state: &mut State) {
         | Level::SettingText(_)
         | Level::AttachFile
         | Level::ChatLinks
-        | Level::ForwardTo(_) => ItemKind::Level(level),
+        | Level::ForwardTo(_)
+        | Level::ReleaseNotes => ItemKind::Level(level),
     });
     let parent = path.last().copied().unwrap_or(Level::Root);
     if let Some(palette) = state.palette.as_mut() {
@@ -492,7 +493,8 @@ fn choose_level(state: &mut State, level: Level) -> Vec<Effect> {
         | Level::Keys
         | Level::People
         | Level::ChatLinks
-        | Level::ForwardTo(_) => String::new(),
+        | Level::ForwardTo(_)
+        | Level::ReleaseNotes => String::new(),
     };
     enter(state, level, &query);
     if level == Level::AttachFile {
@@ -727,6 +729,7 @@ fn run(state: &mut State, command: PaletteCommand) -> Vec<Effect> {
             vec![]
         }
         (PaletteCommand::ReleaseNotes, _) => super::updates::release_notes(state),
+        (PaletteCommand::OpenReleaseUrl, _) => super::updates::open_release_url(state),
     }
 }
 

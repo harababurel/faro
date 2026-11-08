@@ -2510,3 +2510,37 @@ fn logo_beam_tracks_connection_state_and_unread_pressure_unless_static() {
         }
     }
 }
+
+#[test]
+fn release_notes_and_digest_render_legibly_in_80x24() {
+    use crate::app::palette::{Level, Palette, items, note};
+
+    let mut state = loaded_state();
+    state.config.ui.sidebar_width = 40;
+    let level = Level::ReleaseNotes;
+    let mut palette = Palette::new(
+        vec![Level::Root, level],
+        items(&state, level, &state.recent_commands),
+    );
+    palette.note = note(&state, level);
+    state.palette = Some(palette);
+    let text = snapshot(&draw(&state, 80, 24));
+    assert!(
+        text.contains("Release notes"),
+        "palette breadcrumb shown\n{text}"
+    );
+    assert!(
+        text.contains("What's new for you"),
+        "personalized digest header shown in 80x24\n{text}"
+    );
+    assert!(
+        text.contains("System lines for group changes, timers, and calls")
+            && text.contains("layout: IRC"),
+        "digest entry and current setting value render without truncation in 80x24\n{text}"
+    );
+    assert!(
+        text.contains("Quote thread lens popup for reply chains"),
+        "bundled release section renders below digest in 80x24\n{text}"
+    );
+    assert_drawable(&compatible(state), 80, 24);
+}
