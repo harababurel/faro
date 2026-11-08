@@ -39,6 +39,8 @@ fn saved(effects: &[Effect], id: ConversationId) -> Option<ConversationState> {
         | Effect::SweepExpired(_)
         | Effect::SaveDisappearingTimer(..)
         | Effect::RememberOpen(_)
+        | Effect::LoadSession
+        | Effect::SaveSession(_)
         | Effect::SaveNickname(..)
         | Effect::SaveVerification(..)
         | Effect::SaveRecentReactions(_)

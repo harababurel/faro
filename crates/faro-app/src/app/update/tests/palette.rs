@@ -256,7 +256,7 @@ fn prefixes_jump_into_a_category() {
 }
 
 /// `Settings ›` with nothing typed: every setting under its section.
-const SETTINGS_LIST: [&str; 44] = [
+const SETTINGS_LIST: [&str; 45] = [
     "Appearance",
     "Colours",
     "Emoji",
@@ -278,6 +278,7 @@ const SETTINGS_LIST: [&str; 44] = [
     "Notification privacy",
     "Conversations",
     "Allowlist mode",
+    "Restore last session",
     "Message previews",
     "Time in the list",
     "Typing and drafts",

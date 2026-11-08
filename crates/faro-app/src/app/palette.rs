@@ -205,6 +205,8 @@ pub enum Setting {
     Desktop,
     Privacy,
     Allowlist,
+    /// `[conversations] restore_session`.
+    RestoreSession,
     /// `[conversations] previews` and the two that only apply with it (D154).
     Previews,
     PreviewTime,
@@ -290,6 +292,59 @@ impl Level {
             .into_iter()
             .find(|level| level.prefix() == Some(c))
     }
+
+    /// String form saved in the session record (`ui.session`).
+    pub fn to_stored(self) -> String {
+        match self {
+            Self::Root => "root".to_owned(),
+            Self::Chats => "chats".to_owned(),
+            Self::Search(None) => "search".to_owned(),
+            Self::Search(Some(id)) => format!("search {id}"),
+            Self::Themes => "themes".to_owned(),
+            Self::Settings => "settings".to_owned(),
+            Self::Setting(s) => format!("setting {}", s.key()),
+            Self::Commands => "commands".to_owned(),
+            Self::Keys => "keys".to_owned(),
+            Self::People => "people".to_owned(),
+            Self::Nickname(id) => format!("nickname {id}"),
+            Self::SettingText(s) => format!("setting_text {}", s.key()),
+            Self::AttachFile => "attach_file".to_owned(),
+            Self::ChatLinks => "chat_links".to_owned(),
+            Self::ForwardTo(m) => format!("forward_to {} {}", m.sender, m.sent_at.as_millis()),
+            Self::ReleaseNotes => "release_notes".to_owned(),
+        }
+    }
+
+    /// Parse the string form written by [`Self::to_stored`].
+    pub fn from_stored(text: &str) -> Option<Self> {
+        let mut parts = text.split_whitespace();
+        match parts.next()? {
+            "root" => Some(Self::Root),
+            "chats" => Some(Self::Chats),
+            "search" => match parts.next() {
+                None => Some(Self::Search(None)),
+                Some(id) => Some(Self::Search(Some(id.parse().ok()?))),
+            },
+            "themes" => Some(Self::Themes),
+            "settings" => Some(Self::Settings),
+            "setting" => Some(Self::Setting(Setting::from_key(parts.next()?)?)),
+            "commands" => Some(Self::Commands),
+            "keys" => Some(Self::Keys),
+            "people" => Some(Self::People),
+            "nickname" => Some(Self::Nickname(parts.next()?.parse().ok()?)),
+            "setting_text" => Some(Self::SettingText(Setting::from_key(parts.next()?)?)),
+            "attach_file" => Some(Self::AttachFile),
+            "chat_links" => Some(Self::ChatLinks),
+            "forward_to" => {
+                let sender = parts.next()?.parse().ok()?;
+                let sent_at =
+                    faro_core::domain::Timestamp::from_millis(parts.next()?.parse().ok()?);
+                Some(Self::ForwardTo(MessageRef { sender, sent_at }))
+            }
+            "release_notes" => Some(Self::ReleaseNotes),
+            _ => None,
+        }
+    }
 }
 
 impl SettingsGroup {
@@ -347,6 +402,7 @@ impl SettingsGroup {
             ],
             Self::Conversations => &[
                 Setting::Allowlist,
+                Setting::RestoreSession,
                 Setting::Previews,
                 Setting::PreviewTime,
                 Setting::PreviewActivity,
@@ -393,6 +449,7 @@ impl Setting {
             Self::Desktop => "Desktop notifications",
             Self::Privacy => "Notification privacy",
             Self::Allowlist => "Allowlist mode",
+            Self::RestoreSession => "Restore last session",
             Self::Previews => "Message previews",
             Self::PreviewTime => "Time in the list",
             Self::PreviewActivity => "Typing and drafts",
@@ -433,6 +490,7 @@ impl Setting {
             Self::Desktop => key::DESKTOP,
             Self::Privacy => key::PRIVACY,
             Self::Allowlist => key::ALLOWLIST,
+            Self::RestoreSession => key::RESTORE_SESSION,
             Self::Previews => key::PREVIEWS,
             Self::PreviewTime => key::PREVIEW_TIME,
             Self::PreviewActivity => key::PREVIEW_ACTIVITY,
@@ -452,6 +510,14 @@ impl Setting {
             Self::AutoLock => key::AUTO_LOCK_MINS,
             Self::UpdateCheck => key::UPDATES_CHECK,
         }
+    }
+
+    /// Look up a setting by its config key.
+    pub fn from_key(key: &str) -> Option<Self> {
+        SettingsGroup::ALL
+            .iter()
+            .flat_map(|g| g.settings().iter().copied())
+            .find(|s| s.key() == key)
     }
 
     /// Whether it differs from its default (marked in the settings list,
@@ -507,6 +573,7 @@ impl Setting {
             | Self::Desktop
             | Self::Privacy
             | Self::Allowlist
+            | Self::RestoreSession
             | Self::Avatars
             | Self::SidebarWidth
             | Self::Previews
@@ -543,6 +610,7 @@ impl Setting {
             | Self::Desktop
             | Self::Privacy
             | Self::Allowlist
+            | Self::RestoreSession
             | Self::Avatars
             | Self::Previews
             | Self::PreviewTime
@@ -568,6 +636,7 @@ impl Setting {
             | Self::Bell
             | Self::Title
             | Self::Allowlist
+            | Self::RestoreSession
             | Self::Previews
             | Self::PreviewTime
             | Self::PreviewActivity
@@ -622,6 +691,7 @@ impl Setting {
             | Self::Desktop
             | Self::Privacy
             | Self::Allowlist
+            | Self::RestoreSession
             | Self::Previews
             | Self::PreviewTime
             | Self::PreviewActivity
@@ -692,6 +762,7 @@ pub enum SettingChoice {
     Density(MessageDensity),
     Timestamps(TimestampFormat),
     Allowlist(bool),
+    RestoreSession(bool),
     Previews(bool),
     PreviewTime(bool),
     PreviewActivity(bool),
@@ -1941,6 +2012,7 @@ fn transcription_note(state: &State, level: Level) -> Option<String> {
             | Setting::Desktop
             | Setting::Privacy
             | Setting::Allowlist
+            | Setting::RestoreSession
             | Setting::Avatars
             | Setting::Previews
             | Setting::PreviewTime
@@ -2048,6 +2120,7 @@ fn value_detail(state: &State, choice: SettingChoice) -> &'static str {
         | SettingChoice::Density(_)
         | SettingChoice::Timestamps(_)
         | SettingChoice::Allowlist(_)
+        | SettingChoice::RestoreSession(_)
         | SettingChoice::Avatars(_)
         | SettingChoice::SidebarWidth(_)
         | SettingChoice::Previews(_)
@@ -2184,6 +2257,7 @@ fn values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)>
         | Setting::MatchWidths
         | Setting::Bell
         | Setting::Title
+        | Setting::RestoreSession
         | Setting::Previews
         | Setting::PreviewTime
         | Setting::PreviewActivity
@@ -2237,6 +2311,10 @@ fn switch_values(state: &State, setting: Setting) -> Vec<(SettingChoice, String,
         Setting::BubblePadding => (SettingChoice::BubblePadding, config.messages.bubble_padding),
         Setting::MatchWidths => (SettingChoice::MatchWidths, config.messages.match_widths),
         Setting::Bell => (SettingChoice::Bell, config.notifications.bell),
+        Setting::RestoreSession => (
+            SettingChoice::RestoreSession,
+            config.conversations.restore_session,
+        ),
         Setting::Previews => (SettingChoice::Previews, config.conversations.previews),
         Setting::PreviewTime => (
             SettingChoice::PreviewTime,
@@ -2350,6 +2428,7 @@ fn transcription_values(state: &State, setting: Setting) -> Vec<(SettingChoice, 
         | Setting::Desktop
         | Setting::Privacy
         | Setting::Allowlist
+        | Setting::RestoreSession
         | Setting::Avatars
         | Setting::SidebarWidth
         | Setting::Previews

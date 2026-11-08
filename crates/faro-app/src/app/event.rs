@@ -29,6 +29,9 @@ pub enum AppEvent {
         /// (D104).
         recent_reactions: Vec<String>,
     },
+    /// The previous session record (`Effect::LoadSession`,
+    /// `[conversations] restore_session`).
+    SessionLoaded(Option<super::state::SessionRecord>),
     MessagesLoaded {
         conversation: ConversationId,
         messages: Vec<Message>,
@@ -246,6 +249,12 @@ pub enum Effect {
     SaveConversationState(ConversationId, Box<ConversationState>),
     /// Reopen this conversation on the next start.
     RememberOpen(ConversationId),
+    /// Read the previous session record (`ui.session`,
+    /// `[conversations] restore_session`); answered with
+    /// `AppEvent::SessionLoaded`.
+    LoadSession,
+    /// Store the current session record (`ui.session`).
+    SaveSession(super::state::SessionRecord),
     /// Store someone's nickname, or remove it (`None`) (D65).
     SaveNickname(ServiceId, Option<String>),
     /// Store someone's safety-number verification state and clear `key_changed` (D163).

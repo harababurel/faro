@@ -33,8 +33,11 @@ pub fn render(
         let block = Block::bordered()
             .border_type(BorderType::Rounded)
             .border_style(theme.border(messages_focused));
-        let inner = block.inner(area);
+        let mut inner = block.inner(area);
         frame.render_widget(block, area);
+        if let Some(strip) = state.since_you_left {
+            render_since_you_left(frame, &mut inner, strip, view);
+        }
         logo::render(frame, inner, state, view, geometry);
         return;
     };
@@ -67,8 +70,11 @@ pub fn render(
         .border_type(BorderType::Rounded)
         .border_style(theme.border(messages_focused))
         .title(title_line);
-    let inner = block.inner(area);
+    let mut inner = block.inner(area);
     frame.render_widget(block, area);
+    if let Some(strip) = state.since_you_left {
+        render_since_you_left(frame, &mut inner, strip, view);
+    }
 
     let input_width = usize::from(inner.width.saturating_sub(4));
     let input_layout = layout_input(&open.input, input_width);
@@ -114,6 +120,42 @@ pub fn render(
         render_mention_popup(frame, inner, input.y, state, open, view);
         render_shortcode_popup(frame, inner, input.y, state, open, view);
     }
+}
+
+fn render_since_you_left(
+    frame: &mut Frame<'_>,
+    inner: &mut Rect,
+    strip: crate::app::state::SinceYouLeft,
+    view: &View<'_>,
+) {
+    if inner.height <= 2 || inner.width == 0 {
+        return;
+    }
+    let row = Rect {
+        height: 1,
+        ..*inner
+    };
+    inner.y += 1;
+    inner.height = inner.height.saturating_sub(1);
+    let theme = view.theme;
+    let bg = Style::new().bg(theme.background_element);
+    frame.buffer_mut().set_style(row, bg);
+    let text = format!(" {}", strip.text());
+    let hint = "  esc dismiss ";
+    let room = usize::from(row.width).saturating_sub(hint.width());
+    let body = truncate(&text, room).into_owned();
+    let pad = usize::from(row.width).saturating_sub(body.width() + hint.width());
+    let text_style = if strip.has_unread() {
+        bg.fg(theme.unread).add_modifier(Modifier::BOLD)
+    } else {
+        bg.patch(theme.muted())
+    };
+    let line = Line::from(vec![
+        Span::styled(body, text_style),
+        Span::styled(" ".repeat(pad), bg),
+        Span::styled(hint, bg.patch(theme.muted())),
+    ]);
+    frame.render_widget(Paragraph::new(line), row);
 }
 
 fn render_history(

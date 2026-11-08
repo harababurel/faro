@@ -306,9 +306,9 @@ fn escape(state: &mut State) -> Vec<Effect> {
         return vec![];
     }
     let Some(open) = state.open.as_mut() else {
-        // Nothing open: clearing a notice is a step; with none left, the host
-        // may release focus (the web demo blurs the canvas, §4.3).
-        return if state.notice.take().is_some() {
+        // Nothing open: clearing a notice or the since-you-left strip is a step;
+        // with none left, the host may release focus (the web demo blurs the canvas, §4.3).
+        return if state.notice.take().is_some() || state.since_you_left.take().is_some() {
             vec![]
         } else {
             vec![Effect::ReleaseFocus]
@@ -344,6 +344,9 @@ fn escape(state: &mut State) -> Vec<Effect> {
     if state.notice.is_some() || state.focus != Focus::Input {
         state.notice = None;
         state.focus = Focus::Input;
+        return vec![];
+    }
+    if state.since_you_left.take().is_some() {
         return vec![];
     }
     curation::close(state)
@@ -569,6 +572,7 @@ fn scroll(state: &mut State, rows: isize) {
     let Some(open) = state.open.as_mut() else {
         return;
     };
+    open.restored_anchor = None;
     open.scroll = match open.scroll {
         Some(anchor) => Some(Anchor {
             offset: anchor.offset.saturating_add(rows),

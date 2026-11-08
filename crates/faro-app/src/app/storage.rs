@@ -8,11 +8,14 @@ use faro_core::domain::ConversationId;
 use faro_core::store::{Store, StoreError};
 
 use super::event::{AppEvent, Effect, UpdateEvent};
+use super::state::SessionRecord;
 use super::update::PAGE;
 use super::updates::Release;
 
 /// `app_state` key of the conversation to reopen on start.
 const LAST_OPEN: &str = "ui.last_open_conversation";
+/// `app_state` key of the saved session record (`restore_session`).
+const SESSION: &str = "ui.session";
 /// `app_state` key of the reactions last sent from here, most recent first,
 /// separated by spaces (D104).
 const RECENT_REACTIONS: &str = "ui.recent_reactions";
@@ -115,12 +118,21 @@ async fn run(store: &Store, effect: Effect) -> Result<Option<AppEvent>, StoreErr
             Some(AppEvent::ExpiredSwept { sweep, next_expiry })
         }
         Effect::LoadUpdateState => Some(load_update_state(store).await?),
+        Effect::LoadSession => {
+            let record = store
+                .app_state(SESSION)
+                .await?
+                .as_deref()
+                .and_then(SessionRecord::from_stored);
+            Some(AppEvent::SessionLoaded(record))
+        }
         Effect::Persist(_)
         | Effect::SaveAttachment { .. }
         | Effect::SaveConversationState(..)
         | Effect::SaveDisappearingTimer(..)
         | Effect::MarkRead(_)
         | Effect::RememberOpen(_)
+        | Effect::SaveSession(_)
         | Effect::SaveNickname(..)
         | Effect::SaveVerification(..)
         | Effect::SaveRecentReactions(_)
@@ -188,6 +200,7 @@ async fn write(store: &Store, effect: Effect) -> Result<(), StoreError> {
                 .set_app_state(LAST_OPEN, &conversation.to_string())
                 .await
         }
+        Effect::SaveSession(record) => store.set_app_state(SESSION, &record.to_stored()).await,
         Effect::SaveNickname(id, nickname) => store.set_nickname(id, nickname).await,
         Effect::SaveVerification(id, verified) => store.set_verification(id, verified).await,
         Effect::SaveRecentReactions(recent) => {
@@ -204,6 +217,7 @@ async fn write(store: &Store, effect: Effect) -> Result<(), StoreError> {
                 .await
         }
         Effect::LoadConversations
+        | Effect::LoadSession
         | Effect::LoadUpdateState
         | Effect::CheckForUpdate
         | Effect::LoadMessages(_)

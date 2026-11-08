@@ -65,7 +65,8 @@ pub fn open_with_query(state: &mut State, level: Level, query: &str) -> Vec<Effe
         | Level::Nickname(_)
         | Level::SettingText(_)
         | Level::ChatLinks
-        | Level::ForwardTo(_) => vec![],
+        | Level::ForwardTo(_)
+        | Level::ReleaseNotes => vec![],
     }
 }
 
@@ -80,6 +81,47 @@ pub fn open_nickname(state: &mut State, id: ServiceId) {
     palette.show(palette::nickname_path(id), items, &query, None);
     palette.note = palette::note(state, level);
     state.palette = Some(palette);
+}
+
+/// Reopen the palette at `level` (including nested levels from a saved session).
+pub fn open_at_level(state: &mut State, level: Level) -> Vec<Effect> {
+    match level {
+        Level::Nickname(id) => {
+            open_nickname(state, id);
+            vec![]
+        }
+        Level::Setting(setting) => {
+            open(state, Level::Settings);
+            choose_level(state, Level::Setting(setting))
+        }
+        Level::SettingText(setting) => {
+            open(state, Level::Settings);
+            let _ = choose_level(state, Level::Setting(setting));
+            choose_level(state, Level::SettingText(setting))
+        }
+        Level::AttachFile => {
+            open(state, Level::Commands);
+            choose_level(state, Level::AttachFile)
+        }
+        Level::Root
+        | Level::Chats
+        | Level::Search(_)
+        | Level::Themes
+        | Level::Settings
+        | Level::Commands
+        | Level::Keys
+        | Level::People
+        | Level::ChatLinks
+        | Level::ForwardTo(_)
+        | Level::ReleaseNotes => {
+            open(state, level);
+            if level == Level::Settings {
+                settings::check_transcriber(state).into_iter().collect()
+            } else {
+                vec![]
+            }
+        }
+    }
 }
 
 /// The item to start on in a level of values (themes, a setting's values):

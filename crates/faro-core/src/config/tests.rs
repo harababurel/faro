@@ -53,6 +53,7 @@ fn key_constants_name_settings() {
         key::EMOJI,
         key::SIDEBAR_WIDTH,
         key::ALLOWLIST,
+        key::RESTORE_SESSION,
         key::PREVIEWS,
         key::PREVIEW_TIME,
         key::PREVIEW_ACTIVITY,

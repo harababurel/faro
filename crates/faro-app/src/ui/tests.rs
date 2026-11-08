@@ -2564,3 +2564,25 @@ fn slash_command_autocomplete_renders_and_is_drawable() {
     assert!(theme_text.contains("/theme faro-dusk"), "{theme_text}");
     assert_drawable(&compatible(theme_state), 100, 24);
 }
+
+#[test]
+fn since_you_left_strip_renders_unread_arithmetic_and_dismiss_hint() {
+    use crate::app::state::SinceYouLeft;
+
+    let mut state = loaded_state();
+    state.since_you_left = Some(SinceYouLeft {
+        here: 2,
+        other_messages: 4,
+        other_chats: 2,
+    });
+    let rendered = snapshot(&draw(&state, 120, 32));
+    assert!(
+        rendered.contains("Since you left: 2 unread here · 4 unread in 2 other chats"),
+        "since-you-left strip text\n{rendered}"
+    );
+    assert!(
+        rendered.contains("esc dismiss"),
+        "since-you-left dismiss hint\n{rendered}"
+    );
+    assert_drawable(&compatible(state), 120, 32);
+}

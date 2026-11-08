@@ -140,6 +140,8 @@ impl Router {
                 | Effect::SaveRecentReactions(_)
                 | Effect::LoadUpdateState
                 | Effect::SaveUpdateState { .. }
+                | Effect::LoadSession
+                | Effect::SaveSession(_)
                 | Effect::RememberOpen(_)) => self.effects.send(store).is_ok(),
             };
             if !delivered {

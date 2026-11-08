@@ -88,7 +88,9 @@ pub fn send_message(state: &mut State) -> Vec<Effect> {
     open.typing_sent = None;
     // Jump to the newest message, where this one appears.
     open.scroll = None;
+    open.restored_anchor = None;
     open.unseen = 0;
+    state.since_you_left = None;
 
     let sent_at = next_sent_at(state.last_sent_at, wall_clock());
     state.last_sent_at = sent_at;

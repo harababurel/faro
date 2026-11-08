@@ -282,11 +282,14 @@ impl Default for Ui {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[expect(
     clippy::struct_excessive_bools,
-    reason = "four independent on/off settings, one per key in [conversations]"
+    reason = "independent on/off settings, one per key in [conversations]"
 )]
 pub struct Conversations {
     /// Allowlist mode (D41).
     pub allowlist: bool,
+    /// Reopen the conversation, scroll position and palette level from the
+    /// last run on startup, with a since-you-left strip.
+    pub restore_session: bool,
     /// The newest message under each name in the list (D154). Off by
     /// default: new looks are opt-in.
     pub previews: bool,
@@ -302,6 +305,7 @@ impl Default for Conversations {
     fn default() -> Self {
         Self {
             allowlist: false,
+            restore_session: false,
             previews: true,
             preview_time: true,
             preview_activity: true,
@@ -479,6 +483,7 @@ pub mod key {
     pub const COLORS: &str = "ui.colors";
     pub const SIDEBAR_WIDTH: &str = "ui.sidebar_width";
     pub const ALLOWLIST: &str = "conversations.allowlist";
+    pub const RESTORE_SESSION: &str = "conversations.restore_session";
     pub const PREVIEWS: &str = "conversations.previews";
     pub const PREVIEW_TIME: &str = "conversations.preview_time";
     pub const PREVIEW_ACTIVITY: &str = "conversations.preview_activity";
@@ -650,6 +655,17 @@ pub static SETTINGS: &[Setting] = &[
         get: |c| ConfigValue::Bool(c.conversations.allowlist),
         set: |c, v| {
             c.conversations.allowlist = boolean(v)?;
+            Ok(())
+        },
+    },
+    Setting {
+        path: key::RESTORE_SESSION,
+        help: "Reopen the conversation, scroll position and palette level from the last run, \
+               with a strip showing what arrived while you were away. Off: start on the \
+               conversation list.",
+        get: |c| ConfigValue::Bool(c.conversations.restore_session),
+        set: |c, v| {
+            c.conversations.restore_session = boolean(v)?;
             Ok(())
         },
     },

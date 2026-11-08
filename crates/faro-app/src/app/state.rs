@@ -247,6 +247,12 @@ pub struct State {
     pub next_expiry: Option<(Timestamp, Instant)>,
     /// In-session lock screen and idle auto-lock state (D168).
     pub lock: LockState,
+    /// Unread summary strip shown on cold-open when `restore_session` is on.
+    pub since_you_left: Option<SinceYouLeft>,
+    /// Loaded session record from `ui.session` at startup.
+    pub restoring_session: RestoringSession,
+    /// Last session record written to `ui.session`, to avoid redundant writes.
+    pub saved_session: Option<SessionRecord>,
 }
 
 #[derive(Debug)]
@@ -267,6 +273,9 @@ pub struct OpenConversation {
     /// `None` follows the newest message; otherwise the view is pinned to a
     /// message, so new arrivals don't move it.
     pub scroll: Option<Anchor>,
+    /// Scroll anchor restored from the previous session (`restore_session`);
+    /// kept until history and inline images settle or the user scrolls.
+    pub restored_anchor: Option<Anchor>,
     /// The store may have older messages than the first one loaded.
     pub has_older: bool,
     pub loading_older: bool,
@@ -743,6 +752,131 @@ pub struct Anchor {
     pub offset: isize,
 }
 
+/// Where the user stopped last run (`[conversations] restore_session`,
+/// stored in `app_state` under `ui.session`).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SessionRecord {
+    pub conversation: Option<ConversationId>,
+    pub anchor: Option<Anchor>,
+    pub selected: Option<MessageRef>,
+    pub palette: Option<super::palette::Level>,
+}
+
+impl SessionRecord {
+    pub fn to_stored(&self) -> String {
+        let mut lines = Vec::new();
+        if let Some(id) = self.conversation {
+            lines.push(format!("conversation {id}"));
+        }
+        if let Some(anchor) = self.anchor {
+            lines.push(format!(
+                "anchor {} {} {}",
+                anchor.message.sender,
+                anchor.message.sent_at.as_millis(),
+                anchor.offset
+            ));
+        }
+        if let Some(selected) = self.selected {
+            lines.push(format!(
+                "selected {} {}",
+                selected.sender,
+                selected.sent_at.as_millis()
+            ));
+        }
+        if let Some(level) = self.palette {
+            lines.push(format!("palette {}", level.to_stored()));
+        }
+        lines.join("\n")
+    }
+
+    pub fn from_stored(text: &str) -> Option<Self> {
+        let mut record = Self::default();
+        for line in text.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if let Some(rest) = line.strip_prefix("conversation ") {
+                record.conversation = Some(rest.trim().parse().ok()?);
+            } else if let Some(rest) = line.strip_prefix("anchor ") {
+                let mut parts = rest.split_whitespace();
+                let sender = parts.next()?.parse().ok()?;
+                let sent_at = Timestamp::from_millis(parts.next()?.parse().ok()?);
+                let offset = parts.next()?.parse().ok()?;
+                record.anchor = Some(Anchor {
+                    message: MessageRef { sender, sent_at },
+                    offset,
+                });
+            } else if let Some(rest) = line.strip_prefix("selected ") {
+                let mut parts = rest.split_whitespace();
+                let sender = parts.next()?.parse().ok()?;
+                let sent_at = Timestamp::from_millis(parts.next()?.parse().ok()?);
+                record.selected = Some(MessageRef { sender, sent_at });
+            } else if let Some(rest) = line.strip_prefix("palette ") {
+                record.palette = Some(super::palette::Level::from_stored(rest)?);
+            }
+        }
+        Some(record)
+    }
+}
+
+/// Whether the stored session record (`ui.session`) has arrived from the store.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum RestoringSession {
+    #[default]
+    NotLoaded,
+    Loaded(Option<SessionRecord>),
+}
+
+/// Unread arithmetic shown in the 1-row strip when a session is restored on
+/// cold-open (`[conversations] restore_session`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SinceYouLeft {
+    pub here: u32,
+    pub other_messages: u32,
+    pub other_chats: usize,
+}
+
+impl SinceYouLeft {
+    pub fn compute(state: &State, open_id: Option<ConversationId>, here_unread: u32) -> Self {
+        let mut other_messages = 0;
+        let mut other_chats = 0;
+        for c in state.listed_in(SidebarView::Chats) {
+            if Some(c.id) != open_id && c.unread > 0 {
+                other_messages += c.unread;
+                other_chats += 1;
+            }
+        }
+        Self {
+            here: here_unread,
+            other_messages,
+            other_chats,
+        }
+    }
+
+    pub const fn has_unread(&self) -> bool {
+        self.here > 0 || self.other_messages > 0
+    }
+
+    pub fn text(&self) -> String {
+        let chats_label = |n: usize, other: bool| match (n, other) {
+            (1, true) => "1 other chat".to_owned(),
+            (1, false) => "1 chat".to_owned(),
+            (n, true) => format!("{n} other chats"),
+            (n, false) => format!("{n} chats"),
+        };
+        match (self.here, self.other_messages, self.other_chats) {
+            (0, 0, _) => "Since you left: 0 unread".to_owned(),
+            (h, 0, _) => format!("Since you left: {h} unread here"),
+            (0, m, c) => format!("Since you left: {m} unread in {}", chats_label(c, false)),
+            (h, m, c) => format!(
+                "Since you left: {h} unread here · {m} unread in {}",
+                chats_label(c, true)
+            ),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SidebarScroll {
     /// First row shown (rows include section headers).
@@ -1052,6 +1186,9 @@ impl State {
                 screen: None,
                 last_activity: Some(Instant::now()),
             },
+            since_you_left: None,
+            restoring_session: RestoringSession::NotLoaded,
+            saved_session: None,
         };
         state.recount_names();
         state
@@ -1083,6 +1220,28 @@ impl State {
         self.lock
             .last_activity
             .map(|last| last + Duration::from_secs(u64::from(mins) * 60))
+    }
+
+    /// The session record (`ui.session`) describing where the user is right now.
+    pub fn session_record(&self) -> SessionRecord {
+        let (conversation, anchor, selected) = match &self.open {
+            Some(open) => {
+                let anchor = open.scroll.or(open.restored_anchor).or_else(|| {
+                    open.messages.last().map(|m| Anchor {
+                        message: m.reference(),
+                        offset: 0,
+                    })
+                });
+                (Some(open.id), anchor, open.selected.map(|s| s.message))
+            }
+            None => (None, None, None),
+        };
+        SessionRecord {
+            conversation,
+            anchor,
+            selected,
+            palette: self.palette.as_ref().map(Palette::level),
+        }
     }
 
     /// With the nicknames the user gave people (D65).

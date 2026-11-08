@@ -19,8 +19,9 @@ use super::input::Input;
 use super::keymap;
 use super::state::Terminal;
 use super::state::{
-    DRAFT_SAVE_DELAY, EmojiMode, Focus, Geometry, LockScreen, Notice, OpenConversation, Popup,
-    Selection, SidebarScroll, State, TYPING_TIMEOUT, Typist, sort_conversations,
+    Anchor, DRAFT_SAVE_DELAY, EmojiMode, Focus, Geometry, LockScreen, Notice, OpenConversation,
+    Popup, RestoringSession, Selection, SessionRecord, SidebarScroll, SinceYouLeft, State,
+    TYPING_TIMEOUT, Typist, sort_conversations,
 };
 use super::timeline;
 
@@ -60,6 +61,7 @@ pub fn affects_view(event: &AppEvent) -> bool {
         )
         | AppEvent::Backend(_)
         | AppEvent::Loaded { .. }
+        | AppEvent::SessionLoaded(_)
         | AppEvent::MessagesLoaded { .. }
         | AppEvent::OlderLoaded { .. }
         | AppEvent::MessagesAroundLoaded { .. }
@@ -101,7 +103,23 @@ pub fn affects_view(event: &AppEvent) -> bool {
 pub fn update(state: &mut State, event: AppEvent) -> Vec<Effect> {
     let mut effects = route(state, event);
     effects.extend(pictures::wanted(state));
+    effects.extend(sync_session(state));
     effects
+}
+
+pub(super) fn sync_session(state: &mut State) -> Option<Effect> {
+    if !state.config.conversations.restore_session || state.loading {
+        return None;
+    }
+    if !state.quit && state.open.as_ref().is_some_and(|o| o.loading) {
+        return None;
+    }
+    let record = state.session_record();
+    if state.saved_session.as_ref() == Some(&record) {
+        return None;
+    }
+    state.saved_session = Some(record.clone());
+    Some(Effect::SaveSession(record))
 }
 
 #[expect(
@@ -121,6 +139,7 @@ fn route(state: &mut State, event: AppEvent) -> Vec<Effect> {
             last_open,
             recent_reactions,
         } => on_loaded(state, conversations, last_open, recent_reactions),
+        AppEvent::SessionLoaded(record) => on_session_loaded(state, record),
         AppEvent::MessagesLoaded {
             conversation,
             messages,
@@ -512,7 +531,21 @@ fn on_drawn(state: &mut State, geometry: Geometry) -> Vec<Effect> {
     }
     let mut effects = Vec::new();
     if let Some(open) = state.open.as_mut() {
-        open.scroll = geometry.scroll;
+        if !open.loading && !open.messages.is_empty() {
+            if let Some(anchor) = open.restored_anchor {
+                let images_pending = !geometry.images_wanted.is_empty()
+                    || !state.downloading.is_empty()
+                    || !state.download_queue.is_empty();
+                if images_pending {
+                    open.scroll = Some(anchor);
+                } else {
+                    open.scroll = geometry.scroll;
+                    open.restored_anchor = None;
+                }
+            } else {
+                open.scroll = geometry.scroll;
+            }
+        }
         if let Some(selection) = open.selected.as_mut() {
             selection.reveal = false;
         }
@@ -583,6 +616,7 @@ pub(super) fn save_draft(state: &mut State) -> Vec<Effect> {
 pub fn open_conversation(state: &mut State, id: ConversationId) -> Vec<Effect> {
     state.sidebar.reveal = true;
     state.popup = None;
+    state.since_you_left = None;
     if state.focus == Focus::Messages {
         state.focus = Focus::Input;
     }
@@ -611,6 +645,7 @@ pub fn open_conversation(state: &mut State, id: ConversationId) -> Vec<Effect> {
         input: draft.unwrap_or_default(),
         draft_edited: None,
         scroll: None,
+        restored_anchor: None,
         has_older: false,
         loading_older: false,
         unseen: 0,
@@ -631,6 +666,136 @@ pub fn open_conversation(state: &mut State, id: ConversationId) -> Vec<Effect> {
     effects
 }
 
+fn on_session_loaded(state: &mut State, record: Option<SessionRecord>) -> Vec<Effect> {
+    state.restoring_session = RestoringSession::Loaded(record.clone());
+    state.saved_session = record;
+    if !state.loading && state.config.conversations.restore_session {
+        restore_from_session(state, state.list.cursor)
+    } else {
+        vec![]
+    }
+}
+
+fn restore_from_session(
+    state: &mut State,
+    fallback_open: Option<ConversationId>,
+) -> Vec<Effect> {
+    let record = match &state.restoring_session {
+        RestoringSession::Loaded(Some(record)) => record.clone(),
+        RestoringSession::Loaded(None) | RestoringSession::NotLoaded => SessionRecord {
+            conversation: fallback_open,
+            anchor: None,
+            selected: None,
+            palette: None,
+        },
+    };
+    let open_id = record
+        .conversation
+        .or(fallback_open)
+        .filter(|id| state.summary(*id).is_some());
+    let already_open = state.open.as_ref().is_some_and(|o| Some(o.id) == open_id);
+    let here_unread = if already_open {
+        state.open.as_ref().map_or(0, |o| o.unread_on_open)
+    } else {
+        open_id
+            .and_then(|id| state.summary(id))
+            .map_or(0, |s| s.unread)
+    };
+    let strip = SinceYouLeft::compute(state, open_id, here_unread);
+    let mut effects = Vec::new();
+    if let Some(id) = open_id {
+        if let Some(summary) = state.summary(id) {
+            state.list.view = state.section(summary).view();
+        }
+        if !already_open {
+            effects.extend(open_conversation(state, id));
+        }
+        if let Some(open) = state.open.as_mut() {
+            open.restored_anchor = record.anchor;
+            open.scroll = record.anchor;
+            open.selected = record.selected.map(|message| Selection {
+                message,
+                reveal: false,
+            });
+            if !open.loading {
+                if let Some(anchor) = open.restored_anchor
+                    && open.has_older
+                    && open
+                        .messages
+                        .first()
+                        .is_some_and(|first| anchor.message.sent_at < first.sent_at)
+                {
+                    open.loading = true;
+                    effects.push(Effect::LoadMessagesAround {
+                        conversation: id,
+                        target: anchor.message,
+                    });
+                } else {
+                    apply_restored_anchor(open);
+                }
+            }
+        }
+    }
+    state.since_you_left = Some(strip);
+    if let Some(level) = record.palette {
+        effects.extend(palette::open_at_level(state, level));
+    }
+    state.saved_session = Some(state.session_record());
+    effects
+}
+
+fn apply_restored_anchor(open: &mut OpenConversation) {
+    if let Some(sel) = open.selected
+        && !open.messages.iter().any(|m| m.reference() == sel.message)
+    {
+        open.selected = None;
+    }
+    let Some(anchor) = open.restored_anchor else {
+        return;
+    };
+    let resolved = if open.messages.iter().any(|m| m.reference() == anchor.message) {
+        Some(anchor)
+    } else {
+        open.messages
+            .iter()
+            .rfind(|m| m.sent_at <= anchor.message.sent_at)
+            .or_else(|| open.messages.first())
+            .map(|m| Anchor {
+                message: m.reference(),
+                offset: 0,
+            })
+    };
+    let Some(resolved) = resolved else {
+        open.restored_anchor = None;
+        open.scroll = None;
+        return;
+    };
+    let at_bottom = open
+        .messages
+        .last()
+        .is_some_and(|last| last.reference() == resolved.message && resolved.offset <= 0);
+    if at_bottom {
+        open.restored_anchor = None;
+        open.scroll = None;
+    } else {
+        open.restored_anchor = Some(resolved);
+        open.scroll = Some(resolved);
+        let after_anchor = u32::try_from(
+            open.messages
+                .iter()
+                .filter(|m| {
+                    m.sent_at > resolved.message.sent_at
+                        && m.direction == Direction::Incoming
+                        && !m.deleted
+                        && !m.is_system()
+                })
+                .count(),
+        )
+        .unwrap_or(u32::MAX);
+        open.unseen = after_anchor.min(open.unread_on_open);
+    }
+}
+
 fn on_loaded(
     state: &mut State,
     mut conversations: Vec<ConversationSummary>,
@@ -648,14 +813,18 @@ fn on_loaded(
     }
     state.loading = false;
     note_summary_expiries(state);
-    // Nothing opens by itself (D60): the list highlights where the user
-    // was, in the list it's in (it may be archived), and has the focus.
+    // Nothing opens by itself (D60) unless `restore_session` is on: the list
+    // highlights where the user was, in the list it's in (it may be archived),
+    // and has the focus.
     let remembered = last_open.filter(|id| state.summary(*id).is_some());
     if let Some(summary) = remembered.and_then(|id| state.summary(id)) {
         state.list.view = state.section(summary).view();
     }
     state.list.cursor = remembered;
     state.sidebar.reveal = true;
+    if state.config.conversations.restore_session {
+        effects.extend(restore_from_session(state, remembered));
+    }
     if state.open.is_none() && state.panels.left {
         state.focus = Focus::Conversations;
     }
@@ -683,7 +852,20 @@ fn on_messages_loaded(
     for event in std::mem::take(&mut open.pending) {
         timeline::apply(&mut open.messages, &event);
     }
+    if let Some(anchor) = open.restored_anchor
+        && open.has_older
+        && open
+            .messages
+            .first()
+            .is_some_and(|first| anchor.message.sent_at < first.sent_at)
+    {
+        return vec![Effect::LoadMessagesAround {
+            conversation,
+            target: anchor.message,
+        }];
+    }
     open.loading = false;
+    apply_restored_anchor(open);
     let unread = last_unread(&open.messages, open.unread_on_open);
     open.unread_marker = unread.first().copied().or(open.unread_marker);
     presence::on_history(state, &unread);
@@ -727,6 +909,7 @@ fn on_messages_around_loaded(
     let Some(open) = state.open.as_mut().filter(|o| o.id == conversation) else {
         return vec![];
     };
+    let restoring_anchor = open.restored_anchor.is_some_and(|a| a.message == target);
     open.has_older = true;
     open.messages = messages;
     for event in std::mem::take(&mut open.pending) {
@@ -734,13 +917,17 @@ fn on_messages_around_loaded(
     }
     open.loading = false;
     open.loading_older = false;
-    open.selected = Some(Selection {
-        message: target,
-        reveal: true,
-    });
-    state.focus = Focus::Messages;
-    state.palette = None;
-    state.popup = None;
+    if restoring_anchor {
+        apply_restored_anchor(open);
+    } else {
+        open.selected = Some(Selection {
+            message: target,
+            reveal: true,
+        });
+        state.focus = Focus::Messages;
+        state.palette = None;
+        state.popup = None;
+    }
     let unread = last_unread(&open.messages, open.unread_on_open);
     open.unread_marker = unread.first().copied().or(open.unread_marker);
     presence::on_history(state, &unread);

@@ -3169,6 +3169,328 @@ fn slash_commands_shrug_unknown_and_escape_handling() {
     assert_eq!(state.open.as_ref().unwrap().input.text(), "/pi");
 }
 
+#[test]
+fn session_record_and_palette_levels_round_trip_through_storage_format() {
+    use crate::app::palette::{Level, Setting};
+    use crate::app::state::{Anchor, SessionRecord};
+
+    let msg = climbing_history()[1].reference();
+    for level in [
+        Level::Root,
+        Level::Chats,
+        Level::Search(None),
+        Level::Search(Some(climbing())),
+        Level::Themes,
+        Level::Settings,
+        Level::Setting(Setting::RestoreSession),
+        Level::Commands,
+        Level::Keys,
+        Level::People,
+        Level::Nickname(ALICE),
+        Level::SettingText(Setting::SidebarWidth),
+        Level::AttachFile,
+        Level::ChatLinks,
+        Level::ForwardTo(msg),
+    ] {
+        let stored = level.to_stored();
+        assert_eq!(Level::from_stored(&stored), Some(level), "{stored}");
+    }
+
+    let record = SessionRecord {
+        conversation: Some(climbing()),
+        anchor: Some(Anchor {
+            message: msg,
+            offset: 3,
+        }),
+        selected: Some(msg),
+        palette: Some(Level::Setting(Setting::RestoreSession)),
+    };
+    let stored = record.to_stored();
+    assert_eq!(SessionRecord::from_stored(&stored), Some(record));
+}
+
+#[test]
+fn cold_open_restores_conversation_draft_anchor_palette_and_since_you_left_strip() {
+    use crate::app::palette::{Level, Setting};
+    use crate::app::state::{Anchor, Geometry, SessionRecord, SinceYouLeft};
+
+    let mut state = State::new(ME, fixtures::contacts(), fixtures::groups());
+    let mut cfg = faro_core::config::Config::default();
+    cfg.conversations.restore_session = true;
+    let effects = configure(&mut state, cfg, vec![]);
+    assert!(
+        effects.contains(&Effect::LoadSession),
+        "startup with restore_session loads ui.session"
+    );
+
+    let history = climbing_history();
+    // Suppose the user stopped at history[2] (with 2 unread messages after it in Climbing,
+    // plus 1 unread in Alice) and had `Settings › Restore last session` open in the palette.
+    let anchor = Anchor {
+        message: history[2].reference(),
+        offset: 2,
+    };
+    let saved = SessionRecord {
+        conversation: Some(climbing()),
+        anchor: Some(anchor),
+        selected: Some(history[2].reference()),
+        palette: Some(Level::Setting(Setting::RestoreSession)),
+    };
+    update(&mut state, AppEvent::SessionLoaded(Some(saved.clone())));
+
+    let mut summaries = fixtures::summaries();
+    summaries
+        .iter_mut()
+        .find(|s| s.id == climbing())
+        .unwrap()
+        .state
+        .draft = Some(MessageBody::new("unfinished draft"));
+    summaries
+        .iter_mut()
+        .find(|s| s.id == alice())
+        .unwrap()
+        .unread = 3;
+
+    let effects = update(
+        &mut state,
+        AppEvent::Loaded {
+            conversations: summaries,
+            last_open: Some(climbing()),
+            recent_reactions: vec![],
+        },
+    );
+    assert!(effects.contains(&Effect::LoadMessages(climbing())));
+    assert_eq!(open_id(&state), Some(climbing()));
+    assert_eq!(
+        state.open.as_ref().unwrap().input.text(),
+        "unfinished draft"
+    );
+    assert_eq!(
+        state.palette.as_ref().map(super::super::palette::Palette::level),
+        Some(Level::Setting(Setting::RestoreSession))
+    );
+    assert_eq!(
+        state.since_you_left,
+        Some(SinceYouLeft {
+            here: 2,
+            other_messages: 3,
+            other_chats: 1,
+        })
+    );
+    assert_eq!(
+        state.since_you_left.unwrap().text(),
+        "Since you left: 2 unread here · 3 unread in 1 other chat"
+    );
+
+    // A frame drawn while `open.loading` is still true must NOT wipe out the restored anchor.
+    update(&mut state, AppEvent::Drawn(Geometry::default()));
+    assert_eq!(state.open.as_ref().unwrap().scroll, Some(anchor));
+    assert_eq!(state.open.as_ref().unwrap().restored_anchor, Some(anchor));
+
+    // History arrives; the view stays pinned to `anchor`, unread messages below it are NOT
+    // receipted yet (`seeing_open()` is false while scrolled up).
+    let effects = update(
+        &mut state,
+        AppEvent::MessagesLoaded {
+            conversation: climbing(),
+            messages: history.clone(),
+        },
+    );
+    assert!(
+        !effects
+            .iter()
+            .any(|e| matches!(e, Effect::Backend(Command::MarkRead(_)))),
+        "unread messages below the restored anchor wait until the user scrolls down"
+    );
+    let open = state.open.as_ref().unwrap();
+    assert_eq!(open.scroll, Some(anchor));
+    assert_eq!(open.restored_anchor, Some(anchor));
+    assert_eq!(open.unseen, 2);
+    assert_eq!(open.unread_marker, Some(history[6].reference()));
+
+    // Close the palette with Esc, then Esc dismisses the `since_you_left` strip before closing
+    // the conversation.
+    update(&mut state, key(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(state.palette.is_none());
+    assert!(state.since_you_left.is_some());
+    update(&mut state, key(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(state.since_you_left.is_none());
+    assert_eq!(open_id(&state), Some(climbing()));
+}
+
+#[test]
+fn cold_open_remeasures_anchor_after_inline_images_decode() {
+    use crate::app::image_cache::{ImageKey, ImageProtocol, ImageShape};
+    use crate::app::state::{Anchor, Geometry, SessionRecord};
+    use std::path::PathBuf;
+
+    let mut state = State::new(ME, fixtures::contacts(), fixtures::groups());
+    state.config.conversations.restore_session = true;
+    let history = climbing_history();
+    let anchor = Anchor {
+        message: history[2].reference(),
+        offset: 2,
+    };
+    update(
+        &mut state,
+        AppEvent::SessionLoaded(Some(SessionRecord {
+            conversation: Some(climbing()),
+            anchor: Some(anchor),
+            selected: Some(history[2].reference()),
+            palette: None,
+        })),
+    );
+    update(
+        &mut state,
+        AppEvent::Loaded {
+            conversations: fixtures::summaries(),
+            last_open: Some(climbing()),
+            recent_reactions: vec![],
+        },
+    );
+    update(
+        &mut state,
+        AppEvent::MessagesLoaded {
+            conversation: climbing(),
+            messages: history.clone(),
+        },
+    );
+
+    // While inline images are still decoding (`images_wanted` non-empty), `on_drawn` keeps
+    // `open.scroll = Some(anchor)` so the next frame re-measures from the anchor message id
+    // instead of locking in a pre-decode offset.
+    let pre_decode = Anchor {
+        message: history[3].reference(),
+        offset: 0,
+    };
+    update(
+        &mut state,
+        AppEvent::Drawn(Geometry {
+            scroll: Some(pre_decode),
+            images_wanted: vec![ImageKey {
+                path: PathBuf::from("photo.jpg"),
+                width: 20,
+                height: 10,
+                protocol: ImageProtocol::Halfblocks,
+                shape: ImageShape::Whole,
+            }],
+            ..Geometry::default()
+        }),
+    );
+    assert_eq!(
+        state.open.as_ref().unwrap().scroll,
+        Some(anchor),
+        "anchor preserved while images decode"
+    );
+    assert_eq!(state.open.as_ref().unwrap().restored_anchor, Some(anchor));
+
+    // Once images have decoded (`images_wanted` is empty), `on_drawn` accepts the re-measured
+    // normalised scroll and clears `restored_anchor`.
+    let settled = Anchor {
+        message: history[2].reference(),
+        offset: 1,
+    };
+    let effects = update(
+        &mut state,
+        AppEvent::Drawn(Geometry {
+            scroll: Some(settled),
+            images_wanted: vec![],
+            ..Geometry::default()
+        }),
+    );
+    assert_eq!(state.open.as_ref().unwrap().scroll, Some(settled));
+    assert_eq!(state.open.as_ref().unwrap().restored_anchor, None);
+    assert!(
+        effects.iter().any(|e| matches!(
+            e,
+            Effect::SaveSession(SessionRecord {
+                anchor: Some(a),
+                ..
+            }) if *a == settled
+        )),
+        "settled anchor is persisted to ui.session"
+    );
+}
+
+#[test]
+fn cold_open_loads_messages_around_when_anchor_is_older_than_first_page() {
+    use crate::app::palette::Level;
+    use crate::app::state::{Anchor, SessionRecord};
+
+    let mut state = State::new(ME, fixtures::contacts(), fixtures::groups());
+    state.config.conversations.restore_session = true;
+    let old_anchor = Anchor {
+        message: MessageRef {
+            sender: ALICE,
+            sent_at: Timestamp::from_millis(100),
+        },
+        offset: 1,
+    };
+    update(
+        &mut state,
+        AppEvent::SessionLoaded(Some(SessionRecord {
+            conversation: Some(climbing()),
+            anchor: Some(old_anchor),
+            selected: None,
+            palette: Some(Level::Themes),
+        })),
+    );
+    update(
+        &mut state,
+        AppEvent::Loaded {
+            conversations: fixtures::summaries(),
+            last_open: Some(climbing()),
+            recent_reactions: vec![],
+        },
+    );
+
+    // Simulate a full newest page (`PAGE` messages) that starts after `old_anchor`.
+    let newest_page: Vec<Message> = (0..PAGE)
+        .map(|i| {
+            text(
+                climbing(),
+                ALICE,
+                10_000 + u64::from(i) * 10,
+                &format!("msg {i}"),
+            )
+        })
+        .collect();
+    let effects = update(
+        &mut state,
+        AppEvent::MessagesLoaded {
+            conversation: climbing(),
+            messages: newest_page,
+        },
+    );
+    assert_eq!(
+        effects,
+        vec![Effect::LoadMessagesAround {
+            conversation: climbing(),
+            target: old_anchor.message,
+        }]
+    );
+
+    // When the surrounding page arrives, the anchor and open palette are preserved (not treated
+    // as a search jump that closes the palette).
+    let around = vec![
+        text(climbing(), ALICE, 100, "the anchored message"),
+        text(climbing(), BOB, 200, "next message"),
+    ];
+    update(
+        &mut state,
+        AppEvent::MessagesAroundLoaded {
+            conversation: climbing(),
+            target: old_anchor.message,
+            messages: around,
+        },
+    );
+    assert_eq!(state.open.as_ref().unwrap().scroll, Some(old_anchor));
+    assert_eq!(
+        state.palette.as_ref().map(super::super::palette::Palette::level),
+        Some(Level::Themes)
+    );
+}
+
 mod clipboard;
 mod curation;
 mod focus;

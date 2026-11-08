@@ -39,6 +39,7 @@ pub fn select_initial(state: &mut State) {
     let Some(open) = state.open.as_mut() else {
         return;
     };
+    open.restored_anchor = None;
     let message = open
         .scroll
         .map(|anchor| anchor.message)
@@ -53,6 +54,7 @@ pub fn select_initial(state: &mut State) {
 pub fn select(state: &mut State, message: MessageRef) {
     state.focus = Focus::Messages;
     if let Some(open) = state.open.as_mut() {
+        open.restored_anchor = None;
         open.selected = Some(Selection {
             message,
             reveal: true,
@@ -65,6 +67,7 @@ pub fn step(state: &mut State, older: bool) {
     let Some(open) = state.open.as_mut() else {
         return;
     };
+    open.restored_anchor = None;
     let current = open.selected.and_then(|s| {
         open.messages
             .iter()
@@ -93,6 +96,7 @@ pub fn jump(state: &mut State, oldest: bool) {
     let Some(open) = state.open.as_mut() else {
         return;
     };
+    open.restored_anchor = None;
     let message = if oldest {
         open.messages.first()
     } else {
@@ -114,6 +118,7 @@ pub fn jump_unread(state: &mut State) -> Vec<Effect> {
         state.notice = Some(Notice::info("No unread marker in this conversation"));
         return vec![];
     };
+    open.restored_anchor = None;
     if open.messages.iter().any(|m| m.reference() == target) {
         open.selected = Some(Selection {
             message: target,
@@ -2152,11 +2157,15 @@ pub fn on_fetched(
                     content_type: fetched.content_type.clone(),
                 });
             }
-            if let Some(open) = state.open.as_mut().filter(|o| o.id == conversation)
-                && let Some(msg) = open.messages.iter_mut().rfind(|m| m.reference() == message)
-                && let Some(att) = msg.attachments.get_mut(index)
-            {
-                *att = fetched;
+            if let Some(open) = state.open.as_mut().filter(|o| o.id == conversation) {
+                if let Some(msg) = open.messages.iter_mut().rfind(|m| m.reference() == message)
+                    && let Some(att) = msg.attachments.get_mut(index)
+                {
+                    *att = fetched;
+                }
+                if let Some(anchor) = open.restored_anchor {
+                    open.scroll = Some(anchor);
+                }
             }
             if transcribe_after {
                 effects.extend(transcribe_one_voice_note(state, message, index, true));

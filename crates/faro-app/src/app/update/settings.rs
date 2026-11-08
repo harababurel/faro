@@ -88,6 +88,14 @@ fn apply(
         } else {
             effects.extend(updates::on_setting_changed(state, old.updates.check));
         }
+        if startup && state.config.conversations.restore_session {
+            effects.push(Effect::LoadSession);
+        } else if !startup
+            && !old.conversations.restore_session
+            && state.config.conversations.restore_session
+        {
+            effects.extend(super::sync_session(state));
+        }
         // The mouse, the theme and `reduce_motion` are read from
         // `state.config` by the app loop.
     }
@@ -295,6 +303,7 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
         | SettingChoice::ReduceMotion(on)
         | SettingChoice::BubblePadding(on)
         | SettingChoice::MatchWidths(on)
+        | SettingChoice::RestoreSession(on)
         | SettingChoice::UpdateCheck(on) => choose_toggle(state, choice, on),
         SettingChoice::SidebarWidth(width) => super::resize::set_width(state, width),
         SettingChoice::Avatars(avatars) => {
@@ -406,6 +415,7 @@ fn choose_media_and_notifications(state: &mut State, choice: SettingChoice) -> V
         | SettingChoice::Density(_)
         | SettingChoice::Timestamps(_)
         | SettingChoice::Allowlist(_)
+        | SettingChoice::RestoreSession(_)
         | SettingChoice::Avatars(_)
         | SettingChoice::SidebarWidth(_)
         | SettingChoice::Previews(_)
@@ -500,6 +510,7 @@ fn choose_transcription(state: &mut State, choice: SettingChoice) -> Vec<Effect>
         | SettingChoice::Density(_)
         | SettingChoice::Timestamps(_)
         | SettingChoice::Allowlist(_)
+        | SettingChoice::RestoreSession(_)
         | SettingChoice::Avatars(_)
         | SettingChoice::SidebarWidth(_)
         | SettingChoice::Previews(_)
@@ -632,6 +643,7 @@ pub fn set_text(state: &mut State, setting: Setting, text: &str) -> Vec<Effect> 
         | Setting::Desktop
         | Setting::Privacy
         | Setting::Allowlist
+        | Setting::RestoreSession
         | Setting::Avatars
         | Setting::SidebarWidth
         | Setting::Previews
@@ -730,6 +742,7 @@ fn choose_toggle(state: &mut State, choice: SettingChoice, on: bool) -> Vec<Effe
             };
             save_with_notice(state, key::MATCH_WIDTHS, msg)
         }
+        SettingChoice::RestoreSession(_) => choose_restore_session(state, on),
         SettingChoice::UpdateCheck(_) => choose_update_check(state, on),
         SettingChoice::Colors(_)
         | SettingChoice::Emoji(_)
@@ -758,6 +771,19 @@ fn choose_toggle(state: &mut State, choice: SettingChoice, on: bool) -> Vec<Effe
         | SettingChoice::TranscribeRemoteModel(_)
         | SettingChoice::AutoLock(_) => vec![],
     }
+}
+
+/// Session restore on or off: saved, and immediately persists the current session when enabled.
+fn choose_restore_session(state: &mut State, on: bool) -> Vec<Effect> {
+    state.config.conversations.restore_session = on;
+    let msg = if on {
+        "Restore last session on: faro reopens at the message and palette you left"
+    } else {
+        "Restore last session off"
+    };
+    let mut effects = save_with_notice(state, key::RESTORE_SESSION, msg);
+    effects.extend(super::sync_session(state));
+    effects
 }
 
 /// Update checks on or off (D148): saved, and started or stopped.
