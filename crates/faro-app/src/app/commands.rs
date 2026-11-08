@@ -84,6 +84,7 @@ pub async fn execute<B: Backend>(backend: &B, command: Command) -> Option<AppEve
         | Command::Typing { .. }
         | Command::SetVerification { .. }
         | Command::SetDisappearingTimer { .. }
+        | Command::RespondMessageRequest { .. }
         | Command::PurgeExpired(_)) => {
             execute_quiet(backend, command).await;
             return None;
@@ -118,6 +119,14 @@ async fn execute_quiet<B: Backend>(backend: &B, command: Command) {
         } => {
             if let Err(error) = backend.set_disappearing_timer(conversation, seconds).await {
                 tracing::warn!(%error, %conversation, "updating disappearing timer failed");
+            }
+        }
+        Command::RespondMessageRequest {
+            conversation,
+            action,
+        } => {
+            if let Err(error) = backend.respond_message_request(conversation, action).await {
+                tracing::warn!(%error, %conversation, ?action, "syncing message request response failed");
             }
         }
         Command::PurgeExpired(messages) => {

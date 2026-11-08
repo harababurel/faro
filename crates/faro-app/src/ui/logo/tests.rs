@@ -181,14 +181,23 @@ fn ambient_beam_recolours_by_connection_state_and_scales_density_by_unread_press
         .iter()
         .map(|&connection| {
             let pic = base
-                .with_beam(&theme, Beam::Ambient { connection, unread: 2 })
+                .with_beam(
+                    &theme,
+                    Beam::Ambient {
+                        connection,
+                        unread: 2,
+                    },
+                )
                 .lighthouse(STILL);
             pic.get(20, 2).expect("lamp cell").fg
         })
         .collect();
     for (i, a) in lamp_colours.iter().enumerate() {
         for b in &lamp_colours[i + 1..] {
-            assert_ne!(a, b, "each ConnectionState has a distinct lamp colour: {lamp_colours:?}");
+            assert_ne!(
+                a, b,
+                "each ConnectionState has a distinct lamp colour: {lamp_colours:?}"
+            );
         }
     }
 
@@ -196,10 +205,16 @@ fn ambient_beam_recolours_by_connection_state_and_scales_density_by_unread_press
     let small_lamps: Vec<Color> = states
         .iter()
         .map(|&connection| {
-            art::small_with_beam(&theme, Beam::Ambient { connection, unread: 0 })
-                .get(4, 1)
-                .expect("small lamp cell")
-                .fg
+            art::small_with_beam(
+                &theme,
+                Beam::Ambient {
+                    connection,
+                    unread: 0,
+                },
+            )
+            .get(4, 1)
+            .expect("small lamp cell")
+            .fg
         })
         .collect();
     assert_eq!(

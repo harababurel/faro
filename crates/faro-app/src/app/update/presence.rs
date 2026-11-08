@@ -18,10 +18,15 @@ fn typing(conversation: faro_core::domain::ConversationId, state: TypingState) -
 /// The input's text changed: "started typing" on the first edit and every
 /// `TYPING_REFRESH` while it goes on; "stopped" once the input is empty.
 pub fn on_edited(state: &mut State) -> Vec<Effect> {
+    let Some(id) = state.open.as_ref().map(|o| o.id) else {
+        return vec![];
+    };
+    if state.is_restricted(id) {
+        return vec![];
+    }
     let Some(open) = state.open.as_mut() else {
         return vec![];
     };
-    let id = open.id;
     if open.input.is_empty()
         || (open.editing.is_none() && crate::app::slash::is_slash_input(open.input.text()))
     {
@@ -154,6 +159,13 @@ pub fn on_read_elsewhere(state: &mut State, read: &[MessageRef]) {
 /// the receipts and clear the unread count (here and in the store).
 pub fn catch_up(state: &mut State) -> Vec<Effect> {
     if !state.seeing_open() {
+        return vec![];
+    }
+    if state
+        .open
+        .as_ref()
+        .is_some_and(|o| state.is_restricted(o.id))
+    {
         return vec![];
     }
     let Some(open) = state.open.as_mut().filter(|o| !o.unreceipted.is_empty()) else {

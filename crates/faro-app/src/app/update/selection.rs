@@ -1030,6 +1030,9 @@ fn react(state: &mut State, target: MessageRef, emoji: &str) -> Vec<Effect> {
         return vec![];
     };
     let conversation = open.id;
+    if super::sending::block_if_key_changed(state, conversation) {
+        return vec![];
+    }
     let Some(message) = find(state, target) else {
         return vec![];
     };
@@ -1641,6 +1644,13 @@ pub fn queue_auto_transcriptions(state: &mut State) -> Vec<Effect> {
     if state.config.voice.transcribe == TranscribeMode::Off || !state.config.voice.auto_transcribe {
         return vec![];
     }
+    if state
+        .open
+        .as_ref()
+        .is_some_and(|o| state.is_restricted(o.id))
+    {
+        return vec![];
+    }
     let max_secs = state.config.voice.transcribe_max_secs;
     let candidates: Vec<(MessageRef, usize)> = state
         .open
@@ -2086,6 +2096,13 @@ fn should_auto_download(policy: AutoDownload, attachment: &AttachmentRef) -> boo
 /// `state.config.media.auto_download` (D75), and start up to
 /// `MAX_DOWNLOADS_IN_FLIGHT` concurrent downloads.
 pub fn queue_auto_downloads(state: &mut State) -> Vec<Effect> {
+    if state
+        .open
+        .as_ref()
+        .is_some_and(|o| state.is_restricted(o.id))
+    {
+        return vec![];
+    }
     let policy = state.config.media.auto_download;
     let jobs: Vec<DownloadJob> = state
         .open

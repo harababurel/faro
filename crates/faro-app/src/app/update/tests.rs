@@ -3266,7 +3266,10 @@ fn cold_open_restores_conversation_draft_anchor_palette_and_since_you_left_strip
         "unfinished draft"
     );
     assert_eq!(
-        state.palette.as_ref().map(super::super::palette::Palette::level),
+        state
+            .palette
+            .as_ref()
+            .map(super::super::palette::Palette::level),
         Some(Level::Setting(Setting::RestoreSession))
     );
     assert_eq!(
@@ -3486,7 +3489,10 @@ fn cold_open_loads_messages_around_when_anchor_is_older_than_first_page() {
     );
     assert_eq!(state.open.as_ref().unwrap().scroll, Some(old_anchor));
     assert_eq!(
-        state.palette.as_ref().map(super::super::palette::Palette::level),
+        state
+            .palette
+            .as_ref()
+            .map(super::super::palette::Palette::level),
         Some(Level::Themes)
     );
 }

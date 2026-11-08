@@ -13,9 +13,7 @@ use super::event::Effect;
 use super::input::Input;
 use super::keymap::Action;
 use super::palette::{INACTIVE_CHOICES, Level, SettingChoice, current_theme};
-use super::state::{
-    ConversationAction, DISAPPEARING_CHOICES, MUTE_CHOICES, Notice, Popup, State,
-};
+use super::state::{ConversationAction, DISAPPEARING_CHOICES, MUTE_CHOICES, Notice, Popup, State};
 use super::update::{curation, navigation, palette, presence, selection, sending, settings};
 use crate::theme::Theme;
 
@@ -352,9 +350,9 @@ fn split_slash(after_slash: &str) -> (&str, Option<&str>) {
 
 fn find_spec(cmd: &str) -> Option<&'static CommandSpec> {
     let lower = cmd.to_ascii_lowercase();
-    COMMANDS.iter().find(|spec| {
-        spec.name == lower || spec.aliases.iter().any(|&alias| alias == lower)
-    })
+    COMMANDS
+        .iter()
+        .find(|spec| spec.name == lower || spec.aliases.iter().any(|&alias| alias == lower))
 }
 
 /// Inline completion candidates for `after_slash` (the text after leading `/`).
@@ -382,9 +380,7 @@ pub fn candidates(state: &State, after_slash: &str) -> Vec<SlashCandidate> {
             Some(2)
         } else if spec.aliases.iter().any(|a| a.starts_with(&cmd)) {
             Some(3)
-        } else if spec.name.contains(&cmd)
-            || spec.description.to_ascii_lowercase().contains(&cmd)
-        {
+        } else if spec.name.contains(&cmd) || spec.description.to_ascii_lowercase().contains(&cmd) {
             Some(4)
         } else {
             None
@@ -509,10 +505,7 @@ fn mute_arg_candidates(state: &State, q: &str) -> Vec<SlashCandidate> {
         if token == "off" && !muted && q.is_empty() {
             continue;
         }
-        if q.is_empty()
-            || token.starts_with(q)
-            || desc.to_ascii_lowercase().contains(q)
-        {
+        if q.is_empty() || token.starts_with(q) || desc.to_ascii_lowercase().contains(q) {
             let full = format!("/mute {token}");
             out.push(SlashCandidate {
                 command: full.clone(),
@@ -593,9 +586,7 @@ fn disappear_arg_candidates(state: &State, q: &str) -> Vec<SlashCandidate> {
     PRESETS
         .iter()
         .filter(|&&(token, desc, _)| {
-            q.is_empty()
-                || token.starts_with(q)
-                || desc.to_ascii_lowercase().contains(q)
+            q.is_empty() || token.starts_with(q) || desc.to_ascii_lowercase().contains(q)
         })
         .map(|&(token, desc, secs)| {
             let full = format!("/disappear {token}");
@@ -622,9 +613,7 @@ fn toggle_arg_candidates(
     options
         .iter()
         .filter(|&&(token, desc)| {
-            q.is_empty()
-                || token.starts_with(q)
-                || desc.to_ascii_lowercase().contains(q)
+            q.is_empty() || token.starts_with(q) || desc.to_ascii_lowercase().contains(q)
         })
         .map(|&(token, desc)| {
             let full = format!("/{cmd} {token}");
@@ -655,10 +644,7 @@ fn hide_arg_candidates(q: &str) -> Vec<SlashCandidate> {
         });
     }
     for &(token, desc) in OPTIONS {
-        if q.is_empty()
-            || token.starts_with(q)
-            || desc.to_ascii_lowercase().contains(q)
-        {
+        if q.is_empty() || token.starts_with(q) || desc.to_ascii_lowercase().contains(q) {
             let full = format!("/hide {token}");
             out.push(SlashCandidate {
                 command: full.clone(),
@@ -750,10 +736,7 @@ pub fn parse_duration(raw: &str) -> Option<(Duration, String)> {
             } else {
                 format!("{count} weeks")
             };
-            Some((
-                Duration::from_secs(count.saturating_mul(7 * 86_400)),
-                label,
-            ))
+            Some((Duration::from_secs(count.saturating_mul(7 * 86_400)), label))
         }
         _ => None,
     }
@@ -780,7 +763,11 @@ fn consume_input(state: &mut State) -> Vec<Effect> {
 
 /// Execute the slash command currently in `open.input`.
 pub fn execute_from_input(state: &mut State) -> Vec<Effect> {
-    let Some(raw) = state.open.as_ref().map(|o| o.input.text().trim().to_owned()) else {
+    let Some(raw) = state
+        .open
+        .as_ref()
+        .map(|o| o.input.text().trim().to_owned())
+    else {
         return vec![];
     };
     execute(state, &raw)
@@ -1192,8 +1179,11 @@ fn exec_nick(state: &mut State, conversation: ConversationId, arg: &str) -> Vec<
         return effects;
     }
     let mut effects = consume_input(state);
-    let nickname = (!matches!(trimmed.to_ascii_lowercase().as_str(), "off" | "clear" | "none"))
-        .then(|| trimmed.to_owned());
+    let nickname = (!matches!(
+        trimmed.to_ascii_lowercase().as_str(),
+        "off" | "clear" | "none"
+    ))
+    .then(|| trimmed.to_owned());
     effects.extend(palette::set_nickname(state, peer, nickname));
     effects
 }
@@ -1221,7 +1211,8 @@ fn exec_theme(state: &mut State, arg: &str) -> Vec<Effect> {
                 .filter(|t| {
                     let n = t.name.to_ascii_lowercase();
                     n.starts_with(&lower)
-                        || n.strip_prefix("faro-").is_some_and(|s| s.starts_with(&lower))
+                        || n.strip_prefix("faro-")
+                            .is_some_and(|s| s.starts_with(&lower))
                 })
                 .collect();
             if let [only] = prefixes.as_slice() {
@@ -1269,19 +1260,31 @@ fn exec_chat(state: &mut State, arg: &str) -> Vec<Effect> {
         .iter()
         .find(|c| state.conversation_title(c.id).to_lowercase() == lower)
         .map(|c| c.id);
-    let target = exact.or_else(|| {
-        state
-            .conversations
-            .iter()
-            .find(|c| state.conversation_title(c.id).to_lowercase().starts_with(&lower))
-            .map(|c| c.id)
-    }).or_else(|| {
-        state
-            .conversations
-            .iter()
-            .find(|c| state.conversation_title(c.id).to_lowercase().contains(&lower))
-            .map(|c| c.id)
-    });
+    let target = exact
+        .or_else(|| {
+            state
+                .conversations
+                .iter()
+                .find(|c| {
+                    state
+                        .conversation_title(c.id)
+                        .to_lowercase()
+                        .starts_with(&lower)
+                })
+                .map(|c| c.id)
+        })
+        .or_else(|| {
+            state
+                .conversations
+                .iter()
+                .find(|c| {
+                    state
+                        .conversation_title(c.id)
+                        .to_lowercase()
+                        .contains(&lower)
+                })
+                .map(|c| c.id)
+        });
     let Some(id) = target else {
         state.notice = Some(Notice::warning(format!(
             "No conversation matching \"{query}\""

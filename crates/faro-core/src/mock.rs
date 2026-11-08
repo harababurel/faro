@@ -446,6 +446,8 @@ mod tests {
             | BackendEvent::ContactUpdated(_)
             | BackendEvent::IdentityUpdated(_)
             | BackendEvent::DisappearingTimer { .. }
+            | BackendEvent::BlockedSynced { .. }
+            | BackendEvent::MessageRequestResponded { .. }
             | BackendEvent::GroupUpdated(_)
             | BackendEvent::Error(_) => None,
         })

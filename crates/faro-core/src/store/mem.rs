@@ -7,7 +7,8 @@
 //! ASCII (as SQLite's `lower()`), and a replaced reaction keeps its place (an
 //! upsert keeps its row id). The store test suite runs against both engines.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::PathBuf;
 
 use super::codec::{
     attachment_status_to_db, conversation_from_key, conversation_key, timestamp_to_db,
@@ -16,7 +17,7 @@ use super::{
     ConversationState, ConversationSummary, ExpiredSweep, PROFILE_KEY, Profile, RecipientReceipt,
     Result, SearchHit, StoreError, StoreStats, StoredProfile, decide,
 };
-use crate::backend::{BackendEvent, IdentityUpdate};
+use crate::backend::{BackendEvent, IdentityUpdate, MessageRequestAction};
 use crate::domain::{
     AttachmentRef, AttachmentStatus, CallState, Contact, ConversationId, DeliveryStatus, Direction,
     Group, IdentityRecord, Mention, Message, MessageBody, MessageRef, PhoneNumber, Quote, Reaction,
@@ -154,6 +155,11 @@ impl Mem {
                 conversation,
                 seconds,
             } => self.set_disappearing_timer(conversation, seconds),
+            BackendEvent::BlockedSynced { conversations } => self.sync_blocked(&conversations),
+            BackendEvent::MessageRequestResponded {
+                conversation,
+                action,
+            } => self.apply_message_request_response(conversation, action),
             BackendEvent::Connection(_) | BackendEvent::Typing { .. } | BackendEvent::Error(_) => {
                 Ok(())
             }
@@ -1069,6 +1075,108 @@ impl Mem {
         let key = self.ensure_conversation(conversation);
         if let Some(conv) = self.conversations.get_mut(&key) {
             conv.disappearing_timer = seconds.filter(|&s| s > 0);
+        }
+        Ok(())
+    }
+
+    pub(super) fn delete_conversation(
+        &mut self,
+        conversation: ConversationId,
+    ) -> Result<Vec<PathBuf>> {
+        let ids: Vec<(u64, MessageRef)> = self
+            .rows
+            .iter()
+            .filter(|(_, row)| row.conversation == conversation)
+            .map(|(&id, row)| {
+                (
+                    id,
+                    MessageRef {
+                        sender: row.sender,
+                        sent_at: row.sent_at,
+                    },
+                )
+            })
+            .collect();
+        let mut attachment_paths = Vec::new();
+        for (id, msg_ref) in ids {
+            if let Some(row) = self.rows.remove(&id) {
+                for attachment in row.attachments {
+                    if let AttachmentStatus::Downloaded(path) = attachment.status {
+                        attachment_paths.push(path);
+                    }
+                }
+            }
+            self.by_ref.remove(&msg_ref);
+            self.receipts.remove(&msg_ref);
+        }
+        if let Some(conv) = self.conversations.get_mut(&conversation_key(conversation)) {
+            conv.last_activity = None;
+            conv.unread = 0;
+            if let Some(state) = &mut conv.state {
+                state.request = false;
+                state.draft = None;
+            }
+        }
+        Ok(attachment_paths)
+    }
+
+    fn sync_blocked(&mut self, conversations: &[ConversationId]) -> Result<()> {
+        let blocked_keys: HashSet<String> = conversations
+            .iter()
+            .map(|&conv| self.ensure_conversation(conv))
+            .collect();
+        for (key, conv) in &mut self.conversations {
+            let is_blocked = blocked_keys.contains(key);
+            if is_blocked {
+                let state = conv.state.get_or_insert_with(ConversationState::default);
+                state.blocked = true;
+                state.request = false;
+            } else if let Some(state) = &mut conv.state {
+                state.blocked = false;
+            }
+        }
+        Ok(())
+    }
+
+    fn apply_message_request_response(
+        &mut self,
+        conversation: ConversationId,
+        action: MessageRequestAction,
+    ) -> Result<()> {
+        let key = self.ensure_conversation(conversation);
+        match action {
+            MessageRequestAction::Accept => {
+                if let Some(conv) = self.conversations.get_mut(&key) {
+                    let state = conv.state.get_or_insert_with(ConversationState::default);
+                    state.request = false;
+                    state.blocked = false;
+                }
+            }
+            MessageRequestAction::Delete | MessageRequestAction::Spam => {
+                self.delete_conversation(conversation)?;
+            }
+            MessageRequestAction::Block => {
+                if let Some(conv) = self.conversations.get_mut(&key) {
+                    let state = conv.state.get_or_insert_with(ConversationState::default);
+                    state.request = false;
+                    state.blocked = true;
+                }
+            }
+            MessageRequestAction::BlockAndDelete | MessageRequestAction::BlockAndSpam => {
+                self.delete_conversation(conversation)?;
+                if let Some(conv) = self.conversations.get_mut(&key) {
+                    let state = conv.state.get_or_insert_with(ConversationState::default);
+                    state.request = false;
+                    state.blocked = true;
+                }
+            }
+            MessageRequestAction::Unblock => {
+                if let Some(conv) = self.conversations.get_mut(&key)
+                    && let Some(state) = &mut conv.state
+                {
+                    state.blocked = false;
+                }
+            }
         }
         Ok(())
     }

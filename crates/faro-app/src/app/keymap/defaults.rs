@@ -150,6 +150,26 @@ pub const NAMES: &[(&str, &str, Action)] = &[
         Action::Curate(Curate::Allow),
     ),
     (
+        "conversation.accept",
+        "Accept message request",
+        Action::Curate(Curate::AcceptRequest),
+    ),
+    (
+        "conversation.delete",
+        "Delete request or blocked conversation",
+        Action::Curate(Curate::DeleteRequest),
+    ),
+    (
+        "conversation.block",
+        "Block or unblock conversation",
+        Action::Curate(Curate::Block),
+    ),
+    (
+        "conversation.report_spam",
+        "Block and report spam",
+        Action::Curate(Curate::ReportSpam),
+    ),
+    (
         "list.allowlist_mode",
         "Allowlist mode on or off",
         Action::Curate(Curate::AllowlistMode),
@@ -376,6 +396,10 @@ pub const BINDINGS: &[(Context, &str, Action)] = &[
     (Conversations, "h", Action::Curate(Curate::Hide)),
     (Conversations, "a", Action::Curate(Curate::Archive)),
     (Conversations, "l", Action::Curate(Curate::Allow)),
+    (Conversations, "y", Action::Curate(Curate::AcceptRequest)),
+    (Conversations, "D", Action::Curate(Curate::DeleteRequest)),
+    (Conversations, "b", Action::Curate(Curate::Block)),
+    (Conversations, "!", Action::Curate(Curate::ReportSpam)),
     (Conversations, "L", Action::Curate(Curate::AllowlistMode)),
     (Conversations, "A", Action::Curate(Curate::SwitchView)),
     (Conversations, "?", Action::Help),

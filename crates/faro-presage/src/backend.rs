@@ -7,7 +7,8 @@ use std::time::{Duration, SystemTime};
 
 use faro_core::backend::{
     Account, Backend, BackendError, BackendEvent, BackendEvents, Capabilities, Capability,
-    EVENT_CHANNEL_CAPACITY, IdentityUpdate, OutgoingEdit, OutgoingMessage, ReactionChange, Result,
+    EVENT_CHANNEL_CAPACITY, IdentityUpdate, MessageRequestAction, OutgoingEdit, OutgoingMessage,
+    ReactionChange, Result,
 };
 use faro_core::domain::{
     AttachmentRef, ConnectionState, Contact, ConversationId, DeliveryStatus, Direction, Group,
@@ -61,6 +62,8 @@ pub struct PresageBackend {
     groups: Rc<RefCell<HashMap<GroupId, KnownGroup>>>,
     /// Last seen serialized identity key for each peer in this session (D163).
     identity_keys: Rc<RefCell<HashMap<ServiceId, Vec<u8>>>>,
+    /// Known blocked conversations in this session (D176).
+    blocked: Rc<RefCell<HashSet<ConversationId>>>,
     /// For contacts whose profile arrives later.
     events: mpsc::Sender<BackendEvent>,
 }
@@ -74,6 +77,7 @@ pub fn start(manager: Linked) -> (PresageBackend, BackendEvents) {
         me,
         groups: Rc::default(),
         identity_keys: Rc::default(),
+        blocked: Rc::default(),
         events: events.clone(),
     };
     tokio::task::spawn_local(receive(backend.clone(), events));
@@ -275,11 +279,20 @@ impl PresageBackend {
     /// linked; they arrive later as `Received::Contacts`. In the
     /// background, so receiving never waits on it.
     fn request_contacts(&self) {
+        let backend = self.clone();
         let mut manager = self.manager.clone();
         tokio::task::spawn_local(async move {
             match Box::pin(manager.request_contacts()).await {
                 Ok(()) => tracing::info!("asked the phone for its contacts"),
                 Err(error) => tracing::warn!(%error, "asking the phone for its contacts failed"),
+            }
+            let mut sync = convert::request_blocked_sync();
+            sync.padding = SyncMessage::with_padding(&mut rand::rng()).padding;
+            if let Err(error) = backend
+                .deliver(ConversationId::Direct(backend.me), sync, now_millis())
+                .await
+            {
+                tracing::debug!(%error, "asking the phone for its blocklist failed");
             }
         });
     }
@@ -444,6 +457,29 @@ impl PresageBackend {
             .send(BackendEvent::IdentityUpdated(update))
             .await
             .is_ok()
+    }
+
+    async fn purge_thread(&self, conversation: ConversationId) {
+        let mut store = self.manager.store().clone();
+        let thread = match conversation {
+            ConversationId::Direct(peer) => Thread::Contact(convert::signal_id(peer)),
+            ConversationId::Group(group) => {
+                let Some(key) = self.groups.borrow().get(&group).map(|g| g.key) else {
+                    return;
+                };
+                Thread::Group(key)
+            }
+        };
+        let Ok(contents) = store.messages(&thread, ..).await else {
+            return;
+        };
+        let timestamps: Vec<u64> = contents
+            .filter_map(std::result::Result::ok)
+            .filter_map(|c| u64::try_from(c.metadata.client_timestamp.timestamp_millis()).ok())
+            .collect();
+        for ts in timestamps {
+            let _ = store.delete_message(&thread, ts).await;
+        }
     }
 }
 
@@ -676,6 +712,57 @@ impl Backend for PresageBackend {
         let now = now_millis();
         let message = convert::timer_update(seconds, now, None);
         self.deliver(conversation, message, now).await
+    }
+
+    async fn respond_message_request(
+        &self,
+        conversation: ConversationId,
+        action: MessageRequestAction,
+    ) -> Result<()> {
+        match action {
+            MessageRequestAction::Block
+            | MessageRequestAction::BlockAndDelete
+            | MessageRequestAction::BlockAndSpam => {
+                self.blocked.borrow_mut().insert(conversation);
+            }
+            MessageRequestAction::Accept | MessageRequestAction::Unblock => {
+                self.blocked.borrow_mut().remove(&conversation);
+            }
+            MessageRequestAction::Delete | MessageRequestAction::Spam => {}
+        }
+        if matches!(
+            action,
+            MessageRequestAction::Delete
+                | MessageRequestAction::BlockAndDelete
+                | MessageRequestAction::Spam
+                | MessageRequestAction::BlockAndSpam
+        ) {
+            self.purge_thread(conversation).await;
+        }
+        let mut outcome = Ok(());
+        if let Some(mut sync) = convert::message_request_response_sync(conversation, action) {
+            sync.padding = SyncMessage::with_padding(&mut rand::rng()).padding;
+            let sent = self
+                .deliver(ConversationId::Direct(self.me), sync, now_millis())
+                .await;
+            outcome = outcome.and(sent);
+        }
+        if matches!(
+            action,
+            MessageRequestAction::Block
+                | MessageRequestAction::BlockAndDelete
+                | MessageRequestAction::BlockAndSpam
+                | MessageRequestAction::Unblock
+        ) {
+            let list: Vec<ConversationId> = self.blocked.borrow().iter().copied().collect();
+            let mut sync = convert::blocked_sync_message(&list);
+            sync.padding = SyncMessage::with_padding(&mut rand::rng()).padding;
+            let sent = self
+                .deliver(ConversationId::Direct(self.me), sync, now_millis())
+                .await;
+            outcome = outcome.and(sent);
+        }
+        outcome
     }
 
     async fn purge_expired(&self, messages: &[(ConversationId, MessageRef)]) -> Result<()> {
@@ -1070,11 +1157,45 @@ async fn on_received(
                 return false;
             }
             for event in convert::events(&content, backend.me) {
+                apply_request_or_block_sync(backend, &event).await;
                 if events.send(event).await.is_err() {
                     return false;
                 }
             }
             true
+        }
+    }
+}
+
+async fn apply_request_or_block_sync(backend: &PresageBackend, event: &BackendEvent) {
+    if let BackendEvent::BlockedSynced { conversations } = event {
+        let mut blocked = backend.blocked.borrow_mut();
+        blocked.clear();
+        blocked.extend(conversations.iter().copied());
+    } else if let BackendEvent::MessageRequestResponded {
+        conversation,
+        action,
+    } = event
+    {
+        match action {
+            MessageRequestAction::Block
+            | MessageRequestAction::BlockAndDelete
+            | MessageRequestAction::BlockAndSpam => {
+                backend.blocked.borrow_mut().insert(*conversation);
+            }
+            MessageRequestAction::Accept | MessageRequestAction::Unblock => {
+                backend.blocked.borrow_mut().remove(conversation);
+            }
+            MessageRequestAction::Delete | MessageRequestAction::Spam => {}
+        }
+        if matches!(
+            action,
+            MessageRequestAction::Delete
+                | MessageRequestAction::BlockAndDelete
+                | MessageRequestAction::Spam
+                | MessageRequestAction::BlockAndSpam
+        ) {
+            backend.purge_thread(*conversation).await;
         }
     }
 }

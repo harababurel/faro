@@ -808,5 +808,14 @@ Notes (version, OS, terminal, what went wrong):
 
 Notes (version, OS, terminal, what went wrong):
 
+## Message requests and blocking (D176)
+
+- [ ] **Quarantine & privacy guards:** receive a message from an unknown Signal account (not in contacts, no prior outgoing messages): it does not ring the bell or desktop notification, does not appear in `Chats`, and the bottom switch row in the sidebar shows `▸ Requests (1)` (or `▸ Requests & archive (N)`). Press `A` to open the archive view: the conversation is listed under `▾ Message requests` with `?` at the right edge. Open it and type in the input box without pressing `Enter`: the input banner shows `? Message request  y accept · D delete · b block · ! spam`, `Alt+I` Info shows `Notifications: Silenced (request)`, and the sender's phone receives neither read receipts nor typing indicators nor automatic attachment downloads.
+- [ ] **Accept (`y` or reply):** press `y` in the sidebar (or choose *Accept request* in `Space` / `Ctrl+P`, or send a reply): the conversation moves to `Chats`, held read receipts are sent to the peer, and Signal on your phone marks the request accepted.
+- [ ] **Block / Unblock (`b`) & send guard:** press `b` on a conversation (or choose *Block* in `Space` / `Ctrl+P`): it moves to `▾ Blocked` in the archive view with `⊘` at the right edge, and Signal on your phone shows the conversation as blocked. Open the blocked conversation and press `Enter` on text in the input box: `faro` refuses to send with a warning (`Conversation is blocked — unblock before sending`) and shows `⊘ Conversation is blocked — unblock to send` above the input. Press `b` again (or unblock on your phone): the conversation is unblocked and returns to `Chats`.
+- [ ] **Delete (`D`) & Block and report spam (`!`):** on a message request, press `D` (*Delete conversation*) or `!` (*Block & report spam*): the conversation's messages and downloaded attachments are deleted locally, the action syncs to your phone, and restarting `faro` does not resurrect the deleted messages.
+
+Notes (version, OS, terminal, what went wrong):
+
 
 

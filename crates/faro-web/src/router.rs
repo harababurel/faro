@@ -134,6 +134,7 @@ impl Router {
                 | Effect::ReadElsewhere(_)
                 | Effect::SweepExpired(_)
                 | Effect::SaveDisappearingTimer(..)
+                | Effect::DeleteConversation(_)
                 | Effect::SaveConversationState(..)
                 | Effect::SaveNickname(..)
                 | Effect::SaveVerification(..)

@@ -126,6 +126,14 @@ pub enum Curate {
     AllowlistMode,
     /// Between the chats and the archive.
     SwitchView,
+    /// Accept an unaccepted message request (`y`, D176).
+    AcceptRequest,
+    /// Delete a message request or blocked conversation (`D`, D176).
+    DeleteRequest,
+    /// Block or unblock a conversation (`b`, D176).
+    Block,
+    /// Block and report spam (`!`, D176).
+    ReportSpam,
 }
 
 /// Keys while a menu or picker is open.

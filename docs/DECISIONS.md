@@ -1736,5 +1736,35 @@ A developer friend of the owner tried getfaro.dev; the owner agreed with all of 
   - `[security] auto_lock_mins` (default `0` = off; configurable in `Ctrl+P` › Settings › Security › *Auto-lock after inactivity* with presets `off`, `1 min`, `5 min`, `15 min`, `30 min`, `60 min`, `Custom…`) automatically locks the TUI after `N` minutes without terminal input whenever a vault or session passphrase is set (`State::auto_lock_deadline` in `State::next_deadline` and `update::on_tick`).
   - While locked (`State::is_locked()`): the conversation list, messages, and popups are hidden behind `ui::lock::render`, decoded inline images are evicted (`images.clear()`), any active audio playback is stopped (`Effect::StopAudio`), incoming messages are **never** marked read (`State::seeing_open()` is `false`), the window title masks counts as `"faro (locked)"`, and desktop notifications are forced to generic `("faro", "New message")` regardless of `[notifications] privacy`.
 
+### D176. Message requests and blocking (owner's request, 2026-11-08)
+
+- **Problem:** When a stranger messages you or you block a peer/group on your phone, `faro` previously treated the chat like any normal conversation: placing it in `SidebarView::Chats`, ringing notifications, auto-sending read receipts and typing indicators, auto-downloading attachments, and ignoring Signal's `SyncMessage::Blocked` and `SyncMessage::MessageRequestResponse` sync messages.
+- **Scope (owner's choice):** Implement full message-request quarantine, privacy guards, one-keystroke accept/delete/block/spam actions, and two-way Signal sync (`SyncMessage::Blocked` and `SyncMessage::MessageRequestResponse`); omit the local spam heuristic.
+- **Storage (`faro-core::store`, migration `0013_requests_and_blocking.sql`):**
+  - `ConversationState` gains `request: bool` (`conversation_state.message_request`) and `blocked: bool` (`conversation_state.blocked`), persisted in both SQLite (`db.rs`) and memory (`mem.rs`).
+  - `Store::delete_conversation(conversation) -> Result<Vec<PathBuf>>` deletes all messages in `conversation` (cascading to `reactions`, `attachments`, `mentions`, and `message_receipts`), resets `last_activity` and `unread_count = 0`, clears `request` and `draft`, and returns local attachment file paths so the caller can unlink them from `<data dir>/attachments/` and evict them from the inline-image / blob caches.
+  - `Store::apply` handles `BackendEvent::BlockedSynced { conversations }` (replaces the `blocked` set across all conversations and clears `request` on newly blocked ones) and `BackendEvent::MessageRequestResponded { conversation, action }` (`Accept`, `Delete`, `Block`, `BlockAndDelete`, `Unblock`, `Spam`, `BlockAndSpam`).
+- **Two-way Signal sync (`faro-presage`):**
+  - `convert.rs` decodes `SyncMessage::Blocked` (`aci`, `e164`, `group_ids`) into `BackendEvent::BlockedSynced` and `SyncMessage::MessageRequestResponse` (`thread_aci`, `group_id`, `r#type`) into `BackendEvent::MessageRequestResponded`.
+  - On startup after the initial message queue drains (`request_contacts`), `PresageBackend` also sends `SyncMessage::Request { Type::Blocked }` (`request_blocked_sync`) so the phone's block list syncs automatically.
+  - `PresageBackend::respond_message_request` sends a `SyncMessage::MessageRequestResponse` to linked devices and, on `Delete`, `BlockAndDelete`, `Spam`, or `BlockAndSpam`, purges the thread's messages from `presage.db` (`purge_thread`) so `stored_events` cannot resurrect deleted conversations on restart.
+  - During `faro link` history transfer (`transfer.rs`), `Conversation.blocked` and `!Conversation.system_contact && !has_outgoing` are imported into `ConversationState::{blocked, request}`.
+- **Quarantine & privacy guards (`faro-app`):**
+  - Conversations with `state.request` or `state.blocked` are placed in `SidebarView::Archive` under `Section::Request` (`▾ Message requests`) and `Section::Blocked` (`▾ Blocked`), keeping `SidebarView::Chats` clean; the switch row at the bottom of `Chats` shows `▸ Requests (N)` or `▸ Requests & archive (N)` when requests are waiting.
+  - Incoming messages in a brand-new direct conversation from an unknown peer (`State::is_unknown_peer`: no saved contact/profile/nickname and no outgoing messages) automatically set `state.request = true`.
+  - While `state.is_restricted(id)` (`request || blocked`):
+    - **No read receipts:** `presence::catch_up` clears the local unread counter when seen, but holds `OpenConversation::unreceipted` until the request is accepted (when `AcceptRequest` or an outgoing reply flushes `Command::MarkRead`).
+    - **No typing indicators:** `presence::on_edited` suppresses `Command::Typing`, and incoming `BackendEvent::Typing` from blocked conversations is ignored.
+    - **No automatic downloads or voice transcriptions:** `selection::queue_auto_downloads` and `queue_auto_transcriptions` skip restricted conversations (manual `d` / `v` still works).
+    - **No notifications:** `notify::on_unseen_message` and `State::unread_conversations` skip `request` and `blocked` conversations; incoming messages in `blocked` conversations do not increment `unread` or unhide the chat.
+- **UI & one-keystroke actions (`y`, `D`, `b`, `!`):**
+  - In `Context::Conversations` (`keymap/defaults.rs`), `Space` (`Popup::ConversationMenu`), and `Ctrl+P`:
+    - `y` (`Curate::AcceptRequest`, `"conversation.accept"`): accepts a message request, flushes held read receipts, syncs `Accept`, and returns to `Chats`.
+    - `D` (`Curate::DeleteRequest`, `"conversation.delete"`): deletes a message request or blocked conversation locally (`Effect::DeleteConversation`) and syncs `Delete`.
+    - `b` (`Curate::Block`, `"conversation.block"`): blocks or unblocks the conversation and syncs `Block` / `Unblock`.
+    - `!` (`Curate::ReportSpam`, `"conversation.spam"`): blocks and reports spam (`BlockAndSpam`), deleting local history and attachments.
+  - Replying in an unaccepted message request automatically accepts it (`sending::send` / `send_attachment`). Attempting to send in a blocked conversation is refused with a warning notice (`"Conversation is blocked — unblock before sending"`).
+  - The input box displays `? Message request  y accept · D delete · b block · ! spam` or `⊘ Conversation is blocked — unblock to send  space menu`, the sidebar shows `?` or `⊘` at the right edge, and `Alt+I` Info shows `Silenced (request)` or `Silenced (blocked)`.
+
 
 

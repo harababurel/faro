@@ -596,6 +596,7 @@ async fn execute<B: Backend>(
         | Command::Typing { .. }
         | Command::SetVerification { .. }
         | Command::SetDisappearingTimer { .. }
+        | Command::RespondMessageRequest { .. }
         | Command::PurgeExpired(_)
         | Command::ListDevices
         | Command::UnlinkDevice { .. }) => other,

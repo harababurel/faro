@@ -148,10 +148,10 @@ pub fn parse_date_start_ms(value: &str) -> Option<i64> {
     let parts: Vec<&str> = value.split('-').collect();
     let (year, month, day): (i64, u32, u32) = match parts.as_slice() {
         [y] if y.len() == 4 => (y.parse().ok()?, 1, 1),
-        [y, m] if y.len() == 4 && (1..=2).contains(&m.len()) => (y.parse().ok()?, m.parse().ok()?, 1),
-        [y, m, d]
-            if y.len() == 4 && (1..=2).contains(&m.len()) && (1..=2).contains(&d.len()) =>
-        {
+        [y, m] if y.len() == 4 && (1..=2).contains(&m.len()) => {
+            (y.parse().ok()?, m.parse().ok()?, 1)
+        }
+        [y, m, d] if y.len() == 4 && (1..=2).contains(&m.len()) && (1..=2).contains(&d.len()) => {
             (y.parse().ok()?, m.parse().ok()?, d.parse().ok()?)
         }
         _ => return None,

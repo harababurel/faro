@@ -716,10 +716,7 @@ fn on_session_loaded(state: &mut State, record: Option<SessionRecord>) -> Vec<Ef
     }
 }
 
-fn restore_from_session(
-    state: &mut State,
-    fallback_open: Option<ConversationId>,
-) -> Vec<Effect> {
+fn restore_from_session(state: &mut State, fallback_open: Option<ConversationId>) -> Vec<Effect> {
     let record = match &state.restoring_session {
         RestoringSession::Loaded(Some(record)) => record.clone(),
         RestoringSession::Loaded(None) | RestoringSession::NotLoaded => SessionRecord {
@@ -793,7 +790,11 @@ fn apply_restored_anchor(open: &mut OpenConversation) {
     let Some(anchor) = open.restored_anchor else {
         return;
     };
-    let resolved = if open.messages.iter().any(|m| m.reference() == anchor.message) {
+    let resolved = if open
+        .messages
+        .iter()
+        .any(|m| m.reference() == anchor.message)
+    {
         Some(anchor)
     } else {
         open.messages
@@ -1080,6 +1081,19 @@ fn on_backend(state: &mut State, event: BackendEvent) -> Vec<Effect> {
                 )));
             }
         }
+        BackendEvent::BlockedSynced { conversations } => {
+            curation::on_blocked_synced(state, conversations);
+        }
+        BackendEvent::MessageRequestResponded {
+            conversation,
+            action,
+        } => {
+            effects.extend(curation::apply_request_response(
+                state,
+                *conversation,
+                *action,
+            ));
+        }
         BackendEvent::Error(error) => {
             state.notice = Some(Notice::warning(format!("Signal: {error}")));
         }
@@ -1101,7 +1115,9 @@ fn persistent(event: &BackendEvent) -> bool {
         | BackendEvent::DisappearingTimer { .. }
         | BackendEvent::ContactUpdated(_)
         | BackendEvent::GroupUpdated(_)
-        | BackendEvent::IdentityUpdated(_) => true,
+        | BackendEvent::IdentityUpdated(_)
+        | BackendEvent::BlockedSynced { .. }
+        | BackendEvent::MessageRequestResponded { .. } => true,
         // Read syncs are applied by their own effect, which reports what it
         // cleared (D70).
         BackendEvent::ReadElsewhere(_)
@@ -1135,7 +1151,16 @@ fn on_message(state: &mut State, message: &Message, effects: &mut Vec<Effect>) {
     let seen = is_open && state.seeing_open();
     let incoming =
         message.direction == Direction::Incoming && !message.deleted && !message.is_system();
+    let is_new_conversation = !state.conversations.iter().any(|c| c.id == id);
+    let new_request = is_new_conversation
+        && message.direction == Direction::Incoming
+        && !message.deleted
+        && matches!(id, ConversationId::Direct(peer) if state.is_unknown_peer(peer));
+    let is_blocked = state.summary(id).is_some_and(|s| s.state.blocked);
     if !state.loading
+        && !is_blocked
+        && !new_request
+        && !state.summary(id).is_some_and(|s| s.state.request)
         && let Some(
             event @ SystemEvent::Call {
                 state: CallState::Incoming,
@@ -1146,57 +1171,12 @@ fn on_message(state: &mut State, message: &Message, effects: &mut Vec<Effect>) {
         state.notice = Some(Notice::info(state.system_event_text(message, event)));
     }
     if let Some(summary) = summary_entry(state, id) {
-        summary.last_activity = summary.last_activity.max(Some(message.sent_at));
-        if message.expires_in_secs.is_some() {
-            summary.disappearing_timer = message.expires_in_secs;
-        }
-        // The list's preview (D154): only drawing, never a read (D42).
-        if let (
-            Some(last),
-            Some(SystemEvent::Call {
-                state: new_state @ (CallState::Missed | CallState::Accepted),
-                ..
-            }),
-        ) = (summary.last_message.as_mut(), &message.system_event)
-            && matches!(
-                last.system_event,
-                Some(SystemEvent::Call {
-                    state: CallState::Incoming,
-                    ..
-                })
-            )
-            && last
-                .sent_at
-                .as_millis()
-                .abs_diff(message.sent_at.as_millis())
-                <= 300_000
-        {
-            if let Some(SystemEvent::Call { state, .. }) = &mut last.system_event {
-                *state = *new_state;
-            }
-        } else if summary
-            .last_message
-            .as_ref()
-            .is_none_or(|last| (last.sent_at, last.sender) < (message.sent_at, message.sender))
-        {
-            summary.last_message = Some(message.clone());
-        }
-        if incoming && !seen {
-            summary.unread += 1;
-        }
-        // Hidden until a new message arrives (DESIGN.md §7.7).
-        if summary.state.hidden && !message.deleted {
-            summary.state.hidden = false;
-            effects.push(Effect::SaveConversationState(
-                id,
-                Box::new(summary.state.clone()),
-            ));
-        }
+        update_summary_on_message(summary, message, new_request, seen, incoming, effects);
     }
     if let Some(at) = message.expires_at() {
         state.note_expiry(at, wall_clock(), Instant::now());
     }
-    if incoming && !seen {
+    if incoming && !seen && !is_blocked {
         effects.extend(notify::on_unseen_message(state, message));
     }
     sort_conversations(&mut state.conversations);
@@ -1214,6 +1194,80 @@ fn on_message(state: &mut State, message: &Message, effects: &mut Vec<Effect>) {
         effects.extend(presence::catch_up(state));
         effects.extend(selection::queue_auto_downloads(state));
         effects.extend(selection::queue_auto_transcriptions(state));
+    }
+}
+
+fn update_summary_on_message(
+    summary: &mut ConversationSummary,
+    message: &Message,
+    new_request: bool,
+    seen: bool,
+    incoming: bool,
+    effects: &mut Vec<Effect>,
+) {
+    let id = summary.id;
+    let blocked = summary.state.blocked;
+    if new_request && !blocked {
+        summary.state.request = true;
+        effects.push(Effect::SaveConversationState(
+            id,
+            Box::new(summary.state.clone()),
+        ));
+    } else if matches!(message.direction, Direction::Outgoing(_))
+        && !message.is_system()
+        && summary.state.request
+    {
+        summary.state.request = false;
+        effects.push(Effect::SaveConversationState(
+            id,
+            Box::new(summary.state.clone()),
+        ));
+    }
+    summary.last_activity = summary.last_activity.max(Some(message.sent_at));
+    if message.expires_in_secs.is_some() {
+        summary.disappearing_timer = message.expires_in_secs;
+    }
+    // The list's preview (D154): only drawing, never a read (D42).
+    if let (
+        Some(last),
+        Some(SystemEvent::Call {
+            state: new_state @ (CallState::Missed | CallState::Accepted),
+            ..
+        }),
+    ) = (summary.last_message.as_mut(), &message.system_event)
+        && matches!(
+            last.system_event,
+            Some(SystemEvent::Call {
+                state: CallState::Incoming,
+                ..
+            })
+        )
+        && last
+            .sent_at
+            .as_millis()
+            .abs_diff(message.sent_at.as_millis())
+            <= 300_000
+    {
+        if let Some(SystemEvent::Call { state, .. }) = &mut last.system_event {
+            *state = *new_state;
+        }
+    } else if summary
+        .last_message
+        .as_ref()
+        .is_none_or(|last| (last.sent_at, last.sender) < (message.sent_at, message.sender))
+    {
+        summary.last_message = Some(message.clone());
+    }
+    if incoming && !seen && !blocked {
+        summary.unread += 1;
+    }
+    // Hidden until a new message arrives (DESIGN.md §7.7), unless blocked.
+    if summary.state.hidden && !blocked && !message.deleted {
+        summary.state.hidden = false;
+        effects.push(Effect::SaveConversationState(
+            id,
+            Box::new(summary.state.clone()),
+        ));
     }
 }
 
@@ -1411,6 +1465,8 @@ fn apply_to_open(state: &mut State, conversation: Option<ConversationId>, event:
             | BackendEvent::ContactUpdated(_)
             | BackendEvent::GroupUpdated(_)
             | BackendEvent::IdentityUpdated(_)
+            | BackendEvent::BlockedSynced { .. }
+            | BackendEvent::MessageRequestResponded { .. }
             | BackendEvent::Error(_) => {}
         }
     }
@@ -1428,6 +1484,9 @@ fn apply_to_open(state: &mut State, conversation: Option<ConversationId>, event:
 }
 
 fn on_typing(state: &mut State, conversation: ConversationId, who: ServiceId, typing: TypingState) {
+    if state.summary(conversation).is_some_and(|s| s.state.blocked) {
+        return;
+    }
     let typists = state.typing.entry(conversation).or_default();
     typists.retain(|t| t.who != who);
     match typing {

@@ -1,7 +1,7 @@
 //! Curating the conversation list (M4 task 5, D41): pin, mute, hide, archive,
 //! the allowlist, and switching between the chats and the archive.
 
-use faro_core::backend::BackendEvent;
+use faro_core::backend::{BackendEvent, MessageRequestAction};
 use faro_core::config::{TranscribeMode, key};
 use faro_core::domain::{
     ConversationId, DeliveryStatus, Direction, Message, SystemEvent, Timestamp,
@@ -60,8 +60,25 @@ fn toggle(state: &State, target: ConversationId, curate: Curate) -> Option<Conve
         Curate::Archive => ConversationAction::Archive,
         Curate::Allow if current.allowed => ConversationAction::Disallow,
         Curate::Allow => ConversationAction::Allow,
+        Curate::AcceptRequest if current.request => ConversationAction::AcceptRequest,
+        Curate::DeleteRequest if current.request || current.blocked => {
+            ConversationAction::DeleteRequest
+        }
+        Curate::Block if current.blocked => ConversationAction::Unblock,
+        Curate::Block
+            if current.request
+                || matches!(target, ConversationId::Direct(peer) if peer != state.me) =>
+        {
+            ConversationAction::Block
+        }
+        Curate::ReportSpam if current.request => ConversationAction::ReportSpam,
         Curate::AllowlistMode => ConversationAction::AllowlistMode(!state.list.allowlist),
-        Curate::Menu | Curate::SwitchView => return None,
+        Curate::Menu
+        | Curate::SwitchView
+        | Curate::AcceptRequest
+        | Curate::DeleteRequest
+        | Curate::Block
+        | Curate::ReportSpam => return None,
     };
     Some(action)
 }
@@ -77,7 +94,20 @@ pub fn menu(state: &mut State, target: ConversationId) {
         .iter()
         .filter(|c| c.state.pinned.is_some())
         .count();
-    let mut items = Vec::with_capacity(9);
+    let mut items = Vec::with_capacity(12);
+    if current.request {
+        items.extend([
+            ConversationAction::AcceptRequest,
+            ConversationAction::DeleteRequest,
+            ConversationAction::Block,
+            ConversationAction::ReportSpam,
+        ]);
+    } else if current.blocked {
+        items.extend([
+            ConversationAction::Unblock,
+            ConversationAction::DeleteRequest,
+        ]);
+    }
     if current.pinned.is_none() {
         items.push(ConversationAction::Pin);
     } else {
@@ -131,6 +161,9 @@ pub fn menu(state: &mut State, target: ConversationId) {
             .is_some()
         {
             items.push(ConversationAction::SafetyNumber);
+        }
+        if !current.request && !current.blocked {
+            items.push(ConversationAction::Block);
         }
     } else if !state.changed_identities(target).is_empty() {
         items.push(ConversationAction::SafetyNumber);
@@ -460,7 +493,201 @@ pub fn perform(
                 s.remote_transcription = RemoteTranscription::Disallowed;
             },
         ),
+        ConversationAction::AcceptRequest => respond_request(
+            state,
+            target,
+            MessageRequestAction::Accept,
+            format!(
+                "Accepted message request from {}",
+                state.conversation_title(target)
+            ),
+        ),
+        ConversationAction::DeleteRequest => {
+            let blocked = state.summary(target).is_some_and(|s| s.state.blocked);
+            let action = if blocked {
+                MessageRequestAction::BlockAndDelete
+            } else {
+                MessageRequestAction::Delete
+            };
+            let title = state.conversation_title(target);
+            respond_request(state, target, action, format!("Deleted {title}"))
+        }
+        ConversationAction::Block => respond_request(
+            state,
+            target,
+            MessageRequestAction::Block,
+            format!("Blocked {}", state.conversation_title(target)),
+        ),
+        ConversationAction::Unblock => respond_request(
+            state,
+            target,
+            MessageRequestAction::Unblock,
+            format!("Unblocked {}", state.conversation_title(target)),
+        ),
+        ConversationAction::ReportSpam => respond_request(
+            state,
+            target,
+            MessageRequestAction::BlockAndSpam,
+            format!(
+                "Blocked and reported spam from {}",
+                state.conversation_title(target)
+            ),
+        ),
     }
+}
+
+fn respond_request(
+    state: &mut State,
+    target: ConversationId,
+    action: MessageRequestAction,
+    notice: String,
+) -> Vec<Effect> {
+    let mut effects = apply_request_response(state, target, action);
+    if let Some(summary) = state.conversations.iter().find(|c| c.id == target) {
+        effects.insert(
+            0,
+            Effect::SaveConversationState(target, Box::new(summary.state.clone())),
+        );
+    }
+    effects.push(Effect::Backend(Command::RespondMessageRequest {
+        conversation: target,
+        action,
+    }));
+    state.notice = Some(Notice::info(notice));
+    effects
+}
+
+/// Apply a synced blocked list from another linked device (`SyncMessage::Blocked`, D176).
+pub(super) fn on_blocked_synced(state: &mut State, conversations: &[ConversationId]) {
+    let blocked: std::collections::HashSet<ConversationId> =
+        conversations.iter().copied().collect();
+    for summary in &mut state.conversations {
+        if blocked.contains(&summary.id) {
+            summary.state.blocked = true;
+            summary.state.request = false;
+            summary.state.pinned = None;
+            summary.unread = 0;
+            state.typing.remove(&summary.id);
+        } else {
+            summary.state.blocked = false;
+        }
+    }
+    for &id in conversations {
+        if let Some(summary) = super::summary_entry(state, id) {
+            summary.state.blocked = true;
+            summary.state.request = false;
+            summary.state.pinned = None;
+            summary.unread = 0;
+        }
+    }
+    sort_conversations(&mut state.conversations);
+    state.sidebar.reveal = true;
+}
+
+/// Apply a message-request or block/unblock action (locally or from a linked device, D176).
+pub(super) fn apply_request_response(
+    state: &mut State,
+    target: ConversationId,
+    action: MessageRequestAction,
+) -> Vec<Effect> {
+    let before = visible_ids(state);
+    let mut effects = Vec::new();
+    match action {
+        MessageRequestAction::Accept => {
+            if let Some(summary) = state.conversations.iter_mut().find(|c| c.id == target) {
+                summary.state.request = false;
+                summary.state.blocked = false;
+            }
+            sort_conversations(&mut state.conversations);
+            state.sidebar.reveal = true;
+            if state.open.as_ref().is_some_and(|o| o.id == target) {
+                effects.extend(super::presence::catch_up(state));
+                effects.extend(super::selection::queue_auto_downloads(state));
+                effects.extend(super::selection::queue_auto_transcriptions(state));
+            }
+            effects.extend(follow(state, target, &before));
+        }
+        MessageRequestAction::Unblock => {
+            if let Some(summary) = state.conversations.iter_mut().find(|c| c.id == target) {
+                summary.state.blocked = false;
+            }
+            sort_conversations(&mut state.conversations);
+            state.sidebar.reveal = true;
+            if state.open.as_ref().is_some_and(|o| o.id == target) {
+                effects.extend(super::presence::catch_up(state));
+                effects.extend(super::selection::queue_auto_downloads(state));
+                effects.extend(super::selection::queue_auto_transcriptions(state));
+            }
+            effects.extend(follow(state, target, &before));
+        }
+        MessageRequestAction::Block => {
+            state.typing.remove(&target);
+            if let Some(summary) = super::summary_entry(state, target) {
+                summary.state.blocked = true;
+                summary.state.request = false;
+                summary.state.pinned = None;
+                summary.unread = 0;
+            }
+            sort_conversations(&mut state.conversations);
+            state.sidebar.reveal = true;
+            effects.extend(follow(state, target, &before));
+        }
+        MessageRequestAction::BlockAndDelete | MessageRequestAction::BlockAndSpam => {
+            state.typing.remove(&target);
+            if state
+                .playing
+                .as_ref()
+                .is_some_and(|p| p.conversation == target)
+            {
+                state.playing = None;
+                effects.push(Effect::StopAudio);
+            }
+            if let Some(open) = state.open.as_mut().filter(|o| o.id == target) {
+                open.messages.clear();
+                open.pending.clear();
+                open.unreceipted.clear();
+                open.unread_marker = None;
+                open.selected = None;
+                open.reply_to = None;
+                open.editing = None;
+            }
+            if let Some(summary) = super::summary_entry(state, target) {
+                summary.state.blocked = true;
+                summary.state.request = false;
+                summary.state.pinned = None;
+                summary.state.draft = None;
+                summary.unread = 0;
+                summary.last_activity = None;
+                summary.last_message = None;
+            }
+            effects.push(Effect::DeleteConversation(target));
+            sort_conversations(&mut state.conversations);
+            state.sidebar.reveal = true;
+            effects.extend(follow(state, target, &before));
+        }
+        MessageRequestAction::Delete | MessageRequestAction::Spam => {
+            state.typing.remove(&target);
+            if state
+                .playing
+                .as_ref()
+                .is_some_and(|p| p.conversation == target)
+            {
+                state.playing = None;
+                effects.push(Effect::StopAudio);
+            }
+            state.conversations.retain(|c| c.id != target);
+            effects.push(Effect::DeleteConversation(target));
+            sort_conversations(&mut state.conversations);
+            state.sidebar.reveal = true;
+            let at = before.iter().position(|id| *id == target).unwrap_or(0);
+            effects.extend(follow(state, target, &before));
+            if state.list.cursor == Some(target) {
+                let now = visible_ids(state);
+                state.list.cursor = now.get(at).or_else(|| now.last()).copied();
+            }
+        }
+    }
+    effects
 }
 
 fn open_safety_number(state: &mut State, target: ConversationId) {
@@ -555,7 +782,13 @@ fn follow(state: &mut State, target: ConversationId, before: &[ConversationId]) 
         None if state.list.view == SidebarView::Archive => {
             state.list.view = SidebarView::Chats;
             state.sidebar.reveal = true;
-            vec![]
+            if state.summary(target).is_none() {
+                let effects = close(state);
+                state.list.cursor = visible_ids(state).first().copied();
+                effects
+            } else {
+                vec![]
+            }
         }
         None => close(state),
     }

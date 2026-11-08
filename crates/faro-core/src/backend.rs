@@ -16,7 +16,7 @@ use crate::domain::{
     PhoneNumber, Quote, ServiceId, Timestamp, TypingState, VerificationState,
 };
 pub use error::BackendError;
-pub use event::BackendEvent;
+pub use event::{BackendEvent, MessageRequestAction};
 
 pub type Result<T, E = BackendError> = std::result::Result<T, E>;
 
@@ -93,6 +93,17 @@ pub trait Backend {
         seconds: Option<u32>,
     ) -> impl Future<Output = Result<()>> {
         let _ = (conversation, seconds);
+        std::future::ready(Ok(()))
+    }
+
+    /// Sync a message-request response or block/unblock change across our
+    /// linked devices (D176).
+    fn respond_message_request(
+        &self,
+        conversation: ConversationId,
+        action: MessageRequestAction,
+    ) -> impl Future<Output = Result<()>> {
+        let _ = (conversation, action);
         std::future::ready(Ok(()))
     }
 

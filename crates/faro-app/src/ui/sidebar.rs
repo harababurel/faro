@@ -257,12 +257,24 @@ fn rows(state: &State, view: &View<'_>, width: usize) -> Vec<Row> {
         };
         rows.push(Row::label(note, theme.muted()));
     }
-    let elsewhere = state.listed_in(SidebarView::Archive).count();
+    let archive_items: Vec<&ConversationSummary> = state.listed_in(SidebarView::Archive).collect();
+    let elsewhere = archive_items.len();
+    let requests = archive_items
+        .iter()
+        .filter(|c| state.section(c) == Section::Request)
+        .count();
     if !archive && elsewhere > 0 {
+        let label = if requests == 0 {
+            " ▸ Archive"
+        } else if requests == elsewhere {
+            " ▸ Requests"
+        } else {
+            " ▸ Requests & archive"
+        };
         rows.push(Row::label("", theme.muted()));
         rows.push(Row::one(
             Line::from(vec![
-                Span::styled(" ▸ Archive", Style::new().fg(theme.accent)),
+                Span::styled(label, Style::new().fg(theme.accent)),
                 Span::styled(format!(" ({elsewhere})"), theme.muted()),
             ]),
             SidebarRow::SwitchView,
@@ -275,9 +287,11 @@ fn section_label(section: Section) -> &'static str {
     match section {
         Section::Pinned => " ▾ Pinned",
         Section::Recent => " ▾ Recent",
+        Section::Request => " ▾ Message requests",
         Section::Archived => " ▾ Archived",
         Section::Hidden => " ▾ Hidden until a message",
         Section::NotAllowed => " ▾ Not on the allowlist",
+        Section::Blocked => " ▾ Blocked",
     }
 }
 
@@ -290,11 +304,14 @@ fn kind_glyph(id: ConversationId) -> &'static str {
     }
 }
 
-/// The right-edge marker for a chat that won't notify as usual (D96): muted
-/// wins over "mentions only".
+/// The right-edge marker for a chat that won't notify as usual (D96, D176):
+/// blocked or muted (`⊘`), message request (`?`), or mentions only (`@`).
 fn notify_glyph(summary: &ConversationSummary, view: &View<'_>) -> Option<&'static str> {
-    if summary.state.muted_at(view.now_timestamp()) {
+    if summary.state.blocked || summary.state.muted_at(view.now_timestamp()) {
         return Some("⊘");
+    }
+    if summary.state.request {
+        return Some("?");
     }
     match summary.state.notify {
         NotifyLevel::Mentions => Some("@"),

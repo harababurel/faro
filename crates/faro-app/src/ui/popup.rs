@@ -918,12 +918,7 @@ fn confirm_delete(frame: &mut Frame<'_>, anchor: Anchor, view: &View<'_>) {
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
-fn confirm_unlink_device(
-    frame: &mut Frame<'_>,
-    name: &str,
-    geometry: &Geometry,
-    view: &View<'_>,
-) {
+fn confirm_unlink_device(frame: &mut Frame<'_>, name: &str, geometry: &Geometry, view: &View<'_>) {
     let clean = sanitize(name);
     let prompt = format!(" Unlink \"{clean}\" from your Signal account? ");
     let keys = " Enter / y confirm · Esc / n cancel ";

@@ -735,3 +735,43 @@ fn group_diffs_emit_system_events() {
         ]
     );
 }
+
+#[test]
+fn blocked_and_message_request_response_syncs_round_trip() {
+    let grp = ConversationId::Group(group_id(&KEY));
+    let blocked_msg = blocked_sync_message(&[ConversationId::Direct(ALICE), grp]);
+    assert_eq!(
+        only(events(&from(ME, blocked_msg.clone()), ME)),
+        BackendEvent::BlockedSynced {
+            conversations: vec![ConversationId::Direct(ALICE), grp],
+        }
+    );
+    // Strangers cannot forge a blocklist sync.
+    assert_eq!(events(&from(ALICE, blocked_msg), ME), vec![]);
+
+    for (conv, action) in [
+        (ConversationId::Direct(ALICE), MessageRequestAction::Accept),
+        (ConversationId::Direct(ALICE), MessageRequestAction::Delete),
+        (ConversationId::Direct(ALICE), MessageRequestAction::Block),
+        (
+            ConversationId::Direct(ALICE),
+            MessageRequestAction::BlockAndDelete,
+        ),
+        (ConversationId::Direct(ALICE), MessageRequestAction::Spam),
+        (grp, MessageRequestAction::BlockAndSpam),
+    ] {
+        let sync = message_request_response_sync(conv, action).unwrap();
+        assert_eq!(
+            only(events(&from(ME, sync.clone()), ME)),
+            BackendEvent::MessageRequestResponded {
+                conversation: conv,
+                action,
+            }
+        );
+        assert_eq!(events(&from(ALICE, sync), ME), vec![]);
+    }
+    assert_eq!(
+        message_request_response_sync(ConversationId::Direct(ALICE), MessageRequestAction::Unblock),
+        None
+    );
+}

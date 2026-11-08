@@ -125,6 +125,7 @@ Press **`F1`** for every key, or search them in the palette. Every key can be re
 | `p`, `J` / `K` | Pin, move a pinned chat down / up |
 | `m`, `@` | Mute (with a duration), notify for mentions only |
 | `h`, `a`, `A` | Hide, archive, switch to the archive |
+| `y`, `D`, `b`, `!` | Accept request, delete request / blocked chat, block / unblock, block & report spam |
 | `l`, `L` | Allow a chat, show only allowed chats |
 
 **Messages** (after `↑` on an empty input, or `Tab`)

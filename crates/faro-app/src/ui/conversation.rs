@@ -78,8 +78,10 @@ pub fn render(
 
     let input_width = usize::from(inner.width.saturating_sub(4));
     let input_layout = layout_input(&open.input, input_width);
+    let restricted = state.is_restricted(open.id);
     let key_changed = !state.changed_identities(open.id).is_empty();
     let reply_rows = u16::from(key_changed)
+        + u16::from(restricted)
         + u16::from(open.editing.is_some())
         + u16::from(open.reply_to.is_some())
         + u16::from(open.staged_attachment.is_some());
@@ -413,6 +415,8 @@ fn render_input(
         inner.height = inner.height.saturating_sub(1);
     }
 
+    render_restriction_banner(frame, &mut inner, state, open, view);
+
     if open.editing.is_some() {
         let text = "✎ Editing message";
         let hint = "  esc cancel";
@@ -484,6 +488,49 @@ fn render_input(
     if focused {
         frame.set_cursor_position(Position::new(x, y));
     }
+}
+
+fn render_restriction_banner(
+    frame: &mut Frame<'_>,
+    inner: &mut Rect,
+    state: &State,
+    open: &OpenConversation,
+    view: &View<'_>,
+) {
+    let theme = view.theme;
+    let Some(summary) = state.summary(open.id) else {
+        return;
+    };
+    let (text, hint) = if summary.state.blocked {
+        (
+            "⊘ Conversation is blocked — unblock to send",
+            "  space menu",
+        )
+    } else if summary.state.request {
+        (
+            "? Message request",
+            " y accept · D delete · b block · ! spam",
+        )
+    } else {
+        return;
+    };
+    let room = usize::from(inner.width).saturating_sub(hint.width());
+    let line = Line::from(vec![
+        Span::styled(
+            truncate(text, room).into_owned(),
+            Style::new().fg(theme.warning).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(hint, theme.muted()),
+    ]);
+    frame.render_widget(
+        Paragraph::new(line),
+        Rect {
+            height: 1,
+            ..*inner
+        },
+    );
+    inner.y += 1;
+    inner.height = inner.height.saturating_sub(1);
 }
 
 /// Inline `@` mention completion popup anchored just above the input box.
@@ -677,9 +724,7 @@ fn render_slash_popup(
     }
     let max_rows = usize::from(avail_h.saturating_sub(2)).min(8);
     let visible_count = candidates.len().min(max_rows);
-    let selected = open
-        .slash_selected
-        .min(candidates.len().saturating_sub(1));
+    let selected = open.slash_selected.min(candidates.len().saturating_sub(1));
     let offset = if selected >= visible_count {
         selected + 1 - visible_count
     } else {

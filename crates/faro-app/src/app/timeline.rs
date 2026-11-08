@@ -65,6 +65,8 @@ pub fn apply(messages: &mut Vec<Message>, event: &BackendEvent) {
         | BackendEvent::ContactUpdated(_)
         | BackendEvent::GroupUpdated(_)
         | BackendEvent::IdentityUpdated(_)
+        | BackendEvent::BlockedSynced { .. }
+        | BackendEvent::MessageRequestResponded { .. }
         | BackendEvent::Error(_) => {}
     }
 }

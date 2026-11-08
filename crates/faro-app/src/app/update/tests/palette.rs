@@ -1133,6 +1133,10 @@ fn send_a_file_browses_folders_and_stages_the_chosen_file() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "end-to-end test cycling multiple settings forward and backward in place"
+)]
 fn left_and_right_cycle_setting_values_in_place_at_settings_level() {
     use faro_core::config::{DesktopNotifications, NotificationPrivacy};
 
@@ -1212,32 +1216,56 @@ fn left_and_right_cycle_setting_values_in_place_at_settings_level() {
     press(&mut state, KeyCode::Down);
     press(&mut state, KeyCode::Down);
     assert_eq!(selected_title(&state), "Desktop notifications");
-    assert_eq!(state.config.notifications.desktop, DesktopNotifications::Auto);
+    assert_eq!(
+        state.config.notifications.desktop,
+        DesktopNotifications::Auto
+    );
     let effects = update(&mut state, key(KeyCode::Right, KeyModifiers::NONE));
-    assert_eq!(state.config.notifications.desktop, DesktopNotifications::Osc);
+    assert_eq!(
+        state.config.notifications.desktop,
+        DesktopNotifications::Osc
+    );
     assert_eq!(
         effects,
         vec![saved(key::DESKTOP, ConfigValue::Text("osc".into()))]
     );
     update(&mut state, key(KeyCode::Right, KeyModifiers::NONE));
-    assert_eq!(state.config.notifications.desktop, DesktopNotifications::Native);
+    assert_eq!(
+        state.config.notifications.desktop,
+        DesktopNotifications::Native
+    );
     update(&mut state, key(KeyCode::Right, KeyModifiers::NONE));
-    assert_eq!(state.config.notifications.desktop, DesktopNotifications::Off);
+    assert_eq!(
+        state.config.notifications.desktop,
+        DesktopNotifications::Off
+    );
     update(&mut state, key(KeyCode::Right, KeyModifiers::NONE));
-    assert_eq!(state.config.notifications.desktop, DesktopNotifications::Auto);
+    assert_eq!(
+        state.config.notifications.desktop,
+        DesktopNotifications::Auto
+    );
 
     // Move down to Notification privacy and cycle backward: Sender -> None -> Preview.
     press(&mut state, KeyCode::Down);
     assert_eq!(selected_title(&state), "Notification privacy");
-    assert_eq!(state.config.notifications.privacy, NotificationPrivacy::Sender);
+    assert_eq!(
+        state.config.notifications.privacy,
+        NotificationPrivacy::Sender
+    );
     let effects = update(&mut state, key(KeyCode::Left, KeyModifiers::NONE));
-    assert_eq!(state.config.notifications.privacy, NotificationPrivacy::None);
+    assert_eq!(
+        state.config.notifications.privacy,
+        NotificationPrivacy::None
+    );
     assert_eq!(
         effects,
         vec![saved(key::PRIVACY, ConfigValue::Text("none".into()))]
     );
     update(&mut state, key(KeyCode::Left, KeyModifiers::NONE));
-    assert_eq!(state.config.notifications.privacy, NotificationPrivacy::Preview);
+    assert_eq!(
+        state.config.notifications.privacy,
+        NotificationPrivacy::Preview
+    );
 
     // Backspace on an empty query still goes back to Root.
     press(&mut state, KeyCode::Backspace);
@@ -2063,10 +2091,7 @@ fn linked_devices_list_confirm_and_unlink() {
     let effects = update(&mut state, AppEvent::DevicesListed(Ok(devices)));
     assert_eq!(effects, vec![]);
     assert_eq!(state.devices.as_ref().map(Vec::len), Some(2));
-    assert_eq!(
-        titles(&state),
-        vec!["Primary phone", "faro (workstation)"]
-    );
+    assert_eq!(titles(&state), vec!["Primary phone", "faro (workstation)"]);
     assert_eq!(
         selected(&state),
         Some(ItemKind::Device(2)),

@@ -523,6 +523,8 @@ impl TransferredHistory {
                 | BackendEvent::ReadElsewhere(_)
                 | BackendEvent::IdentityUpdated(_)
                 | BackendEvent::DisappearingTimer { .. }
+                | BackendEvent::BlockedSynced { .. }
+                | BackendEvent::MessageRequestResponded { .. }
                 | BackendEvent::Typing { .. }
                 | BackendEvent::Error(_) => {}
             }
@@ -783,6 +785,8 @@ impl HistoryBuilder {
             allowed: false,
             notify,
             remote_transcription: RemoteTranscription::Disallowed,
+            request: false,
+            blocked: false,
         };
         self.chats.insert(
             chat.id,

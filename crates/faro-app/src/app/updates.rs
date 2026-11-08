@@ -655,12 +655,25 @@ fn match_remote_bullet(state: &State, bullet: &str) -> Option<(u8, ChangeTopic, 
         ),
         (
             ChangeTopic::Setting(Setting::PasteFromSystem),
-            &["paste_from_system", "clipboard", "ctrl+v", "ghostty", "osc 5522"],
+            &[
+                "paste_from_system",
+                "clipboard",
+                "ctrl+v",
+                "ghostty",
+                "osc 5522",
+            ],
             "ctrl+v",
         ),
         (
             ChangeTopic::Setting(Setting::InlineImages),
-            &["inline_images", "inline image", "kitty", "sixel", "iterm2", "halfblock"],
+            &[
+                "inline_images",
+                "inline image",
+                "kitty",
+                "sixel",
+                "iterm2",
+                "halfblock",
+            ],
             "inline_images",
         ),
         (
@@ -819,6 +832,9 @@ fn setting_group_changed(state: &State, setting: Setting) -> bool {
         | Setting::TranscribeRemoteModel
         | Setting::Mouse
         | Setting::PasteFromSystem
+        | Setting::Beam
+        | Setting::RestoreSession
+        | Setting::AutoLock
         | Setting::UpdateCheck => false,
     }
 }
@@ -837,6 +853,8 @@ fn setting_active(state: &State, setting: Setting) -> bool {
         }
         Setting::UpdateCheck => state.config.updates.check,
         Setting::Allowlist => state.list.allowlist || state.config.conversations.allowlist,
+        Setting::RestoreSession => state.config.conversations.restore_session,
+        Setting::AutoLock => state.config.security.auto_lock_mins > 0,
         Setting::Layout => true,
         Setting::Colors
         | Setting::Emoji
@@ -846,6 +864,7 @@ fn setting_active(state: &State, setting: Setting) -> bool {
         | Setting::Density
         | Setting::Timestamps
         | Setting::ReduceMotion
+        | Setting::Beam
         | Setting::Bell
         | Setting::Title
         | Setting::Desktop

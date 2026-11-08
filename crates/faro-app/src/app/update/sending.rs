@@ -23,8 +23,15 @@ use crate::app::state::{Focus, Notice, Popup, StagedAttachment, State, TerminalN
 const MENTION_PLACEHOLDER: char = '\u{FFFC}';
 
 /// Block outgoing sends if a participant in `conversation` has an unacknowledged
-/// safety-number change (D163).
+/// safety-number change (D163), or if the conversation is blocked (D176).
 pub fn block_if_key_changed(state: &mut State, conversation: ConversationId) -> bool {
+    if state.summary(conversation).is_some_and(|s| s.state.blocked) {
+        state.notice = Some(Notice::warning(format!(
+            "{} is blocked — unblock before sending",
+            state.conversation_title(conversation)
+        )));
+        return true;
+    }
     let Some(&who) = state.changed_identities(conversation).first() else {
         return false;
     };
@@ -123,7 +130,24 @@ pub fn send_message(state: &mut State) -> Vec<Effect> {
         expire_started_at: expires_in_secs.map(|_| sent_at),
         system_event: None,
     };
+    let was_request = state.summary(conversation).is_some_and(|s| s.state.request);
     let mut effects = clear_draft(state, conversation);
+    if was_request {
+        if let Some(summary) = summary_entry(state, conversation) {
+            summary.state.request = false;
+            effects.push(Effect::SaveConversationState(
+                conversation,
+                Box::new(summary.state.clone()),
+            ));
+        }
+        if state.list.view == crate::app::state::SidebarView::Archive {
+            state.list.view = crate::app::state::SidebarView::Chats;
+        }
+        effects.push(Effect::Backend(Command::RespondMessageRequest {
+            conversation,
+            action: faro_core::backend::MessageRequestAction::Accept,
+        }));
+    }
     // Shown and stored like any new message (`Persist` runs before later receipts).
     effects.extend(on_backend(state, BackendEvent::Message(message)));
     effects.push(Effect::Backend(Command::Send {
