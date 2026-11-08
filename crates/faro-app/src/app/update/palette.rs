@@ -21,6 +21,12 @@ fn rows(state: &State) -> usize {
 
 /// Open the palette at `level` (the root, or a category under it).
 pub fn open(state: &mut State, level: Level) {
+    let _ = open_with_query(state, level, "");
+}
+
+/// Open the palette at `level` with `query` pre-filled, returning any initial
+/// effect (such as `Effect::SearchMessages` or `Effect::ListFiles`).
+pub fn open_with_query(state: &mut State, level: Level, query: &str) -> Vec<Effect> {
     state.popup = None;
     let path = if level == Level::Root {
         vec![Level::Root]
@@ -29,12 +35,38 @@ pub fn open(state: &mut State, level: Level) {
     };
     let items = palette::items(state, level, &state.recent_commands);
     let current = current_item(&items);
-    let mut palette = Palette::new(path, items);
-    if let Some(current) = current {
+    let mut palette = Palette::new(path.clone(), items.clone());
+    if !query.is_empty() {
+        palette.show(path, items, query, current.as_ref());
+    } else if let Some(current) = current {
         palette.select(&current);
     }
     palette.note = palette::note(state, level);
     state.palette = Some(palette);
+    match level {
+        Level::Search(scope) if !query.trim().is_empty() => vec![Effect::SearchMessages {
+            conversation: scope,
+            query: query.to_owned(),
+        }],
+        Level::AttachFile => vec![Effect::ListFiles(if query.is_empty() {
+            "~/".to_owned()
+        } else {
+            query.to_owned()
+        })],
+        Level::Root
+        | Level::Chats
+        | Level::Search(_)
+        | Level::Themes
+        | Level::Settings
+        | Level::Setting(_)
+        | Level::Commands
+        | Level::Keys
+        | Level::People
+        | Level::Nickname(_)
+        | Level::SettingText(_)
+        | Level::ChatLinks
+        | Level::ForwardTo(_) => vec![],
+    }
 }
 
 /// Open the palette typing a nickname for `id`, starting from the one there
@@ -734,7 +766,7 @@ fn run(state: &mut State, command: PaletteCommand) -> Vec<Effect> {
 }
 
 /// Open `id` in the list it's in (it may be hidden or archived) and write.
-fn show_conversation(state: &mut State, id: ConversationId) -> Vec<Effect> {
+pub(crate) fn show_conversation(state: &mut State, id: ConversationId) -> Vec<Effect> {
     if let Some(summary) = state.summary(id) {
         state.list.view = state.section(summary).view();
     }

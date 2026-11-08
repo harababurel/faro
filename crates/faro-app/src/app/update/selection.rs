@@ -765,6 +765,8 @@ fn edit_target(state: &mut State, target: MessageRef) -> Vec<Effect> {
         open.mention_dismissed_at = None;
         open.shortcode_selected = 0;
         open.shortcode_dismissed_at = None;
+        open.slash_selected = 0;
+        open.slash_dismissed_for = None;
     }
     state.focus = Focus::Input;
     effects
@@ -822,6 +824,8 @@ fn confirm_delete(state: &mut State, target: MessageRef) -> Vec<Effect> {
         open.mention_dismissed_at = None;
         open.shortcode_selected = 0;
         open.shortcode_dismissed_at = None;
+        open.slash_selected = 0;
+        open.slash_dismissed_for = None;
     }
     let mut effects = on_backend(
         state,

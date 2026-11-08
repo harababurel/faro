@@ -216,6 +216,67 @@ pub fn on_shortcode_key(state: &mut State, key: KeyEvent) -> Option<Vec<Effect>>
     }
 }
 
+/// Intercepts navigation, completion, execution and dismissal keys when the
+/// inline `/command` autocomplete popup is active above the input bar.
+pub fn on_slash_key(state: &mut State, key: KeyEvent) -> Option<Vec<Effect>> {
+    if key.kind == KeyEventKind::Release {
+        return None;
+    }
+    let candidates = state.slash_candidates();
+    if candidates.is_empty() {
+        return None;
+    }
+    let len = candidates.len();
+    match (key.code, key.modifiers) {
+        (KeyCode::Up, KeyModifiers::NONE) | (KeyCode::Char('p' | 'P'), KeyModifiers::CONTROL) => {
+            if let Some(open) = state.open.as_mut() {
+                open.slash_selected = selection::cycle(open.slash_selected, len, false);
+            }
+            Some(vec![])
+        }
+        (KeyCode::Down, KeyModifiers::NONE) | (KeyCode::Char('n' | 'N'), KeyModifiers::CONTROL) => {
+            if let Some(open) = state.open.as_mut() {
+                open.slash_selected = selection::cycle(open.slash_selected, len, true);
+            }
+            Some(vec![])
+        }
+        (KeyCode::Tab, KeyModifiers::NONE) => {
+            let open = state.open.as_mut()?;
+            let idx = open.slash_selected.min(len.saturating_sub(1));
+            let candidate = candidates.get(idx)?;
+            open.input = Input::new(&candidate.completion);
+            open.slash_selected = 0;
+            open.slash_dismissed_for = None;
+            Some(vec![])
+        }
+        (KeyCode::Enter, KeyModifiers::NONE) => {
+            let idx = state
+                .open
+                .as_ref()?
+                .slash_selected
+                .min(len.saturating_sub(1));
+            let candidate = candidates.get(idx)?;
+            if let Some(exec) = &candidate.execute {
+                Some(crate::app::slash::execute(state, exec))
+            } else {
+                let open = state.open.as_mut()?;
+                open.input = Input::new(&candidate.completion);
+                open.slash_selected = 0;
+                open.slash_dismissed_for = None;
+                Some(vec![])
+            }
+        }
+        (KeyCode::Esc, KeyModifiers::NONE) => {
+            if let Some(open) = state.open.as_mut() {
+                open.slash_dismissed_for = Some(open.input.text().to_owned());
+                open.slash_selected = 0;
+            }
+            Some(vec![])
+        }
+        _ => None,
+    }
+}
+
 /// Esc, one step at a time (D60, D77): dismiss the `@` mention or `:shortcode:`
 /// popup; else cancel an in-progress message edit; else remove a staged
 /// attachment; else cancel a reply being written; else dismiss the notice and
@@ -223,6 +284,13 @@ pub fn on_shortcode_key(state: &mut State, key: KeyEvent) -> Option<Vec<Effect>>
 /// leaving the list highlighting it; else, with nothing open and no notice,
 /// emit `Effect::ReleaseFocus` so the host can release keyboard focus (§4.3).
 fn escape(state: &mut State) -> Vec<Effect> {
+    if state.focus == Focus::Input && !state.slash_candidates().is_empty() {
+        if let Some(open) = state.open.as_mut() {
+            open.slash_dismissed_for = Some(open.input.text().to_owned());
+            open.slash_selected = 0;
+        }
+        return vec![];
+    }
     if state.focus == Focus::Input && !state.mention_candidates().is_empty() {
         if let Some(open) = state.open.as_mut() {
             open.mention_dismissed_at = open.active_mention_token().map(|(at, _)| at);
@@ -253,6 +321,8 @@ fn escape(state: &mut State) -> Vec<Effect> {
         open.mention_dismissed_at = None;
         open.shortcode_selected = 0;
         open.shortcode_dismissed_at = None;
+        open.slash_selected = 0;
+        open.slash_dismissed_for = None;
         let restored = state
             .summary(id)
             .and_then(|s| s.state.draft.as_ref())
@@ -304,10 +374,14 @@ fn apply_edit(state: &mut State, edit: Edit) -> bool {
     if open.active_shortcode_token().map(|(colon, _)| colon) != open.shortcode_dismissed_at {
         open.shortcode_dismissed_at = None;
     }
+    if open.slash_dismissed_for.as_deref() != Some(open.input.text()) {
+        open.slash_dismissed_for = None;
+    }
     if changed {
         open.mention_selected = 0;
         open.shortcode_selected = 0;
-        if open.editing.is_none() {
+        open.slash_selected = 0;
+        if open.editing.is_none() && !crate::app::slash::is_slash_input(open.input.text()) {
             open.draft_edited = Some(faro_core::rt::Instant::now());
         }
     }

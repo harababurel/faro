@@ -3033,6 +3033,142 @@ fn system_events_skip_unreads_coalesce_calls_and_restrict_actions() {
     );
 }
 
+#[test]
+fn slash_commands_complete_and_execute_palette_actions() {
+    let mut state = loaded_state();
+    assert_eq!(state.focus, Focus::Input);
+    let type_str = |state: &mut State, s: &str| {
+        let mut effects = Vec::new();
+        for c in s.chars() {
+            effects.extend(press(state, c));
+        }
+        effects
+    };
+
+    // 1. Typing `/m` shows `/mute` first and never sends a typing indicator.
+    let typing_effects = type_str(&mut state, "/m");
+    assert!(
+        !typing_effects
+            .iter()
+            .any(|e| matches!(e, Effect::Backend(Command::Typing { .. }))),
+        "typing a slash command must not send a typing indicator"
+    );
+    assert_eq!(
+        state.slash_candidates().first().map(|c| c.command.as_str()),
+        Some("/mute")
+    );
+
+    // 2. Pressing Tab completes `/mute ` and switches candidates to mute durations.
+    update(&mut state, key(KeyCode::Tab, KeyModifiers::NONE));
+    assert_eq!(state.open.as_ref().unwrap().input.text(), "/mute ");
+    assert!(
+        state
+            .slash_candidates()
+            .iter()
+            .any(|c| c.command == "/mute 2h")
+    );
+
+    // 3. Typing `2h` and pressing Enter mutes the conversation for 2 hours without sending a message.
+    type_str(&mut state, "2h");
+    let effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(
+        !effects
+            .iter()
+            .any(|e| matches!(e, Effect::Backend(Command::Send { .. }))),
+        "/mute 2h should not send a chat message"
+    );
+    assert!(
+        effects
+            .iter()
+            .any(|e| matches!(e, Effect::SaveConversationState(id, _) if *id == climbing()))
+    );
+    assert!(state.open.as_ref().unwrap().input.is_empty());
+    assert_eq!(
+        state.notice.as_ref().map(|n| n.text.as_str()),
+        Some("Muted for 2 hours")
+    );
+    assert!(
+        state
+            .summary(climbing())
+            .unwrap()
+            .state
+            .muted_at(super::wall_clock())
+    );
+
+    // 4. `/unmute` unmutes the conversation, and `/theme dusk` switches to `faro-dusk`.
+    type_str(&mut state, "/unmute");
+    update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(
+        !state
+            .summary(climbing())
+            .unwrap()
+            .state
+            .muted_at(super::wall_clock())
+    );
+
+    type_str(&mut state, "/theme dusk");
+    let theme_effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(state.config.theme, "faro-dusk");
+    assert!(
+        theme_effects
+            .iter()
+            .any(|e| matches!(e, Effect::SaveSetting(_)))
+    );
+    assert!(state.open.as_ref().unwrap().input.is_empty());
+}
+
+#[test]
+fn slash_commands_shrug_unknown_and_escape_handling() {
+    let mut state = loaded_state();
+    let type_str = |state: &mut State, s: &str| {
+        for c in s.chars() {
+            press(state, c);
+        }
+    };
+
+    // 1. `/shrug oh well` sends `oh well ¯\_(ツ)_/¯`.
+    type_str(&mut state, "/shrug oh well");
+    let shrug_effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(shrug_effects.iter().any(|e| matches!(
+        e,
+        Effect::Backend(Command::Send { message, .. })
+            if message.body.expose() == r"oh well ¯\_(ツ)_/¯"
+    )));
+
+    // 2. Unknown `/call` is rejected with a warning notice and never sent;
+    //    `//call` escapes the leading slash and sends `/call`.
+    type_str(&mut state, "/call");
+    let bad_effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(
+        !bad_effects
+            .iter()
+            .any(|e| matches!(e, Effect::Backend(Command::Send { .. }))),
+        "unknown slash command must not leak to the chat"
+    );
+    assert_eq!(state.open.as_ref().unwrap().input.text(), "/call");
+    assert!(
+        state
+            .notice
+            .as_ref()
+            .is_some_and(|n| n.text.contains("Unknown command \"/call\""))
+    );
+
+    state.open.as_mut().unwrap().input = Input::new("//call");
+    let escaped_effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(escaped_effects.iter().any(|e| matches!(
+        e,
+        Effect::Backend(Command::Send { message, .. })
+            if message.body.expose() == "/call"
+    )));
+
+    // 3. Esc dismisses the slash popup without clearing input or closing the conversation.
+    type_str(&mut state, "/pi");
+    assert_ne!(state.slash_candidates(), []);
+    update(&mut state, key(KeyCode::Esc, KeyModifiers::NONE));
+    assert_eq!(state.slash_candidates(), []);
+    assert_eq!(state.open.as_ref().unwrap().input.text(), "/pi");
+}
+
 mod clipboard;
 mod curation;
 mod focus;

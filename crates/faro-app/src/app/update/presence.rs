@@ -22,7 +22,9 @@ pub fn on_edited(state: &mut State) -> Vec<Effect> {
         return vec![];
     };
     let id = open.id;
-    if open.input.is_empty() {
+    if open.input.is_empty()
+        || (open.editing.is_none() && crate::app::slash::is_slash_input(open.input.text()))
+    {
         return match open.typing_sent.take() {
             Some(_) => vec![typing(id, TypingState::Stopped)],
             None => vec![],

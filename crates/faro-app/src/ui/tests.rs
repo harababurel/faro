@@ -2544,3 +2544,23 @@ fn release_notes_and_digest_render_legibly_in_80x24() {
     );
     assert_drawable(&compatible(state), 80, 24);
 }
+
+#[test]
+fn slash_command_autocomplete_renders_and_is_drawable() {
+    let mut state = loaded_state();
+    for c in "/m".chars() {
+        keys(&mut state, &[Char(c)]);
+    }
+    let text = snapshot(&draw(&state, 100, 24));
+    assert!(text.contains("/command"), "{text}");
+    assert!(text.contains("/mute"), "{text}");
+    assert_drawable(&compatible(state), 100, 24);
+
+    let mut theme_state = loaded_state();
+    for c in "/theme du".chars() {
+        keys(&mut theme_state, &[Char(c)]);
+    }
+    let theme_text = snapshot(&draw(&theme_state, 100, 24));
+    assert!(theme_text.contains("/theme faro-dusk"), "{theme_text}");
+    assert_drawable(&compatible(theme_state), 100, 24);
+}

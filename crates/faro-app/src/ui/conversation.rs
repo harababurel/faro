@@ -110,6 +110,7 @@ pub fn render(
         input_focused,
     );
     if input_focused && state.popup.is_none() && state.palette.is_none() {
+        render_slash_popup(frame, inner, input.y, state, open, view);
         render_mention_popup(frame, inner, input.y, state, open, view);
         render_shortcode_popup(frame, inner, input.y, state, open, view);
     }
@@ -608,6 +609,110 @@ fn render_shortcode_popup(
                 Span::styled(marker, style.fg(theme.primary)),
                 Span::styled(clean_emoji, style),
                 Span::styled(label, code_style),
+                Span::styled(" ".repeat(pad), style),
+            ])
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// Inline `/command` completion popup anchored just above the input box.
+fn render_slash_popup(
+    frame: &mut Frame<'_>,
+    pane_inner: Rect,
+    input_top_y: u16,
+    state: &State,
+    open: &OpenConversation,
+    view: &View<'_>,
+) {
+    let candidates = state.slash_candidates();
+    if candidates.is_empty() {
+        return;
+    }
+    let avail_h = input_top_y.saturating_sub(pane_inner.y);
+    if avail_h < 3 {
+        return;
+    }
+    let max_rows = usize::from(avail_h.saturating_sub(2)).min(8);
+    let visible_count = candidates.len().min(max_rows);
+    let selected = open
+        .slash_selected
+        .min(candidates.len().saturating_sub(1));
+    let offset = if selected >= visible_count {
+        selected + 1 - visible_count
+    } else {
+        0
+    };
+    let widest = candidates
+        .iter()
+        .map(|c| {
+            let cmd_w = sanitize(&c.command).width();
+            let desc_w = if c.description.is_empty() {
+                0
+            } else {
+                2 + sanitize(&c.description).width()
+            };
+            3 + cmd_w + desc_w + 1
+        })
+        .max()
+        .unwrap_or(24);
+    let max_width = usize::from(pane_inner.width.saturating_sub(2));
+    let box_width = u16::try_from((widest + 2).clamp(24, max_width.max(24)))
+        .unwrap_or(32)
+        .min(pane_inner.width);
+    let box_height = u16::try_from(visible_count + 2).unwrap_or(3).min(avail_h);
+    let rect = Rect {
+        x: pane_inner.x + 1,
+        y: input_top_y.saturating_sub(box_height),
+        width: box_width,
+        height: box_height,
+    };
+    let theme = view.theme;
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(theme.border(true))
+        .style(theme.panel())
+        .title(Span::styled(
+            " /command ",
+            Style::new().fg(theme.primary).add_modifier(Modifier::BOLD),
+        ));
+    let inner = block.inner(rect);
+    frame.render_widget(Clear, rect);
+    frame.render_widget(block, rect);
+    let row_width = usize::from(inner.width);
+    let lines: Vec<Line<'static>> = candidates
+        .iter()
+        .enumerate()
+        .skip(offset)
+        .take(visible_count)
+        .map(|(i, candidate)| {
+            let chosen = i == selected;
+            let marker = if chosen { " › " } else { "   " };
+            let clean_cmd = sanitize(&candidate.command);
+            let cmd = truncate(&clean_cmd, row_width.saturating_sub(3)).into_owned();
+            let cmd_w = cmd.width();
+            let desc_room = row_width.saturating_sub(3 + cmd_w);
+            let desc = if candidate.description.is_empty() || desc_room <= 2 {
+                String::new()
+            } else {
+                let clean_desc = sanitize(&candidate.description);
+                format!("  {}", truncate(&clean_desc, desc_room.saturating_sub(2)))
+            };
+            let pad = row_width.saturating_sub(3 + cmd_w + desc.width());
+            let style = if chosen {
+                theme.selected().fg(theme.text).add_modifier(Modifier::BOLD)
+            } else {
+                Style::new().fg(theme.text)
+            };
+            let desc_style = if chosen {
+                style
+            } else {
+                style.patch(theme.muted())
+            };
+            Line::from(vec![
+                Span::styled(marker, style.fg(theme.primary)),
+                Span::styled(cmd, style),
+                Span::styled(desc, desc_style),
                 Span::styled(" ".repeat(pad), style),
             ])
         })

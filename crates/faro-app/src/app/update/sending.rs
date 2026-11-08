@@ -36,19 +36,34 @@ pub fn block_if_key_changed(state: &mut State, conversation: ConversationId) -> 
 }
 
 /// Send what's in the input (and/or staged attachment) to the open conversation,
-/// or submit an in-progress message edit. Blank input with no staged attachment
-/// does nothing.
+/// execute a composer `/command`, or submit an in-progress message edit. Blank
+/// input with no staged attachment does nothing.
 pub fn send(state: &mut State) -> Vec<Effect> {
     let Some(open) = state.open.as_ref() else {
         return vec![];
     };
-    let conversation = open.id;
-    let text = open.input.text().trim().to_owned();
-    let target_sent_at = open.editing;
-    let has_staged = open.staged_attachment.is_some();
-    if let Some(target_sent_at) = target_sent_at {
+    if let Some(target_sent_at) = open.editing {
+        let text = open.input.text().trim().to_owned();
         return send_edit(state, target_sent_at, &text);
     }
+    if crate::app::slash::is_slash_input(open.input.text().trim()) {
+        return crate::app::slash::execute_from_input(state);
+    }
+    send_message(state)
+}
+
+/// Send the current composer text (and/or staged attachment) as an outgoing
+/// message, unescaping a leading `//` into `/`.
+pub fn send_message(state: &mut State) -> Vec<Effect> {
+    let Some(open) = state.open.as_ref() else {
+        return vec![];
+    };
+    let conversation = open.id;
+    let raw_trimmed = open.input.text().trim();
+    let text = raw_trimmed
+        .strip_prefix("//")
+        .map_or_else(|| raw_trimmed.to_owned(), |rest| format!("/{rest}"));
+    let has_staged = open.staged_attachment.is_some();
     if text.is_empty() && !has_staged {
         return vec![];
     }
@@ -65,6 +80,8 @@ pub fn send(state: &mut State) -> Vec<Effect> {
     open.mention_dismissed_at = None;
     open.shortcode_selected = 0;
     open.shortcode_dismissed_at = None;
+    open.slash_selected = 0;
+    open.slash_dismissed_for = None;
     open.input = Input::default();
     open.draft_edited = None;
     // The message itself ends our typing indicator; no "stopped" needed.
@@ -259,6 +276,8 @@ fn send_edit(state: &mut State, target_sent_at: Timestamp, text: &str) -> Vec<Ef
     open.mention_dismissed_at = None;
     open.shortcode_selected = 0;
     open.shortcode_dismissed_at = None;
+    open.slash_selected = 0;
+    open.slash_dismissed_for = None;
     let restored = state
         .summary(conversation)
         .and_then(|s| s.state.draft.as_ref())
@@ -491,7 +510,7 @@ pub fn on_send_result(
 }
 
 /// A sent message's draft is gone; store that if there was one.
-fn clear_draft(state: &mut State, conversation: ConversationId) -> Vec<Effect> {
+pub(crate) fn clear_draft(state: &mut State, conversation: ConversationId) -> Vec<Effect> {
     match summary_entry(state, conversation) {
         Some(summary) if summary.state.draft.is_some() => {
             summary.state.draft = None;

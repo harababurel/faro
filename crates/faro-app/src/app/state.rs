@@ -290,6 +290,10 @@ pub struct OpenConversation {
     pub shortcode_selected: usize,
     /// Byte offset of a `:` token whose completion popup was dismissed with `Esc`.
     pub shortcode_dismissed_at: Option<usize>,
+    /// Highlighted candidate row in the inline `/command` autocomplete popup.
+    pub slash_selected: usize,
+    /// Input text for which the `/command` popup was dismissed with `Esc`.
+    pub slash_dismissed_for: Option<String>,
     /// Local file attached to the next message sent here (D77).
     pub staged_attachment: Option<StagedAttachment>,
     /// Incoming messages not yet marked read: receipts wait until they've been
@@ -338,6 +342,23 @@ impl OpenConversation {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '+' | '-'));
         (query.len() >= 2 && valid_chars).then_some((colon_pos, query))
+    }
+
+    /// The `/<query>` text when the composer holds a slash command (starts
+    /// with `/`, not `//`, single line, not editing a past message, and not
+    /// dismissed with `Esc`).
+    pub fn active_slash_query(&self) -> Option<&str> {
+        if self.editing.is_some() {
+            return None;
+        }
+        let text = self.input.text();
+        if !super::slash::is_slash_input(text) {
+            return None;
+        }
+        if self.slash_dismissed_for.as_deref() == Some(text) {
+            return None;
+        }
+        text.strip_prefix('/')
     }
 }
 
@@ -1439,6 +1460,17 @@ impl State {
             return Vec::new();
         };
         crate::ui::shortcodes::search_shortcodes(query, 5)
+    }
+
+    /// Inline `/command` completion candidates for the active composer slash query.
+    pub fn slash_candidates(&self) -> Vec<super::slash::SlashCandidate> {
+        let Some(open) = &self.open else {
+            return Vec::new();
+        };
+        let Some(query) = open.active_slash_query() else {
+            return Vec::new();
+        };
+        super::slash::candidates(self, query)
     }
 
     /// How a mention of `who` reads: `@` and their name ("@You" for us).

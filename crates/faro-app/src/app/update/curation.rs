@@ -218,6 +218,16 @@ pub fn mute_for(state: &mut State, target: ConversationId, choice: usize) -> Vec
     let Some(&(label, length)) = MUTE_CHOICES.get(choice) else {
         return vec![];
     };
+    mute_for_duration(state, target, length, label)
+}
+
+/// Mute `target` for `length` (`None`: until unmuted), showing `label` in the notice.
+pub fn mute_for_duration(
+    state: &mut State,
+    target: ConversationId,
+    length: Option<std::time::Duration>,
+    label: &str,
+) -> Vec<Effect> {
     let until = length.map_or(ConversationState::MUTED_FOREVER, |length| {
         let length = u64::try_from(length.as_millis()).unwrap_or(u64::MAX);
         Timestamp::from_millis(wall_clock().as_millis().saturating_add(length))

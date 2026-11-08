@@ -8,6 +8,7 @@ pub mod image_cache;
 pub mod input;
 pub mod keymap;
 pub mod palette;
+pub mod slash;
 pub mod state;
 pub mod storage;
 pub mod term_event;

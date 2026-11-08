@@ -24,16 +24,16 @@ use super::state::{
 };
 use super::timeline;
 
-mod curation;
-mod navigation;
+pub(crate) mod curation;
+pub(crate) mod navigation;
 mod notify;
-mod palette;
+pub(crate) mod palette;
 mod pictures;
-mod presence;
+pub(crate) mod presence;
 mod resize;
 pub(crate) mod selection;
-mod sending;
-mod settings;
+pub(crate) mod sending;
+pub(crate) mod settings;
 mod updates;
 
 pub use curation::mentions_toggle;
@@ -321,7 +321,8 @@ fn on_terminal(state: &mut State, event: &Event) -> Vec<Effect> {
             if state.palette.is_none()
                 && state.popup.is_none()
                 && state.focus == Focus::Input
-                && let Some(effects) = navigation::on_mention_key(state, *key)
+                && let Some(effects) = navigation::on_slash_key(state, *key)
+                    .or_else(|| navigation::on_mention_key(state, *key))
                     .or_else(|| navigation::on_shortcode_key(state, *key))
             {
                 effects
@@ -561,7 +562,8 @@ pub(super) fn save_draft(state: &mut State) -> Vec<Effect> {
         return vec![];
     }
     let id = open.id;
-    let draft = (!open.input.is_empty()).then(|| MessageBody::new(open.input.text()));
+    let draft = (!open.input.is_empty() && !crate::app::slash::is_slash_input(open.input.text()))
+        .then(|| MessageBody::new(open.input.text()));
     match summary_entry(state, id) {
         Some(summary) => {
             summary.state.draft = draft;
@@ -620,6 +622,8 @@ pub fn open_conversation(state: &mut State, id: ConversationId) -> Vec<Effect> {
         mention_dismissed_at: None,
         shortcode_selected: 0,
         shortcode_dismissed_at: None,
+        slash_selected: 0,
+        slash_dismissed_for: None,
         staged_attachment: None,
         unreceipted: Vec::new(),
         typing_sent: None,
