@@ -217,7 +217,11 @@ fn prefixes_jump_into_a_category() {
         k,
         ItemKind::Command(_)
             | ItemKind::Level(
-                Level::People | Level::Nickname(_) | Level::AttachFile | Level::ChatLinks
+                Level::People
+                    | Level::Devices
+                    | Level::Nickname(_)
+                    | Level::AttachFile
+                    | Level::ChatLinks
             )
     )));
     // Backspace on an empty query goes back up.
@@ -2023,4 +2027,114 @@ fn lock_screen_sets_session_passphrase_masks_ui_and_unlocks() {
         vec![saved(key::AUTO_LOCK_MINS, ConfigValue::Uint(5))]
     );
     assert_eq!(state.config.security.auto_lock_mins, 5);
+}
+
+#[test]
+fn linked_devices_list_confirm_and_unlink() {
+    use faro_core::domain::{ConnectionState, LinkedDevice};
+
+    let mut state = loaded_state();
+    state.connection = ConnectionState::Connected;
+
+    palette_open(&mut state, ">linked devices");
+    assert_eq!(selected_title(&state), "Linked devices…");
+    let effects = enter(&mut state);
+    assert_eq!(level(&state), Level::Devices);
+    assert_eq!(breadcrumb(&state), "Commands › Linked devices");
+    assert!(state.devices.is_none());
+    assert_eq!(effects, vec![Effect::Backend(Command::ListDevices)]);
+
+    let devices = vec![
+        LinkedDevice {
+            id: 1,
+            name: Some("Primary phone".to_owned()),
+            created_at: Timestamp::from_millis(1_700_000_000_000),
+            last_seen: Timestamp::from_millis(1_710_000_000_000),
+            is_current: false,
+        },
+        LinkedDevice {
+            id: 2,
+            name: Some("faro (workstation)".to_owned()),
+            created_at: Timestamp::from_millis(1_705_000_000_000),
+            last_seen: Timestamp::from_millis(1_710_000_000_000),
+            is_current: true,
+        },
+    ];
+    let effects = update(&mut state, AppEvent::DevicesListed(Ok(devices)));
+    assert_eq!(effects, vec![]);
+    assert_eq!(state.devices.as_ref().map(Vec::len), Some(2));
+    assert_eq!(
+        titles(&state),
+        vec!["Primary phone", "faro (workstation)"]
+    );
+    assert_eq!(
+        selected(&state),
+        Some(ItemKind::Device(2)),
+        "selects the current device by default"
+    );
+    let current_detail = row(&state, "faro (workstation)").0;
+    assert!(current_detail.starts_with("this device · last seen "));
+
+    // Selecting a non-current device keeps the palette open and explains why it can't be unlinked here.
+    press(&mut state, KeyCode::Up);
+    assert_eq!(selected(&state), Some(ItemKind::Device(1)));
+    let effects = enter(&mut state);
+    assert_eq!(effects, vec![]);
+    assert!(state.palette.is_some());
+    assert!(state.popup.is_none());
+    assert_eq!(
+        state.notice.as_ref().map(|n| n.text.as_str()),
+        Some("Primary phone can only be unlinked from Signal on your phone")
+    );
+
+    // Selecting this device closes the palette and opens a confirmation popup naming the device.
+    press(&mut state, KeyCode::Down);
+    assert_eq!(selected(&state), Some(ItemKind::Device(2)));
+    let effects = enter(&mut state);
+    assert_eq!(effects, vec![]);
+    assert!(state.palette.is_none());
+    assert_eq!(
+        state.popup,
+        Some(Popup::ConfirmUnlinkDevice {
+            id: 2,
+            name: "faro (workstation)".to_owned(),
+        })
+    );
+
+    // Cancelling with 'n' closes the popup without unlinking.
+    let effects = update(&mut state, key(KeyCode::Char('n'), KeyModifiers::NONE));
+    assert_eq!(effects, vec![]);
+    assert!(state.popup.is_none());
+
+    // Re-open confirmation and confirm with 'y'.
+    state.popup = Some(Popup::ConfirmUnlinkDevice {
+        id: 2,
+        name: "faro (workstation)".to_owned(),
+    });
+    let effects = update(&mut state, key(KeyCode::Char('y'), KeyModifiers::NONE));
+    assert!(state.popup.is_none());
+    assert_eq!(
+        effects,
+        vec![Effect::Backend(Command::UnlinkDevice {
+            id: 2,
+            name: "faro (workstation)".to_owned(),
+        })]
+    );
+
+    // Completion marks connection as Unlinked, removes the device, and notifies.
+    let effects = update(
+        &mut state,
+        AppEvent::DeviceUnlinked {
+            id: 2,
+            name: "faro (workstation)".to_owned(),
+            result: Ok(()),
+        },
+    );
+    assert_eq!(effects, vec![]);
+    assert_eq!(state.connection, ConnectionState::Unlinked);
+    assert_eq!(state.devices.as_ref().map(Vec::len), Some(1));
+    assert_eq!(
+        state.notice.as_ref().map(|n| n.text.as_str()),
+        Some("Unlinked faro (workstation) — run `faro link` to link again")
+    );
 }

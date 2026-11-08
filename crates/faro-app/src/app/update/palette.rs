@@ -66,7 +66,8 @@ pub fn open_with_query(state: &mut State, level: Level, query: &str) -> Vec<Effe
         | Level::SettingText(_)
         | Level::ChatLinks
         | Level::ForwardTo(_)
-        | Level::ReleaseNotes => vec![],
+        | Level::ReleaseNotes
+        | Level::Devices => vec![],
     }
 }
 
@@ -99,9 +100,9 @@ pub fn open_at_level(state: &mut State, level: Level) -> Vec<Effect> {
             let _ = choose_level(state, Level::Setting(setting));
             choose_level(state, Level::SettingText(setting))
         }
-        Level::AttachFile => {
+        Level::AttachFile | Level::Devices => {
             open(state, Level::Commands);
-            choose_level(state, Level::AttachFile)
+            choose_level(state, level)
         }
         Level::Root
         | Level::Chats
@@ -231,7 +232,8 @@ fn selected_setting(palette: &Palette) -> Option<Setting> {
             | ItemKind::SearchHit { .. }
             | ItemKind::SavedQuery(_)
             | ItemKind::ChatLink { .. }
-            | ItemKind::ChatAttachment { .. },
+            | ItemKind::ChatAttachment { .. }
+            | ItemKind::Device(_),
         )
         | None => None,
     }
@@ -286,6 +288,67 @@ pub fn on_files_listed(
     }
     palette.items = palette::file_items(entries);
     palette.refilter();
+    vec![]
+}
+
+/// Populate `Level::Devices` when the backend returns the account's linked devices.
+pub fn on_devices_listed(
+    state: &mut State,
+    result: Result<Vec<faro_core::domain::LinkedDevice>, faro_core::backend::BackendError>,
+) -> Vec<Effect> {
+    match result {
+        Ok(devices) => {
+            state.devices = Some(devices);
+            if state
+                .palette
+                .as_ref()
+                .is_some_and(|p| p.level() == Level::Devices)
+            {
+                let selected = state
+                    .palette
+                    .as_ref()
+                    .and_then(|p| p.selected_item())
+                    .map(|item| item.kind.clone())
+                    .or_else(|| {
+                        state
+                            .devices
+                            .as_deref()
+                            .unwrap_or_default()
+                            .iter()
+                            .find(|d| d.is_current)
+                            .map(|d| ItemKind::Device(d.id))
+                    });
+                let items = palette::items(state, Level::Devices, &state.recent_commands);
+                let note = palette::note(state, Level::Devices);
+                if let Some(palette) = state.palette.as_mut() {
+                    let (path, query, offset) = (
+                        palette.path.clone(),
+                        palette.input.text().to_owned(),
+                        palette.offset,
+                    );
+                    palette.show(path, items, &query, selected.as_ref());
+                    palette.offset = offset;
+                    palette.note = note;
+                }
+            }
+        }
+        Err(error) => {
+            state.devices.get_or_insert_with(Vec::new);
+            state.notice = Some(Notice::error(format!(
+                "Couldn't fetch linked devices: {error}"
+            )));
+            if state
+                .palette
+                .as_ref()
+                .is_some_and(|p| p.level() == Level::Devices)
+            {
+                let note = palette::note(state, Level::Devices);
+                if let Some(palette) = state.palette.as_mut() {
+                    palette.note = note;
+                }
+            }
+        }
+    }
     vec![]
 }
 
@@ -404,7 +467,8 @@ fn up(state: &mut State) {
         | Level::AttachFile
         | Level::ChatLinks
         | Level::ForwardTo(_)
-        | Level::ReleaseNotes => ItemKind::Level(level),
+        | Level::ReleaseNotes
+        | Level::Devices => ItemKind::Level(level),
     });
     let parent = path.last().copied().unwrap_or(Level::Root);
     if let Some(palette) = state.palette.as_mut() {
@@ -502,6 +566,10 @@ fn choose(state: &mut State) -> Vec<Effect> {
     if let ItemKind::SavedQuery(query) = kind {
         return activate_saved_query(state, query);
     }
+    if let ItemKind::Device(id) = kind {
+        choose_device(state, id);
+        return vec![];
+    }
     state.palette = None;
     match kind {
         ItemKind::Conversation(id) => show_conversation(state, id),
@@ -547,6 +615,7 @@ fn choose(state: &mut State) -> Vec<Effect> {
         | ItemKind::Switch(_)
         | ItemKind::SetText(_)
         | ItemKind::SavedQuery(_)
+        | ItemKind::Device(_)
         | ItemKind::Header => vec![],
     }
 }
@@ -649,9 +718,16 @@ fn choose_level(state: &mut State, level: Level) -> Vec<Effect> {
         | Level::People
         | Level::ChatLinks
         | Level::ForwardTo(_)
-        | Level::ReleaseNotes => String::new(),
+        | Level::ReleaseNotes
+        | Level::Devices => String::new(),
     };
+    if level == Level::Devices {
+        state.devices = None;
+    }
     enter(state, level, &query);
+    if level == Level::Devices {
+        return vec![Effect::Backend(crate::app::event::Command::ListDevices)];
+    }
     if level == Level::AttachFile {
         return vec![Effect::ListFiles(query)];
     }
@@ -661,6 +737,27 @@ fn choose_level(state: &mut State, level: Level) -> Vec<Effect> {
         return settings::check_transcriber(state).into_iter().collect();
     }
     vec![]
+}
+
+fn choose_device(state: &mut State, id: u32) {
+    let Some(device) = state
+        .devices
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .find(|d| d.id == id)
+    else {
+        return;
+    };
+    let name = device.display_name();
+    if device.is_current {
+        state.palette = None;
+        state.popup = Some(crate::app::state::Popup::ConfirmUnlinkDevice { id, name });
+    } else {
+        state.notice = Some(Notice::info(format!(
+            "{name} can only be unlinked from Signal on your phone"
+        )));
+    }
 }
 
 fn forward_to(state: &mut State, target: MessageRef, destination: ConversationId) -> Vec<Effect> {

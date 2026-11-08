@@ -381,6 +381,16 @@ pub fn on_popup(state: &mut State, key: PopupKey) -> Vec<Effect> {
                 vec![]
             }
         },
+        Popup::ConfirmUnlinkDevice { id, name } => match key {
+            PopupKey::Choose | PopupKey::Char('y' | 'Y') => {
+                vec![Effect::Backend(Command::UnlinkDevice { id, name })]
+            }
+            PopupKey::Close | PopupKey::Char('n' | 'N' | 'q') => vec![],
+            PopupKey::Previous | PopupKey::Next | PopupKey::Backspace | PopupKey::Char(_) => {
+                state.popup = Some(Popup::ConfirmUnlinkDevice { id, name });
+                vec![]
+            }
+        },
         Popup::ConfirmRemoteTranscription {
             conversation,
             target,

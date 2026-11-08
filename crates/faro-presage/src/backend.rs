@@ -11,7 +11,7 @@ use faro_core::backend::{
 };
 use faro_core::domain::{
     AttachmentRef, ConnectionState, Contact, ConversationId, DeliveryStatus, Direction, Group,
-    GroupId, Message, MessageRef, PhoneNumber, ServiceId, Timestamp, TypingState,
+    GroupId, LinkedDevice, Message, MessageRef, PhoneNumber, ServiceId, Timestamp, TypingState,
     VerificationState,
 };
 use futures::StreamExt as _;
@@ -98,6 +98,9 @@ fn backend_error(error: &presage::Error<SqliteStoreError>) -> BackendError {
         presage::Error::NotYetRegisteredError | presage::Error::RelinkNecessary => {
             BackendError::Unlinked
         }
+        presage::Error::NotPrimaryDevice => BackendError::Protocol(
+            "only the primary device (phone) can unlink other devices".into(),
+        ),
         presage::Error::Store(store) => BackendError::Storage(store.to_string()),
         presage::Error::UnknownGroup | presage::Error::UnknownRecipient => BackendError::NotFound,
         presage::Error::Timeout(_)
@@ -464,6 +467,68 @@ impl Backend for PresageBackend {
                     .to_string(),
             )),
         }))
+    }
+
+    async fn devices(&self) -> Result<Vec<LinkedDevice>> {
+        let infos = Box::pin(self.manager.devices()).await.map_err(|e| {
+            tracing::warn!(error = %e, "fetching linked devices failed");
+            backend_error(&e)
+        })?;
+        let current_id = u32::from(self.manager.device_id());
+        let local_name = self
+            .manager
+            .registration_data()
+            .device_name()
+            .map(str::to_owned);
+        let mut devices: Vec<LinkedDevice> = infos
+            .into_iter()
+            .map(|info| {
+                let id = u32::from(info.id);
+                let is_current = id == current_id;
+                let name = info
+                    .name
+                    .filter(|n| !n.trim().is_empty())
+                    .or_else(|| is_current.then(|| local_name.clone()).flatten());
+                let created_at = Timestamp::from_millis(
+                    u64::try_from(info.created_at.timestamp_millis()).unwrap_or(0),
+                );
+                let last_seen = Timestamp::from_millis(
+                    u64::try_from(info.last_seen.timestamp_millis()).unwrap_or(0),
+                );
+                LinkedDevice {
+                    id,
+                    name,
+                    created_at,
+                    last_seen,
+                    is_current,
+                }
+            })
+            .collect();
+        devices.sort_by_key(|d| (!d.is_current, d.id != 1, d.id));
+        Ok(devices)
+    }
+
+    async fn unlink_device(&self, device_id: u32) -> Result<()> {
+        let current_id = u32::from(self.manager.device_id());
+        if device_id == current_id {
+            Box::pin(self.manager.unlink_self()).await.map_err(|e| {
+                tracing::warn!(error = %e, "unlinking this device failed");
+                backend_error(&e)
+            })?;
+            let _ = crate::clear_link(&self.manager).await;
+            let _ = self
+                .events
+                .send(BackendEvent::Connection(ConnectionState::Unlinked))
+                .await;
+            Ok(())
+        } else {
+            Box::pin(self.manager.unlink_secondary(device_id))
+                .await
+                .map_err(|e| {
+                    tracing::warn!(device_id, error = %e, "unlinking device failed");
+                    backend_error(&e)
+                })
+        }
     }
 
     /// Contacts synced from the phone and the members of every group.

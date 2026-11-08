@@ -63,14 +63,41 @@ pub async fn execute<B: Backend>(backend: &B, command: Command) -> Option<AppEve
             }
             AppEvent::DeleteResult(result)
         }
-        Command::Fetch { .. } | Command::Transcribe { .. } | Command::FetchPicture(_) => {
+        Command::ListDevices => {
+            let result = backend.devices().await;
+            if let Err(error) = &result {
+                tracing::warn!(%error, "listing linked devices failed");
+            }
+            AppEvent::DevicesListed(result)
+        }
+        Command::UnlinkDevice { id, name } => {
+            let result = backend.unlink_device(id).await;
+            if let Err(error) = &result {
+                tracing::warn!(%error, id, "unlinking device failed");
+            }
+            AppEvent::DeviceUnlinked { id, name, result }
+        }
+        command @ (Command::Fetch { .. }
+        | Command::Transcribe { .. }
+        | Command::FetchPicture(_)
+        | Command::MarkRead(_)
+        | Command::Typing { .. }
+        | Command::SetVerification { .. }
+        | Command::SetDisappearingTimer { .. }
+        | Command::PurgeExpired(_)) => {
+            execute_quiet(backend, command).await;
             return None;
         }
+    };
+    Some(event)
+}
+
+async fn execute_quiet<B: Backend>(backend: &B, command: Command) {
+    match command {
         Command::MarkRead(messages) => {
             if let Err(error) = backend.mark_read(&messages).await {
                 tracing::warn!(%error, count = messages.len(), "sending read receipts failed");
             }
-            return None;
         }
         Command::Typing {
             conversation,
@@ -79,13 +106,11 @@ pub async fn execute<B: Backend>(backend: &B, command: Command) -> Option<AppEve
             if let Err(error) = backend.send_typing(conversation, state).await {
                 tracing::debug!(%error, %conversation, "sending a typing indicator failed");
             }
-            return None;
         }
         Command::SetVerification { peer, verified } => {
             if let Err(error) = backend.set_verification(peer, verified).await {
                 tracing::warn!(%error, %peer, "updating verification state failed");
             }
-            return None;
         }
         Command::SetDisappearingTimer {
             conversation,
@@ -94,14 +119,20 @@ pub async fn execute<B: Backend>(backend: &B, command: Command) -> Option<AppEve
             if let Err(error) = backend.set_disappearing_timer(conversation, seconds).await {
                 tracing::warn!(%error, %conversation, "updating disappearing timer failed");
             }
-            return None;
         }
         Command::PurgeExpired(messages) => {
             if let Err(error) = backend.purge_expired(&messages).await {
                 tracing::warn!(%error, count = messages.len(), "purging expired messages from backend failed");
             }
-            return None;
         }
-    };
-    Some(event)
+        Command::Fetch { .. }
+        | Command::Transcribe { .. }
+        | Command::FetchPicture(_)
+        | Command::Send { .. }
+        | Command::React { .. }
+        | Command::Edit { .. }
+        | Command::DeleteForEveryone { .. }
+        | Command::ListDevices
+        | Command::UnlinkDevice { .. } => {}
+    }
 }

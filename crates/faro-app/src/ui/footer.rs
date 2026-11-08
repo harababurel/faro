@@ -141,6 +141,7 @@ const REACT_SEARCH_HINTS: &[(&str, &str)] =
 const IMAGE_VIEWER_HINTS: &[(&str, &str)] = &[("s", "save"), ("y", "copy path"), ("esc", "close")];
 const STAGED_IMAGE_HINTS: &[(&str, &str)] = &[("esc", "close")];
 const CONFIRM_DELETE_HINTS: &[(&str, &str)] = &[("enter/y", "delete"), ("esc/n", "cancel")];
+const CONFIRM_UNLINK_HINTS: &[(&str, &str)] = &[("enter/y", "unlink"), ("esc/n", "cancel")];
 const SAFETY_NUMBER_HINTS: &[(&str, &str)] = &[
     ("v", "verify"),
     ("a", "approve"),
@@ -249,6 +250,7 @@ fn hints(state: &State, geometry: &Geometry) -> Vec<(String, &'static str)> {
             | Level::Commands
             | Level::Keys
             | Level::People
+            | Level::Devices
             | Level::AttachFile
             | Level::ChatLinks
             | Level::ForwardTo(_)
@@ -261,6 +263,7 @@ fn hints(state: &State, geometry: &Geometry) -> Vec<(String, &'static str)> {
             | Popup::Conversation { .. }
             | Popup::ConfirmRemoteTranscription { .. } => fixed(MENU_HINTS),
             Popup::ConfirmDelete { .. } => fixed(CONFIRM_DELETE_HINTS),
+            Popup::ConfirmUnlinkDevice { .. } => fixed(CONFIRM_UNLINK_HINTS),
             Popup::React { query: None, .. } => fixed(REACT_HINTS),
             Popup::React { query: Some(_), .. } => fixed(REACT_SEARCH_HINTS),
             Popup::Mute { .. } => fixed(MUTE_HINTS),

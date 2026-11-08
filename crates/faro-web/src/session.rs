@@ -361,7 +361,9 @@ async fn command_task(
             | Command::Typing { .. }
             | Command::SetVerification { .. }
             | Command::SetDisappearingTimer { .. }
-            | Command::PurgeExpired(_)) => commands::execute(&backend, command).await,
+            | Command::PurgeExpired(_)
+            | Command::ListDevices
+            | Command::UnlinkDevice { .. }) => commands::execute(&backend, command).await,
         };
         if let Some(event) = event
             && results.send(event).is_err()

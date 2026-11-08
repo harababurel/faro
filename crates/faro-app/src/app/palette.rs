@@ -163,6 +163,8 @@ pub enum Level {
     ForwardTo(MessageRef),
     /// In-app release notes and the "what's new since you" digest.
     ReleaseNotes,
+    /// Linked devices on this account, with last-seen and unlink.
+    Devices,
 }
 
 /// The sections of `Settings ›`, each under a header.
@@ -262,6 +264,7 @@ impl Level {
             Self::ChatLinks => "Links & files",
             Self::ForwardTo(_) => "Forward to",
             Self::ReleaseNotes => "Release notes",
+            Self::Devices => "Linked devices",
         }
     }
 
@@ -282,7 +285,8 @@ impl Level {
             | Self::AttachFile
             | Self::ChatLinks
             | Self::ForwardTo(_)
-            | Self::ReleaseNotes => None,
+            | Self::ReleaseNotes
+            | Self::Devices => None,
         }
     }
 
@@ -312,6 +316,7 @@ impl Level {
             Self::ChatLinks => "chat_links".to_owned(),
             Self::ForwardTo(m) => format!("forward_to {} {}", m.sender, m.sent_at.as_millis()),
             Self::ReleaseNotes => "release_notes".to_owned(),
+            Self::Devices => "devices".to_owned(),
         }
     }
 
@@ -342,6 +347,7 @@ impl Level {
                 Some(Self::ForwardTo(MessageRef { sender, sent_at }))
             }
             "release_notes" => Some(Self::ReleaseNotes),
+            "devices" => Some(Self::Devices),
             _ => None,
         }
     }
@@ -840,6 +846,8 @@ pub enum ItemKind {
         target: MessageRef,
         destination: ConversationId,
     },
+    /// A linked device (`Level::Devices`).
+    Device(u32),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1226,6 +1234,7 @@ pub fn items(state: &State, level: Level, recent: &[PaletteCommand]) -> Vec<Item
         Level::ChatLinks => chat_links_and_files(state),
         Level::ForwardTo(target) => forward_destinations(state, target),
         Level::ReleaseNotes => release_notes_items(state),
+        Level::Devices => devices(state),
     }
 }
 
@@ -1295,6 +1304,44 @@ fn release_notes_items(state: &State) -> Vec<Item> {
     }
 
     items
+}
+
+/// `Level::Devices`: linked devices on this account, with last-seen and created dates.
+fn devices(state: &State) -> Vec<Item> {
+    state
+        .devices
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .map(|device| {
+            let last_seen = format_device_date(device.last_seen);
+            let created = format_device_date(device.created_at);
+            let detail = if device.is_current {
+                format!("this device · last seen {last_seen} · linked {created} · enter to unlink")
+            } else if device.id == 1 {
+                format!("primary · last seen {last_seen} · linked {created}")
+            } else {
+                format!("last seen {last_seen} · linked {created}")
+            };
+            Item::new(ItemKind::Device(device.id), device.display_name())
+                .current(device.is_current)
+                .detail(detail)
+        })
+        .collect()
+}
+
+fn format_device_date(ts: faro_core::domain::Timestamp) -> String {
+    i64::try_from(ts.as_millis())
+        .ok()
+        .and_then(|ms| jiff::Timestamp::from_millisecond(ms).ok())
+        .map_or_else(
+            || "unknown".to_owned(),
+            |t| {
+                t.to_zoned(jiff::tz::TimeZone::UTC)
+                    .strftime("%Y-%m-%d")
+                    .to_string()
+            },
+        )
 }
 
 /// `Level::ChatLinks`: attachments and URLs shared in the open conversation,
@@ -1539,7 +1586,8 @@ fn categories(state: &State) -> Vec<Item> {
                 | Level::AttachFile
                 | Level::ChatLinks
                 | Level::ForwardTo(_)
-                | Level::ReleaseNotes => level.prefix().map(String::from).unwrap_or_default(),
+                | Level::ReleaseNotes
+                | Level::Devices => level.prefix().map(String::from).unwrap_or_default(),
             };
             Item::new(ItemKind::Level(level), level.title()).detail(detail)
         })
@@ -1614,6 +1662,10 @@ fn commands(state: &State) -> Vec<Item> {
         ));
     }
     items.push(Item::new(ItemKind::Level(Level::People), "Set a nickname…"));
+    items.push(Item::new(
+        ItemKind::Level(Level::Devices),
+        "Linked devices…",
+    ));
     items.push(global(
         Action::ToggleLeftSidebar,
         if state.panels.left {
@@ -1942,6 +1994,18 @@ pub fn note(state: &State, level: Level) -> Option<String> {
                 .to_owned(),
         );
     }
+    if level == Level::Devices {
+        return Some(match &state.devices {
+            None => "Fetching linked devices…".to_owned(),
+            Some(devices) if devices.is_empty() => {
+                "No linked devices reported by the backend.".to_owned()
+            }
+            Some(_) => {
+                "Linked devices on this account. Enter on this device unlinks it; manage other devices on your phone."
+                    .to_owned()
+            }
+        });
+    }
     if level != Level::Themes {
         return None;
     }
@@ -1981,7 +2045,8 @@ fn sidebar_width_note(level: Level) -> Option<String> {
         | Level::AttachFile
         | Level::ChatLinks
         | Level::ForwardTo(_)
-        | Level::ReleaseNotes => None,
+        | Level::ReleaseNotes
+        | Level::Devices => None,
     }
 }
 
@@ -2086,7 +2151,8 @@ fn transcription_note(state: &State, level: Level) -> Option<String> {
         | Level::AttachFile
         | Level::ChatLinks
         | Level::ForwardTo(_)
-        | Level::ReleaseNotes => return None,
+        | Level::ReleaseNotes
+        | Level::Devices => return None,
     };
     Some(note)
 }

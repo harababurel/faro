@@ -12,8 +12,8 @@ use std::path::PathBuf;
 use tokio::sync::mpsc;
 
 use crate::domain::{
-    AttachmentRef, Contact, ConversationId, Group, Mention, MessageBody, MessageRef, PhoneNumber,
-    Quote, ServiceId, Timestamp, TypingState, VerificationState,
+    AttachmentRef, Contact, ConversationId, Group, LinkedDevice, Mention, MessageBody, MessageRef,
+    PhoneNumber, Quote, ServiceId, Timestamp, TypingState, VerificationState,
 };
 pub use error::BackendError;
 pub use event::BackendEvent;
@@ -46,6 +46,21 @@ pub trait Backend {
     fn contacts(&self) -> impl Future<Output = Result<Vec<Contact>>>;
 
     fn groups(&self) -> impl Future<Output = Result<Vec<Group>>>;
+
+    /// Devices linked to this Signal account, including the primary phone and
+    /// this device.
+    fn devices(&self) -> impl Future<Output = Result<Vec<LinkedDevice>>> {
+        std::future::ready(Ok(Vec::new()))
+    }
+
+    /// Unlink a device from this account (`unlink_self` when `device_id` is
+    /// this linked device, or `unlink_secondary` when primary).
+    fn unlink_device(&self, device_id: u32) -> impl Future<Output = Result<()>> {
+        let _ = device_id;
+        std::future::ready(Err(BackendError::Protocol(
+            "unlinking devices is not supported by this backend".into(),
+        )))
+    }
 
     /// Contacts' current 60-digit safety numbers and verification states
     /// known to the backend (D163).

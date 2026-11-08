@@ -596,7 +596,9 @@ async fn execute<B: Backend>(
         | Command::Typing { .. }
         | Command::SetVerification { .. }
         | Command::SetDisappearingTimer { .. }
-        | Command::PurgeExpired(_)) => other,
+        | Command::PurgeExpired(_)
+        | Command::ListDevices
+        | Command::UnlinkDevice { .. }) => other,
     };
     shared::execute(backend, command).await
 }

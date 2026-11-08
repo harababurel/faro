@@ -8,8 +8,8 @@ use faro_core::backend::{
 use faro_core::clipboard::ReadError;
 use faro_core::config::{SettingEdit, Voice};
 use faro_core::domain::{
-    AttachmentRef, ConversationId, Message, MessageRef, ServiceId, Timestamp, TranscriptSource,
-    TypingState, VerificationState,
+    AttachmentRef, ConversationId, LinkedDevice, Message, MessageRef, ServiceId, Timestamp,
+    TranscriptSource, TypingState, VerificationState,
 };
 use faro_core::store::{ConversationState, ConversationSummary, RecipientReceipt, SearchHit};
 
@@ -82,6 +82,14 @@ pub enum AppEvent {
     EditResult(Result<(), BackendError>),
     /// The backend finished (or gave up) deleting our message for everyone.
     DeleteResult(Result<(), BackendError>),
+    /// Linked devices fetched from the backend (`Command::ListDevices`).
+    DevicesListed(Result<Vec<LinkedDevice>, BackendError>),
+    /// A linked device was unlinked (or unlinking failed) (`Command::UnlinkDevice`).
+    DeviceUnlinked {
+        id: u32,
+        name: String,
+        result: Result<(), BackendError>,
+    },
     /// An attachment finished downloading (or failed) (D75).
     Fetched {
         conversation: ConversationId,
@@ -418,6 +426,12 @@ pub enum Command {
     /// Delete expired messages from the backend's own message store so they
     /// cannot be replayed on restart (D165). No answer; failures are only logged.
     PurgeExpired(Vec<(ConversationId, MessageRef)>),
+    /// List linked devices on this account (`Level::Devices`). Answered with
+    /// `AppEvent::DevicesListed`.
+    ListDevices,
+    /// Unlink a device (`id`) from this account. Answered with
+    /// `AppEvent::DeviceUnlinked`.
+    UnlinkDevice { id: u32, name: String },
 }
 
 /// Why no image was staged.

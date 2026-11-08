@@ -11,8 +11,8 @@ use faro_core::config::{
 };
 use faro_core::domain::{
     AttachmentRef, BodyPart, CallKind, CallState, ConnectionState, Contact, ConversationId,
-    Direction, Group, GroupId, IdentityRecord, Message, MessageRef, Quote, ServiceId, SystemEvent,
-    Timestamp, format_disappearing_timer, mention_parts,
+    Direction, Group, GroupId, IdentityRecord, LinkedDevice, Message, MessageRef, Quote, ServiceId,
+    SystemEvent, Timestamp, format_disappearing_timer, mention_parts,
 };
 use faro_core::rt::Instant;
 use faro_core::store::{ConversationSummary, NotifyLevel, Profile, RecipientReceipt};
@@ -255,6 +255,8 @@ pub struct State {
     pub restoring_session: RestoringSession,
     /// Last session record written to `ui.session`, to avoid redundant writes.
     pub saved_session: Option<SessionRecord>,
+    /// Linked devices on this account (`Level::Devices`); `None` while fetching.
+    pub devices: Option<Vec<LinkedDevice>>,
 }
 
 #[derive(Debug)]
@@ -633,6 +635,8 @@ pub enum Popup {
     },
     /// View and verify someone's 60-digit safety number (D163).
     SafetyNumber(ServiceId),
+    /// Confirmation prompt before unlinking a device (`Level::Devices`).
+    ConfirmUnlinkDevice { id: u32, name: String },
 }
 
 /// Curating the conversation list (M4 task 5, D41).
@@ -1192,6 +1196,7 @@ impl State {
             since_you_left: None,
             restoring_session: RestoringSession::NotLoaded,
             saved_session: None,
+            devices: None,
         };
         state.recount_names();
         state

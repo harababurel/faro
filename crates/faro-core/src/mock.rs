@@ -34,7 +34,8 @@ use crate::backend::{
     EVENT_CHANNEL_CAPACITY, IdentityUpdate, OutgoingEdit, OutgoingMessage, ReactionChange, Result,
 };
 use crate::domain::{
-    AttachmentRef, Contact, ConversationId, Group, MessageRef, ServiceId, Timestamp, TypingState,
+    AttachmentRef, Contact, ConversationId, Group, LinkedDevice, MessageRef, ServiceId, Timestamp,
+    TypingState,
 };
 use crate::rt::{self, Instant, Task};
 
@@ -234,6 +235,17 @@ impl Backend for MockBackend {
 
     fn whoami(&self) -> impl Future<Output = Result<Account>> {
         ready(Ok(self.shared.sim().world().account.clone()))
+    }
+
+    async fn devices(&self) -> Result<Vec<LinkedDevice>> {
+        self.request(|_| Ok(())).await?;
+        Ok(self.shared.sim().devices(self.shared.now()))
+    }
+
+    async fn unlink_device(&self, device_id: u32) -> Result<()> {
+        self.request(|_| Ok(())).await?;
+        self.shared
+            .schedule(|sim, now| sim.unlink_device(now, device_id))
     }
 
     fn contacts(&self) -> impl Future<Output = Result<Vec<Contact>>> {
@@ -556,6 +568,33 @@ mod tests {
             limited.fetch_attachment(&known).await,
             Err(BackendError::Unsupported(Capability::Attachments))
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn devices_and_unlink_self() {
+        let (backend, mut events) = MockBackend::new(&quiet());
+        until(&mut events, is_connected).await;
+
+        let devices = backend.devices().await.unwrap();
+        assert_eq!(devices.len(), 3);
+        let current = devices.iter().find(|d| d.is_current).unwrap();
+        assert_eq!(current.id, 2);
+        assert_eq!(current.display_name(), "faro (scranton)");
+
+        // Unlinking another device from a secondary client is rejected by the server.
+        assert!(matches!(
+            backend.unlink_device(1).await,
+            Err(BackendError::Protocol(_))
+        ));
+
+        // Unlinking this device succeeds, disconnects the client, and emits Connection(Unlinked).
+        backend.unlink_device(2).await.unwrap();
+        let unlinked = BackendEvent::Connection(ConnectionState::Unlinked);
+        until(&mut events, |e| *e == unlinked).await;
+        assert!(matches!(
+            backend.devices().await,
+            Err(BackendError::Network(_))
+        ));
     }
 
     #[tokio::test(start_paused = true)]

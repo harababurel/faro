@@ -24,8 +24,8 @@ use super::world::World;
 use super::{MockConfig, MockEpoch};
 use crate::backend::{BackendError, BackendEvent, OutgoingMessage, Result};
 use crate::domain::{
-    AttachmentRef, ConnectionState, ConversationId, DeliveryStatus, Direction, Mention, Message,
-    MessageBody, MessageRef, Quote, ServiceId, Timestamp, TypingState,
+    AttachmentRef, ConnectionState, ConversationId, DeliveryStatus, Direction, LinkedDevice,
+    Mention, Message, MessageBody, MessageRef, Quote, ServiceId, Timestamp, TypingState,
 };
 
 /// Milliseconds since the mock started.
@@ -211,6 +211,8 @@ pub(super) struct Sim {
     backlog: usize,
     /// Index into [`KELLY_PROFILES`] of Kelly's current profile name.
     kelly_profile: usize,
+    /// Linked devices on this mock account.
+    devices: Vec<LinkedDevice>,
 }
 
 impl Sim {
@@ -244,6 +246,7 @@ impl Sim {
             answers: VecDeque::new(),
             backlog: 0,
             kelly_profile: 0,
+            devices: default_devices(epoch_ms),
         };
         sim.schedule(0, Item::Connection(ConnectionState::Connecting));
         sim.schedule(CONNECT_DELAY, Item::Connection(ConnectionState::Connected));
@@ -257,6 +260,35 @@ impl Sim {
 
     pub(super) fn world(&self) -> &World {
         &self.world
+    }
+
+    pub(super) fn devices(&self, now: Millis) -> Vec<LinkedDevice> {
+        let current_ts = self.wall_clock_at(now);
+        self.devices
+            .iter()
+            .cloned()
+            .map(|mut d| {
+                if d.is_current {
+                    d.last_seen = current_ts;
+                }
+                d
+            })
+            .collect()
+    }
+
+    pub(super) fn unlink_device(&mut self, now: Millis, device_id: u32) -> Result<()> {
+        self.require_online()?;
+        let Some(pos) = self.devices.iter().position(|d| d.id == device_id) else {
+            return Err(BackendError::NotFound);
+        };
+        if !self.devices.get(pos).is_some_and(|d| d.is_current) {
+            return Err(BackendError::Protocol(
+                "only the primary device (phone) can unlink other devices".into(),
+            ));
+        }
+        self.devices.remove(pos);
+        self.schedule(now, Item::Connection(ConnectionState::Unlinked));
+        Ok(())
     }
 
     /// How many messages the backlog put in the queue, plus its read sync.
@@ -1314,6 +1346,33 @@ pub(super) fn millis(d: Duration) -> Millis {
 
 fn wall_clock_ms() -> u64 {
     crate::rt::since_unix_epoch().map_or(0, millis)
+}
+
+fn default_devices(epoch_ms: u64) -> Vec<LinkedDevice> {
+    const DAY_MS: u64 = 24 * 60 * 60 * 1000;
+    vec![
+        LinkedDevice {
+            id: 2,
+            name: Some("faro (scranton)".to_owned()),
+            created_at: Timestamp::from_millis(epoch_ms.saturating_sub(14 * DAY_MS)),
+            last_seen: Timestamp::from_millis(epoch_ms),
+            is_current: true,
+        },
+        LinkedDevice {
+            id: 1,
+            name: None,
+            created_at: Timestamp::from_millis(epoch_ms.saturating_sub(90 * DAY_MS)),
+            last_seen: Timestamp::from_millis(epoch_ms),
+            is_current: false,
+        },
+        LinkedDevice {
+            id: 3,
+            name: Some("Sabre Pyramid".to_owned()),
+            created_at: Timestamp::from_millis(epoch_ms.saturating_sub(45 * DAY_MS)),
+            last_seen: Timestamp::from_millis(epoch_ms.saturating_sub(2 * DAY_MS)),
+            is_current: false,
+        },
+    ]
 }
 
 #[cfg(test)]

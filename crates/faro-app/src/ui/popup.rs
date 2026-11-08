@@ -134,6 +134,9 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &
             };
             confirm_delete(frame, anchor, view);
         }
+        Popup::ConfirmUnlinkDevice { name, .. } => {
+            confirm_unlink_device(frame, name, geometry, view);
+        }
         Popup::ConfirmRemoteTranscription {
             conversation,
             target,
@@ -905,6 +908,43 @@ fn confirm_delete(frame: &mut Frame<'_>, anchor: Anchor, view: &View<'_>) {
     let lines = vec![
         Line::from(Span::styled(
             truncate(prompt, row_width).into_owned(),
+            Style::new().fg(view.theme.text),
+        )),
+        Line::from(Span::styled(
+            truncate(keys, row_width).into_owned(),
+            view.theme.muted(),
+        )),
+    ];
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+fn confirm_unlink_device(
+    frame: &mut Frame<'_>,
+    name: &str,
+    geometry: &Geometry,
+    view: &View<'_>,
+) {
+    let clean = sanitize(name);
+    let prompt = format!(" Unlink \"{clean}\" from your Signal account? ");
+    let keys = " Enter / y confirm · Esc / n cancel ";
+    let area = geometry.history.unwrap_or_else(|| frame.area());
+    let max_inner = usize::from(area.width.saturating_sub(4));
+    let inner_width = width(&prompt).max(width(keys)).clamp(24, max_inner.max(24));
+    let box_w = u16::try_from(inner_width + 2)
+        .unwrap_or(u16::MAX)
+        .min(area.width);
+    let box_h = 4u16.min(area.height);
+    let rect = Rect {
+        x: area.x + area.width.saturating_sub(box_w) / 2,
+        y: area.y + area.height.saturating_sub(box_h) / 2,
+        width: box_w,
+        height: box_h,
+    };
+    let inner = frame_box(frame, rect, "Unlink device?", view);
+    let row_width = usize::from(inner.width);
+    let lines = vec![
+        Line::from(Span::styled(
+            truncate(&prompt, row_width).into_owned(),
             Style::new().fg(view.theme.text),
         )),
         Line::from(Span::styled(

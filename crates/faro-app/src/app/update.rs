@@ -72,6 +72,8 @@ pub fn affects_view(event: &AppEvent) -> bool {
         | AppEvent::ReactResult { .. }
         | AppEvent::EditResult { .. }
         | AppEvent::DeleteResult { .. }
+        | AppEvent::DevicesListed(_)
+        | AppEvent::DeviceUnlinked { .. }
         | AppEvent::Fetched { .. }
         | AppEvent::SavedToDownloads(_)
         | AppEvent::FilesListed { .. }
@@ -177,6 +179,10 @@ fn route(state: &mut State, event: AppEvent) -> Vec<Effect> {
         AppEvent::SendResult { sent_at, result } => sending::on_send_result(state, sent_at, result),
         AppEvent::EditResult(result) => notice_err(state, "Couldn't edit message", result),
         AppEvent::DeleteResult(result) => notice_err(state, "Couldn't delete message", result),
+        AppEvent::DevicesListed(result) => palette::on_devices_listed(state, result),
+        AppEvent::DeviceUnlinked { id, name, result } => {
+            on_device_unlinked(state, id, &name, result)
+        }
         AppEvent::ReactResult {
             conversation,
             target,
@@ -250,6 +256,40 @@ fn notice_err<E: std::fmt::Display>(
 ) -> Vec<Effect> {
     if let Err(error) = result {
         state.notice = Some(Notice::error(format!("{prefix}: {error}")));
+    }
+    vec![]
+}
+
+fn on_device_unlinked(
+    state: &mut State,
+    id: u32,
+    name: &str,
+    result: Result<(), faro_core::backend::BackendError>,
+) -> Vec<Effect> {
+    match result {
+        Ok(()) => {
+            let was_current = state
+                .devices
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .find(|d| d.id == id)
+                .is_some_and(|d| d.is_current);
+            if let Some(devices) = state.devices.as_mut() {
+                devices.retain(|d| d.id != id);
+            }
+            if was_current {
+                state.connection = ConnectionState::Unlinked;
+                state.notice = Some(Notice::info(format!(
+                    "Unlinked {name} — run `faro link` to link again"
+                )));
+            } else {
+                state.notice = Some(Notice::info(format!("Unlinked {name}")));
+            }
+        }
+        Err(error) => {
+            state.notice = Some(Notice::error(format!("Couldn't unlink {name}: {error}")));
+        }
     }
     vec![]
 }
@@ -1299,6 +1339,7 @@ fn on_expired_swept(
                 | Popup::Mute { .. }
                 | Popup::DisappearingTimer { .. }
                 | Popup::SafetyNumber(_)
+                | Popup::ConfirmUnlinkDevice { .. }
                 | Popup::Thread { .. },
             )
             | None => None,

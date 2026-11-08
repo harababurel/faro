@@ -32,8 +32,8 @@ use crate::backend::{
     EVENT_CHANNEL_CAPACITY, IdentityUpdate, OutgoingEdit, OutgoingMessage, ReactionChange, Result,
 };
 use crate::domain::{
-    AttachmentRef, Contact, ConversationId, Group, GroupId, MessageRef, ServiceId, TypingState,
-    VerificationState,
+    AttachmentRef, Contact, ConversationId, Group, GroupId, LinkedDevice, MessageRef, ServiceId,
+    TypingState, VerificationState,
 };
 
 /// Who faro may talk to.
@@ -244,6 +244,14 @@ impl<B: Backend> Backend for Guarded<B> {
 
     async fn whoami(&self) -> Result<Account> {
         self.inner.whoami().await
+    }
+
+    async fn devices(&self) -> Result<Vec<LinkedDevice>> {
+        self.inner.devices().await
+    }
+
+    async fn unlink_device(&self, device_id: u32) -> Result<()> {
+        self.inner.unlink_device(device_id).await
     }
 
     /// Allowed people and members of allowed groups (the groups are read

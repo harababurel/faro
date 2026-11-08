@@ -1,6 +1,38 @@
-//! People and groups.
+//! People, groups and linked devices.
 
-use super::{GroupId, PhoneNumber, ServiceId};
+use super::{GroupId, PhoneNumber, ServiceId, Timestamp};
+
+/// A device linked to this Signal account.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkedDevice {
+    pub id: u32,
+    /// Decrypted name of the device (`None` for the primary phone or unnamed devices).
+    pub name: Option<String>,
+    pub created_at: Timestamp,
+    pub last_seen: Timestamp,
+    /// True when this entry is the current faro device.
+    pub is_current: bool,
+}
+
+impl LinkedDevice {
+    /// Display label for the device (`"Primary device"` for `id == 1` when
+    /// unnamed, or `"Device #<id>"` when a secondary device has no name).
+    pub fn display_name(&self) -> String {
+        if let Some(name) = self
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            return name.to_owned();
+        }
+        if self.id == 1 {
+            "Primary device".to_owned()
+        } else {
+            format!("Device #{}", self.id)
+        }
+    }
+}
 
 /// A person faro knows about: a contact synced from the phone, or anyone seen in a
 /// conversation (stored in the `recipients` table).

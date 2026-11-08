@@ -16,6 +16,8 @@ pub use message::{
     Direction, Mention, Message, Quote, Reaction, SystemEvent, TranscriptSource, format_byte_size,
     format_disappearing_remaining, format_disappearing_timer, mention_parts, transcript_paragraph,
 };
-pub use people::{Contact, Group, IdentityRecord, VerificationState, format_safety_number};
+pub use people::{
+    Contact, Group, IdentityRecord, LinkedDevice, VerificationState, format_safety_number,
+};
 pub use presence::{ConnectionState, TypingState};
 pub use sensitive::{MessageBody, PhoneNumber};
