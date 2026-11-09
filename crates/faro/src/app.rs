@@ -129,7 +129,8 @@ pub async fn load_directory<B: Backend>(backend: &B, store: &Store) -> anyhow::R
 fn initial_state(directory: Directory, detected: state::Detected, startup: &mut Startup) -> State {
     let mut state = State::new(directory.me, directory.contacts, directory.groups)
         .with_nicknames(directory.nicknames)
-        .with_identities(directory.identities);
+        .with_identities(directory.identities)
+        .with_passphrase_verifier(startup.passphrase_verifier.take());
     state.capabilities = directory.capabilities;
     state.set_next_expiry(directory.next_expiry, update::wall_clock(), Instant::now());
     if directory.guarded {
@@ -300,8 +301,13 @@ pub async fn run<B: Backend + 'static>(
             // Mouse moves cost a frame only when they light up or dim the
             // list's border (D156).
             let hover = state.resize.hover;
+            let was_locked = state.is_locked();
             handle(event, &mut state, &router);
-            dirty |= state.resize.hover != hover;
+            if !was_locked && state.is_locked() {
+                images.clear();
+                clipboard::sweep(state.attachments_dir.clone());
+            }
+            dirty |= state.resize.hover != hover || state.is_locked() != was_locked;
         }
         // Graphics became possible (the mosh or other client left), or
         // another terminal attached: ask the terminal now instead of at the
@@ -319,11 +325,12 @@ pub async fn run<B: Backend + 'static>(
 
     paste.stop();
     drop(tui);
+    let attachments_dir = state.attachments_dir.clone();
     if let Some(task) = frame_log {
         finish(task, "frame log").await;
     }
     drop(watch);
-    shutdown(router, command_task, worker, config_task).await;
+    shutdown(router, command_task, worker, config_task, attachments_dir).await;
     Ok(())
 }
 
@@ -361,6 +368,7 @@ async fn shutdown(
     command_task: tokio::task::JoinHandle<()>,
     worker: tokio::task::JoinHandle<()>,
     config_task: tokio::task::JoinHandle<()>,
+    attachments_dir: std::path::PathBuf,
 ) {
     // A send still in flight is abandoned; the store marks it failed on the
     // next start (`Store::fail_unsent`).
@@ -375,6 +383,10 @@ async fn shutdown(
     // Same for a setting changed just before quitting.
     drop(config);
     finish(config_task, "config writer").await;
+    let _ = tokio::task::spawn_blocking(move || {
+        faro_core::paths::sweep_temp_plaintext(&attachments_dir)
+    })
+    .await;
 }
 
 /// What faro knows about the terminal before the first frame.

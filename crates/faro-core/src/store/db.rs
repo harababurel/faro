@@ -1411,12 +1411,14 @@ async fn peek_profile(path: &Path) -> Result<StoredProfile> {
     let wal_exists = tokio::task::spawn_blocking(move || crate::paths::exists(&wal))
         .await
         .map_err(|e| StoreError::Io(std::io::Error::other(e)))??;
-    let mut conn = SqliteConnectOptions::new()
+    let mut options = SqliteConnectOptions::new()
         .filename(path)
         .read_only(true)
-        .immutable(!wal_exists)
-        .connect()
-        .await?;
+        .immutable(!wal_exists);
+    if let Some(pragma) = crate::vault::faro_db_pragma_for(path) {
+        options = options.pragma("key", pragma);
+    }
+    let mut conn = options.connect().await?;
     let stored = stored_profile(&mut conn).await;
     conn.close().await?;
     stored

@@ -74,6 +74,8 @@ pub enum Action {
     Redraw,
     /// `Alt+N`: do not disturb, i.e. the bell off (or back on), saved (D53).
     ToggleBell,
+    /// `Alt+L`: lock the screen until the passphrase is entered (D168).
+    Lock,
     /// `Alt+,` and `Alt+.`: the conversation list narrower or wider (D156).
     NarrowSidebar,
     WidenSidebar,

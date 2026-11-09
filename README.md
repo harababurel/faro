@@ -109,6 +109,7 @@ Press **`F1`** for every key, or search them in the palette. Every key can be re
 | `Alt+S` / `Alt+I` | Show or hide the conversation list / the info panel (shared links and files) |
 | `Alt+,` / `Alt+.` | Conversation list narrower / wider (or drag its border with the mouse) |
 | `Alt+N` | Do not disturb (the footer says `bell off`) |
+| `Alt+L` | Lock screen (masks chats and pauses read receipts until unlocked) |
 | `Ctrl+V` / `Ctrl+O` | Paste an image from the clipboard / show the staged image |
 | `Ctrl+L` | Redraw the screen |
 | `Esc` | Back, dismiss; then close the open chat (nothing is marked read while no chat is open) |
@@ -172,8 +173,8 @@ set -g focus-events on                 # read receipts and the bell know whether
 
 ## Privacy and limits
 
-- faro implements no cryptography of its own: it talks to Signal through [presage](https://github.com/whisperfish/presage), which builds on libsignal, Signal's own protocol library.
-- Your data stays on your machine, in files readable only by you. It is **not encrypted at rest yet**.
+- faro implements no Signal protocol cryptography of its own: it talks to Signal through [presage](https://github.com/whisperfish/presage), which builds on libsignal, Signal's own protocol library.
+- Your data stays on your machine, in files readable only by you (`0600` in `0700` directories). Run `faro encrypt` to encrypt both databases (`faro.db` and `presage.db` with SQLCipher) and all saved attachments and profile pictures (`AES-256-GCM`) under an `Argon2id` passphrase (`faro passwd` rotates the passphrase, `faro decrypt` removes encryption, `[security] passphrase_command` unlocks from your keychain, and `Alt+L` or `[security] auto_lock_mins` locks the screen).
 - No telemetry: faro talks only to Signal's servers. The exceptions are remote voice transcription and update checks, both off by default: transcription asks before each chat's first note, and update checks ask GitHub for the latest release, sending nothing but faro's version (`[updates] check`, or Ctrl+P › Settings › Updates). Logs never contain message text or phone numbers.
 - The clipboard is read only when you press `Ctrl+V`, and only for an image. In kitty (and newer Ghostty) the terminal asks first; elsewhere, when faro runs on your own computer, faro reads that computer's clipboard itself (`[media] paste_from_system`, on by default; turn it off in Ctrl+P › Settings › Media). A pasted image is never sent until you press Enter.
 - Not yet: voice or video calls, stories, Windows, history from before linking. It can't be your only device: you need Signal on a phone.

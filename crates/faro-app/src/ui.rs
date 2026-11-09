@@ -14,6 +14,7 @@ mod conversation;
 mod emoji;
 mod footer;
 mod info;
+pub mod lock;
 pub mod logo;
 mod messages;
 mod palette;
@@ -60,6 +61,11 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>) -> Geometry
     let mut geometry = Geometry::default();
     let area = frame.area();
     frame.render_widget(Block::new().style(view.theme.base()), area);
+    if let Some(screen) = &state.lock.screen {
+        lock::render(frame, area, screen, state, view);
+        emoji::finish(frame.buffer_mut());
+        return geometry;
+    }
     let [main, footer] = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
     let panes = Panes::split(main, state);
     geometry.sidebar_border = panes.left;

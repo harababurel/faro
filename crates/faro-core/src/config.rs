@@ -233,6 +233,7 @@ pub struct Config {
     pub voice: Voice,
     pub notifications: Notifications,
     pub mouse: Mouse,
+    pub security: Security,
     pub updates: Updates,
     /// `[keybindings.<context>]` entries in file order, unchecked.
     pub keybindings: Vec<Keybinding>,
@@ -401,6 +402,15 @@ pub struct Mouse {
     pub enabled: bool,
 }
 
+/// Encryption-at-rest and lock-screen settings (D168).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Security {
+    /// Command run at startup to print the encryption passphrase on stdout.
+    pub passphrase_command: String,
+    /// Idle minutes before locking the screen automatically (`0` = off).
+    pub auto_lock_mins: u32,
+}
+
 /// Update checks (D148).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Updates {
@@ -437,6 +447,7 @@ impl Default for Config {
                 privacy: NotificationPrivacy::default(),
             },
             mouse: Mouse { enabled: true },
+            security: Security::default(),
             updates: Updates::default(),
             keybindings: Vec::new(),
         }
@@ -474,6 +485,8 @@ pub mod key {
     pub const VOICE_TRANSCRIBE_LANGUAGE: &str = "voice.transcribe_language";
     pub const VOICE_TRANSCRIBE_MAX_SECS: &str = "voice.transcribe_max_secs";
     pub const MOUSE: &str = "mouse.enabled";
+    pub const PASSPHRASE_COMMAND: &str = "security.passphrase_command";
+    pub const AUTO_LOCK_MINS: &str = "security.auto_lock_mins";
     pub const BELL: &str = "notifications.bell";
     pub const TITLE: &str = "notifications.title";
     pub const DESKTOP: &str = "notifications.desktop";
@@ -891,6 +904,27 @@ pub static SETTINGS: &[Setting] = &[
         },
     },
     Setting {
+        path: key::AUTO_LOCK_MINS,
+        help: "Lock the screen after this many minutes without input (0 turns auto-lock off). \
+               Alt+L locks at any time.",
+        get: |c| ConfigValue::Uint(c.security.auto_lock_mins),
+        set: |c, v| {
+            c.security.auto_lock_mins = uint32_allow_zero(v)?;
+            Ok(())
+        },
+    },
+    Setting {
+        path: key::PASSPHRASE_COMMAND,
+        help: "Command run at startup to print the encryption passphrase on stdout (e.g. \
+               \"pass show faro\" or \"security find-generic-password -s faro -w\"); empty \
+               prompts in the TUI.",
+        get: |c| ConfigValue::Text(c.security.passphrase_command.clone()),
+        set: |c, v| {
+            c.security.passphrase_command = string(v)?;
+            Ok(())
+        },
+    },
+    Setting {
         path: key::UPDATES_CHECK,
         help: "Tell me when a new faro release is out: faro asks GitHub (api.github.com) for \
                the latest release at start and every 12 hours, sending nothing but its \
@@ -976,6 +1010,13 @@ fn uint32(value: &Value) -> Result<u32, String> {
         .and_then(|n| u32::try_from(n).ok())
         .filter(|&n| n > 0)
         .ok_or_else(|| format!("expected a positive number, not {}", shown(value)))
+}
+
+fn uint32_allow_zero(value: &Value) -> Result<u32, String> {
+    value
+        .as_integer()
+        .and_then(|n| u32::try_from(n).ok())
+        .ok_or_else(|| format!("expected a non-negative number, not {}", shown(value)))
 }
 
 fn string(value: &Value) -> Result<String, String> {
@@ -1233,6 +1274,11 @@ fn unknown_keys(doc: &DocumentMut, problems: &mut Vec<Problem>) {
             problems.push(Problem::warning(format!(
                 "{path} is ignored: API keys are never read from config.toml; \
                  set $FARO_TRANSCRIBE_API_KEY or $OPENAI_API_KEY"
+            )));
+        } else if matches!(path.as_str(), "security.passphrase" | "security.password") {
+            problems.push(Problem::warning(format!(
+                "{path} is ignored: passphrases are never read directly from config.toml; \
+                 set security.passphrase_command or type it at the unlock prompt"
             )));
         } else if PLANNED.contains(&path.as_str()) {
             problems.push(Problem::warning(format!(

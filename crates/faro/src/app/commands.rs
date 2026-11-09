@@ -227,9 +227,14 @@ async fn fetch<B: Backend>(
 
 async fn inspect_audio_with_ffmpeg(path: &Path) -> Option<faro_core::audio::AudioInfo> {
     use std::process::Stdio;
+    let src = path.to_owned();
+    let plain = tokio::task::spawn_blocking(move || paths::TempPlaintext::for_path(&src))
+        .await
+        .ok()?
+        .ok()?;
     let fut = tokio::process::Command::new("ffmpeg")
         .args(["-v", "error", "-i"])
-        .arg(path)
+        .arg(plain.path())
         .args(["-ac", "1", "-ar", "8000", "-f", "s16le", "-"])
         .stdin(Stdio::null())
         .stderr(Stdio::null())
@@ -239,6 +244,7 @@ async fn inspect_audio_with_ffmpeg(path: &Path) -> Option<faro_core::audio::Audi
         .await
         .ok()?
         .ok()?;
+    drop(plain);
     if !output.status.success() {
         return None;
     }
@@ -298,17 +304,23 @@ async fn transcribe_local(
         message.sent_at.as_millis()
     ));
     let dir_for_setup = work_dir.clone();
-    tokio::task::spawn_blocking(move || prepare_transcribe_dir(&dir_for_setup))
-        .await
-        .map_err(|e| format!("transcription setup task: {e}"))??;
+    let src_path = path.to_owned();
+    let plain = tokio::task::spawn_blocking(move || {
+        prepare_transcribe_dir(&dir_for_setup)?;
+        paths::TempPlaintext::for_path(&src_path)
+            .map_err(|e| format!("decrypting {}: {e}", src_path.display()))
+    })
+    .await
+    .map_err(|e| format!("transcription setup task: {e}"))??;
 
-    let (program, args) = build_local_whisper_args(voice, path, &work_dir);
+    let (program, args) = build_local_whisper_args(voice, plain.path(), &work_dir);
     let fut = tokio::process::Command::new(&program)
         .args(&args)
         .stdin(Stdio::null())
         .kill_on_drop(true)
         .output();
     let run_res = tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), fut).await;
+    drop(plain);
 
     let dir_for_cleanup = work_dir.clone();
     let file_text = tokio::task::spawn_blocking(move || finish_transcribe_dir(&dir_for_cleanup))
@@ -439,6 +451,13 @@ async fn transcribe_remote(
     use tokio::io::AsyncWriteExt;
 
     let api_key = resolve_transcribe_api_key().await?;
+    let src_path = path.to_owned();
+    let plain = tokio::task::spawn_blocking(move || {
+        paths::TempPlaintext::for_path(&src_path)
+            .map_err(|e| format!("decrypting {}: {e}", src_path.display()))
+    })
+    .await
+    .map_err(|e| format!("transcription setup task: {e}"))??;
     let mut args = vec![
         "-sS".to_owned(),
         "--fail-with-body".to_owned(),
@@ -447,7 +466,7 @@ async fn transcribe_remote(
         "--config".to_owned(),
         "-".to_owned(),
         "-F".to_owned(),
-        format!("file=@{}", path.display()),
+        format!("file=@{}", plain.path().display()),
         "-F".to_owned(),
         format!("model={}", voice.transcribe_remote_model),
         "-F".to_owned(),
@@ -481,6 +500,7 @@ async fn transcribe_remote(
     .await
     .map_err(|_| format!("remote transcription timed out after {timeout_secs}s"))?
     .map_err(|e| format!("waiting for 'curl': {e}"))?;
+    drop(plain);
 
     if !output.status.success() {
         if let Err(api_err) = faro_core::audio::parse_whisper_json(&output.stdout)
@@ -622,7 +642,7 @@ async fn copy_outgoing_attachments(
     reason = "copying an outgoing attachment into faro's attachments/ runs inside spawn_blocking"
 )]
 fn copy_attachment_file(src: &Path, dest: &Path, remove_source: bool) -> Result<(), BackendError> {
-    let bytes = std::fs::read(src)
+    let bytes = paths::read_private(src)
         .map_err(|e| BackendError::Storage(format!("reading {}: {e}", src.display())))?;
     paths::write_private_atomic(dest, &bytes)
         .map_err(|e| BackendError::Storage(format!("writing {}: {e}", dest.display())))?;

@@ -15,6 +15,8 @@ pub mod pictures;
 pub mod rt;
 pub mod store;
 pub mod theme_file;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod vault;
 
 #[cfg(all(target_arch = "wasm32", feature = "sqlite"))]
 compile_error!("the SQLite store doesn't build for wasm32: use `--no-default-features`");

@@ -1711,4 +1711,30 @@ A developer friend of the owner tried getfaro.dev; the owner agreed with all of 
   - Live `CallState::Incoming` events show a transient footer notice (`Notice::info`).
   - Selecting a system line offers `[MessageAction::Copy, MessageAction::Info]` (`y` copies the formatted event text, `i` opens `Popup::MessageInfo` with an `Event` row), while `r`/`+`/`e`/`D`/`f` are ignored.
 
+### D168. Opt-in encryption at rest and auto-lock (owner's request, 2026-11-08)
+
+- **Problem:** Both SQLite databases (`faro.db` and `presage.db`) and all downloaded media (`attachments/` and `pictures/`) were stored in plaintext on disk, even though `faro` already compiled and linked `bundled-sqlcipher`.
+- **Opt-in envelope architecture (`faro-core::vault`, owner's choice):**
+  - Existing unencrypted installations continue to work untouched when `<data dir>/vault.json` is absent.
+  - Enabling encryption creates `<data dir>/vault.json` (`0600`), which stores a random 16-byte Argon2id salt (`m_cost_kib = 65536`, `t_cost = 3`, `p_cost = 4`), a 12-byte AES-GCM nonce, and a 32-byte random master DEK wrapped with `AES-256-GCM` under the Argon2id-derived KEK.
+  - From the 32-byte master DEK, `VaultKeys::derive` expands three domain-separated 256-bit keys via `HKDF-SHA256` (`b"faro-vault-v1-hkdf"`):
+    1. `faro.db` SQLCipher raw key (`PRAGMA key = "x'<64 hex>'"`, applied in `Store::open` and `db::peek_profile` via `vault::faro_db_pragma_for`).
+    2. `presage.db` SQLCipher raw key (`PRAGMA key = "x'<64 hex>'"`, applied in `faro_presage::open_store` and `forget_pictures` via `vault::presage_db_pragma_for`).
+    3. Media key (`AES-256-GCM` with `FAROENC1` 8-byte magic header + 12-byte random nonce + ciphertext/tag).
+  - Because the databases and media are encrypted under the master DEK rather than directly under the passphrase, `faro passwd` (`vault::change_passphrase`) rotates the passphrase and Argon2id salt in O(1) time by re-wrapping the 32-byte master DEK without rewriting databases or media files.
+- **Database & media migration (`faro encrypt`, `faro decrypt`):**
+  - `vault::encrypt_directory` and `vault::decrypt_directory` convert `faro.db` and `presage.db` via `ATTACH DATABASE … KEY …; SELECT sqlcipher_export('target');` into staging files, verify the exported database's `PRAGMA user_version` before atomically replacing the original and removing `-wal`/`-shm` sidecars, and transform every file in `attachments/` and `pictures/`.
+- **Media encryption & zero-leakage in-memory / ephemeral reads (`faro-core::paths`):**
+  - `paths::write_private_atomic` transparently encrypts bytes with `vault::encrypt_media_for_path` when the target path is inside the unlocked `data_dir`.
+  - `paths::read_private` transparently decrypts `FAROENC1` files in memory. Inline images and profile avatars (`app/images.rs::decode_and_slice`), outgoing attachment uploads (`faro-presage::backend::send`, `commands::copy_attachment_file`), and explicit `Save to Downloads` (`s`, `paths::save_to_downloads`) all use `read_private`, so viewing images/avatars never writes plaintext to disk.
+  - External child processes that require a filesystem path (`mpv`/`afplay`, `ffmpeg`, `whisper`, `curl`, `open`/`xdg-open`) use `paths::TempPlaintext::for_path`, which materializes a `0600` `.dec-<name>` sibling only when the file on disk is encrypted and unlinks it on `Drop` (plus startup, lock, and shutdown sweeps via `paths::sweep_temp_plaintext`).
+- **Startup unlock (`crates/faro/src/vault.rs`) & `[security]` settings:**
+  - `[security] passphrase_command` in `config.toml` optionally runs a command (`sh -c`, 30 s timeout) that prints the passphrase on stdout (e.g. `secret-tool lookup service faro-vault`, `security find-generic-password -s faro-vault -w`, `pass show faro`). Putting a literal `passphrase` or `password` key in `config.toml` is rejected with a warning.
+  - If `passphrase_command` is not set (or fails), `faro` shows a centered TUI passphrase card (`ui::lock::render_prompt_card`) before opening `Store` or `PresageBackend`, while CLI subcommands (`faro link`, `faro ids`, `faro refresh-pictures`) prompt on `/dev/tty` with terminal echo disabled (`rustix::termios`).
+- **In-session lock screen & idle auto-lock (`faro-app`):**
+  - `Alt+L` (`Action::Lock`, `"app.lock"`, and `Ctrl+P` › *Lock screen*) locks the TUI immediately (`State::lock`). If the directory is not encrypted with `vault.json` and no session passphrase has been set yet, `Alt+L` prompts twice to set a session passphrase (`LockScreen::SetPassphrase`, hashed with Argon2id in memory) and then locks.
+  - `[security] auto_lock_mins` (default `0` = off; configurable in `Ctrl+P` › Settings › Security › *Auto-lock after inactivity* with presets `off`, `1 min`, `5 min`, `15 min`, `30 min`, `60 min`, `Custom…`) automatically locks the TUI after `N` minutes without terminal input whenever a vault or session passphrase is set (`State::auto_lock_deadline` in `State::next_deadline` and `update::on_tick`).
+  - While locked (`State::is_locked()`): the conversation list, messages, and popups are hidden behind `ui::lock::render`, decoded inline images are evicted (`images.clear()`), any active audio playback is stopped (`Effect::StopAudio`), incoming messages are **never** marked read (`State::seeing_open()` is `false`), the window title masks counts as `"faro (locked)"`, and desktop notifications are forced to generic `("faro", "New message")` regardless of `[notifications] privacy`.
+
+
 

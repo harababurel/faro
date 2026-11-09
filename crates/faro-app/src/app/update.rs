@@ -2,7 +2,7 @@
 //! I/O, so the UI can never wait on the network or disk here. Store work is
 //! returned as `Effect`s.
 
-use crate::app::term_event::Event;
+use crate::app::term_event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use faro_core::backend::BackendEvent;
 use faro_core::config::{BubbleStyle, InlineImages};
 use faro_core::domain::{
@@ -19,8 +19,8 @@ use super::input::Input;
 use super::keymap;
 use super::state::Terminal;
 use super::state::{
-    DRAFT_SAVE_DELAY, EmojiMode, Focus, Geometry, Notice, OpenConversation, Popup, Selection,
-    SidebarScroll, State, TYPING_TIMEOUT, Typist, sort_conversations,
+    DRAFT_SAVE_DELAY, EmojiMode, Focus, Geometry, LockScreen, Notice, OpenConversation, Popup,
+    Selection, SidebarScroll, State, TYPING_TIMEOUT, Typist, sort_conversations,
 };
 use super::timeline;
 
@@ -267,7 +267,33 @@ fn on_tick(state: &mut State) -> Vec<Effect> {
         state.next_expiry = None;
         effects.push(Effect::SweepExpired(wall_clock()));
     }
+    if state.auto_lock_deadline().is_some_and(|at| now >= at) {
+        effects.extend(lock_screen(state));
+    }
     effects.extend(updates::on_tick(state, now));
+    effects
+}
+
+pub(super) fn lock_screen(state: &mut State) -> Vec<Effect> {
+    state.palette = None;
+    state.popup = None;
+    state.env.repaint = true;
+    let mut effects = presence::stop_typing(state);
+    if state.playing.take().is_some() {
+        effects.push(Effect::StopAudio);
+    }
+    state.lock.screen = Some(if state.lock.verifier.is_some() {
+        LockScreen::Locked {
+            input: String::new(),
+            error: None,
+        }
+    } else {
+        LockScreen::SetPassphrase {
+            input: String::new(),
+            confirm: None,
+            error: None,
+        }
+    });
     effects
 }
 
@@ -277,11 +303,18 @@ fn on_terminal(state: &mut State, event: &Event) -> Vec<Effect> {
     // keeps whatever focus was last reported, so refitting an unfocused app
     // can't reclaim it or send read receipts (D125).
     match event {
-        Event::Key(_) | Event::Mouse(_) | Event::Paste(_) | Event::FocusGained => {
+        Event::Key(_) | Event::Mouse(_) | Event::Paste(_) => {
             state.env.focused = true;
+            if !state.has_lock_overlay() {
+                state.lock.last_activity = Some(Instant::now());
+            }
         }
+        Event::FocusGained => state.env.focused = true,
         Event::FocusLost => state.env.focused = false,
         Event::Resize(_, _) => {}
+    }
+    if state.has_lock_overlay() {
+        return on_lock_terminal(state, event);
     }
     let mut effects = match event {
         Event::Key(key) => {
@@ -320,6 +353,148 @@ fn on_terminal(state: &mut State, event: &Event) -> Vec<Effect> {
     };
     effects.extend(presence::catch_up(state));
     effects
+}
+
+fn on_lock_terminal(state: &mut State, event: &Event) -> Vec<Effect> {
+    match event {
+        Event::Key(key) => on_lock_key(state, *key),
+        Event::Paste(text) => {
+            if let Some(
+                LockScreen::Locked { input, error }
+                | LockScreen::SetPassphrase { input, error, .. },
+            ) = state.lock.screen.as_mut()
+            {
+                for ch in text.chars().filter(|c| !c.is_control()) {
+                    input.push(ch);
+                }
+                *error = None;
+            }
+            vec![]
+        }
+        Event::FocusGained | Event::Resize(_, _) => check_terminal(state),
+        Event::Mouse(_) | Event::FocusLost => vec![],
+    }
+}
+
+fn on_lock_key(state: &mut State, key: KeyEvent) -> Vec<Effect> {
+    if key.kind == KeyEventKind::Release {
+        return vec![];
+    }
+    match (key.code, key.modifiers) {
+        (KeyCode::Char('q' | 'Q' | 'c' | 'C'), KeyModifiers::CONTROL) => return quit(state),
+        (KeyCode::Char('l' | 'L'), KeyModifiers::CONTROL) => {
+            state.env.repaint = true;
+            return vec![];
+        }
+        (KeyCode::Esc, _) => {
+            if let Some(screen) = state.lock.screen.as_mut() {
+                match screen {
+                    LockScreen::SetPassphrase { .. } => {
+                        state.lock.screen = None;
+                        state.lock.last_activity = Some(Instant::now());
+                        state.env.repaint = true;
+                        return presence::catch_up(state);
+                    }
+                    LockScreen::Locked { input, error } => {
+                        input.clear();
+                        *error = None;
+                    }
+                }
+            }
+        }
+        (KeyCode::Enter, _) => return submit_lock_screen(state),
+        (KeyCode::Backspace, _) | (KeyCode::Char('h' | 'H'), KeyModifiers::CONTROL) => {
+            if let Some(
+                LockScreen::Locked { input, error }
+                | LockScreen::SetPassphrase { input, error, .. },
+            ) = state.lock.screen.as_mut()
+            {
+                input.pop();
+                *error = None;
+            }
+        }
+        (KeyCode::Char('u' | 'U' | 'w' | 'W'), KeyModifiers::CONTROL) => {
+            if let Some(
+                LockScreen::Locked { input, error }
+                | LockScreen::SetPassphrase { input, error, .. },
+            ) = state.lock.screen.as_mut()
+            {
+                input.clear();
+                *error = None;
+            }
+        }
+        (KeyCode::Char(c), m)
+            if !m.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) && !c.is_control() =>
+        {
+            if let Some(
+                LockScreen::Locked { input, error }
+                | LockScreen::SetPassphrase { input, error, .. },
+            ) = state.lock.screen.as_mut()
+            {
+                input.push(c);
+                *error = None;
+            }
+        }
+        _ => {}
+    }
+    vec![]
+}
+
+fn submit_lock_screen(state: &mut State) -> Vec<Effect> {
+    let Some(screen) = state.lock.screen.as_mut() else {
+        return vec![];
+    };
+    match screen {
+        LockScreen::Locked { input, error } => {
+            let candidate = std::mem::take(input);
+            let ok = state
+                .lock
+                .verifier
+                .as_ref()
+                .is_some_and(|verify| verify(&candidate));
+            if ok {
+                state.lock.screen = None;
+                state.lock.last_activity = Some(Instant::now());
+                state.env.repaint = true;
+                return presence::catch_up(state);
+            }
+            *error = Some("Incorrect passphrase".to_owned());
+        }
+        LockScreen::SetPassphrase {
+            input,
+            confirm,
+            error,
+        } => {
+            let entered = std::mem::take(input);
+            match confirm {
+                None => {
+                    if entered.is_empty() {
+                        *error = Some("Passphrase cannot be empty".to_owned());
+                    } else {
+                        *confirm = Some(entered);
+                        *error = None;
+                    }
+                }
+                Some(first) => {
+                    if &entered == first {
+                        let expected = first.clone();
+                        state.lock.verifier = Some(std::sync::Arc::new(move |candidate: &str| {
+                            candidate == expected
+                        }));
+                        state.lock.screen = Some(LockScreen::Locked {
+                            input: String::new(),
+                            error: None,
+                        });
+                        state.env.repaint = true;
+                    } else {
+                        *confirm = None;
+                        *error = Some("Passphrases did not match — try again".to_owned());
+                    }
+                }
+            }
+        }
+    }
+    vec![]
 }
 
 /// Take in what the last frame looked like: the normalised scroll position and

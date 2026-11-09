@@ -108,9 +108,60 @@ pub fn open_url(url: String, results: mpsc::UnboundedSender<AppEvent>) {
 }
 
 /// Open a local file with `open` (macOS) or `xdg-open` (elsewhere), without
-/// waiting (D75). Failures come back as `AppEvent::OpenFailed`.
+/// waiting (D75). Failures come back as `AppEvent::OpenFailed`. When the file
+/// is encrypted at rest (D168), a `0600` temporary plaintext file is
+/// materialized for the viewer and unlinked once the viewer opens it.
 pub fn open_file(path: PathBuf, results: mpsc::UnboundedSender<AppEvent>) {
-    open_with_system(path.into_os_string(), results);
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    tokio::spawn(async move {
+        let src = path.clone();
+        let plain =
+            match tokio::task::spawn_blocking(move || paths::TempPlaintext::for_path(&src)).await {
+                Ok(Ok(plain)) => plain,
+                Ok(Err(error)) => {
+                    let failure = format!("couldn't read {}: {error}", path.display());
+                    tracing::warn!(%failure, "opening with system viewer failed");
+                    let _ = results.send(AppEvent::OpenFailed(failure));
+                    return;
+                }
+                Err(error) => {
+                    let failure = format!("couldn't read {}: {error}", path.display());
+                    let _ = results.send(AppEvent::OpenFailed(failure));
+                    return;
+                }
+            };
+        let is_temp = plain.path() != path.as_path();
+        let status = tokio::process::Command::new(opener)
+            .arg(plain.path())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(false)
+            .status()
+            .await;
+        let failure = match status {
+            Ok(status) if status.success() => {
+                if is_temp {
+                    // `open` and `xdg-open` often hand the path off to an
+                    // existing GUI instance and exit immediately; give the
+                    // viewer a few seconds to open the file descriptor before
+                    // unlinking the `.dec-*` file.
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                }
+                drop(plain);
+                return;
+            }
+            Ok(status) => format!("{opener} exited with {status}"),
+            Err(error) => format!("couldn't run {opener}: {error}"),
+        };
+        drop(plain);
+        tracing::warn!(%failure, "opening with system viewer failed");
+        let _ = results.send(AppEvent::OpenFailed(failure));
+    });
 }
 
 fn open_with_system(target: OsString, results: mpsc::UnboundedSender<AppEvent>) {
@@ -220,6 +271,11 @@ const AUTO_PLAYERS_UNIX: &[(&str, &[&str])] = &[
 ];
 
 async fn run_audio_player(path: &Path, player: &str) -> Result<(), String> {
+    let src = path.to_owned();
+    let plain = tokio::task::spawn_blocking(move || paths::TempPlaintext::for_path(&src))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("reading {}: {e}", path.display()))?;
     let trimmed = player.trim();
     if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("auto") {
         let candidates = if cfg!(target_os = "macos") {
@@ -230,7 +286,7 @@ async fn run_audio_player(path: &Path, player: &str) -> Result<(), String> {
         for &(program, args) in candidates {
             let status = tokio::process::Command::new(program)
                 .args(args)
-                .arg(path)
+                .arg(plain.path())
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
@@ -255,13 +311,14 @@ async fn run_audio_player(path: &Path, player: &str) -> Result<(), String> {
     };
     let status = tokio::process::Command::new(program)
         .args(parts)
-        .arg(path)
+        .arg(plain.path())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .kill_on_drop(true)
         .status()
         .await;
+    drop(plain);
     match status {
         Ok(status) if status.success() => Ok(()),
         Ok(status) => Err(format!("{program} exited with {status}")),

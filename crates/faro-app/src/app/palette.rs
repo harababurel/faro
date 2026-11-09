@@ -124,6 +124,16 @@ pub const TRANSCRIBE_MAX_SECS: &[(u32, &str)] = &[
     (1800, "30 min"),
 ];
 
+/// Idle auto-lock timeout choices (`[security] auto_lock_mins`, D168).
+pub const AUTO_LOCK_MINS: &[(u32, &str)] = &[
+    (0, "off"),
+    (1, "1 min"),
+    (5, "5 min"),
+    (15, "15 min"),
+    (30, "30 min"),
+    (60, "1 hour"),
+];
+
 /// A level of the palette's tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Level {
@@ -166,6 +176,8 @@ pub enum SettingsGroup {
     /// Transcription: what applies depends on the mode (D145).
     VoiceNotes,
     Input,
+    /// Idle auto-lock (`[security]`, D168).
+    Security,
     /// Update checks (D148).
     Updates,
 }
@@ -209,6 +221,8 @@ pub enum Setting {
     Mouse,
     /// `[media] paste_from_system` (D150).
     PasteFromSystem,
+    /// `[security] auto_lock_mins` (D168).
+    AutoLock,
     UpdateCheck,
 }
 
@@ -274,7 +288,7 @@ impl Level {
 }
 
 impl SettingsGroup {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Appearance,
         Self::Messages,
         Self::Bubbles,
@@ -283,6 +297,7 @@ impl SettingsGroup {
         Self::Media,
         Self::VoiceNotes,
         Self::Input,
+        Self::Security,
         Self::Updates,
     ];
 
@@ -296,6 +311,7 @@ impl SettingsGroup {
             Self::Media => "Media",
             Self::VoiceNotes => "Voice notes",
             Self::Input => "Input",
+            Self::Security => "Security",
             Self::Updates => "Updates",
         }
     }
@@ -346,6 +362,7 @@ impl SettingsGroup {
                 Setting::TranscribeLanguage,
             ],
             Self::Input => &[Setting::Mouse],
+            Self::Security => &[Setting::AutoLock],
             Self::Updates => &[Setting::UpdateCheck],
         }
     }
@@ -385,6 +402,7 @@ impl Setting {
             Self::TranscribeRemoteModel => "Remote model",
             Self::Mouse => "Mouse",
             Self::PasteFromSystem => "Paste from the system clipboard",
+            Self::AutoLock => "Auto-lock after inactivity",
             Self::UpdateCheck => "Check for updates",
         }
     }
@@ -423,6 +441,7 @@ impl Setting {
             Self::TranscribeRemoteModel => key::VOICE_TRANSCRIBE_REMOTE_MODEL,
             Self::Mouse => key::MOUSE,
             Self::PasteFromSystem => key::PASTE_FROM_SYSTEM,
+            Self::AutoLock => key::AUTO_LOCK_MINS,
             Self::UpdateCheck => key::UPDATES_CHECK,
         }
     }
@@ -486,7 +505,8 @@ impl Setting {
             | Self::AutoDownload
             | Self::Transcribe
             | Self::Mouse
-            | Self::PasteFromSystem => None,
+            | Self::PasteFromSystem
+            | Self::AutoLock => None,
         }
     }
 
@@ -524,6 +544,7 @@ impl Setting {
             | Self::TranscribeMaxSecs
             | Self::Mouse
             | Self::PasteFromSystem
+            | Self::AutoLock
             | Self::UpdateCheck => false,
         }
     }
@@ -562,7 +583,8 @@ impl Setting {
             | Self::TranscribeLanguage
             | Self::TranscribeCommand
             | Self::TranscribeEndpoint
-            | Self::TranscribeRemoteModel => false,
+            | Self::TranscribeRemoteModel
+            | Self::AutoLock => false,
         }
     }
 
@@ -603,6 +625,7 @@ impl Setting {
             | Self::TranscribeRemoteModel
             | Self::Mouse
             | Self::PasteFromSystem
+            | Self::AutoLock
             | Self::UpdateCheck => false,
         }
     }
@@ -678,6 +701,7 @@ pub enum SettingChoice {
     Bell(bool),
     Title(bool),
     ReduceMotion(bool),
+    AutoLock(u32),
     UpdateCheck(bool),
 }
 
@@ -1418,6 +1442,7 @@ fn commands(state: &State) -> Vec<Item> {
             "Turn do not disturb off (bell on)"
         },
     ));
+    items.push(global(Action::Lock, "Lock screen"));
     items.push(command(
         PaletteCommand::ShowKeys,
         "Show keybindings",
@@ -1662,6 +1687,14 @@ pub fn note(state: &State, level: Level) -> Option<String> {
     if let Some(note) = sidebar_width_note(level) {
         return Some(note);
     }
+    if level == Level::Setting(Setting::AutoLock) {
+        let msg = if state.lock.verifier.is_some() {
+            "Locks the screen after inactivity (or press Alt+L to lock now)."
+        } else {
+            "Locks the screen after inactivity (press Alt+L once to set a session passphrase, or run `faro encrypt`)."
+        };
+        return Some(msg.to_owned());
+    }
     if let Level::Nickname(id) = level {
         let theirs = state
             .contacts
@@ -1818,6 +1851,7 @@ fn transcription_note(state: &State, level: Level) -> Option<String> {
             | Setting::TranscribeMaxSecs
             | Setting::Mouse
             | Setting::PasteFromSystem
+            | Setting::AutoLock
             | Setting::UpdateCheck => return None,
         },
         Level::Root
@@ -1925,6 +1959,7 @@ fn value_detail(state: &State, choice: SettingChoice) -> &'static str {
         | SettingChoice::Bell(_)
         | SettingChoice::Title(_)
         | SettingChoice::ReduceMotion(_)
+        | SettingChoice::AutoLock(_)
         | SettingChoice::UpdateCheck(_) => "",
     }
 }
@@ -1952,6 +1987,10 @@ fn presets(
 
 /// Every value of `setting`: what choosing it does, its name, and whether
 /// it's the one in use.
+#[expect(
+    clippy::too_many_lines,
+    reason = "flat match over every Setting variant's choice list"
+)]
 fn values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)> {
     let on_off = |make: fn(bool) -> SettingChoice, current: bool| {
         [true, false]
@@ -2023,6 +2062,16 @@ fn values(state: &State, setting: Setting) -> Vec<(SettingChoice, String, bool)>
         Setting::Avatars => avatar_values(state),
         Setting::InlineImages => inline_images_values(state),
         Setting::AutoDownload => auto_download_values(state),
+        Setting::AutoLock => AUTO_LOCK_MINS
+            .iter()
+            .map(|&(mins, title)| {
+                (
+                    SettingChoice::AutoLock(mins),
+                    title.to_owned(),
+                    mins == state.config.security.auto_lock_mins,
+                )
+            })
+            .collect(),
         Setting::Transcribe => choice_values(
             TranscribeMode::ALL,
             state.config.voice.transcribe,
@@ -2127,7 +2176,8 @@ fn switch_values(state: &State, setting: Setting) -> Vec<(SettingChoice, String,
         | Setting::TranscribeLanguage
         | Setting::TranscribeCommand
         | Setting::TranscribeEndpoint
-        | Setting::TranscribeRemoteModel => return Vec::new(),
+        | Setting::TranscribeRemoteModel
+        | Setting::AutoLock => return Vec::new(),
     };
     [true, false]
         .into_iter()
@@ -2214,6 +2264,7 @@ fn transcription_values(state: &State, setting: Setting) -> Vec<(SettingChoice, 
         | Setting::TranscribeAuto
         | Setting::Mouse
         | Setting::PasteFromSystem
+        | Setting::AutoLock
         | Setting::UpdateCheck => Vec::new(),
     }
 }

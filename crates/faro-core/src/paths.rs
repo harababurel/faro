@@ -101,6 +101,11 @@ impl Paths {
         self.data_dir.join(DB_FILE)
     }
 
+    /// Encryption-at-rest metadata file (`vault.json`, D168).
+    pub fn vault_file(&self) -> PathBuf {
+        self.data_dir.join(crate::vault::VAULT_FILE)
+    }
+
     /// Create the data, log, attachments and pictures directories (`0700`)
     /// if they don't exist.
     pub fn ensure_data_dirs(&self) -> io::Result<()> {
@@ -481,10 +486,21 @@ pub fn open_private_append(path: &Path) -> io::Result<File> {
 
 /// Write `bytes` to `path` (`0600`, parent created as `0700`) via a temporary
 /// sibling file and a rename, so a half-written file is never seen (D75).
+/// When a vault is unlocked in this process (D168), non-empty payloads are
+/// encrypted with `AES-256-GCM` (`FAROENC1` prefix) before hitting disk.
+///
+/// Blocking: call from `spawn_blocking`, never from the UI loop.
+pub fn write_private_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let encoded = crate::vault::encrypt_media_for_path(path, bytes)?;
+    write_raw_private_atomic(path, &encoded)
+}
+
+/// Write raw `bytes` to `path` (`0600`, parent created as `0700`) atomically
+/// without applying media encryption.
 ///
 /// Blocking: call from `spawn_blocking`, never from the UI loop.
 #[expect(clippy::disallowed_methods, reason = "called from spawn_blocking")]
-pub fn write_private_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+pub fn write_raw_private_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     if let Some(parent) = path.parent() {
         create_private_dir_all(parent)?;
     }
@@ -513,6 +529,92 @@ pub fn write_private_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
         let _ = fs::remove_file(&tmp);
     }
     result
+}
+
+/// Read `path` and transparently decrypt it if it carries the `FAROENC1`
+/// encryption-at-rest header (D168).
+///
+/// Blocking: call from `spawn_blocking`, never from the UI loop.
+#[expect(clippy::disallowed_methods, reason = "called from spawn_blocking")]
+pub fn read_private(path: &Path) -> io::Result<Vec<u8>> {
+    let raw = fs::read(path)?;
+    crate::vault::decrypt_media_if_needed(&raw)
+}
+
+/// Prefix for temporary decrypted media files materialized for external child
+/// processes (`mpv`/`afplay`, `ffmpeg`, `whisper`, `curl`, D168).
+const TEMP_PLAINTEXT_PREFIX: &str = ".dec-";
+
+/// A file path holding plaintext bytes for an external child process that
+/// requires a filesystem path (D168). If the source file was encrypted on disk
+/// (`FAROENC1`), a `0600` temporary sibling file is created and automatically
+/// unlinked when this guard is dropped.
+pub struct TempPlaintext {
+    path: PathBuf,
+    is_temp: bool,
+}
+
+impl TempPlaintext {
+    /// Prepare a plaintext file path for `path`.
+    ///
+    /// Blocking: call from `spawn_blocking`.
+    #[expect(clippy::disallowed_methods, reason = "called from spawn_blocking")]
+    pub fn for_path(path: &Path) -> io::Result<Self> {
+        let raw = fs::read(path)?;
+        if !crate::vault::is_encrypted_media(&raw) {
+            return Ok(Self {
+                path: path.to_owned(),
+                is_temp: false,
+            });
+        }
+        let plain = crate::vault::decrypt_media_if_needed(&raw)?;
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("media");
+        let temp_path = path.with_file_name(format!(
+            "{TEMP_PLAINTEXT_PREFIX}{:016x}-{name}",
+            fastrand::u64(..)
+        ));
+        write_raw_private_atomic(&temp_path, &plain)?;
+        Ok(Self {
+            path: temp_path,
+            is_temp: true,
+        })
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for TempPlaintext {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "unlinking small temporary decrypted file on drop"
+    )]
+    fn drop(&mut self) {
+        if self.is_temp {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
+}
+
+/// Remove any leftover `.dec-*` temporary decrypted files in `dir` (D168).
+///
+/// Blocking: call from `spawn_blocking`.
+#[expect(clippy::disallowed_methods, reason = "called from spawn_blocking")]
+pub fn sweep_temp_plaintext(dir: &Path) -> usize {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return 0;
+    };
+    entries
+        .flatten()
+        .filter(|e| {
+            e.file_name()
+                .to_str()
+                .is_some_and(|n| n.starts_with(TEMP_PLAINTEXT_PREFIX))
+        })
+        .map(|e| e.path())
+        .filter(|p| fs::remove_file(p).is_ok())
+        .count()
 }
 
 /// Resolve the user's Downloads directory (`$XDG_DOWNLOAD_DIR` when non-empty,
@@ -550,7 +652,7 @@ pub fn save_to_downloads(
     content_type: &str,
 ) -> io::Result<PathBuf> {
     fs::create_dir_all(dir)?;
-    let bytes = fs::read(source)?;
+    let bytes = read_private(source)?;
     let safe = sanitize_file_name(file_name, content_type);
     let split = safe
         .rsplit_once('.')

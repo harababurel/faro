@@ -381,11 +381,14 @@ impl Store {
         tokio::task::spawn_blocking(move || paths::open_private_append(&owned))
             .await
             .map_err(|e| StoreError::Io(std::io::Error::other(e)))??;
-        let options = SqliteConnectOptions::new()
+        let mut options = SqliteConnectOptions::new()
             .filename(path)
             .journal_mode(SqliteJournalMode::Wal)
             .synchronous(SqliteSynchronous::Normal)
             .foreign_keys(true);
+        if let Some(pragma) = crate::vault::faro_db_pragma_for(path) {
+            options = options.pragma("key", pragma);
+        }
         let store = Self::start(&options).await?;
         store.claim_profile(profile).await?;
         Ok(store)

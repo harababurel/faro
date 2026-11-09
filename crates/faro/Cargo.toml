@@ -42,6 +42,7 @@ notify = "8.2.0"
 qrcode = { version = "0.14", default-features = false }
 # v4: kitty's per-run clipboard password and request ids (D91).
 uuid = { version = "1.27.0", features = ["v4"] }
+zeroize = "1.8"
 # Update checks (D148), behind the `update-check` feature. The same reqwest
 # and rustls (ring) libsignal-service already builds, so nothing new compiles.
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"], optional = true }

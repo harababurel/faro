@@ -49,6 +49,9 @@ pub fn on_unseen_message(state: &mut State, message: &Message) -> Vec<Effect> {
 /// Format the `(title, body)` for a desktop notification according to
 /// `[notifications] privacy` (DESIGN.md §8).
 pub fn desktop_notification(state: &State, message: &Message) -> (String, String) {
+    if state.is_locked() {
+        return ("faro".to_owned(), "New message".to_owned());
+    }
     match state.config.notifications.privacy {
         NotificationPrivacy::None => ("faro".to_owned(), "New message".to_owned()),
         NotificationPrivacy::Sender => {

@@ -214,6 +214,10 @@ fn apply_inline_images(state: &mut State) -> Vec<Effect> {
 }
 
 /// A setting chosen in the palette: applied now and saved to the file.
+#[expect(
+    clippy::too_many_lines,
+    reason = "flat match over every SettingChoice variant"
+)]
 pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
     match choice {
         SettingChoice::Colors(colors) => {
@@ -307,6 +311,19 @@ pub fn choose(state: &mut State, choice: SettingChoice) -> Vec<Effect> {
         SettingChoice::Previews(on) => choose_preview(state, key::PREVIEWS, on),
         SettingChoice::PreviewTime(on) => choose_preview(state, key::PREVIEW_TIME, on),
         SettingChoice::PreviewActivity(on) => choose_preview(state, key::PREVIEW_ACTIVITY, on),
+        SettingChoice::AutoLock(mins) => {
+            state.config.security.auto_lock_mins = mins;
+            state.lock.last_activity = Some(faro_core::rt::Instant::now());
+            let shown = palette::value_title(state, Setting::AutoLock);
+            let msg = if mins == 0 {
+                "Auto-lock off".to_owned()
+            } else if state.lock.verifier.is_some() {
+                format!("Auto-lock: after {shown} of inactivity")
+            } else {
+                format!("Auto-lock: after {shown} (press Alt+L once to set a session passphrase)")
+            };
+            save_with_notice(state, key::AUTO_LOCK_MINS, msg)
+        }
     }
 }
 
@@ -395,7 +412,8 @@ fn choose_media_and_notifications(state: &mut State, choice: SettingChoice) -> V
         | SettingChoice::TranscribeLanguage(_)
         | SettingChoice::TranscribeCommand(_)
         | SettingChoice::TranscribeEndpoint(_)
-        | SettingChoice::TranscribeRemoteModel(_) => vec![],
+        | SettingChoice::TranscribeRemoteModel(_)
+        | SettingChoice::AutoLock(_) => vec![],
     }
 }
 
@@ -485,6 +503,7 @@ fn choose_transcription(state: &mut State, choice: SettingChoice) -> Vec<Effect>
         | SettingChoice::ReduceMotion(_)
         | SettingChoice::BubblePadding(_)
         | SettingChoice::MatchWidths(_)
+        | SettingChoice::AutoLock(_)
         | SettingChoice::UpdateCheck(_) => vec![],
     }
 }
@@ -610,6 +629,7 @@ pub fn set_text(state: &mut State, setting: Setting, text: &str) -> Vec<Effect> 
         | Setting::TranscribeMaxSecs
         | Setting::Mouse
         | Setting::PasteFromSystem
+        | Setting::AutoLock
         | Setting::UpdateCheck => vec![],
     }
 }
@@ -719,7 +739,8 @@ fn choose_toggle(state: &mut State, choice: SettingChoice, on: bool) -> Vec<Effe
         | SettingChoice::TranscribeLanguage(_)
         | SettingChoice::TranscribeCommand(_)
         | SettingChoice::TranscribeEndpoint(_)
-        | SettingChoice::TranscribeRemoteModel(_) => vec![],
+        | SettingChoice::TranscribeRemoteModel(_)
+        | SettingChoice::AutoLock(_) => vec![],
     }
 }
 

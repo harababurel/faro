@@ -671,9 +671,12 @@ impl Backend for PresageBackend {
         } else {
             let mut specs = Vec::with_capacity(msg.attachments.len());
             for att in &msg.attachments {
-                let bytes = tokio::fs::read(&att.path)
-                    .await
-                    .map_err(|e| BackendError::Storage(e.to_string()))?;
+                let path = att.path.clone();
+                let bytes =
+                    tokio::task::spawn_blocking(move || faro_core::paths::read_private(&path))
+                        .await
+                        .map_err(|e| BackendError::Storage(e.to_string()))?
+                        .map_err(|e| BackendError::Storage(e.to_string()))?;
                 specs.push((convert::attachment_spec(att, bytes.len()), bytes));
             }
             let uploaded = Box::pin(self.manager.clone().upload_attachments(specs))

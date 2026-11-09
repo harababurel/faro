@@ -38,6 +38,7 @@ pub const NAMES: &[(&str, &str, Action)] = &[
         "Show the image about to be sent",
         Action::ViewStagedImage,
     ),
+    ("app.lock", "Lock screen", Action::Lock),
     (
         "conversation.previous",
         "Previous conversation",
@@ -298,6 +299,7 @@ pub const BINDINGS: &[(Context, &str, Action)] = &[
     (Global, "alt+s", Action::ToggleLeftSidebar),
     (Global, "alt+i", Action::ToggleRightSidebar),
     (Global, "alt+n", Action::ToggleBell),
+    (Global, "alt+l", Action::Lock),
     (Global, "alt+,", Action::NarrowSidebar),
     (Global, "alt+.", Action::WidenSidebar),
     // Clipboard images (D91): Cmd+V and Ctrl+Shift+V are the terminal's own.

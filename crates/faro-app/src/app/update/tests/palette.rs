@@ -254,7 +254,7 @@ fn prefixes_jump_into_a_category() {
 }
 
 /// `Settings ›` with nothing typed: every setting under its section.
-const SETTINGS_LIST: [&str; 41] = [
+const SETTINGS_LIST: [&str; 43] = [
     "Appearance",
     "Colours",
     "Emoji",
@@ -294,6 +294,8 @@ const SETTINGS_LIST: [&str; 41] = [
     "Language",
     "Input",
     "Mouse",
+    "Security",
+    "Auto-lock after inactivity",
     "Updates",
     "Check for updates",
 ];
@@ -367,13 +369,20 @@ fn headers_are_skipped() {
     assert_eq!(at(&state), 1);
     assert_eq!(selected_title(&state), "Colours");
     press(&mut state, KeyCode::Up);
-    assert_eq!(selected_title(&state), "Mouse", "wraps past the header");
+    assert_eq!(
+        selected_title(&state),
+        "Auto-lock after inactivity",
+        "wraps past the header"
+    );
+    press(&mut state, KeyCode::Up);
+    assert_eq!(selected_title(&state), "Mouse", "skips Security");
     press(&mut state, KeyCode::Up);
     assert_eq!(
         selected_title(&state),
         "Transcription",
         "skips Input and the transcription settings (transcription off)"
     );
+    press(&mut state, KeyCode::Down);
     press(&mut state, KeyCode::Down);
     press(&mut state, KeyCode::Down);
     assert_eq!(selected_title(&state), "Colours", "wraps past Appearance");
@@ -403,7 +412,7 @@ fn headers_are_skipped() {
         modifiers: KeyModifiers::NONE,
     }));
     update(&mut state, wheel);
-    assert_eq!(selected_title(&state), "Mouse");
+    assert_eq!(selected_title(&state), "Auto-lock after inactivity");
 }
 
 #[test]
@@ -1876,4 +1885,60 @@ fn avatars_default_to_auto_and_preview_while_moving() {
         vec![saved(key::AVATARS, ConfigValue::Text("initials".into()))]
     );
     assert_eq!(state.config.conversations.avatars, Avatars::Initials);
+}
+
+#[test]
+fn lock_screen_sets_session_passphrase_masks_ui_and_unlocks() {
+    let mut state = loaded_state();
+    assert!(!state.is_locked());
+    assert!(state.seeing_open());
+
+    // Alt+L without a vault passphrase opens the SetPassphrase prompt.
+    update(&mut state, key(KeyCode::Char('l'), KeyModifiers::ALT));
+    assert!(state.has_lock_overlay());
+    assert!(!state.is_locked());
+    assert!(!state.seeing_open());
+
+    // First entry + mismatched confirmation shows an error and resets.
+    typed(&mut state, "correct horse");
+    enter(&mut state);
+    typed(&mut state, "wrong horse");
+    enter(&mut state);
+    assert!(state.has_lock_overlay());
+    assert!(!state.is_locked());
+
+    // Matching confirmation locks the session immediately.
+    typed(&mut state, "correct horse");
+    enter(&mut state);
+    typed(&mut state, "correct horse");
+    enter(&mut state);
+    assert!(state.is_locked());
+    assert_eq!(
+        state.window_title(faro_core::domain::Timestamp::from_millis(
+            crate::fixtures::NOW_MS
+        )),
+        Some("faro (locked)".to_owned())
+    );
+
+    // Wrong passphrase stays locked; correct passphrase unlocks.
+    typed(&mut state, "nope");
+    enter(&mut state);
+    assert!(state.is_locked());
+    typed(&mut state, "correct horse");
+    enter(&mut state);
+    assert!(!state.is_locked());
+    assert!(!state.has_lock_overlay());
+
+    // Auto-lock setting in the palette saves to config.
+    palette_open(&mut state, ":auto-lock");
+    enter(&mut state);
+    assert_eq!(level(&state), Level::Setting(Setting::AutoLock));
+    press(&mut state, KeyCode::Down);
+    press(&mut state, KeyCode::Down);
+    let effects = enter(&mut state);
+    assert_eq!(
+        effects,
+        vec![saved(key::AUTO_LOCK_MINS, ConfigValue::Uint(5))]
+    );
+    assert_eq!(state.config.security.auto_lock_mins, 5);
 }

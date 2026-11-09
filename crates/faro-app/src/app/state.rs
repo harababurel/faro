@@ -245,6 +245,8 @@ pub struct State {
     pub updates: crate::app::updates::Updates,
     /// Earliest known message expiration (`(expires_at, deadline)`, D165).
     pub next_expiry: Option<(Timestamp, Instant)>,
+    /// In-session lock screen and idle auto-lock state (D168).
+    pub lock: LockState,
 }
 
 #[derive(Debug)]
@@ -909,6 +911,47 @@ pub enum NoticeLevel {
     Error,
 }
 
+/// Verifies a passphrase against the active vault or an in-session lock passphrase (D168).
+pub type PassphraseVerifier = std::sync::Arc<dyn Fn(&str) -> bool + Send + Sync>;
+
+/// In-session screen lock state (D168).
+#[derive(Default)]
+pub struct LockState {
+    /// Verifier for the vault passphrase (set at startup when `vault.json` is
+    /// present, or set in-session when locking an unencrypted session).
+    pub verifier: Option<PassphraseVerifier>,
+    /// Active lock or passphrase-setup screen covering the UI.
+    pub screen: Option<LockScreen>,
+    /// When the user last interacted with the terminal (key, paste, mouse).
+    pub last_activity: Option<Instant>,
+}
+
+impl std::fmt::Debug for LockState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LockState")
+            .field("has_verifier", &self.verifier.is_some())
+            .field("screen", &self.screen)
+            .field("last_activity", &self.last_activity)
+            .finish()
+    }
+}
+
+/// What the full-screen lock overlay shows (D168).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LockScreen {
+    /// Setting a session lock passphrase when no vault passphrase exists yet.
+    SetPassphrase {
+        input: String,
+        confirm: Option<String>,
+        error: Option<String>,
+    },
+    /// Locked: requires the passphrase to return to the UI.
+    Locked {
+        input: String,
+        error: Option<String>,
+    },
+}
+
 impl State {
     pub fn new(me: ServiceId, contacts: Vec<Contact>, groups: Vec<Group>) -> Self {
         let mut state = Self {
@@ -983,9 +1026,42 @@ impl State {
             capabilities: Capabilities::all(),
             updates: crate::app::updates::Updates::default(),
             next_expiry: None,
+            lock: LockState {
+                verifier: None,
+                screen: None,
+                last_activity: Some(Instant::now()),
+            },
         };
         state.recount_names();
         state
+    }
+
+    /// With a passphrase verifier for the lock screen and idle auto-lock (D168).
+    #[must_use]
+    pub fn with_passphrase_verifier(mut self, verifier: Option<PassphraseVerifier>) -> Self {
+        self.lock.verifier = verifier;
+        self
+    }
+
+    /// Whether the session is currently locked behind a passphrase (D168).
+    pub const fn is_locked(&self) -> bool {
+        matches!(self.lock.screen, Some(LockScreen::Locked { .. }))
+    }
+
+    /// Whether the full-screen lock or passphrase-setup overlay is open (D168).
+    pub const fn has_lock_overlay(&self) -> bool {
+        self.lock.screen.is_some()
+    }
+
+    /// When idle auto-lock should trigger next, if enabled and unlocked (D168).
+    pub fn auto_lock_deadline(&self) -> Option<Instant> {
+        let mins = self.config.security.auto_lock_mins;
+        if mins == 0 || self.has_lock_overlay() || self.lock.verifier.is_none() {
+            return None;
+        }
+        self.lock
+            .last_activity
+            .map(|last| last + Duration::from_secs(u64::from(mins) * 60))
     }
 
     /// With the nicknames the user gave people (D65).
@@ -1111,6 +1187,13 @@ impl State {
             Profile::Demo => "faro demo",
             Profile::Signal => "faro",
         };
+        if self.is_locked() {
+            return self
+                .config
+                .notifications
+                .title
+                .then(|| format!("{name} (locked)"));
+        }
         self.config
             .notifications
             .title
@@ -1561,14 +1644,18 @@ impl State {
     /// last frame to have drawn its moving form (`Geometry::logo_animated`;
     /// small panes and 16 colours draw a still one).
     pub fn logo_moves(&self) -> bool {
-        self.open.is_none() && self.env.focused && !self.config.reduce_motion
+        !self.has_lock_overlay()
+            && self.open.is_none()
+            && self.env.focused
+            && !self.config.reduce_motion
     }
 
     /// The open conversation's newest messages are in front of the user: the
     /// terminal has focus, the history has loaded, and the view is at the
     /// bottom. Only then are messages read (D42).
     pub fn seeing_open(&self) -> bool {
-        self.env.focused
+        !self.has_lock_overlay()
+            && self.env.focused
             && self
                 .open
                 .as_ref()
@@ -1679,6 +1766,7 @@ impl State {
             .chain(playing)
             .chain(self.updates.next_check)
             .chain(self.next_expiry.map(|(_, at)| at))
+            .chain(self.auto_lock_deadline())
             .min()
     }
 }

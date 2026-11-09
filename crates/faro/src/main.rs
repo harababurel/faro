@@ -6,6 +6,7 @@ mod frames;
 mod logging;
 mod signal;
 mod tui;
+mod vault;
 // M13 Phase 0 spike (throwaway): frames for the web renderer prototypes.
 #[cfg(test)]
 mod web_spike;
@@ -23,6 +24,7 @@ use faro_core::store::{Profile, Store};
 
 #[expect(
     clippy::disallowed_methods,
+    clippy::too_many_lines,
     reason = "the program's entry point: main blocks on the runtime until faro exits"
 )]
 fn main() -> anyhow::Result<()> {
@@ -30,7 +32,12 @@ fn main() -> anyhow::Result<()> {
     let demo = match &invocation.cli.command {
         Some(cli::Command::Demo(args)) => Some(args.clone()),
         Some(
-            cli::Command::Link { .. } | cli::Command::Ids { .. } | cli::Command::RefreshPictures,
+            cli::Command::Link { .. }
+            | cli::Command::Ids { .. }
+            | cli::Command::RefreshPictures
+            | cli::Command::Encrypt
+            | cli::Command::Decrypt
+            | cli::Command::Passwd,
         )
         | None => None,
     };
@@ -75,21 +82,50 @@ fn main() -> anyhow::Result<()> {
     // everything runs inside a `LocalSet`.
     let local = tokio::task::LocalSet::new();
     match cli.command {
+        Some(cli::Command::Encrypt) => {
+            return local.block_on(&runtime, vault::encrypt(&paths));
+        }
+        Some(cli::Command::Decrypt) => {
+            return local.block_on(
+                &runtime,
+                vault::decrypt(&paths, &settings.security.passphrase_command),
+            );
+        }
+        Some(cli::Command::Passwd) => {
+            return local.block_on(&runtime, vault::passwd(&paths));
+        }
         Some(cli::Command::Link { device_name }) => {
-            let link = signal::link(&paths, device_name, allowlist.as_ref());
-            return local.block_on(&runtime, link);
+            return local.block_on(&runtime, async {
+                let _ = vault::unlock_cli(paths.data_dir(), &settings.security.passphrase_command)
+                    .await?;
+                signal::link(&paths, device_name, allowlist.as_ref()).await
+            });
         }
         Some(cli::Command::Ids { usernames }) => {
-            return local.block_on(&runtime, signal::ids(paths.data_dir(), &usernames));
+            return local.block_on(&runtime, async {
+                let _ = vault::unlock_cli(paths.data_dir(), &settings.security.passphrase_command)
+                    .await?;
+                signal::ids(paths.data_dir(), &usernames).await
+            });
         }
         Some(cli::Command::RefreshPictures) => {
-            return local.block_on(&runtime, signal::refresh_pictures(&paths));
+            return local.block_on(&runtime, async {
+                let _ = vault::unlock_cli(paths.data_dir(), &settings.security.passphrase_command)
+                    .await?;
+                signal::refresh_pictures(&paths).await
+            });
         }
         Some(cli::Command::Demo(_)) | None => {}
     }
     // The allowlist guard (D62) is for testing: on only with --allowlist
     // (D95); `--no-allowlist` is still accepted and changes nothing.
     local.block_on(&runtime, async {
+        let passphrase_verifier =
+            match vault::unlock_tui(paths.data_dir(), &settings, &themes).await? {
+                vault::UnlockOutcome::Unencrypted => None,
+                vault::UnlockOutcome::Unlocked(verifier) => Some(verifier),
+                vault::UnlockOutcome::Cancelled => return Ok(()),
+            };
         // Refused before anything touches it if it's the other profile's (D87).
         let store = Store::open(&paths.db_file(), profile)
             .await
@@ -111,6 +147,7 @@ fn main() -> anyhow::Result<()> {
             problems,
             themes,
             profile,
+            passphrase_verifier,
         };
         let result = if let Some(args) = &demo {
             serve_demo(args, allowlist, &store, tz, detected, startup).await

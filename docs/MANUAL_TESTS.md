@@ -799,4 +799,14 @@ Notes (version, OS, terminal, what went wrong):
 
 Notes (version, OS, terminal, what went wrong):
 
+## Encryption at rest and auto-lock (D168)
+
+- [ ] **Encrypt & unlock (`faro encrypt`):** quit `faro` and run `faro encrypt` (with `--data-dir <dir>` if testing on a scratch copy): it prompts twice for a passphrase, encrypts `faro.db`, `presage.db`, `attachments/`, and `pictures/`, and writes `<data dir>/vault.json`. Verify `head -c 8 <data dir>/attachments/*` shows `FAROENC1` and `sqlite3 <data dir>/faro.db "SELECT count(*) FROM messages;"` fails with `file is not a database`. Start `faro`: a centered passphrase card prompts for your passphrase; a wrong passphrase shows `Wrong passphrase`, and the right one opens your conversations, inline images, avatars, and voice notes normally.
+- [ ] **Passphrase command (`[security] passphrase_command`):** set `passphrase_command = "printf '…'"` (or `secret-tool` / `security` / `pass`) under `[security]` in `config.toml`: `faro` unlocks automatically at startup without prompting.
+- [ ] **Rotate & decrypt (`faro passwd`, `faro decrypt`):** quit `faro` and run `faro passwd`: changing the passphrase finishes immediately without re-encrypting the databases or media files. Run `faro decrypt`: `faro.db`, `presage.db`, and all media files return to plaintext and `vault.json` is removed.
+- [ ] **Lock screen & auto-lock (`Alt+L`, `auto_lock_mins`):** press `Alt+L` (or `Ctrl+P` › *Lock screen*): the screen masks all conversations and messages behind the `faro locked` card (or prompts to set a session passphrase first if the directory is unencrypted), the window title reads `faro (locked)`, incoming messages are not marked read while locked, and entering the passphrase restores the exact view. Set `Ctrl+P` › Settings › Security › *Auto-lock after inactivity* to `1 min`: leaving `faro` idle for a minute locks the screen automatically.
+
+Notes (version, OS, terminal, what went wrong):
+
+
 

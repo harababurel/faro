@@ -1249,6 +1249,7 @@ dependencies = [
  "tracing-subscriber",
  "unicode-width",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]
@@ -1272,12 +1273,18 @@ dependencies = [
 name = "faro-core"
 version = "0.1.10"
 dependencies = [
+ "aes-gcm",
+ "argon2",
  "base64 0.22.1",
  "etcetera",
  "fastrand",
  "gloo-timers",
+ "hkdf",
+ "libsqlite3-sys",
+ "rand 0.9.5",
  "rustix 1.1.6",
  "serde_json",
+ "sha2 0.11.1",
  "sqlx",
  "tempfile",
  "thiserror 2.0.21",
@@ -1287,6 +1294,7 @@ dependencies = [
  "uuid",
  "wasm-bindgen-futures",
  "web-time",
+ "zeroize",
 ]
 
 [[package]]

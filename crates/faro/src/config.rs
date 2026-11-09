@@ -41,6 +41,8 @@ pub struct Startup {
     pub themes: Vec<ThemeText>,
     /// `faro demo` or a Signal account (D87).
     pub profile: faro_core::store::Profile,
+    /// Passphrase verifier when the vault is encrypted at rest (D168).
+    pub passphrase_verifier: Option<crate::app::state::PassphraseVerifier>,
 }
 
 /// The file written on first run: every setting and default key binding,

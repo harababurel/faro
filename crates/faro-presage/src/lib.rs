@@ -64,9 +64,12 @@ pub fn store_file(data_dir: &Path) -> std::path::PathBuf {
 /// contacts are trusted, as in Signal's own apps (the safety number changes).
 pub async fn open_store(file: &Path) -> Result<SqliteStore, Error> {
     make_private(file).await.map_err(Error::Private)?;
-    let options = SqliteConnectOptions::new()
+    let mut options = SqliteConnectOptions::new()
         .filename(file)
         .create_if_missing(true);
+    if let Some(pragma) = faro_core::vault::presage_db_pragma_for(file) {
+        options = options.pragma("key", pragma);
+    }
     Ok(SqliteStore::open_with_options(options, OnNewIdentity::Trust).await?)
 }
 
@@ -101,7 +104,10 @@ pub async fn forget_pictures(file: &Path) -> Result<Forgotten, Error> {
             group_pictures: 0,
         });
     }
-    let options = SqliteConnectOptions::new().filename(file);
+    let mut options = SqliteConnectOptions::new().filename(file);
+    if let Some(pragma) = faro_core::vault::presage_db_pragma_for(file) {
+        options = options.pragma("key", pragma);
+    }
     let mut connection = sqlx::ConnectOptions::connect(&options).await?;
     let mut transaction = sqlx::Connection::begin(&mut connection).await?;
     let mut counts = [0; 3];

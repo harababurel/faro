@@ -15,7 +15,7 @@ workspace = true
 default = ["sqlite"]
 # The SQLite store engine (native only; the web demo uses the in-memory engine).
 # For wasm32: cargo build -p faro-core --target wasm32-unknown-unknown --no-default-features
-sqlite = ["dep:sqlx"]
+sqlite = ["dep:sqlx", "dep:libsqlite3-sys"]
 
 [dependencies]
 # Already in the lock file (0.22.1); OSC 5522 payloads (D89).
@@ -29,11 +29,18 @@ toml_edit = "0.25.15"
 tracing = "0.1.44"
 uuid = "1.27.0"
 
-# Files and paths (`paths`): native only.
+# Files, paths (`paths`) and encryption at rest (`vault`): native only.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+aes-gcm = "0.11.1"
+argon2 = { version = "0.5.3", features = ["zeroize"] }
 etcetera = "0.11.0"
+hkdf = "0.13.0"
+libsqlite3-sys = { workspace = true, optional = true, features = ["bundled-sqlcipher"] }
+rand = "0.9"
 # Already in the lock file; `process` adds `getuid` for the demo directory checks (D87).
 rustix = { version = "1.1.5", default-features = false, features = ["std", "process"] }
+sha2 = "0.11"
+zeroize = "1.9.1"
 
 # The browser's clock, timers and event loop (`rt`).
 [target.'cfg(target_arch = "wasm32")'.dependencies]

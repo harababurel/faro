@@ -456,10 +456,11 @@ pub fn sweep(attachments_dir: PathBuf) {
     reason = "runs inside spawn_blocking off the UI thread"
 )]
 fn sweep_blocking(dir: &Path) -> usize {
+    let temp = faro_core::paths::sweep_temp_plaintext(dir);
     let Ok(entries) = std::fs::read_dir(dir) else {
-        return 0;
+        return temp;
     };
-    entries
+    temp + entries
         .flatten()
         .map(|entry| entry.path())
         .filter(|path| is_pasted(path, dir))

@@ -146,6 +146,14 @@ pub enum Command {
     /// presage's copies of profiles), so the next start fetches them. Quit
     /// faro first
     RefreshPictures,
+    /// Encrypt faro's databases and saved media at rest with a passphrase
+    /// (quit faro first)
+    Encrypt,
+    /// Decrypt faro's databases and saved media back to plaintext (quit faro
+    /// first)
+    Decrypt,
+    /// Change the encryption passphrase (quit faro first)
+    Passwd,
 }
 
 /// `faro demo`'s flags (D87). Command line only: no environment variables,
@@ -230,6 +238,18 @@ mod tests {
             Some(Command::Ids {
                 usernames: vec!["a.1".to_owned(), "b.2".to_owned()]
             })
+        );
+        assert_eq!(
+            Cli::try_parse_from(["faro", "encrypt"]).unwrap().command,
+            Some(Command::Encrypt)
+        );
+        assert_eq!(
+            Cli::try_parse_from(["faro", "decrypt"]).unwrap().command,
+            Some(Command::Decrypt)
+        );
+        assert_eq!(
+            Cli::try_parse_from(["faro", "passwd"]).unwrap().command,
+            Some(Command::Passwd)
         );
     }
 
