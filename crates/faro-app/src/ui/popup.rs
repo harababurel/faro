@@ -497,16 +497,8 @@ fn attachment_viewer(
     } else {
         "j/k browse · g go to message · o open · s save · y copy path · Esc close"
     };
-    let card = (!attachment.is_image() || !attachment.is_downloaded()).then(|| {
-        media_card_lines(
-            state,
-            target,
-            index,
-            attachment,
-            &name,
-            view,
-        )
-    });
+    let card = (!attachment.is_image() || !attachment.is_downloaded())
+        .then(|| media_card_lines(state, target, index, attachment, &name, view));
     let shown = Shown {
         title_prefix: pos_prefix,
         name,
@@ -1168,10 +1160,10 @@ fn thread_viewer(
         && !messages.iter().any(|m| m.reference() == first_quote.target)
     {
         let who = sanitize(&state.person_name(first_quote.target.sender)).into_owned();
-        let preview = first_quote
-            .preview
-            .as_ref()
-            .map_or_else(|| "…".to_owned(), |p| one_line(p.expose()));
+        let preview = first_quote.preview.as_ref().map_or_else(
+            || "…".to_owned(),
+            |p| one_line(&faro_core::domain::mask_spoilers(p)),
+        );
         let stub = format!(" ▎ {who}: {preview} (original message not in history)");
         all_lines.push(Line::from(Span::styled(
             truncate(&stub, inner_w).into_owned(),
@@ -1296,10 +1288,10 @@ fn thread_message_lines(
         && Some(quote.target) != prev_ref
     {
         let who = sanitize(&state.person_name(quote.target.sender)).into_owned();
-        let preview = quote
-            .preview
-            .as_ref()
-            .map_or_else(|| "…".to_owned(), |p| one_line(p.expose()));
+        let preview = quote.preview.as_ref().map_or_else(
+            || "…".to_owned(),
+            |p| one_line(&faro_core::domain::mask_spoilers(p)),
+        );
         let text = truncate(&format!("↳ {who}: {preview}"), content_w).into_owned();
         rows.push(finish_row(vec![Span::styled(
             text,

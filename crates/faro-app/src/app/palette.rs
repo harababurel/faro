@@ -2007,8 +2007,7 @@ pub fn note(state: &State, level: Level) -> Option<String> {
     if level == Level::ChatLinks {
         let has_any = state.open.as_ref().is_some_and(|open| {
             open.messages.iter().filter(|m| !m.deleted).any(|m| {
-                !m.attachments.is_empty()
-                    || !super::update::selection::message_links(m).is_empty()
+                !m.attachments.is_empty() || !super::update::selection::message_links(m).is_empty()
             })
         });
         return (!has_any)

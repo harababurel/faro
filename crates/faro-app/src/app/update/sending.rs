@@ -7,7 +7,7 @@ use faro_core::backend::{
 };
 use faro_core::domain::{
     AttachmentRef, AttachmentStatus, ConversationId, DeliveryStatus, Direction, Mention, Message,
-    MessageBody, MessageRef, ServiceId, Timestamp,
+    MessageBody, MessageRef, ServiceId, StyleSpan, Timestamp,
 };
 use faro_core::file_names;
 
@@ -50,8 +50,7 @@ pub fn send(state: &mut State) -> Vec<Effect> {
         return vec![];
     };
     if let Some(target_sent_at) = open.editing {
-        let text = open.input.text().trim().to_owned();
-        return send_edit(state, target_sent_at, &text);
+        return send_edit(state, target_sent_at);
     }
     if crate::app::slash::is_slash_input(open.input.text().trim()) {
         return crate::app::slash::execute_from_input(state);
@@ -66,10 +65,15 @@ pub fn send_message(state: &mut State) -> Vec<Effect> {
         return vec![];
     };
     let conversation = open.id;
-    let raw_trimmed = open.input.text().trim();
+    let raw = open.input.text();
+    let trimmed_start = raw.trim_start();
+    let raw_trimmed = trimmed_start.trim_end();
+    let unescaped_slash = raw_trimmed.starts_with("//");
     let text = raw_trimmed
         .strip_prefix("//")
         .map_or_else(|| raw_trimmed.to_owned(), |rest| format!("/{rest}"));
+    let trim_offset = (raw.len() - trimmed_start.len()) + usize::from(unescaped_slash);
+    let input_styles = shift_styles(open.input.styles(), trim_offset, text.len());
     let has_staged = open.staged_attachment.is_some();
     if text.is_empty() && !has_staged {
         return vec![];
@@ -83,20 +87,7 @@ pub fn send_message(state: &mut State) -> Vec<Effect> {
     let quote = open.reply_to.take();
     let staged = open.staged_attachment.take();
     let known = std::mem::take(&mut open.mentions);
-    open.mention_selected = 0;
-    open.mention_dismissed_at = None;
-    open.shortcode_selected = 0;
-    open.shortcode_dismissed_at = None;
-    open.slash_selected = 0;
-    open.slash_dismissed_for = None;
-    open.input = Input::default();
-    open.draft_edited = None;
-    // The message itself ends our typing indicator; no "stopped" needed.
-    open.typing_sent = None;
-    // Jump to the newest message, where this one appears.
-    open.scroll = None;
-    open.restored_anchor = None;
-    open.unseen = 0;
+    reset_composer_after_send(open);
     state.since_you_left = None;
 
     let sent_at = next_sent_at(state.last_sent_at, wall_clock());
@@ -109,8 +100,7 @@ pub fn send_message(state: &mut State) -> Vec<Effect> {
         || (vec![], vec![]),
         |s| stage_attachment(s, msg_ref, &state.attachments_dir),
     );
-    let (body_text, mentions) = extract_mentions(&text, &known);
-    let body = MessageBody::new(body_text.clone());
+    let (body, mentions) = extract_mentions_and_styles(&text, &input_styles, &known);
     let expires_in_secs = state
         .summary(conversation)
         .and_then(|s| s.disappearing_timer);
@@ -119,7 +109,7 @@ pub fn send_message(state: &mut State) -> Vec<Effect> {
         sender: state.me,
         sent_at,
         direction: Direction::Outgoing(DeliveryStatus::Sending),
-        body: (!body_text.is_empty()).then(|| body.clone()),
+        body: (!body.expose().is_empty()).then(|| body.clone()),
         mentions: mentions.clone(),
         quote: quote.clone(),
         previews: vec![],
@@ -163,6 +153,23 @@ pub fn send_message(state: &mut State) -> Vec<Effect> {
         },
     }));
     effects
+}
+
+fn reset_composer_after_send(open: &mut crate::app::state::OpenConversation) {
+    open.mention_selected = 0;
+    open.mention_dismissed_at = None;
+    open.shortcode_selected = 0;
+    open.shortcode_dismissed_at = None;
+    open.slash_selected = 0;
+    open.slash_dismissed_for = None;
+    open.input = Input::default();
+    open.draft_edited = None;
+    // The message itself ends our typing indicator; no "stopped" needed.
+    open.typing_sent = None;
+    // Jump to the newest message, where this one appears.
+    open.scroll = None;
+    open.restored_anchor = None;
+    open.unseen = 0;
 }
 
 fn stage_attachment(
@@ -285,13 +292,19 @@ pub fn forward(
     effects
 }
 
-fn send_edit(state: &mut State, target_sent_at: Timestamp, text: &str) -> Vec<Effect> {
+fn send_edit(state: &mut State, target_sent_at: Timestamp) -> Vec<Effect> {
+    let Some(open) = state.open.as_ref() else {
+        return vec![];
+    };
+    let raw = open.input.text();
+    let trimmed_start = raw.trim_start();
+    let text = trimmed_start.trim_end().to_owned();
     if text.is_empty() {
         return vec![];
     }
-    let Some(conversation) = state.open.as_ref().map(|o| o.id) else {
-        return vec![];
-    };
+    let trim_offset = raw.len() - trimmed_start.len();
+    let input_styles = shift_styles(open.input.styles(), trim_offset, text.len());
+    let conversation = open.id;
     if block_if_key_changed(state, conversation) {
         return vec![];
     }
@@ -309,13 +322,12 @@ fn send_edit(state: &mut State, target_sent_at: Timestamp, text: &str) -> Vec<Ef
     let restored = state
         .summary(conversation)
         .and_then(|s| s.state.draft.as_ref())
-        .map(|d| Input::new(d.expose()))
+        .map(|d| Input::with_styles(d.expose(), d.styles().to_vec()))
         .unwrap_or_default();
     if let Some(open) = state.open.as_mut() {
         open.input = restored;
     }
-    let (body_text, mentions) = extract_mentions(text, &known);
-    let body = MessageBody::new(body_text);
+    let (body, mentions) = extract_mentions_and_styles(&text, &input_styles, &known);
     let edited_at = next_sent_at(state.last_sent_at, wall_clock());
     state.last_sent_at = edited_at;
     let target = MessageRef {
@@ -344,19 +356,49 @@ fn send_edit(state: &mut State, target_sent_at: Timestamp, text: &str) -> Vec<Ef
     effects
 }
 
+fn shift_styles(styles: &[StyleSpan], trim_offset: usize, max_len: usize) -> Vec<StyleSpan> {
+    styles
+        .iter()
+        .filter_map(|span| {
+            let start = span.start.saturating_sub(trim_offset).min(max_len);
+            let end = (span.start + span.len)
+                .saturating_sub(trim_offset)
+                .min(max_len);
+            (end > start).then_some(StyleSpan {
+                start,
+                len: end - start,
+                style: span.style,
+            })
+        })
+        .collect()
+}
+
 /// Replace `@<DisplayName>` occurrences (at the start of `text` or after
 /// whitespace, and followed by end-of-string or a non-alphanumeric character)
 /// with `U+FFFC` (`MENTION_PLACEHOLDER`), recording each `Mention`'s UTF-8 byte
 /// offset and length.
+#[cfg(test)]
 pub fn extract_mentions(text: &str, known: &[(ServiceId, String)]) -> (String, Vec<Mention>) {
+    let (body, mentions) = extract_mentions_and_styles(text, &[], known);
+    (body.expose().to_owned(), mentions)
+}
+
+/// Like [`extract_mentions`], while also adjusting `styles` byte offsets across
+/// any `@<DisplayName>` → `U+FFFC` replacements (D177).
+pub fn extract_mentions_and_styles(
+    text: &str,
+    styles: &[StyleSpan],
+    known: &[(ServiceId, String)],
+) -> (MessageBody, Vec<Mention>) {
     if known.is_empty() || !text.contains('@') {
-        return (text.to_owned(), Vec::new());
+        return (MessageBody::with_styles(text, styles.to_vec()), Vec::new());
     }
     let mut ordered: Vec<&(ServiceId, String)> =
         known.iter().filter(|(_, name)| !name.is_empty()).collect();
     ordered.sort_by_key(|(_, name)| std::cmp::Reverse(name.len()));
     let mut out = String::with_capacity(text.len());
     let mut mentions = Vec::new();
+    let mut byte_map = vec![0usize; text.len() + 1];
     let mut pos = 0;
     while pos < text.len() {
         let rest = text.get(pos..).unwrap_or("");
@@ -375,23 +417,52 @@ pub fn extract_mentions(text: &str, known: &[(ServiceId, String)]) -> (String, V
             });
             if let Some((who, name)) = matched {
                 let start = out.len();
+                let tok_len = 1 + name.len();
+                if let Some(slots) = byte_map.get_mut(pos..pos + tok_len) {
+                    slots.fill(start);
+                }
                 out.push(MENTION_PLACEHOLDER);
                 mentions.push(Mention {
                     who: *who,
                     start,
                     len: MENTION_PLACEHOLDER.len_utf8(),
                 });
-                pos += 1 + name.len();
+                pos += tok_len;
+                if let Some(slot) = byte_map.get_mut(pos) {
+                    *slot = out.len();
+                }
                 continue;
             }
         }
         let Some(ch) = rest.chars().next() else {
             break;
         };
+        let start = out.len();
+        let ch_len = ch.len_utf8();
+        for i in 0..ch_len {
+            if let Some(slot) = byte_map.get_mut(pos + i) {
+                *slot = start + i;
+            }
+        }
         out.push(ch);
-        pos += ch.len_utf8();
+        pos += ch_len;
+        if let Some(slot) = byte_map.get_mut(pos) {
+            *slot = out.len();
+        }
     }
-    (out, mentions)
+    let mapped_styles = styles
+        .iter()
+        .filter_map(|span| {
+            let start = *byte_map.get(span.start)?;
+            let end = *byte_map.get(span.start.checked_add(span.len)?)?;
+            (end > start).then_some(StyleSpan {
+                start,
+                len: end - start,
+                style: span.style,
+            })
+        })
+        .collect();
+    (MessageBody::with_styles(out, mapped_styles), mentions)
 }
 
 /// Result of `Effect::StageFile` (D77): attach to the open conversation or show

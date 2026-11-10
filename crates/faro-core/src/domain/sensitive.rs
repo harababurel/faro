@@ -6,6 +6,57 @@
 
 use std::fmt;
 
+use super::message::{StyleSpan, normalize_styles};
+
+/// The text of a message (or a quote's preview, or an edit), plus inline
+/// [`StyleSpan`]s (D177). `Debug` is redacted.
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct MessageBody {
+    text: String,
+    styles: Vec<StyleSpan>,
+}
+
+impl MessageBody {
+    pub fn new(value: impl Into<String>) -> Self {
+        Self {
+            text: value.into(),
+            styles: Vec::new(),
+        }
+    }
+
+    pub fn with_styles(value: impl Into<String>, styles: Vec<StyleSpan>) -> Self {
+        let text = value.into();
+        let styles = normalize_styles(&text, styles);
+        Self { text, styles }
+    }
+
+    /// The real value. Never pass it to logging.
+    pub fn expose(&self) -> &str {
+        &self.text
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.text.is_empty()
+    }
+
+    /// Normalized inline [`StyleSpan`]s on this body (D177).
+    pub fn styles(&self) -> &[StyleSpan] {
+        &self.styles
+    }
+
+    /// Replace the inline [`StyleSpan`]s on this body, normalizing them against
+    /// [`MessageBody::expose`] (D177).
+    pub fn set_styles(&mut self, styles: Vec<StyleSpan>) {
+        self.styles = normalize_styles(&self.text, styles);
+    }
+}
+
+impl fmt::Debug for MessageBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("MessageBody(<redacted>)")
+    }
+}
+
 macro_rules! sensitive_string {
     ($(#[$meta:meta])* $name:ident) => {
         $(#[$meta])*
@@ -34,11 +85,6 @@ macro_rules! sensitive_string {
         }
     };
 }
-
-sensitive_string!(
-    /// The text of a message (or a quote's preview, or an edit).
-    MessageBody
-);
 
 sensitive_string!(
     /// A phone number, as Signal provides it (usually E.164). Display data, never a key.

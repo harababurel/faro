@@ -24,6 +24,13 @@ pub enum MessageRequestAction {
 }
 
 /// Something that happened on the Signal side, delivered to the app core.
+#[cfg_attr(
+    target_pointer_width = "64",
+    expect(
+        clippy::large_enum_variant,
+        reason = "Message is the primary payload on the backend stream; Effect::Persist boxes BackendEvent"
+    )
+)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BackendEvent {
     Connection(ConnectionState),

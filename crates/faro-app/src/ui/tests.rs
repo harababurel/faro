@@ -2702,10 +2702,22 @@ fn media_gallery_renders_position_header_and_video_card() {
         index: 0,
     });
     let text = snapshot(&draw(&state, 120, 30));
-    assert!(text.contains("2/2 · send.mp4"), "missing gallery position header:\n{text}");
-    assert!(text.contains("▶ Video · send.mp4"), "missing video headline:\n{text}");
-    assert!(text.contains("1:15 · 4.0 MB"), "missing video metadata:\n{text}");
-    assert!(text.contains("Crux beta · /tmp/send.mp4"), "missing caption + path:\n{text}");
+    assert!(
+        text.contains("2/2 · send.mp4"),
+        "missing gallery position header:\n{text}"
+    );
+    assert!(
+        text.contains("▶ Video · send.mp4"),
+        "missing video headline:\n{text}"
+    );
+    assert!(
+        text.contains("1:15 · 4.0 MB"),
+        "missing video metadata:\n{text}"
+    );
+    assert!(
+        text.contains("Crux beta · /tmp/send.mp4"),
+        "missing caption + path:\n{text}"
+    );
     assert_drawable(&compatible(state), 120, 30);
 }
 

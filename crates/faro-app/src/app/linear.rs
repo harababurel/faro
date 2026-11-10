@@ -278,7 +278,10 @@ pub fn format_backend_event(
             sender,
             emoji,
         } => {
-            if state.summary(*conversation).is_some_and(|s| s.state.blocked) {
+            if state
+                .summary(*conversation)
+                .is_some_and(|s| s.state.blocked)
+            {
                 return Vec::new();
             }
             let chat_prefix = background_prefix(state, *conversation);
@@ -302,7 +305,10 @@ pub fn format_backend_event(
             mentions,
             edited_at,
         } => {
-            if state.summary(*conversation).is_some_and(|s| s.state.blocked) {
+            if state
+                .summary(*conversation)
+                .is_some_and(|s| s.state.blocked)
+            {
                 return Vec::new();
             }
             let time = format_timestamp(*edited_at, tz);
@@ -322,7 +328,10 @@ pub fn format_backend_event(
             conversation,
             target,
         } => {
-            if state.summary(*conversation).is_some_and(|s| s.state.blocked) {
+            if state
+                .summary(*conversation)
+                .is_some_and(|s| s.state.blocked)
+            {
                 return Vec::new();
             }
             let chat_prefix = background_prefix(state, *conversation);
@@ -521,7 +530,11 @@ pub fn choose_initial_conversation(state: &State) -> Option<ConversationId> {
     state
         .list
         .cursor
-        .filter(|id| state.summary(*id).is_some_and(|s| s.last_activity.is_some()))
+        .filter(|id| {
+            state
+                .summary(*id)
+                .is_some_and(|s| s.last_activity.is_some())
+        })
         .or_else(|| state.listed_in(SidebarView::Chats).next().map(|c| c.id))
 }
 
@@ -561,7 +574,9 @@ pub fn on_app_event(
     let mut effects = update::update(state, event);
     let mut lines = Vec::new();
 
-    if loaded_event || (!state.loading && state.open.is_none() && !*printed_banner && sync_checkpoint) {
+    if loaded_event
+        || (!state.loading && state.open.is_none() && !*printed_banner && sync_checkpoint)
+    {
         if let Some(id) = choose_initial_conversation(state) {
             effects.extend(update::open_conversation(state, id));
         } else if state.open.is_none()
@@ -698,7 +713,11 @@ pub fn handle_line(
                     return (effects, lines);
                 }
                 if let Some(target_id) = resolve_chat_target(state, arg) {
-                    if state.open.as_ref().is_some_and(|o| o.id == target_id && !o.loading) {
+                    if state
+                        .open
+                        .as_ref()
+                        .is_some_and(|o| o.id == target_id && !o.loading)
+                    {
                         let title = clean_one_line(state, &state.conversation_title(target_id));
                         lines.push(format!("# Chat: {title}"));
                         if let Some(open) = &state.open {
@@ -779,10 +798,7 @@ pub fn handle_line(
                 }
                 effects.extend(slash::execute(state, trimmed));
                 if matches!(state.popup, Some(Popup::About)) {
-                    lines.push(format!(
-                        "* faro {} — linear mode",
-                        crate::version::shown()
-                    ));
+                    lines.push(format!("* faro {} — linear mode", crate::version::shown()));
                 }
             }
         }
@@ -896,11 +912,7 @@ fn format_reactions(state: &State, message: &Message) -> String {
         .map(|emoji| {
             let n = counts.get(emoji).copied().unwrap_or(0);
             let emoji = clean_one_line(state, emoji);
-            if n > 1 {
-                format!("{emoji} {n}")
-            } else {
-                emoji
-            }
+            if n > 1 { format!("{emoji} {n}") } else { emoji }
         })
         .collect::<Vec<_>>()
         .join(", ")
@@ -1063,17 +1075,8 @@ mod tests {
         let m3 = text(bob(), BOB, 1_700_000_120_000, "third");
 
         // Even if passed out of order, format_history emits oldest first and respects limit.
-        let lines = format_history(
-            &state,
-            &[m3.clone(), m1.clone(), m2.clone()],
-            2,
-            &tz,
-            now,
-        );
-        assert_eq!(
-            lines,
-            vec!["22:14 You: second", "22:15 Bob: third"]
-        );
+        let lines = format_history(&state, &[m3.clone(), m1.clone(), m2.clone()], 2, &tz, now);
+        assert_eq!(lines, vec!["22:14 You: second", "22:15 Bob: third"]);
     }
 
     #[test]
@@ -1095,7 +1098,14 @@ mod tests {
         assert_eq!(lines, vec!["22:13 [Bob] Bob: deploying now"]);
 
         // Reaction in active chat (`climbing()`).
-        let target = state.open.as_ref().unwrap().messages.last().unwrap().reference();
+        let target = state
+            .open
+            .as_ref()
+            .unwrap()
+            .messages
+            .last()
+            .unwrap()
+            .reference();
         let target_hm = format_hm(target.sent_at, &tz);
         let target_author = state.person_name(target.sender);
         let (_, lines) = on_app_event(
@@ -1131,7 +1141,10 @@ mod tests {
             &tz,
             now,
         );
-        assert_eq!(lines, vec![format!("22:14 {target_author} (edited): updated text")]);
+        assert_eq!(
+            lines,
+            vec![format!("22:14 {target_author} (edited): updated text")]
+        );
 
         // Deletion in active chat.
         let (_, lines) = on_app_event(
@@ -1159,7 +1172,10 @@ mod tests {
         // `/chats` lists visible conversations.
         let (_, lines) = handle_line(&mut state, "/chats", &tz, now);
         assert_eq!(lines[0], "* Conversations:");
-        assert!(lines.iter().any(|l| l.contains("* Climbing 🧗")), "{lines:?}");
+        assert!(
+            lines.iter().any(|l| l.contains("* Climbing 🧗")),
+            "{lines:?}"
+        );
 
         // Sending plain text appends and prints the outgoing message line.
         let (effects, lines) = handle_line(&mut state, "hello screen reader", &tz, now);

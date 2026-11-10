@@ -13,6 +13,8 @@ mod tests;
 
 use std::fmt;
 
+use faro_core::domain::TextStyle;
+
 use crate::app::term_event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 pub use self::chord::KeyChord;
@@ -61,6 +63,8 @@ pub enum Action {
     DownloadAttachment,
     OpenAttachment,
     SaveAttachment,
+    /// `S`: reveal or hide spoilers on the selected message (D177).
+    ToggleSpoiler,
     Popup(PopupKey),
     /// `Alt+1`…`Alt+9`: open the Nth pinned conversation.
     JumpToPinned(u8),
@@ -167,6 +171,8 @@ pub enum Edit {
     LineEnd,
     Up,
     Down,
+    /// Toggle a text style (`Ctrl+B/I/U/E/S`, D177).
+    Format(TextStyle),
 }
 
 /// Rows per mouse wheel notch.
@@ -485,6 +491,12 @@ pub fn palette_action(keymap: &Keymap, key: KeyEvent) -> Option<Action> {
             let Some(Action::Edit(edit)) = keymap.lookup(key, Focus::Input) else {
                 return None;
             };
+            if matches!(edit, Edit::Format(_)) {
+                if (key.code, modifiers) == (KeyCode::Char('u'), KeyModifiers::CONTROL) {
+                    return Some(Action::Palette(PaletteKey::Edit(Edit::DeleteToLineStart)));
+                }
+                return None;
+            }
             if matches!(edit, Edit::NewLine | Edit::Up | Edit::Down) {
                 return None;
             }

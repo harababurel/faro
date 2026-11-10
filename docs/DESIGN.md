@@ -216,8 +216,9 @@ presage keeps its own store for keys, sessions and protocol state; faro never to
 | `recipients` | service_id (PK), contact name, profile name, phone (nullable), nickname (D65), safety_number, verified (`default`/`verified`/`unverified`), key_changed (D163) |
 | `conversations` | id (PK; `direct:<service id>` or `group:<hex>`), kind (direct/group), peer (direct: recipient), title (groups), last_activity, unread_count, disappearing_timer (seconds, nullable; D165) |
 | `group_members` | group_id, service_id |
-| `conversation_state` | conversation_id, **hidden**, **archived**, **pinned** (order), **muted_until**, draft text, **allowed** (allowlist, D41), **message_request**, **blocked** (D176) |
-| `messages` | id, conversation_id, sender, sent_at (sender's timestamp), received_at, body, quote_sender, quote_sent_at, quote_preview, edited_at, deleted, direction, status (sending/sent/delivered/read/failed; outgoing only), expires_in_secs (nullable), expire_started_at (nullable; D165), system_event (nullable; D167) |
+| `conversation_state` | conversation_id, **hidden**, **archived**, **pinned** (order), **muted_until**, draft text, draft_styles (D177), **allowed** (allowlist, D41), **message_request**, **blocked** (D176) |
+| `messages` | id, conversation_id, sender, sent_at (sender's timestamp), received_at, body, quote_sender, quote_sent_at, quote_preview, quote_styles (D177), edited_at, deleted, direction, status (sending/sent/delivered/read/failed; outgoing only), expires_in_secs (nullable), expire_started_at (nullable; D165), system_event (nullable; D167) |
+| `message_styles` | message_id, start_byte, length_bytes, style (`bold`/`italic`/`spoiler`/`strikethrough`/`monospace`; D177) |
 | `reactions` | message_id, sender, emoji (one per sender) |
 | `attachments` | id, message_id, backend_id, content_type, file_name, size, local_path (nullable), width, height, status (remote/downloaded/failed; D75) |
 | `app_state` | key/value: sidebar widths, last open conversation, etc. |
@@ -313,10 +314,11 @@ Chosen to avoid tmux's default prefix (`Ctrl+B`) and common terminal shortcuts. 
 | `Tab` / `Shift+Tab` | Cycle focus between panes (conversations, messages, input; D37) |
 | `Esc` | Close popup / remove staged file / cancel the reply / clear; back to the input; then close the open conversation (D37, D60, D77) |
 | `↑` (empty input) | Select the newest message (focuses the message pane, D40) |
-| `r` `y` `+` `o` `d` `v` `s` `T` | (In selection) reply, copy, react, open link, download / view / save attachment, view quote thread (`t` also opens the quote thread on non-voice-note messages; D40, D76, D166) |
+| `r` `y` `+` `o` `d` `v` `s` `S` `T` | (In selection) reply, copy, react, open link, download / view / save attachment, reveal/hide spoilers, view quote thread (`t` also opens the quote thread on non-voice-note messages; D40, D76, D166, D177) |
 | `Enter` | Send; in selection: open the message's action menu (D40) |
 | `Alt+Enter` | Newline (also `Ctrl+J`; `Shift+Enter` when the kitty keyboard protocol is available) (D38) |
-| `Ctrl+A/E`, `Alt+B/F`, `Ctrl+W`, `Alt+D`, `Ctrl+U/K` | Input editing: line start/end, word left/right, delete word back/forward, delete to line start/end; arrows, `Home/End` and `Alt`/`Ctrl`+arrows too (D38) |
+| `Ctrl+A/E`, `Alt+B/F`, `Ctrl+W`, `Alt+D`, `Alt+U`/`Ctrl+K` | Input editing: line start/end, word left/right, delete word back/forward, delete to line start/end; arrows, `Home/End` and `Alt`/`Ctrl`+arrows too (D38, D177) |
+| `Ctrl+B` / `Ctrl+I` / `Ctrl+U` / `Ctrl+E` / `Ctrl+S` | Input formatting: toggle bold, italic, strikethrough, monospace, or spoiler on the word at the cursor or upcoming typing (D177) |
 | `Alt+S` / `Alt+I` | Toggle left / right sidebar |
 | `Alt+,` / `Alt+.` | Conversation list narrower / wider (D156) |
 | `Alt+N` | Do not disturb: the bell off / on (D53) |

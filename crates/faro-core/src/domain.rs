@@ -14,8 +14,9 @@ pub use ids::{
 pub use message::{
     AttachmentId, AttachmentRef, AttachmentStatus, BodyPart, CallKind, CallState, DeliveryStatus,
     Direction, LONG_TEXT_MAX_BYTES, LONG_TEXT_MIME, LONG_TEXT_THRESHOLD, LinkPreview, Mention,
-    Message, Quote, Reaction, SystemEvent, TranscriptSource, format_byte_size,
-    format_disappearing_remaining, format_disappearing_timer, mention_parts, transcript_paragraph,
+    Message, Quote, Reaction, StyleFlags, StyleSpan, StyledSegment, SystemEvent, TextStyle,
+    TranscriptSource, format_byte_size, format_disappearing_remaining, format_disappearing_timer,
+    mask_spoilers, mention_parts, normalize_styles, styled_parts, transcript_paragraph,
     truncate_long_text,
 };
 pub use people::{

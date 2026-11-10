@@ -169,6 +169,16 @@ impl Message {
         !self.deleted && self.mentions.iter().any(|m| m.who == who)
     }
 
+    /// Whether the message's body contains any [`TextStyle::Spoiler`] span (D177).
+    pub fn has_spoilers(&self) -> bool {
+        !self.deleted
+            && self.body.as_ref().is_some_and(|b| {
+                b.styles()
+                    .iter()
+                    .any(|s| s.style == TextStyle::Spoiler && s.len > 0)
+            })
+    }
+
     /// When this message will expire and be deleted, if its countdown has started (D165).
     pub fn expires_at(&self) -> Option<Timestamp> {
         let secs = self.expires_in_secs.filter(|&s| s > 0)?;
@@ -191,11 +201,133 @@ pub struct Mention {
     pub len: usize,
 }
 
+/// Signal's five inline text styles (`BodyRange.style`, D177).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TextStyle {
+    Bold,
+    Italic,
+    Spoiler,
+    Strikethrough,
+    Monospace,
+}
+
+impl TextStyle {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Bold => "bold",
+            Self::Italic => "italic",
+            Self::Spoiler => "spoiler",
+            Self::Strikethrough => "strikethrough",
+            Self::Monospace => "monospace",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "bold" => Some(Self::Bold),
+            "italic" => Some(Self::Italic),
+            "spoiler" => Some(Self::Spoiler),
+            "strikethrough" => Some(Self::Strikethrough),
+            "monospace" => Some(Self::Monospace),
+            _ => None,
+        }
+    }
+}
+
+/// An inline [`TextStyle`] range in a [`MessageBody`], by UTF-8 byte offset
+/// and byte length (D177).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StyleSpan {
+    pub start: usize,
+    pub len: usize,
+    pub style: TextStyle,
+}
+
+impl StyleSpan {
+    pub const fn end(self) -> usize {
+        self.start.saturating_add(self.len)
+    }
+}
+
+/// Active [`TextStyle`]s on a segment of message text (D177).
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "StyleFlags represents 5 orthogonal inline text styles"
+)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StyleFlags {
+    pub bold: bool,
+    pub italic: bool,
+    pub spoiler: bool,
+    pub strikethrough: bool,
+    pub monospace: bool,
+}
+
+impl StyleFlags {
+    pub const fn is_empty(self) -> bool {
+        !self.bold && !self.italic && !self.spoiler && !self.strikethrough && !self.monospace
+    }
+
+    pub fn add(&mut self, style: TextStyle) {
+        match style {
+            TextStyle::Bold => self.bold = true,
+            TextStyle::Italic => self.italic = true,
+            TextStyle::Spoiler => self.spoiler = true,
+            TextStyle::Strikethrough => self.strikethrough = true,
+            TextStyle::Monospace => self.monospace = true,
+        }
+    }
+}
+
+/// Normalize style spans against `text`: drop empty or out-of-bounds spans or
+/// spans not on UTF-8 char boundaries, sort by `(style, start)`, merge
+/// overlapping or adjacent spans of the same style, and sort by `(start, len, style)`.
+pub fn normalize_styles(text: &str, spans: Vec<StyleSpan>) -> Vec<StyleSpan> {
+    let mut valid: Vec<StyleSpan> = spans
+        .into_iter()
+        .filter(|s| {
+            let Some(end) = s.start.checked_add(s.len) else {
+                return false;
+            };
+            s.len > 0
+                && end <= text.len()
+                && text.is_char_boundary(s.start)
+                && text.is_char_boundary(end)
+        })
+        .collect();
+    if valid.is_empty() {
+        return valid;
+    }
+    valid.sort_by_key(|s| (s.style, s.start, s.len));
+    let mut merged: Vec<StyleSpan> = Vec::with_capacity(valid.len());
+    for span in valid {
+        if let Some(last) = merged.last_mut()
+            && last.style == span.style
+            && span.start <= last.end()
+        {
+            let new_end = last.end().max(span.end());
+            last.len = new_end - last.start;
+        } else {
+            merged.push(span);
+        }
+    }
+    merged.sort_by_key(|s| (s.start, s.len, s.style));
+    merged
+}
+
 /// A piece of a message body: text as written, or a mention to draw as a name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BodyPart<'a> {
     Text(&'a str),
     Mention(ServiceId),
+}
+
+/// One piece of a message body after splitting out valid [`Mention`]s and
+/// [`StyleSpan`]s (D177).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StyledSegment<'a> {
+    Text(&'a str, StyleFlags),
+    Mention(ServiceId, StyleFlags),
 }
 
 /// `body` cut into text and mentions, in order. Mentions that don't fit the
@@ -227,6 +359,129 @@ pub fn mention_parts<'a>(body: &'a str, mentions: &[Mention]) -> Vec<BodyPart<'a
         parts.push(BodyPart::Text(rest));
     }
     parts
+}
+
+/// Split `body` into [`StyledSegment`]s carrying their active [`StyleFlags`]
+/// and [`Mention`]s (D177).
+pub fn styled_parts<'a>(body: &'a MessageBody, mentions: &[Mention]) -> Vec<StyledSegment<'a>> {
+    let text = body.expose();
+    let styles = body.styles();
+    if mentions.is_empty() && styles.is_empty() {
+        if text.is_empty() {
+            return Vec::new();
+        }
+        return vec![StyledSegment::Text(text, StyleFlags::default())];
+    }
+    let mut sorted_mentions: Vec<&Mention> = mentions.iter().collect();
+    sorted_mentions.sort_by_key(|m| (m.start, m.len));
+    let mut valid_mentions = Vec::with_capacity(sorted_mentions.len());
+    let mut m_end = 0;
+    for mention in sorted_mentions {
+        let Some(end) = mention.start.checked_add(mention.len) else {
+            continue;
+        };
+        if mention.start < m_end || mention.len == 0 {
+            continue;
+        }
+        if text.get(mention.start..end).is_some() {
+            m_end = end;
+            valid_mentions.push(*mention);
+        }
+    }
+
+    let flags_for = |start: usize, end: usize| -> StyleFlags {
+        let mut flags = StyleFlags::default();
+        for s in styles {
+            if s.start < end && s.end() > start {
+                flags.add(s.style);
+            }
+        }
+        flags
+    };
+
+    let mut cuts = vec![0, text.len()];
+    for m in &valid_mentions {
+        cuts.push(m.start);
+        cuts.push(m.start + m.len);
+    }
+    for s in styles {
+        if text.is_char_boundary(s.start) && text.is_char_boundary(s.end()) {
+            cuts.push(s.start);
+            cuts.push(s.end());
+        }
+    }
+    cuts.sort_unstable();
+    cuts.dedup();
+
+    let mut out = Vec::new();
+    let mut at = 0;
+    let mut m_idx = 0;
+    while at < text.len() {
+        if let Some(m) = valid_mentions.get(m_idx) {
+            if m.start == at {
+                let end = m.start + m.len;
+                out.push(StyledSegment::Mention(m.who, flags_for(m.start, end)));
+                at = end;
+                m_idx += 1;
+                continue;
+            } else if m.start < at {
+                m_idx += 1;
+                continue;
+            }
+        }
+        let next_cut = cuts.iter().copied().find(|&c| c > at).unwrap_or(text.len());
+        let next_end = match valid_mentions.get(m_idx) {
+            Some(m) if m.start > at => next_cut.min(m.start),
+            _ => next_cut,
+        };
+        if let Some(slice) = text.get(at..next_end)
+            && !slice.is_empty()
+        {
+            out.push(StyledSegment::Text(slice, flags_for(at, next_end)));
+        }
+        at = next_end;
+    }
+    out
+}
+
+/// Mask any [`TextStyle::Spoiler`] spans in `body` with `'░'` characters so
+/// previews and notifications never leak hidden spoiler text (D177).
+pub fn mask_spoilers(body: &MessageBody) -> String {
+    let spoilers: Vec<StyleSpan> = body
+        .styles()
+        .iter()
+        .copied()
+        .filter(|s| s.style == TextStyle::Spoiler)
+        .collect();
+    let text = body.expose();
+    if spoilers.is_empty() {
+        return text.to_owned();
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut at = 0;
+    for span in spoilers {
+        let end = span.end().min(text.len());
+        if span.start < at || !text.is_char_boundary(span.start) || !text.is_char_boundary(end) {
+            continue;
+        }
+        if let Some(before) = text.get(at..span.start) {
+            out.push_str(before);
+        }
+        if let Some(secret) = text.get(span.start..end) {
+            for ch in secret.chars() {
+                if ch == '\n' {
+                    out.push('\n');
+                } else {
+                    out.push('░');
+                }
+            }
+        }
+        at = end;
+    }
+    if let Some(rest) = text.get(at..) {
+        out.push_str(rest);
+    }
+    out
 }
 
 /// Who wrote the message, from this account's point of view. Messages sent from
@@ -690,5 +945,78 @@ mod tests {
             "Bună ziua, salutări. Vă transmit un mesaj vocal pentru funcția de transcriere."
         );
         assert_eq!(transcript_paragraph(" \n "), "");
+    }
+
+    #[test]
+    fn styled_parts_and_spoiler_masking() {
+        let alice = ServiceId::Aci(Uuid::from_u128(1));
+        let body = MessageBody::with_styles(
+            "hi \u{FFFC} secret code",
+            vec![
+                StyleSpan {
+                    start: 0,
+                    len: 6,
+                    style: TextStyle::Bold,
+                },
+                StyleSpan {
+                    start: 3,
+                    len: 3,
+                    style: TextStyle::Italic,
+                },
+                StyleSpan {
+                    start: 7,
+                    len: 6,
+                    style: TextStyle::Spoiler,
+                },
+                StyleSpan {
+                    start: 14,
+                    len: 4,
+                    style: TextStyle::Monospace,
+                },
+            ],
+        );
+        let mentions = [Mention {
+            who: alice,
+            start: 3,
+            len: 3,
+        }];
+        let parts = styled_parts(&body, &mentions);
+        assert_eq!(
+            parts,
+            vec![
+                StyledSegment::Text(
+                    "hi ",
+                    StyleFlags {
+                        bold: true,
+                        ..StyleFlags::default()
+                    }
+                ),
+                StyledSegment::Mention(
+                    alice,
+                    StyleFlags {
+                        bold: true,
+                        italic: true,
+                        ..StyleFlags::default()
+                    }
+                ),
+                StyledSegment::Text(" ", StyleFlags::default()),
+                StyledSegment::Text(
+                    "secret",
+                    StyleFlags {
+                        spoiler: true,
+                        ..StyleFlags::default()
+                    }
+                ),
+                StyledSegment::Text(" ", StyleFlags::default()),
+                StyledSegment::Text(
+                    "code",
+                    StyleFlags {
+                        monospace: true,
+                        ..StyleFlags::default()
+                    }
+                ),
+            ]
+        );
+        assert_eq!(mask_spoilers(&body), "hi \u{FFFC} ░░░░░░ code");
     }
 }

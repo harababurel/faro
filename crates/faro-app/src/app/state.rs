@@ -11,8 +11,9 @@ use faro_core::config::{
 };
 use faro_core::domain::{
     AttachmentRef, BodyPart, CallKind, CallState, ConnectionState, Contact, ConversationId,
-    Direction, Group, GroupId, IdentityRecord, LinkedDevice, Message, MessageRef, Quote, ServiceId,
-    SystemEvent, Timestamp, format_disappearing_timer, mention_parts,
+    Direction, Group, GroupId, IdentityRecord, LinkedDevice, Mention, Message, MessageBody,
+    MessageRef, Quote, ServiceId, StyleSpan, StyledSegment, SystemEvent, TextStyle, Timestamp,
+    format_disappearing_timer, mention_parts, styled_parts,
 };
 use faro_core::rt::Instant;
 use faro_core::store::{ConversationSummary, NotifyLevel, Profile, RecipientReceipt};
@@ -312,6 +313,8 @@ pub struct OpenConversation {
     /// Incoming messages not yet marked read: receipts wait until they've been
     /// seen (`State::seeing_open`, D42).
     pub unreceipted: Vec<MessageRef>,
+    /// Messages in this conversation whose spoiler spans have been revealed (D177).
+    pub revealed_spoilers: HashSet<MessageRef>,
     /// We told the others we're typing here.
     pub typing_sent: Option<TypingSent>,
 }
@@ -735,6 +738,7 @@ pub enum MessageAction {
     OpenAttachment { index: usize, name: String },
     SaveAttachment { index: usize, name: String },
     CopyAttachmentPath { index: usize, name: String },
+    ToggleSpoiler { revealed: bool },
     Retry,
 }
 
@@ -759,6 +763,8 @@ impl MessageAction {
             Self::OpenAttachment { name, .. } => (format!("Open {name} with system viewer"), "v"),
             Self::SaveAttachment { name, .. } => (format!("Save {name} to Downloads"), "s"),
             Self::CopyAttachmentPath { name, .. } => (format!("Copy path of {name}"), ""),
+            Self::ToggleSpoiler { revealed: true } => ("Hide spoilers".to_owned(), "S"),
+            Self::ToggleSpoiler { revealed: false } => ("Reveal spoilers".to_owned(), "S"),
             Self::Retry => ("Retry sending".to_owned(), ""),
         }
     }
@@ -1579,6 +1585,86 @@ impl State {
         }
     }
 
+    /// Whether spoiler spans in `message` have been revealed in the open conversation (D177).
+    pub fn is_spoiler_revealed(&self, message: MessageRef) -> bool {
+        self.open
+            .as_ref()
+            .is_some_and(|o| o.revealed_spoilers.contains(&message))
+    }
+
+    /// A message's text with spoiler spans masked as `░`, for sidebar previews
+    /// and desktop notifications so spoilers never leak before being revealed (D177).
+    pub fn preview_body(&self, message: &Message) -> Option<String> {
+        if let Some(event) = &message.system_event {
+            return Some(self.system_event_text(message, event));
+        }
+        if let Some(body) = message.body.as_ref() {
+            return Some(
+                styled_parts(body, &message.mentions)
+                    .into_iter()
+                    .map(|seg| {
+                        let (text, flags) = match seg {
+                            StyledSegment::Text(t, flags) => (t.to_owned(), flags),
+                            StyledSegment::Mention(who, flags) => (self.mention_name(who), flags),
+                        };
+                        if flags.spoiler {
+                            text.chars()
+                                .map(|c| if c == '\n' { '\n' } else { '░' })
+                                .collect()
+                        } else {
+                            text
+                        }
+                    })
+                    .collect(),
+            );
+        }
+        self.readable_body(message)
+    }
+
+    /// Expand `@Name` mentions in `body` while shifting its `StyleSpan`s to
+    /// match the expanded text (D177).
+    pub fn expand_mentions(&self, body: &MessageBody, mentions: &[Mention]) -> MessageBody {
+        let mut out = String::with_capacity(body.expose().len());
+        let mut spans = Vec::new();
+        for seg in styled_parts(body, mentions) {
+            let start = out.len();
+            let flags = match seg {
+                StyledSegment::Text(t, flags) => {
+                    out.push_str(t);
+                    flags
+                }
+                StyledSegment::Mention(who, flags) => {
+                    out.push_str(&self.mention_name(who));
+                    flags
+                }
+            };
+            let len = out.len() - start;
+            if len == 0 {
+                continue;
+            }
+            for (on, style) in [
+                (flags.bold, TextStyle::Bold),
+                (flags.italic, TextStyle::Italic),
+                (flags.spoiler, TextStyle::Spoiler),
+                (flags.strikethrough, TextStyle::Strikethrough),
+                (flags.monospace, TextStyle::Monospace),
+            ] {
+                if on {
+                    spans.push(StyleSpan { start, len, style });
+                }
+            }
+        }
+        MessageBody::with_styles(out, spans)
+    }
+
+    /// A message's text for quoting (`r`), preserving inline styles and spoilers (D177).
+    pub fn quoted_body(&self, message: &Message) -> Option<MessageBody> {
+        if let Some(body) = message.body.as_ref() {
+            return Some(self.expand_mentions(body, &message.mentions));
+        }
+        self.readable_body(message).map(MessageBody::new)
+    }
+
     /// A message's text as people read it: system events (D167), mentions
     /// written as `@Name` (D72), or a voice note's transcript if there is no
     /// text body (D82). For copying and quoting; drawing styles the names too
@@ -1620,6 +1706,16 @@ impl State {
                 BodyPart::Mention(who) => self.mention_name(who),
             })
             .collect()
+    }
+
+    /// An [`Input`] populated with `message`'s body, `@Name` mentions, and
+    /// inline [`StyleSpan`]s for editing (D177).
+    pub fn editable_input(&self, message: &Message) -> Input {
+        let Some(body) = message.body.as_ref() else {
+            return Input::default();
+        };
+        let expanded = self.expand_mentions(body, &message.mentions);
+        Input::with_styles(expanded.expose(), expanded.styles().to_vec())
     }
 
     /// Up to 5 participants in the open conversation matching the active

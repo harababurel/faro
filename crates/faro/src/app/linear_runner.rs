@@ -193,10 +193,7 @@ where
 /// Filter out TUI-only terminal escape/bell/avatar effects before dispatching
 /// to `router`.
 fn dispatch_linear(router: &Router, effects: Vec<Effect>, state: &State) {
-    let filtered: Vec<Effect> = effects
-        .into_iter()
-        .filter(allow_effect_in_linear)
-        .collect();
+    let filtered: Vec<Effect> = effects.into_iter().filter(allow_effect_in_linear).collect();
     router.dispatch(filtered, state);
 }
 
@@ -230,6 +227,7 @@ const fn allow_effect_in_linear(effect: &Effect) -> bool {
         | Effect::LoadMessageReceipts { .. }
         | Effect::Persist(_)
         | Effect::SaveAttachment { .. }
+        | Effect::InlineLongText { .. }
         | Effect::MarkRead(_)
         | Effect::ReadElsewhere(_)
         | Effect::SweepExpired(_)

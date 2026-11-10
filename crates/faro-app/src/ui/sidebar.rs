@@ -693,7 +693,7 @@ fn preview_spans(
     {
         return push(
             "Draft: ",
-            draft.expose(),
+            &faro_core::domain::mask_spoilers(draft),
             Style::new().fg(theme.warning),
             theme.muted(),
         );
@@ -742,7 +742,7 @@ fn message_preview(state: &State, message: &Message) -> String {
     let body = message
         .body
         .as_ref()
-        .and_then(|_| state.readable_body(message))
+        .and_then(|_| state.preview_body(message))
         .filter(|text| !text.trim().is_empty());
     match (attachment, body) {
         (Some(_), Some(text)) => format!("📎 {text}"),

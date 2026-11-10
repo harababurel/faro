@@ -51,7 +51,7 @@ struct Row {
     /// `sender`'s string form, the sort key SQL uses.
     sender_key: String,
     sent_at: Timestamp,
-    body: Option<String>,
+    body: Option<MessageBody>,
     quote: Option<Quote>,
     edited_at: Option<Timestamp>,
     deleted: bool,
@@ -89,7 +89,7 @@ impl Row {
             sender: self.sender,
             sent_at: self.sent_at,
             direction: self.direction,
-            body: self.body.clone().map(MessageBody::new),
+            body: self.body.clone(),
             mentions: self.mentions.values().copied().collect(),
             quote: self.quote.clone(),
             previews: self.previews.clone(),
@@ -315,7 +315,7 @@ impl Mem {
             sender: message.sender,
             sender_key: message.sender.to_string(),
             sent_at: message.sent_at,
-            body: message.body.as_ref().map(|b| b.expose().to_owned()),
+            body: message.body.clone(),
             quote: message.quote.clone(),
             edited_at: message.edited_at,
             deleted: message.deleted,
@@ -488,7 +488,7 @@ impl Mem {
         for mention in mentions {
             check_mention(mention)?;
         }
-        row.body = Some(body.expose().to_owned());
+        row.body = Some(body.clone());
         row.edited_at = Some(edited_at);
         row.mentions.clear();
         insert_mentions(&mut row.mentions, mentions);
@@ -754,7 +754,11 @@ impl Mem {
     fn row_matches_search(&self, row: &Row, parsed: &super::search::SearchQuery) -> bool {
         use super::search::{HasFilter, IsFilter};
 
-        let body = row.body.as_deref().unwrap_or("").to_ascii_lowercase();
+        let body = row
+            .body
+            .as_ref()
+            .map_or("", MessageBody::expose)
+            .to_ascii_lowercase();
         if !row_matches_terms(row, &body, &parsed.terms) {
             return false;
         }
@@ -940,7 +944,14 @@ impl Mem {
     ) -> Result<()> {
         timestamp_to_db(message.sent_at)?;
         if let Some(row) = self.row_mut(message) {
-            row.body = Some(body.expose().to_owned());
+            let mut updated = body.clone();
+            if let Some(prev) = &row.body
+                && !prev.styles().is_empty()
+                && updated.styles().is_empty()
+            {
+                updated.set_styles(prev.styles().to_vec());
+            }
+            row.body = Some(updated);
             row.attachments
                 .retain(|a| !a.content_type.eq_ignore_ascii_case("text/x-signal-plain"));
         }

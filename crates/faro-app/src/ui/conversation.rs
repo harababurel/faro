@@ -426,6 +426,40 @@ fn long_draft_bar(
     inner.height = inner.height.saturating_sub(1);
 }
 
+fn input_block(
+    open: &OpenConversation,
+    theme: &crate::theme::Theme,
+    focused: bool,
+) -> Block<'static> {
+    let mut block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(theme.border(focused))
+        .style(theme.panel())
+        .padding(Padding::horizontal(1));
+    if !open.input.active_styles().is_empty() {
+        let badges: Vec<&str> = open
+            .input
+            .active_styles()
+            .iter()
+            .map(|s| match s {
+                faro_core::domain::TextStyle::Bold => "bold",
+                faro_core::domain::TextStyle::Italic => "italic",
+                faro_core::domain::TextStyle::Strikethrough => "strike",
+                faro_core::domain::TextStyle::Monospace => "mono",
+                faro_core::domain::TextStyle::Spoiler => "spoiler",
+            })
+            .collect();
+        block = block.title_bottom(
+            Line::from(Span::styled(
+                format!(" {} ", badges.join(" · ")),
+                Style::new().fg(theme.secondary),
+            ))
+            .alignment(Alignment::Right),
+        );
+    }
+    block
+}
+
 fn render_input(
     frame: &mut Frame<'_>,
     area: Rect,
@@ -436,11 +470,7 @@ fn render_input(
     focused: bool,
 ) {
     let theme = view.theme;
-    let block = Block::bordered()
-        .border_type(BorderType::Rounded)
-        .border_style(theme.border(focused))
-        .style(theme.panel())
-        .padding(Padding::horizontal(1));
+    let block = input_block(open, theme, focused);
     let mut inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -476,10 +506,10 @@ fn render_input(
 
     if let Some(quote) = &open.reply_to {
         let who = sanitize(&state.person_name(quote.target.sender)).into_owned();
-        let preview = quote
-            .preview
-            .as_ref()
-            .map_or_else(|| "…".to_owned(), |p| one_line(p.expose()));
+        let preview = quote.preview.as_ref().map_or_else(
+            || "…".to_owned(),
+            |p| one_line(&faro_core::domain::mask_spoilers(p)),
+        );
         let text = format!("↳ Replying to {who}: {preview}");
         let hint = "  esc cancel";
         let room = usize::from(inner.width).saturating_sub(hint.width());
@@ -519,9 +549,10 @@ fn render_input(
     let shown: Vec<Line<'static>> = layout
         .lines
         .iter()
+        .zip(&layout.line_starts)
         .skip(skip)
         .take(visible)
-        .map(|l| Line::from(l.clone()))
+        .map(|(l, &start)| style_input_line(l, start, open.input.styles(), theme))
         .collect();
     let cursor_row = row - skip;
     let cursor_col = column;
@@ -855,8 +886,70 @@ fn render_slash_popup(
 /// The input wrapped to the box, and where the cursor lands.
 struct InputLayout {
     lines: Vec<String>,
+    /// Start byte offset in `input.text()` for each line in `lines`.
+    line_starts: Vec<usize>,
     /// Row and display column of the cursor.
     cursor: (usize, usize),
+}
+
+fn style_input_line(
+    line: &str,
+    line_start: usize,
+    styles: &[faro_core::domain::StyleSpan],
+    theme: &crate::theme::Theme,
+) -> Line<'static> {
+    if line.is_empty() || styles.is_empty() {
+        return Line::from(Span::styled(line.to_owned(), Style::new().fg(theme.text)));
+    }
+    let line_end = line_start + line.len();
+    let local_styles: Vec<faro_core::domain::StyleSpan> = styles
+        .iter()
+        .filter_map(|s| {
+            let s_end = s.start.saturating_add(s.len);
+            let start = s.start.max(line_start);
+            let end = s_end.min(line_end);
+            (start < end).then_some(faro_core::domain::StyleSpan {
+                start: start - line_start,
+                len: end - start,
+                style: s.style,
+            })
+        })
+        .collect();
+    if local_styles.is_empty() {
+        return Line::from(Span::styled(line.to_owned(), Style::new().fg(theme.text)));
+    }
+    let body = faro_core::domain::MessageBody::with_styles(line, local_styles);
+    let spans: Vec<Span<'static>> = faro_core::domain::styled_parts(&body, &[])
+        .into_iter()
+        .map(|segment| {
+            let (text, flags) = match segment {
+                faro_core::domain::StyledSegment::Text(t, flags) => (t.to_owned(), flags),
+                faro_core::domain::StyledSegment::Mention(_, flags) => (String::new(), flags),
+            };
+            let fg = if flags.monospace {
+                theme.secondary
+            } else if flags.spoiler {
+                theme.text_muted
+            } else {
+                theme.text
+            };
+            let mut style = Style::new().fg(fg);
+            if flags.bold {
+                style = style.add_modifier(Modifier::BOLD);
+            }
+            if flags.italic {
+                style = style.add_modifier(Modifier::ITALIC);
+            }
+            if flags.strikethrough {
+                style = style.add_modifier(Modifier::CROSSED_OUT);
+            }
+            if flags.spoiler {
+                style = style.add_modifier(Modifier::UNDERLINED);
+            }
+            Span::styled(text, style)
+        })
+        .collect();
+    Line::from(spans)
 }
 
 /// Wrap input on words, as messages are (`text::edit_breaks`, D153), keeping
@@ -875,6 +968,7 @@ fn layout_input(input: &Input, width: usize) -> InputLayout {
     }
     let mut breaks = breaks.into_iter().peekable();
     let mut lines = vec![String::new()];
+    let mut line_starts = vec![0];
     let mut used = 0;
     let mut cursor = None;
     for (at, g) in text.grapheme_indices(true) {
@@ -883,6 +977,7 @@ fn layout_input(input: &Input, width: usize) -> InputLayout {
                 cursor = Some((lines.len() - 1, used));
             }
             lines.push(String::new());
+            line_starts.push(at + g.len());
             used = 0;
             continue;
         }
@@ -892,6 +987,7 @@ fn layout_input(input: &Input, width: usize) -> InputLayout {
         }
         if wraps {
             lines.push(String::new());
+            line_starts.push(at);
             used = 0;
         }
         if at == input.cursor() {
@@ -905,12 +1001,17 @@ fn layout_input(input: &Input, width: usize) -> InputLayout {
     let cursor = cursor.unwrap_or_else(|| {
         if used >= width {
             lines.push(String::new());
+            line_starts.push(text.len());
             (lines.len() - 1, 0)
         } else {
             (lines.len() - 1, used)
         }
     });
-    InputLayout { lines, cursor }
+    InputLayout {
+        lines,
+        line_starts,
+        cursor,
+    }
 }
 
 #[cfg(test)]

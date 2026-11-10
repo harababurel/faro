@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use super::{Result, StoreError};
 use crate::domain::{
     AttachmentStatus, CallKind, CallState, ConversationId, DeliveryStatus, Direction, ServiceId,
-    SystemEvent, Timestamp, TranscriptSource, VerificationState,
+    SystemEvent, TextStyle, Timestamp, TranscriptSource, VerificationState,
 };
 
 /// `direct:<service id>` or `group:<hex>` (`ConversationId`'s string form).
@@ -143,6 +143,10 @@ pub(super) fn transcript_source_from_db(source: &str) -> Result<TranscriptSource
 
 pub(super) fn verification_from_db(value: &str) -> Result<VerificationState> {
     VerificationState::parse(value).ok_or(StoreError::Corrupt("recipients.verified"))
+}
+
+pub(super) fn text_style_from_db(value: &str) -> Result<TextStyle> {
+    TextStyle::parse(value).ok_or(StoreError::Corrupt("message_styles.style"))
 }
 
 pub(super) fn system_event_to_db(event: &SystemEvent) -> String {

@@ -643,7 +643,7 @@ pub(super) fn save_draft(state: &mut State) -> Vec<Effect> {
     }
     let id = open.id;
     let draft = (!open.input.is_empty() && !crate::app::slash::is_slash_input(open.input.text()))
-        .then(|| MessageBody::new(open.input.text()));
+        .then(|| MessageBody::with_styles(open.input.text(), open.input.styles().to_vec()));
     match summary_entry(state, id) {
         Some(summary) => {
             summary.state.draft = draft;
@@ -677,7 +677,11 @@ pub fn open_conversation(state: &mut State, id: ConversationId) -> Vec<Effect> {
     let mut draft = None;
     if let Some(summary) = state.conversations.iter_mut().find(|c| c.id == id) {
         unread = std::mem::take(&mut summary.unread);
-        draft = summary.state.draft.as_ref().map(|d| Input::new(d.expose()));
+        draft = summary
+            .state
+            .draft
+            .as_ref()
+            .map(|d| Input::with_styles(d.expose(), d.styles().to_vec()));
     }
     if unread > 0 {
         effects.push(Effect::MarkRead(id));
@@ -708,6 +712,7 @@ pub fn open_conversation(state: &mut State, id: ConversationId) -> Vec<Effect> {
         slash_dismissed_for: None,
         staged_attachment: None,
         unreceipted: Vec::new(),
+        revealed_spoilers: std::collections::HashSet::new(),
         typing_sent: None,
     });
     effects

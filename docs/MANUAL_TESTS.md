@@ -817,5 +817,14 @@ Notes (version, OS, terminal, what went wrong):
 
 Notes (version, OS, terminal, what went wrong):
 
+## Text styles and spoilers (D177)
+
+- [ ] **Demo styled messages & spoilers:** run `faro demo` and open *Scranton Branch* or *Jim Halpert*: Dwight's fire-drill announcement renders `ATTENTION.` in bold and `1500 hours` in secondary-coloured monospace; Jim's message renders its spoiler span masked as `░░░░░░░░░░░░░` in muted text, and the sidebar preview also masks the spoiler as `░` without leaking it.
+- [ ] **Reveal & hide spoilers (`S` / `v` / menu):** select a message containing a spoiler (`↑` or click) and press `S` (or `v`, or `Enter` › *Reveal spoilers*): the `░` mask is replaced by the underlined spoiler text; press `S` again (or *Hide spoilers*) to re-mask it.
+- [ ] **Compose & send text styles (`Ctrl+B`, `Ctrl+I`, `Ctrl+U`, `Ctrl+E`, `Ctrl+S`):** in the input box, press `Ctrl+B` (bold), `Ctrl+I` (italic), `Ctrl+U` (strikethrough), `Ctrl+E` (monospace), or `Ctrl+S` (spoiler) either before typing (an active badge `bold · mono …` appears on the bottom-right of the input border) or while the cursor touches a word: the word renders with that style live in the input box. Send the message (`Enter`): the styles render in the timeline, survive a restart (`faro.db`), preserve across message edits (`e`), and arrive on linked Signal devices as native Signal `BodyRange` formatting.
+
+Notes (version, OS, terminal, what went wrong):
+
+
 
 

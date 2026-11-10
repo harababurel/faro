@@ -12,7 +12,7 @@ use super::*;
 use crate::backend::{Backend as _, BackendEvent};
 use crate::domain::{
     AttachmentId, AttachmentRef, ConnectionState, DeliveryStatus, Direction, GroupId, LinkPreview,
-    Mention, Quote, Reaction, ServiceId,
+    Mention, Quote, Reaction, ServiceId, StyleSpan, TextStyle,
 };
 use crate::mock::{MockBackend, MockConfig};
 
@@ -530,25 +530,53 @@ async fn mentions_are_kept_replaced_by_edits_and_dropped_on_delete(kind: Kind) {
     };
     let mut message = incoming(group(), ALICE, 100, "\u{FFFC} and \u{FFFC}");
     message.mentions = vec![mention(ME, 0), mention(BOB, 8)];
+    message.body = Some(MessageBody::with_styles(
+        "\u{FFFC} and \u{FFFC}",
+        vec![
+            StyleSpan {
+                start: 4,
+                len: 3,
+                style: TextStyle::Bold,
+            },
+            StyleSpan {
+                start: 8,
+                len: 3,
+                style: TextStyle::Spoiler,
+            },
+        ],
+    ));
     let store = store_with(kind, std::slice::from_ref(&message)).await;
     let stored = only_message(&store, group()).await;
     assert_eq!(stored.mentions, message.mentions);
+    assert_eq!(stored.body, message.body);
 
-    let edit = |body: &str, mentions, at| BackendEvent::Edited {
+    let edit = |body: MessageBody, mentions, at| BackendEvent::Edited {
         conversation: group(),
         target: message.reference(),
-        body: MessageBody::new(body),
+        body,
         mentions,
         edited_at: ts(at),
     };
+    let edited_body = MessageBody::with_styles(
+        "hi \u{FFFC}",
+        vec![StyleSpan {
+            start: 0,
+            len: 2,
+            style: TextStyle::Monospace,
+        }],
+    );
     store
-        .apply(edit("hi \u{FFFC}", vec![mention(BOB, 3)], 300))
+        .apply(edit(edited_body.clone(), vec![mention(BOB, 3)], 300))
         .await
         .unwrap();
-    // Older than the applied edit: changes nothing, mentions included.
-    store.apply(edit("old", vec![], 200)).await.unwrap();
+    // Older than the applied edit: changes nothing, mentions and styles included.
+    store
+        .apply(edit(MessageBody::new("old"), vec![], 200))
+        .await
+        .unwrap();
     let stored = only_message(&store, group()).await;
     assert_eq!(stored.mentions, vec![mention(BOB, 3)]);
+    assert_eq!(stored.body, Some(edited_body));
 
     store
         .apply(BackendEvent::Deleted {
@@ -557,7 +585,9 @@ async fn mentions_are_kept_replaced_by_edits_and_dropped_on_delete(kind: Kind) {
         })
         .await
         .unwrap();
-    assert_eq!(only_message(&store, group()).await.mentions, vec![]);
+    let deleted = only_message(&store, group()).await;
+    assert_eq!(deleted.mentions, vec![]);
+    assert_eq!(deleted.body, None);
 }
 
 async fn conversations_are_ordered_and_titled(kind: Kind) {

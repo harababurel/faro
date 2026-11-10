@@ -138,10 +138,11 @@ Press **`F1`** for every key, or search them in the palette. Every key can be re
 | `e`, `D` | Edit, delete (your own messages) |
 | `y`, `o`, `i` | Copy, open link, info and receipts |
 | `d`, `v`, `s` | Download, view, save an attachment to `Downloads` |
+| `S` | Reveal or hide spoilers on the selected message |
 | `x`, `t` / `T` | Play / stop, transcribe a voice note / view quote thread |
 | `/`, `u` | Search, jump to unread |
 
-**Input:** `@name` and `:shortcode:` complete inline; readline keys (`Ctrl+A`/`E`/`U`/`K`/`W`, `Alt+B`/`F`/`D`); `Ctrl+J` is a new line too.
+**Input:** `@name` and `:shortcode:` complete inline; `Ctrl+B`/`I`/`U`/`E`/`S` format bold, italic, strikethrough, monospace and spoilers; readline keys (`Ctrl+A`/`K`/`W`, `Alt+B`/`F`/`D`/`U`); `Ctrl+J` is a new line too.
 
 </details>
 

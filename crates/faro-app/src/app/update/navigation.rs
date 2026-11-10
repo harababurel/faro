@@ -75,6 +75,7 @@ pub fn on_action(state: &mut State, action: Action) -> Vec<Effect> {
         Action::DownloadAttachment => return selection::download_attachment(state),
         Action::OpenAttachment => return selection::open_attachment(state),
         Action::SaveAttachment => return selection::save_attachment(state),
+        Action::ToggleSpoiler => return selection::toggle_spoiler(state),
         Action::Popup(key) => return selection::on_popup(state, key),
         Action::JumpToPinned(n) => return curation::jump_to_pinned(state, n),
         Action::Curate(curate) => return curation::on_curate(state, curate),
@@ -326,7 +327,7 @@ fn escape(state: &mut State) -> Vec<Effect> {
         let restored = state
             .summary(id)
             .and_then(|s| s.state.draft.as_ref())
-            .map(|d| Input::new(d.expose()))
+            .map(|d| Input::with_styles(d.expose(), d.styles().to_vec()))
             .unwrap_or_default();
         if let Some(open) = state.open.as_mut() {
             open.input = restored;
@@ -365,11 +366,12 @@ fn focus_input(state: &mut State) -> Vec<Effect> {
     effects
 }
 
-/// Whether the text changed.
+/// Whether the text or its inline styling changed.
 fn apply_edit(state: &mut State, edit: Edit) -> bool {
     let Some(open) = state.open.as_mut() else {
         return false;
     };
+    let style_change = matches!(edit, Edit::Format(_));
     let changed = edit_input(&mut open.input, edit);
     if open.active_mention_token().map(|(at, _)| at) != open.mention_dismissed_at {
         open.mention_dismissed_at = None;
@@ -384,9 +386,12 @@ fn apply_edit(state: &mut State, edit: Edit) -> bool {
         open.mention_selected = 0;
         open.shortcode_selected = 0;
         open.slash_selected = 0;
-        if open.editing.is_none() && !crate::app::slash::is_slash_input(open.input.text()) {
-            open.draft_edited = Some(faro_core::rt::Instant::now());
-        }
+    }
+    if (changed || style_change)
+        && open.editing.is_none()
+        && !crate::app::slash::is_slash_input(open.input.text())
+    {
+        open.draft_edited = Some(faro_core::rt::Instant::now());
     }
     changed
 }
@@ -458,6 +463,10 @@ pub fn edit_input(input: &mut Input, edit: Edit) -> bool {
         }
         Edit::Down => {
             input.down();
+            false
+        }
+        Edit::Format(style) => {
+            input.toggle_style(style);
             false
         }
     };

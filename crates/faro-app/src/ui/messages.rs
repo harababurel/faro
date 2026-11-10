@@ -8,8 +8,8 @@ use std::collections::BTreeMap;
 
 use faro_core::config::{MessageDensity, TimestampFormat};
 use faro_core::domain::{
-    AttachmentStatus, BodyPart, DeliveryStatus, Direction, LinkPreview, Message, MessageRef,
-    Timestamp, mention_parts,
+    AttachmentStatus, DeliveryStatus, Direction, LinkPreview, Message, MessageBody, MessageRef,
+    StyledSegment, Timestamp, mask_spoilers, styled_parts,
 };
 use jiff::civil::Date;
 use ratatui::style::{Modifier, Style};
@@ -691,7 +691,7 @@ pub(super) fn content(
         let preview = quote
             .preview
             .as_ref()
-            .map_or_else(|| "…".to_owned(), |p| one_line(p.expose()));
+            .map_or_else(|| "…".to_owned(), |p| one_line(&mask_spoilers(p)));
         let text = format!("▎ {who}: {preview}");
         body.push(vec![Span::styled(
             truncate(&text, max).into_owned(),
@@ -706,7 +706,7 @@ pub(super) fn content(
         )]);
     } else {
         if let Some(text) = &message.body {
-            body.extend(text_lines(state, message, text.expose(), max, view));
+            body.extend(text_lines(state, message, text, max, view));
         }
         push_link_previews(&message.previews, max, theme.muted(), &mut body);
     }
@@ -967,28 +967,68 @@ fn transcript_lines(
 }
 
 /// A message's text wrapped to `max` cells, mentions drawn as `@Name` in
-/// the accent colour, and mentions of this account reversed (D72).
+/// the accent colour (own mentions reversed, D72), inline `StyleSpan`s mapped
+/// onto ratatui modifiers, and unrevealed spoilers masked as `░` (D177).
 fn text_lines(
     state: &State,
     message: &Message,
-    text: &str,
+    body: &MessageBody,
     max: usize,
     view: &View<'_>,
 ) -> Vec<Vec<Span<'static>>> {
     let theme = view.theme;
-    let plain = Style::new().fg(theme.text);
-    let mention = Style::new().fg(theme.accent).add_modifier(Modifier::BOLD);
-    let names: Vec<(String, Style)> = mention_parts(text, &message.mentions)
-        .into_iter()
-        .map(|part| match part {
-            BodyPart::Text(text) => (text.to_owned(), plain),
-            BodyPart::Mention(who) if who == state.me => (
+    let revealed = state.is_spoiler_revealed(message.reference());
+    let mut names: Vec<(String, Style)> = Vec::new();
+    for segment in styled_parts(body, &message.mentions) {
+        let flags = match segment {
+            StyledSegment::Text(_, f) | StyledSegment::Mention(_, f) => f,
+        };
+        if flags.spoiler && !revealed {
+            let raw = match segment {
+                StyledSegment::Text(text, _) => text.to_owned(),
+                StyledSegment::Mention(who, _) => state.mention_name(who),
+            };
+            let masked: String = raw
+                .chars()
+                .map(|c| if c == '\n' { '\n' } else { '░' })
+                .collect();
+            names.push((masked, theme.muted()));
+            continue;
+        }
+        let (text, mut style) = match segment {
+            StyledSegment::Text(text, _) => {
+                let fg = if flags.monospace {
+                    theme.secondary
+                } else {
+                    theme.text
+                };
+                (text.to_owned(), Style::new().fg(fg))
+            }
+            StyledSegment::Mention(who, _) if who == state.me => (
                 state.mention_name(who),
-                mention.add_modifier(Modifier::REVERSED),
+                Style::new()
+                    .fg(theme.accent)
+                    .add_modifier(Modifier::BOLD | Modifier::REVERSED),
             ),
-            BodyPart::Mention(who) => (state.mention_name(who), mention),
-        })
-        .collect();
+            StyledSegment::Mention(who, _) => (
+                state.mention_name(who),
+                Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
+            ),
+        };
+        if flags.bold {
+            style = style.add_modifier(Modifier::BOLD);
+        }
+        if flags.italic {
+            style = style.add_modifier(Modifier::ITALIC);
+        }
+        if flags.strikethrough {
+            style = style.add_modifier(Modifier::CROSSED_OUT);
+        }
+        if flags.spoiler {
+            style = style.add_modifier(Modifier::UNDERLINED);
+        }
+        names.push((text, style));
+    }
     let pieces: Vec<(&str, Style)> = names.iter().map(|(t, s)| (t.as_str(), *s)).collect();
     wrap_pieces(&pieces, max)
         .into_iter()
@@ -1018,7 +1058,7 @@ pub(super) fn thread_body(
         )]);
     } else {
         if let Some(text) = &message.body {
-            body.extend(text_lines(state, message, text.expose(), max, view));
+            body.extend(text_lines(state, message, text, max, view));
         }
         push_link_previews(&message.previews, max, theme.muted(), &mut body);
     }

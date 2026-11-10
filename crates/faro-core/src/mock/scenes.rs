@@ -12,6 +12,7 @@
 
 use super::assets::Asset;
 use super::cast::{Chat, GroupKey, Who};
+use crate::domain::{StyleSpan, TextStyle};
 
 /// A short conversation in one chat.
 pub(super) struct Scene {
@@ -27,6 +28,7 @@ pub(super) struct Line {
     pub(super) who: Who,
     /// May be empty when the line is only an attachment.
     pub(super) text: &'static str,
+    pub(super) styles: &'static [StyleSpan],
     pub(super) attach: Option<Asset>,
     /// Index of an earlier line in this scene that this one quotes.
     pub(super) reply_to: Option<u8>,
@@ -51,6 +53,7 @@ const fn say(who: Who, text: &'static str) -> Line {
     Line {
         who,
         text,
+        styles: &[],
         attach: None,
         reply_to: None,
         mention: None,
@@ -60,6 +63,11 @@ const fn say(who: Who, text: &'static str) -> Line {
 }
 
 impl Line {
+    const fn styled(mut self, styles: &'static [StyleSpan]) -> Self {
+        self.styles = styles;
+        self
+    }
+
     const fn with(mut self, asset: Asset) -> Self {
         self.attach = Some(asset);
         self
@@ -191,7 +199,18 @@ pub(super) const SCENES: &[Scene] = &[
             say(Jim, "Hey. Quick question. How do you feel about jello?"),
             say(Me, "...positive?"),
             say(Jim, "Great. Dwight's at the dentist until 2.").with(Asset::Stapler),
-            say(Jim, "I need someone to keep watch by the copier 👀"),
+            say(Jim, "I need someone to keep watch by the copier 👀").styled(&[
+                StyleSpan {
+                    start: 18,
+                    len: 10,
+                    style: TextStyle::Bold,
+                },
+                StyleSpan {
+                    start: 29,
+                    len: 13,
+                    style: TextStyle::Spoiler,
+                },
+            ]),
             say(Me, "I'm in"),
             say(Jim, "Welcome to the team.")
                 .reply(4)
@@ -212,7 +231,19 @@ pub(super) const SCENES: &[Scene] = &[
             say(
                 Jim,
                 "Just say \"the eagle has landed\" whenever he walks past. Trust me.",
-            ),
+            )
+            .styled(&[
+                StyleSpan {
+                    start: 10,
+                    len: 20,
+                    style: TextStyle::Spoiler,
+                },
+                StyleSpan {
+                    start: 56,
+                    len: 9,
+                    style: TextStyle::Italic,
+                },
+            ]),
             say(Me, "The eagle has landed?").reply(4),
             say(Jim, "Perfect. He's going to lose it.").react(&[(Me, "😂")]),
         ],
@@ -512,11 +543,29 @@ pub(super) const SCENES: &[Scene] = &[
             say(
                 Dwight,
                 "ATTENTION. Unannounced fire drill at 1500 hours. This is the announcement.",
-            ),
+            )
+            .styled(&[
+                StyleSpan {
+                    start: 0,
+                    len: 10,
+                    style: TextStyle::Bold,
+                },
+                StyleSpan {
+                    start: 37,
+                    len: 10,
+                    style: TextStyle::Monospace,
+                },
+            ]),
             say(Oscar, "You can't announce an unannounced drill, Dwight.")
                 .edit("You can't announce an unannounced drill, Dwight. Por favor.")
                 .react(&[(Jim, "😂"), (Angela, "👎")]),
-            say(Dwight, "fire extinguisher duty is yours. Do NOT lose it.").at(Me),
+            say(Dwight, "fire extinguisher duty is yours. Do NOT lose it.")
+                .at(Me)
+                .styled(&[StyleSpan {
+                    start: 36,
+                    len: 3,
+                    style: TextStyle::Bold,
+                }]),
             say(Me, "Where is it?"),
             say(Dwight, "That is what the drill is for.").reply(3),
             say(Stanley, "I'm not moving for a drill.").reply(0),

@@ -2243,4 +2243,3 @@ auto_lock_mins = 5
     );
     assert_eq!(level(&state), Level::Doctor);
 }
-

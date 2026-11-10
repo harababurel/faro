@@ -1,6 +1,8 @@
 //! The default key map (DESIGN.md §7.6, D13, D36–D41) and the config names of
 //! the bindable actions.
 
+use faro_core::domain::TextStyle;
+
 use super::Context::{Conversations, Global, Input, Messages};
 use super::{Action, Context, Curate, Edit};
 
@@ -246,6 +248,31 @@ pub const NAMES: &[(&str, &str, Action)] = &[
         Action::Edit(Edit::Up),
     ),
     ("input.down", "Line down", Action::Edit(Edit::Down)),
+    (
+        "input.bold",
+        "Bold text",
+        Action::Edit(Edit::Format(TextStyle::Bold)),
+    ),
+    (
+        "input.italic",
+        "Italic text",
+        Action::Edit(Edit::Format(TextStyle::Italic)),
+    ),
+    (
+        "input.strikethrough",
+        "Strikethrough text",
+        Action::Edit(Edit::Format(TextStyle::Strikethrough)),
+    ),
+    (
+        "input.monospace",
+        "Monospace text",
+        Action::Edit(Edit::Format(TextStyle::Monospace)),
+    ),
+    (
+        "input.spoiler",
+        "Spoiler text",
+        Action::Edit(Edit::Format(TextStyle::Spoiler)),
+    ),
     ("message.older", "Select older message", Action::SelectOlder),
     ("message.newer", "Select newer message", Action::SelectNewer),
     (
@@ -296,6 +323,11 @@ pub const NAMES: &[(&str, &str, Action)] = &[
         "attachments.save",
         "Save attachment to Downloads",
         Action::SaveAttachment,
+    ),
+    (
+        "message.spoiler",
+        "Reveal or hide spoilers",
+        Action::ToggleSpoiler,
     ),
     ("message.search", "Search messages", Action::SearchMessages),
     ("message.jump_unread", "Jump to unread", Action::JumpUnread),
@@ -361,7 +393,7 @@ pub const BINDINGS: &[(Context, &str, Action)] = &[
     ),
     (Input, "alt+d", Action::Edit(Edit::DeleteWordForward)),
     (Input, "ctrl+delete", Action::Edit(Edit::DeleteWordForward)),
-    (Input, "ctrl+u", Action::Edit(Edit::DeleteToLineStart)),
+    (Input, "alt+u", Action::Edit(Edit::DeleteToLineStart)),
     (Input, "ctrl+k", Action::Edit(Edit::DeleteToLineEnd)),
     (Input, "left", Action::Edit(Edit::Left)),
     (Input, "right", Action::Edit(Edit::Right)),
@@ -374,9 +406,29 @@ pub const BINDINGS: &[(Context, &str, Action)] = &[
     (Input, "home", Action::Edit(Edit::LineStart)),
     (Input, "ctrl+a", Action::Edit(Edit::LineStart)),
     (Input, "end", Action::Edit(Edit::LineEnd)),
-    (Input, "ctrl+e", Action::Edit(Edit::LineEnd)),
     (Input, "up", Action::Edit(Edit::Up)),
     (Input, "down", Action::Edit(Edit::Down)),
+    (Input, "ctrl+b", Action::Edit(Edit::Format(TextStyle::Bold))),
+    (
+        Input,
+        "ctrl+i",
+        Action::Edit(Edit::Format(TextStyle::Italic)),
+    ),
+    (
+        Input,
+        "ctrl+u",
+        Action::Edit(Edit::Format(TextStyle::Strikethrough)),
+    ),
+    (
+        Input,
+        "ctrl+e",
+        Action::Edit(Edit::Format(TextStyle::Monospace)),
+    ),
+    (
+        Input,
+        "ctrl+s",
+        Action::Edit(Edit::Format(TextStyle::Spoiler)),
+    ),
     // Moving through the list, and curating it (D41).
     (Conversations, "up", Action::PreviousConversation),
     (Conversations, "k", Action::PreviousConversation),
@@ -427,6 +479,7 @@ pub const BINDINGS: &[(Context, &str, Action)] = &[
     (Messages, "d", Action::DownloadAttachment),
     (Messages, "v", Action::OpenAttachment),
     (Messages, "s", Action::SaveAttachment),
+    (Messages, "S", Action::ToggleSpoiler),
     (Messages, "/", Action::SearchMessages),
     (Messages, "u", Action::JumpUnread),
     (Messages, "?", Action::Help),

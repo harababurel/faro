@@ -3664,6 +3664,112 @@ fn media_gallery_browses_images_stickers_and_videos_with_jk_and_plays_video() {
     assert_eq!(selected_ref(&state), Some(sticker_ref));
 }
 
+#[test]
+fn compose_and_reveal_text_styles_and_spoilers() {
+    use faro_core::domain::{StyleSpan, TextStyle};
+
+    let mut state = loaded_state();
+    // 1. Compose with `@bo` + Tab (`@Bob `), then `Ctrl+E` (Monospace) on `cargo`, then `Ctrl+S` (Spoiler) on `secret`.
+    for c in "@bo".chars() {
+        press(&mut state, c);
+    }
+    update(&mut state, key(KeyCode::Tab, KeyModifiers::NONE));
+    for c in "run ".chars() {
+        press(&mut state, c);
+    }
+    update(&mut state, key(KeyCode::Char('e'), KeyModifiers::CONTROL));
+    for c in "cargo".chars() {
+        press(&mut state, c);
+    }
+    update(&mut state, key(KeyCode::Char('e'), KeyModifiers::CONTROL));
+    press(&mut state, ' ');
+    for c in "secret".chars() {
+        press(&mut state, c);
+    }
+    // Toggle Spoiler on the word `secret` touching the cursor.
+    update(&mut state, key(KeyCode::Char('s'), KeyModifiers::CONTROL));
+
+    let effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    // `@Bob` (4 bytes) becomes U+FFFC (3 bytes), so subsequent style offsets shift by -1:
+    // "\u{FFFC} run " is 3 + 5 = 8 bytes -> "cargo" is 8..13 (Monospace), "secret" is 14..20 (Spoiler).
+    let expected_styles = vec![
+        StyleSpan {
+            start: 8,
+            len: 5,
+            style: TextStyle::Monospace,
+        },
+        StyleSpan {
+            start: 14,
+            len: 6,
+            style: TextStyle::Spoiler,
+        },
+    ];
+    let sent_ref = effects
+        .iter()
+        .find_map(|e| {
+            if let Effect::Backend(Command::Send { message, .. }) = e {
+                assert_eq!(message.body.expose(), "\u{FFFC} run cargo secret");
+                assert_eq!(message.body.styles(), expected_styles.as_slice());
+                Some(MessageRef {
+                    sender: ME,
+                    sent_at: message.sent_at,
+                })
+            } else {
+                None
+            }
+        })
+        .expect("Send command emitted");
+
+    // 2. Preview body masks spoiler text as `░` while keeping mentions and non-spoiler text readable.
+    let stored_msg = state
+        .open
+        .as_ref()
+        .unwrap()
+        .messages
+        .iter()
+        .find(|m| m.reference() == sent_ref)
+        .unwrap()
+        .clone();
+    assert_eq!(
+        state.preview_body(&stored_msg).as_deref(),
+        Some("@Bob run cargo ░░░░░░")
+    );
+
+    // 3. Selecting the message offers `ToggleSpoiler { revealed: false }`; pressing `S` reveals it.
+    update(&mut state, key(KeyCode::Up, KeyModifiers::NONE));
+    assert!(!state.is_spoiler_revealed(sent_ref));
+    assert!(
+        super::selection::actions(&state, &stored_msg)
+            .contains(&crate::app::state::MessageAction::ToggleSpoiler { revealed: false })
+    );
+    update(&mut state, key(KeyCode::Char('S'), KeyModifiers::SHIFT));
+    assert!(state.is_spoiler_revealed(sent_ref));
+    assert!(
+        super::selection::actions(&state, &stored_msg)
+            .contains(&crate::app::state::MessageAction::ToggleSpoiler { revealed: true })
+    );
+
+    // 4. Editing (`e`) expands `@Bob` back into the input while shifting the style spans to match.
+    update(&mut state, key(KeyCode::Char('e'), KeyModifiers::NONE));
+    let input = &state.open.as_ref().unwrap().input;
+    assert_eq!(input.text(), "@Bob run cargo secret");
+    assert_eq!(
+        input.styles(),
+        &[
+            StyleSpan {
+                start: 9,
+                len: 5,
+                style: TextStyle::Monospace,
+            },
+            StyleSpan {
+                start: 15,
+                len: 6,
+                style: TextStyle::Spoiler,
+            },
+        ]
+    );
+}
+
 mod clipboard;
 mod curation;
 mod focus;
