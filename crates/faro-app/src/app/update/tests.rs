@@ -3497,6 +3497,120 @@ fn cold_open_loads_messages_around_when_anchor_is_older_than_first_page() {
     );
 }
 
+#[test]
+fn media_gallery_browses_images_stickers_and_videos_with_jk_and_plays_video() {
+    use faro_core::config::AutoDownload;
+    use faro_core::domain::{AttachmentRef, AttachmentStatus};
+    use std::path::PathBuf;
+
+    let mut state = loaded_state();
+    state.config.media.auto_download = AutoDownload::Off;
+
+    let first_ref = state
+        .open
+        .as_ref()
+        .unwrap()
+        .messages
+        .iter()
+        .find(|m| !m.attachments.is_empty())
+        .unwrap()
+        .reference();
+
+    // Add a remote sticker and a downloaded video clip to the conversation.
+    let mut sticker_msg = text(climbing(), ALICE, fixtures::NOW_MS + 100, "");
+    sticker_msg.body = None;
+    sticker_msg.attachments = vec![AttachmentRef {
+        file_name: None,
+        size: Some(12_345),
+        status: AttachmentStatus::Remote,
+        ..AttachmentRef::remote("att-sticker", "image/webp")
+    }];
+    let sticker_ref = sticker_msg.reference();
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::Message(sticker_msg)),
+    );
+
+    let video_path = PathBuf::from("/tmp/faro-test/send.mp4");
+    let mut video_msg = text(climbing(), BOB, fixtures::NOW_MS + 200, "crux sequence");
+    video_msg.attachments = vec![AttachmentRef {
+        file_name: Some("send.mp4".into()),
+        size: Some(4 * 1024 * 1024),
+        duration_secs: Some(75),
+        status: AttachmentStatus::Downloaded(video_path.clone()),
+        ..AttachmentRef::remote("att-video", "video/mp4")
+    }];
+    let video_ref = video_msg.reference();
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::Message(video_msg)),
+    );
+
+    // Open the media gallery via `/gallery`: starts on the newest visual media item (the video).
+    typed(&mut state, "/gallery");
+    let effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(effects, vec![]);
+    assert_eq!(
+        state.popup,
+        Some(Popup::ImageViewer {
+            target: video_ref,
+            index: 0,
+        })
+    );
+
+    // Pressing Enter on the downloaded video opens it in the system player without closing the gallery.
+    let effects = update(&mut state, key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(effects, vec![Effect::OpenFile(video_path)]);
+    assert_eq!(
+        state.popup,
+        Some(Popup::ImageViewer {
+            target: video_ref,
+            index: 0,
+        })
+    );
+
+    // Pressing `k` steps backward to the remote sticker and automatically queues its download.
+    let effects = press(&mut state, 'k');
+    assert_eq!(
+        state.popup,
+        Some(Popup::ImageViewer {
+            target: sticker_ref,
+            index: 0,
+        })
+    );
+    assert!(
+        effects.iter().any(|e| matches!(
+            e,
+            Effect::Backend(Command::Fetch { message, index: 0, .. }) if *message == sticker_ref
+        )),
+        "stepping onto a remote gallery item queues its fetch: {effects:?}"
+    );
+
+    // Pressing `k` again steps backward to the first image (`wall.jpg`).
+    press(&mut state, 'k');
+    assert_eq!(
+        state.popup,
+        Some(Popup::ImageViewer {
+            target: first_ref,
+            index: 0,
+        })
+    );
+
+    // Pressing `j` steps forward to the sticker, and `g` jumps to that message and closes the gallery.
+    press(&mut state, 'j');
+    assert_eq!(
+        state.popup,
+        Some(Popup::ImageViewer {
+            target: sticker_ref,
+            index: 0,
+        })
+    );
+    press(&mut state, 'g');
+    assert_eq!(state.popup, None);
+    assert_eq!(state.focus, Focus::Messages);
+    assert_eq!(selected_ref(&state), Some(sticker_ref));
+}
+
 mod clipboard;
 mod curation;
 mod focus;

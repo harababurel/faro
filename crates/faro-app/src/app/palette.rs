@@ -739,6 +739,8 @@ pub enum PaletteCommand {
     HideInactive(usize),
     /// Copy the local file path of a downloaded attachment on the selected message.
     CopyAttachmentPath,
+    /// Open the conversation's media gallery (`Popup::ImageViewer`, #21).
+    MediaGallery,
     /// Open message and transcript search (`Level::Search`).
     SearchMessages,
     /// Jump to the unread marker in the open conversation.
@@ -2580,6 +2582,7 @@ fn open_conversation_commands(state: &State) -> Vec<Item> {
             ItemKind::Level(Level::ChatLinks),
             "Links & files in this chat…",
         ),
+        command(PaletteCommand::MediaGallery, "Media gallery", None),
     ];
     request_and_block_commands(state, current, &mut items);
     if state.open.as_ref().and_then(|o| o.unread_marker).is_some() {

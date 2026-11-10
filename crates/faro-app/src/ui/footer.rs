@@ -138,7 +138,14 @@ const REACT_HINTS: &[(&str, &str)] = &[
 ];
 const REACT_SEARCH_HINTS: &[(&str, &str)] =
     &[("↑↓", "choose"), ("enter", "react"), ("esc", "close")];
-const IMAGE_VIEWER_HINTS: &[(&str, &str)] = &[("s", "save"), ("y", "copy path"), ("esc", "close")];
+const IMAGE_VIEWER_HINTS: &[(&str, &str)] = &[
+    ("j/k", "browse"),
+    ("g", "go to message"),
+    ("o", "open"),
+    ("s", "save"),
+    ("y", "copy path"),
+    ("esc", "close"),
+];
 const STAGED_IMAGE_HINTS: &[(&str, &str)] = &[("esc", "close")];
 const CONFIRM_DELETE_HINTS: &[(&str, &str)] = &[("enter/y", "delete"), ("esc/n", "cancel")];
 const CONFIRM_UNLINK_HINTS: &[(&str, &str)] = &[("enter/y", "unlink"), ("esc/n", "cancel")];

@@ -184,6 +184,14 @@ const COMMANDS: &[CommandSpec] = &[
         requires_arg: false,
     },
     CommandSpec {
+        name: "gallery",
+        aliases: &["media"],
+        arg_hint: "",
+        description: "Browse images, stickers, and videos in this chat",
+        takes_arg: false,
+        requires_arg: false,
+    },
+    CommandSpec {
         name: "unread",
         aliases: &[],
         arg_hint: "",
@@ -940,6 +948,11 @@ pub fn execute(state: &mut State, raw: &str) -> Vec<Effect> {
         "links" => {
             let effects = consume_input(state);
             palette::open(state, Level::ChatLinks);
+            effects
+        }
+        "gallery" => {
+            let mut effects = consume_input(state);
+            effects.extend(selection::open_media_gallery(state));
             effects
         }
         "unread" => {

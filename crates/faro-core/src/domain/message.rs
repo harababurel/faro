@@ -344,6 +344,17 @@ impl AttachmentRef {
         self.file_name.is_none() && self.content_type.eq_ignore_ascii_case("image/webp")
     }
 
+    /// Whether this attachment is a video clip (`video/*`).
+    pub fn is_video(&self) -> bool {
+        self.content_type.to_ascii_lowercase().starts_with("video/")
+    }
+
+    /// Whether this attachment belongs in the visual media gallery (images,
+    /// stickers, and videos; #21).
+    pub fn is_visual_media(&self) -> bool {
+        self.is_image() || self.is_video()
+    }
+
     /// Whether this attachment is a voice note (D80): explicitly flagged by
     /// Signal (`voice_note`), or an `audio/*` clip with no file name or a
     /// `voice-*` / `signal-voice*` file name.

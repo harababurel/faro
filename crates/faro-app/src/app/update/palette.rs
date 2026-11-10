@@ -967,6 +967,7 @@ fn run(state: &mut State, command: PaletteCommand) -> Vec<Effect> {
         (PaletteCommand::Conversation(_) | PaletteCommand::MuteFor(_), None) => vec![],
         (PaletteCommand::HideInactive(choice), _) => curation::hide_inactive(state, choice),
         (PaletteCommand::CopyAttachmentPath, _) => super::selection::copy_attachment_path(state),
+        (PaletteCommand::MediaGallery, _) => super::selection::open_media_gallery(state),
         (PaletteCommand::SearchMessages, target) => {
             open(state, Level::Search(target));
             vec![]
