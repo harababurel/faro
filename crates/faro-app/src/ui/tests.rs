@@ -2658,3 +2658,52 @@ fn message_request_and_blocked_banners_and_sidebar_sections() {
         "Info pane should show Silenced (blocked):\n{blocked_text}"
     );
 }
+
+#[test]
+fn media_gallery_renders_position_header_and_video_card() {
+    use crate::app::state::Popup;
+    use faro_core::backend::BackendEvent;
+    use faro_core::domain::{
+        AttachmentRef, AttachmentStatus, Direction, Message, MessageBody, Timestamp,
+    };
+    use std::path::PathBuf;
+
+    let mut state = loaded_state();
+    let video_msg = Message {
+        conversation: climbing(),
+        sender: fixtures::BOB,
+        sent_at: Timestamp::from_millis(NOW_MS + 1_000),
+        direction: Direction::Incoming,
+        body: Some(MessageBody::new("Crux beta")),
+        mentions: vec![],
+        quote: None,
+        attachments: vec![AttachmentRef {
+            file_name: Some("send.mp4".into()),
+            size: Some(4 * 1024 * 1024),
+            duration_secs: Some(75),
+            status: AttachmentStatus::Downloaded(PathBuf::from("/tmp/send.mp4")),
+            ..AttachmentRef::remote("att-vid", "video/mp4")
+        }],
+        reactions: vec![],
+        edited_at: None,
+        deleted: false,
+        expires_in_secs: None,
+        expire_started_at: None,
+        system_event: None,
+    };
+    let video_ref = video_msg.reference();
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::Message(video_msg)),
+    );
+    state.popup = Some(Popup::ImageViewer {
+        target: video_ref,
+        index: 0,
+    });
+    let text = snapshot(&draw(&state, 120, 30));
+    assert!(text.contains("2/2 · send.mp4"), "missing gallery position header:\n{text}");
+    assert!(text.contains("▶ Video · send.mp4"), "missing video headline:\n{text}");
+    assert!(text.contains("1:15 · 4.0 MB"), "missing video metadata:\n{text}");
+    assert!(text.contains("Crux beta · /tmp/send.mp4"), "missing caption + path:\n{text}");
+    assert_drawable(&compatible(state), 120, 30);
+}

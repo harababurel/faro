@@ -443,7 +443,7 @@ fn about(frame: &mut Frame<'_>, state: &State, view: &View<'_>) {
     frame.render_widget(Paragraph::new(lines), text_area);
 }
 
-/// `v` on a downloaded image (D76).
+/// `v` on a downloaded image or the conversation media gallery (#21, D76).
 fn attachment_viewer(
     frame: &mut Frame<'_>,
     state: &State,
@@ -452,25 +452,123 @@ fn attachment_viewer(
     geometry: &mut Geometry,
     view: &View<'_>,
 ) {
-    let Some(attachment) = state
+    let Some(message) = state
         .open
         .as_ref()
         .and_then(|o| o.messages.iter().rfind(|m| m.reference() == target))
-        .and_then(|m| m.attachments.get(index))
     else {
         return;
     };
+    let Some(attachment) = message.attachments.get(index) else {
+        return;
+    };
+    let media = crate::app::update::selection::chat_visual_media(state);
+    let pos_prefix = media
+        .iter()
+        .position(|&(m, i)| m == target && i == index)
+        .filter(|_| media.len() > 1)
+        .map_or_else(String::new, |pos| format!("{}/{} · ", pos + 1, media.len()));
+    let name = attachment.file_name.as_deref().map_or_else(
+        || {
+            if attachment.is_sticker() {
+                "sticker".to_owned()
+            } else {
+                attachment.content_type.clone()
+            }
+        },
+        |n| sanitize(n).into_owned(),
+    );
+    let sender = sanitize(&state.sender_name(message)).into_owned();
+    let time = format_hhmm(message.sent_at, view);
+    let caption = state
+        .readable_body(message)
+        .map(|b| one_line(&b))
+        .filter(|b| !b.trim().is_empty());
+    let detail_line = match (caption, attachment.local_path()) {
+        (Some(cap), Some(path)) => format!("{cap} · {}", path.display()),
+        (Some(cap), None) => cap,
+        (None, Some(path)) => path.display().to_string(),
+        (None, None) => String::new(),
+    };
+    let keys = if attachment.is_video() {
+        "j/k browse · Enter/o play · g go to message · s save · y copy path · Esc close"
+    } else if !attachment.is_downloaded() {
+        "j/k browse · d download · g go to message · s save · Esc close"
+    } else {
+        "j/k browse · g go to message · o open · s save · y copy path · Esc close"
+    };
+    let card = (!attachment.is_image() || !attachment.is_downloaded()).then(|| {
+        media_card_lines(
+            state,
+            target,
+            index,
+            attachment,
+            &name,
+            view,
+        )
+    });
     let shown = Shown {
-        name: attachment.file_name.as_deref().map_or_else(
-            || attachment.content_type.clone(),
-            |n| sanitize(n).into_owned(),
-        ),
+        title_prefix: pos_prefix,
+        name,
+        title_suffix: format!(" · {sender} · {time}"),
         width: attachment.width,
         height: attachment.height,
-        path: attachment.local_path(),
-        keys: "s save to Downloads · y copy path · Esc close",
+        path: attachment.local_path().filter(|_| attachment.is_image()),
+        card,
+        detail_line,
+        keys,
     };
     image_viewer(frame, state, &shown, geometry, view);
+}
+
+fn media_card_lines(
+    state: &State,
+    target: MessageRef,
+    index: usize,
+    attachment: &faro_core::domain::AttachmentRef,
+    name: &str,
+    view: &View<'_>,
+) -> Vec<Line<'static>> {
+    let theme = view.theme;
+    let headline = if attachment.is_video() {
+        format!("▶ Video · {name}")
+    } else {
+        format!("🖼 {name}")
+    };
+    let mut meta = Vec::new();
+    if let Some(secs) = attachment.duration_secs {
+        meta.push(faro_core::audio::format_duration(secs));
+    }
+    if let (Some(w), Some(h)) = (attachment.width, attachment.height)
+        && w > 0
+        && h > 0
+    {
+        meta.push(format!("{w}×{h}"));
+    }
+    if let Some(size) = attachment.size {
+        meta.push(format_byte_size(size));
+    }
+    let status = if state.is_downloading(target, index) {
+        "Downloading…"
+    } else if !attachment.is_downloaded() {
+        "Not downloaded · press d to download or s to save"
+    } else if state.env.over_ssh {
+        "Downloaded · press o or s to save to Downloads & copy path"
+    } else {
+        "Downloaded · press Enter or o to play in video player"
+    };
+    let mut lines = vec![Line::from(Span::styled(
+        headline,
+        Style::new().fg(theme.primary).add_modifier(Modifier::BOLD),
+    ))];
+    if !meta.is_empty() {
+        lines.push(Line::from(Span::styled(meta.join(" · "), theme.muted())));
+    }
+    lines.push(Line::from(Span::styled(
+        status,
+        Style::new().fg(theme.accent),
+    )));
+    lines
 }
 
 /// `Ctrl+O`: the staged image, before it's sent (D91).
@@ -483,22 +581,30 @@ fn staged_viewer(frame: &mut Frame<'_>, state: &State, geometry: &mut Geometry, 
         return;
     };
     let shown = Shown {
+        title_prefix: String::new(),
         name: sanitize(&staged.name).into_owned(),
+        title_suffix: String::new(),
         width: staged.width,
         height: staged.height,
         path: Some(staged.path.as_path()),
+        card: None,
+        detail_line: staged.path.display().to_string(),
         keys: "Not sent yet · Enter in the input sends it · Esc close",
     };
     image_viewer(frame, state, &shown, geometry, view);
 }
 
-/// An image for the full-size viewer: a downloaded attachment (`v`, D76) or
-/// the staged one before it's sent (`Ctrl+O`, D91).
+/// An image or media card for the full-size viewer: a chat attachment (`v`,
+/// D76 / #21) or the staged one before it's sent (`Ctrl+O`, D91).
 struct Shown<'a> {
+    title_prefix: String,
     name: String,
+    title_suffix: String,
     width: Option<u32>,
     height: Option<u32>,
     path: Option<&'a std::path::Path>,
+    card: Option<Vec<Line<'static>>>,
+    detail_line: String,
     /// The keys line under the image.
     keys: &'static str,
 }
@@ -523,50 +629,67 @@ fn image_viewer(
         (Some(w), Some(h)) if w > 0 && h > 0 => format!(" ({w}×{h})"),
         _ => String::new(),
     };
-    let title = format!("{}{dims}", shown.name);
+    let title = format!(
+        "{}{}{dims}{}",
+        shown.title_prefix, shown.name, shown.title_suffix
+    );
     let inner = frame_box(frame, rect, &title, view);
     let info_rows = 2u16.min(inner.height);
     let img_avail_h = inner.height.saturating_sub(info_rows);
     if img_avail_h > 0 && inner.width > 0 {
-        let size = match (shown.width, shown.height) {
-            (Some(w), Some(h)) if w > 0 && h > 0 => crate::app::image_cache::box_size(
-                w,
-                h,
-                view.images.font_size(),
-                inner.width,
-                img_avail_h,
-            ),
-            _ => ratatui::layout::Size::new(inner.width, img_avail_h),
-        };
-        let img_x = (inner.width.saturating_sub(size.width)) / 2;
-        let img_y = i16::try_from((img_avail_h.saturating_sub(size.height)) / 2).unwrap_or(0);
-        let img_clip = Rect {
-            height: img_avail_h,
-            ..inner
-        };
-        super::render_image_box(
-            frame,
-            state,
-            view,
-            geometry,
-            img_clip,
-            img_x,
-            img_y,
-            size.width,
-            size.height,
-            shown.path,
-            state.palette.is_some(),
-        );
+        if let Some(card) = &shown.card {
+            let card_h = u16::try_from(card.len()).unwrap_or(1).min(img_avail_h);
+            let card_area = Rect {
+                x: inner.x,
+                y: inner.y + img_avail_h.saturating_sub(card_h) / 2,
+                width: inner.width,
+                height: card_h,
+            };
+            frame.render_widget(
+                Paragraph::new(card.clone()).alignment(ratatui::layout::Alignment::Center),
+                card_area,
+            );
+        } else {
+            let size = match (shown.width, shown.height) {
+                (Some(w), Some(h)) if w > 0 && h > 0 => crate::app::image_cache::box_size(
+                    w,
+                    h,
+                    view.images.font_size(),
+                    inner.width,
+                    img_avail_h,
+                ),
+                _ => ratatui::layout::Size::new(inner.width, img_avail_h),
+            };
+            let img_x = (inner.width.saturating_sub(size.width)) / 2;
+            let img_y = i16::try_from((img_avail_h.saturating_sub(size.height)) / 2).unwrap_or(0);
+            let img_clip = Rect {
+                height: img_avail_h,
+                ..inner
+            };
+            super::render_image_box(
+                frame,
+                state,
+                view,
+                geometry,
+                img_clip,
+                img_x,
+                img_y,
+                size.width,
+                size.height,
+                shown.path,
+                state.palette.is_some(),
+            );
+        }
     }
-    let path_line = shown
-        .path
-        .map_or_else(String::new, |p| p.display().to_string());
     let info = vec![
         Line::from(Span::styled(
-            truncate(&sanitize(&path_line), usize::from(inner.width)).into_owned(),
+            truncate(&sanitize(&shown.detail_line), usize::from(inner.width)).into_owned(),
             view.theme.muted(),
         )),
-        Line::from(Span::styled(shown.keys, view.theme.muted())),
+        Line::from(Span::styled(
+            truncate(shown.keys, usize::from(inner.width)).into_owned(),
+            view.theme.muted(),
+        )),
     ];
     let info_area = Rect {
         y: inner.y + img_avail_h,

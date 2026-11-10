@@ -416,6 +416,55 @@ pub fn on_popup(state: &mut State, key: PopupKey) -> Vec<Effect> {
     }
 }
 
+/// Every visual media attachment (image, sticker, or video; #21) in the open
+/// conversation's non-deleted messages, in chronological order.
+pub fn chat_visual_media(state: &State) -> Vec<(MessageRef, usize)> {
+    let Some(open) = state.open.as_ref() else {
+        return Vec::new();
+    };
+    let mut media = Vec::new();
+    for message in open.messages.iter().filter(|m| !m.deleted) {
+        let msg_ref = message.reference();
+        for (index, att) in message.attachments.iter().enumerate() {
+            if att.is_visual_media() {
+                media.push((msg_ref, index));
+            }
+        }
+    }
+    media
+}
+
+/// Open the conversation's media gallery (`Popup::ImageViewer`) starting at the
+/// selected message's visual attachment if it has one, else the newest visual
+/// media item in the conversation (#21).
+pub fn open_media_gallery(state: &mut State) -> Vec<Effect> {
+    let media = chat_visual_media(state);
+    let Some(&newest) = media.last() else {
+        state.notice = Some(Notice::info("No images, stickers, or videos in this chat"));
+        return vec![];
+    };
+    let selected_msg = state.open.as_ref().and_then(|o| o.selected).map(|s| s.message);
+    let (target, index) = selected_msg
+        .and_then(|sel| media.iter().copied().find(|(m, _)| *m == sel))
+        .unwrap_or(newest);
+    if let Some(open) = state.open.as_mut() {
+        open.restored_anchor = None;
+        open.selected = Some(Selection {
+            message: target,
+            reveal: true,
+        });
+    }
+    state.popup = Some(Popup::ImageViewer { target, index });
+    let is_remote = find(state, target)
+        .and_then(|m| m.attachments.get(index))
+        .is_some_and(|a| a.status == AttachmentStatus::Remote && !a.id.0.is_empty());
+    if is_remote && !state.is_downloading(target, index) {
+        download_one(state, target, index, false)
+    } else {
+        vec![]
+    }
+}
+
 fn on_image_viewer_key(
     state: &mut State,
     target: MessageRef,
@@ -423,6 +472,52 @@ fn on_image_viewer_key(
     key: PopupKey,
 ) -> Vec<Effect> {
     match key {
+        PopupKey::Previous
+        | PopupKey::Next
+        | PopupKey::Char('h' | 'l' | 'p' | 'n') => {
+            let forward = matches!(key, PopupKey::Next | PopupKey::Char('l' | 'n'));
+            let media = chat_visual_media(state);
+            let (next_target, next_index) = media
+                .iter()
+                .position(|&(m, i)| m == target && i == index)
+                .and_then(|pos| media.get(cycle(pos, media.len(), forward)).copied())
+                .or_else(|| media.last().copied())
+                .unwrap_or((target, index));
+            if let Some(open) = state.open.as_mut() {
+                open.restored_anchor = None;
+                open.selected = Some(Selection {
+                    message: next_target,
+                    reveal: true,
+                });
+            }
+            state.popup = Some(Popup::ImageViewer {
+                target: next_target,
+                index: next_index,
+            });
+            let is_remote = find(state, next_target)
+                .and_then(|m| m.attachments.get(next_index))
+                .is_some_and(|a| a.status == AttachmentStatus::Remote && !a.id.0.is_empty());
+            if is_remote && !state.is_downloading(next_target, next_index) {
+                download_one(state, next_target, next_index, false)
+            } else {
+                vec![]
+            }
+        }
+        PopupKey::Char('g') => {
+            if let Some(open) = state.open.as_mut() {
+                open.restored_anchor = None;
+                open.selected = Some(Selection {
+                    message: target,
+                    reveal: true,
+                });
+            }
+            state.focus = Focus::Messages;
+            vec![]
+        }
+        PopupKey::Char('d') => {
+            state.popup = Some(Popup::ImageViewer { target, index });
+            download_one(state, target, index, true)
+        }
         PopupKey::Char('s') => {
             state.popup = Some(Popup::ImageViewer { target, index });
             save_one(state, target, index)
@@ -431,12 +526,30 @@ fn on_image_viewer_key(
             state.popup = Some(Popup::ImageViewer { target, index });
             copy_one_path(state, target, index)
         }
-        PopupKey::Char('o') if !state.env.over_ssh => {
+        PopupKey::Char('o') => {
             state.popup = Some(Popup::ImageViewer { target, index });
             open_one_with_system(state, target, index)
         }
-        PopupKey::Close | PopupKey::Choose | PopupKey::Char('q' | 'v') => vec![],
-        PopupKey::Previous | PopupKey::Next | PopupKey::Backspace | PopupKey::Char(_) => {
+        PopupKey::Choose => {
+            let is_video = find(state, target)
+                .and_then(|m| m.attachments.get(index))
+                .is_some_and(AttachmentRef::is_video);
+            if is_video {
+                state.popup = Some(Popup::ImageViewer { target, index });
+                let is_downloaded = find(state, target)
+                    .and_then(|m| m.attachments.get(index))
+                    .is_some_and(AttachmentRef::is_downloaded);
+                if is_downloaded {
+                    open_one_with_system(state, target, index)
+                } else {
+                    download_one(state, target, index, true)
+                }
+            } else {
+                vec![]
+            }
+        }
+        PopupKey::Close | PopupKey::Char('q' | 'v') => vec![],
+        PopupKey::Backspace | PopupKey::Char(_) => {
             state.popup = Some(Popup::ImageViewer { target, index });
             vec![]
         }
