@@ -5,11 +5,10 @@
 //! reactions just under it.
 //!
 //! Styles (`[messages] bubble_style`, D58, D66, D98):
-//! - **rounded**: a one-line bubble gets Powerline half-circle caps (U+E0B6,
-//!   U+E0B4) in place of its side cells, a capsule. A taller one is a rounded
-//!   rectangle drawn on a grid of octants (`bubbles/grid.rs`): half-cell sides,
-//!   quarter-row edges above and below, quarter circles at the corners.
-//!   `[messages] bubble_padding` adds a blank cell inside each rounded side.
+//! - **rounded**: a rounded rectangle drawn on a grid of octants
+//!   (`bubbles/grid.rs`): half-cell sides, quarter-row edges above and below,
+//!   quarter circles at the corners. `[messages] bubble_padding` adds a blank
+//!   cell inside each rounded side.
 //! - **bar**: a heavy bar `┃` on the bubble's outer side (left for others, in
 //!   the sender's colour; right for own messages, in the theme's primary) in
 //!   place of that side's padding cell, like OpenCode's message boxes.
@@ -18,7 +17,7 @@
 //! In compact density, rounded bubbles from one sender join (D98): they touch,
 //! share one edge on their aligned side, and a wider bubble's corner is drawn
 //! in its neighbour's row. The caller passes each bubble its neighbours'
-//! [`Outline`]s in a [`Run`]; one-line bubbles in a run are rectangles too.
+//! [`Outline`]s in a [`Run`].
 //!
 //! `auto` is rounded only where the terminal draws those glyphs itself
 //! (kitty); fonts often lack them. The `system` theme (no bubble fill)
@@ -47,8 +46,6 @@ const MAX_SHARE: usize = 75;
 const MIN_WIDTH: usize = 20;
 /// Cells between the text and the time when they share a line.
 const META_GAP: usize = 2;
-/// A one-line rounded bubble's ends: left and right half circles (Powerline).
-const CAPS: [&str; 2] = ["\u{E0B6}", "\u{E0B4}"];
 /// The bar on a bubble's outer side (OpenCode's message border).
 pub(super) const BAR: &str = "\u{2503}";
 
@@ -251,8 +248,6 @@ pub(super) fn render(
         let sender = theme.sender(message.sender).fg.unwrap_or(theme.text);
         Span::styled(BAR, Style::new().bg(colour).fg(sender))
     };
-    let joined = run.above.is_some() || run.below.is_some();
-    let pill = frame.shape.rounds() && lines.len() == 1 && !joined;
     let bubble = Bubble {
         lines,
         inner,
@@ -260,10 +255,10 @@ pub(super) fn render(
         colour,
         bar,
     };
-    let (body_start, text_x) = if frame.shape == Shape::Bar || pill {
-        bubble.flat(&frame, pane, out)
-    } else {
+    let (body_start, text_x) = if frame.shape.rounds() {
         bubble.rounded(&frame, pane, run, out)
+    } else {
+        bubble.bar(pane, out)
     };
     let x = u16::try_from(text_x).unwrap_or(0);
     for pending in pending_images {
@@ -302,9 +297,10 @@ struct Bubble {
 }
 
 impl Bubble {
-    /// Bars, and one-line capsules: one row per line, a side cell each end.
-    /// Returns the first text row's index in `out` and the text's column.
-    fn flat(self, frame: &Frame, pane: usize, out: &mut Vec<Line<'static>>) -> (usize, usize) {
+    /// Bars: one row per line, the bar on the outer side and a padding cell on
+    /// the inner side. Returns the first text row's index in `out` and the
+    /// text's column.
+    fn bar(self, pane: usize, out: &mut Vec<Line<'static>>) -> (usize, usize) {
         let bg = Style::new().bg(self.colour);
         let margin = if self.own {
             pane.saturating_sub(self.inner + 2)
@@ -312,13 +308,10 @@ impl Bubble {
             0
         };
         let padding = Span::styled(" ", bg);
-        let cap = |glyph: &'static str| Span::styled(glyph, Style::new().fg(self.colour));
-        let (left, right) = match frame.shape {
-            Shape::Rounded => (cap(CAPS[0]), cap(CAPS[1])),
-            Shape::Bar if self.own => (padding, self.bar),
-            Shape::Bar => (self.bar, padding),
-            Shape::Mixed if self.own => (cap(CAPS[0]), self.bar),
-            Shape::Mixed => (self.bar, cap(CAPS[1])),
+        let (left, right) = if self.own {
+            (padding, self.bar)
+        } else {
+            (self.bar, padding)
         };
         let body_start = out.len();
         for spans in self.lines {

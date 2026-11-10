@@ -184,14 +184,14 @@ pub(super) fn octant(mask: u8) -> char {
 }
 
 /// Whether `symbol` is a glyph drawn on the pane's background around a
-/// rounded bubble (an octant pattern, a quarter circle or a Powerline cap).
+/// rounded bubble (an octant pattern or a quarter circle).
 pub(in crate::ui) fn is_edge(symbol: &str) -> bool {
     let mut chars = symbol.chars();
     let (Some(c), None) = (chars.next(), chars.next()) else {
         return false;
     };
     OLDER.iter().any(|(glyph, _)| *glyph == c)
-        || matches!(c, '\u{1CD00}'..='\u{1CDE5}' | '\u{1FBEC}'..='\u{1FBEF}' | '\u{E0B4}' | '\u{E0B6}')
+        || matches!(c, '\u{1CD00}'..='\u{1CDE5}' | '\u{1FBEC}'..='\u{1FBEF}')
 }
 
 #[cfg(test)]

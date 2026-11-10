@@ -789,27 +789,32 @@ fn auto_is_rounded_only_where_the_terminal_draws_the_glyphs() {
 }
 
 #[test]
-fn one_line_rounded_bubbles_have_half_circle_caps_in_their_colour() {
+fn one_line_rounded_bubbles_have_quarter_circle_corners_and_thin_edges() {
     let theme = Theme::default();
     let buffer = draw(&rounded(bubbles_state()), 100, 34);
     let (x, y) = find(&buffer, "On my way");
-    let pane = buffer[(x, y - 1)].bg;
-    let left = &buffer[(x - 1, y)];
-    assert_eq!(left.symbol(), "\u{E0B6}");
-    assert_eq!((left.fg, left.bg), (theme.bubble_own, pane));
-    let right = next(&buffer, x, y, "\u{E0B4}");
+    let pane = buffer[(x, y - 2)].bg;
+    let left = x - 2;
+    assert_eq!(buffer[(left, y)].symbol(), "▐");
+    assert_eq!(
+        (buffer[(left, y)].fg, buffer[(left, y)].bg),
+        (theme.bubble_own, pane)
+    );
+    assert_eq!(buffer[(x - 1, y)].bg, theme.bubble_own);
+    let right = next(&buffer, x, y, "▌");
     assert_eq!(buffer[(right, y)].fg, theme.bubble_own);
     assert_eq!(buffer[(right, y)].bg, pane);
     assert_eq!(buffer[(right - 1, y)].bg, theme.bubble_own);
-    // No edge rows around a one-line bubble.
-    for row in [y - 1, y + 1] {
-        assert!(
-            (0..buffer.area.width).all(|cx| !super::bubbles::is_edge(buffer[(cx, row)].symbol())),
-            "edge on row {row}"
-        );
+    assert_eq!(buffer[(left, y - 1)].symbol(), "\u{1FBEE}");
+    assert_eq!(buffer[(right, y - 1)].symbol(), "\u{1FBED}");
+    assert_eq!(buffer[(left, y + 1)].symbol(), "\u{1FBEC}");
+    assert_eq!(buffer[(right, y + 1)].symbol(), "\u{1FBEF}");
+    for cx in left + 1..right {
+        assert_eq!(buffer[(cx, y - 1)].symbol(), "▂");
+        assert_eq!(buffer[(cx, y + 1)].symbol(), "\u{1FB82}");
     }
     let (ox, oy) = find(&buffer, "Running 10 min late");
-    assert_eq!(buffer[(ox - 1, oy)].fg, theme.bubble_other);
+    assert_eq!(buffer[(ox - 2, oy)].fg, theme.bubble_other);
 }
 
 #[test]
@@ -885,20 +890,24 @@ fn bars_go_on_the_outer_side_in_the_senders_colour() {
 fn mixed_bubbles_have_the_bar_outside_and_round_inside() {
     let theme = Theme::default();
     let buffer = draw(&mixed(bubbles_state()), 100, 34);
-    // One line, own: a cap on the left (inner), the bar on the right.
+    // One line, own: rounded side on the left (inner), the bar on the right.
     let (x, y) = find(&buffer, "On my way");
-    let pane = buffer[(x, y - 1)].bg;
-    let cap = &buffer[(x - 1, y)];
-    assert_eq!(cap.symbol(), "\u{E0B6}");
-    assert_eq!((cap.fg, cap.bg), (theme.bubble_own, pane));
+    let pane = buffer[(x, y - 2)].bg;
+    let left = &buffer[(x - 2, y)];
+    assert_eq!(left.symbol(), "▐");
+    assert_eq!((left.fg, left.bg), (theme.bubble_own, pane));
+    assert_eq!(buffer[(x - 2, y - 1)].symbol(), "\u{1FBEE}");
     let right = next(&buffer, x, y, super::bubbles::BAR);
     assert_eq!(buffer[(right, y)].fg, theme.primary);
     assert_eq!(buffer[(right, y)].bg, theme.bubble_own);
-    // Others: the bar on the left (outer).
+    assert_eq!(buffer[(right, y - 1)].symbol(), "▂");
+    // Others: the bar on the left (outer), rounded on the right (inner).
     let (ox, oy) = find(&buffer, "Running 10 min late");
     let bar = &buffer[(ox - 1, oy)];
     assert_eq!(bar.symbol(), super::bubbles::BAR);
     assert_eq!(bar.bg, theme.bubble_other);
+    let oright = next(&buffer, ox, oy, "▌");
+    assert_eq!(buffer[(oright, oy)].fg, theme.bubble_other);
 }
 
 #[test]
@@ -932,10 +941,10 @@ fn taller_mixed_bubbles_have_a_square_corner_on_the_bars_side() {
 
 #[test]
 fn a_blank_line_separates_bubbles_in_both_styles() {
-    for state in [
-        rounded(bubbles_state()),
-        bar(bubbles_state()),
-        mixed(bubbles_state()),
+    for (state, edge_rows) in [
+        (rounded(bubbles_state()), 1),
+        (bar(bubbles_state()), 0),
+        (mixed(bubbles_state()), 1),
     ] {
         let text = snapshot(&draw(&state, 100, 34));
         let lines: Vec<&str> = text.lines().collect();
@@ -944,7 +953,11 @@ fn a_blank_line_separates_bubbles_in_both_styles() {
             .enumerate()
             .find(|(_, l)| l.contains("On my way"))
             .unwrap();
-        assert_eq!(lines[y - 1].trim_matches(['│', ' ']), "", "{text}");
+        assert_eq!(
+            lines[y - 1 - edge_rows].trim_matches(['│', ' ']),
+            "",
+            "{text}"
+        );
     }
 }
 
@@ -1016,7 +1029,7 @@ fn bubbles_rounded_compact() {
 #[test]
 fn compact_rounded_runs_join_on_their_aligned_side() {
     let theme = Theme::default();
-    let buffer = draw(&compact(rounded(bubbles_state())), 100, 34);
+    let buffer = draw(&compact(rounded(bubbles_state())), 100, 40);
     // Bob's reply and his follow-up touch: no edge row or blank between.
     let (x, y) = find(&buffer, "and chalk");
     assert_eq!(
@@ -1027,11 +1040,11 @@ fn compact_rounded_runs_join_on_their_aligned_side() {
     let side = x - 2;
     assert_eq!(buffer[(side, y)].symbol(), "▐");
     assert_eq!(buffer[(side, y - 1)].symbol(), "▐", "one edge down the run");
-    // Different senders keep a blank line between them.
+    // Different senders keep a blank line between them (past the bottom edge row).
     let text = snapshot(&buffer);
     let lines: Vec<&str> = text.lines().collect();
     let mine = lines.iter().position(|l| l.contains("On my way")).unwrap();
-    assert_eq!(lines[mine + 1].trim_matches(['│', ' ']), "", "{text}");
+    assert_eq!(lines[mine + 2].trim_matches(['│', ' ']), "", "{text}");
 }
 
 #[test]
@@ -1040,7 +1053,7 @@ fn bubble_padding_adds_a_cell_inside_rounded_sides() {
         let mut state = rounded(bubbles_state());
         state.config.messages.bubble_padding = padding;
         let buffer = draw(&state, 100, 34);
-        let (x, y) = find(&buffer, "Count me in");
+        let (x, y) = find(&buffer, "Running 10 min late");
         let side = (0..x).rfind(|&cx| buffer[(cx, y)].symbol() == "▐").unwrap();
         assert_eq!(x - side, gap, "padding {padding}");
     }
