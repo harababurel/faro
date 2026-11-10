@@ -100,6 +100,9 @@ fn apply(
         // `state.config` by the app loop.
     }
     report(state, &problems, changed && !startup);
+    if !startup {
+        super::palette::refresh_settings(state);
+    }
     effects
 }
 
@@ -129,6 +132,7 @@ pub fn on_themes_read(state: &mut State, files: Vec<ThemeText>) -> Vec<Effect> {
             more.len()
         )),
     });
+    super::palette::refresh_settings(state);
     vec![]
 }
 

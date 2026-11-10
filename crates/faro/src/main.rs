@@ -37,7 +37,8 @@ fn main() -> anyhow::Result<()> {
             | cli::Command::RefreshPictures
             | cli::Command::Encrypt
             | cli::Command::Decrypt
-            | cli::Command::Passwd,
+            | cli::Command::Passwd
+            | cli::Command::Doctor,
         )
         | None => None,
     };
@@ -115,6 +116,25 @@ fn main() -> anyhow::Result<()> {
                 signal::refresh_pictures(&paths).await
             });
         }
+        Some(cli::Command::Doctor) => {
+            return local.block_on(&runtime, async {
+                use std::io::Write as _;
+                let detected = terminal_setting(cli.emoji.map(Into::into), &settings, true).await;
+                let startup = config::Startup {
+                    path: config_file,
+                    attachments_dir: paths.attachments_dir(),
+                    pictures_dir: paths.pictures_dir(),
+                    config: settings,
+                    problems,
+                    themes,
+                    profile,
+                    passphrase_verifier: None,
+                };
+                std::io::stdout()
+                    .write_all(app::doctor(detected, startup).as_bytes())
+                    .context("writing the doctor report")
+            });
+        }
         Some(cli::Command::Demo(_)) | None => {}
     }
     // The allowlist guard (D62) is for testing: on only with --allowlist
@@ -138,7 +158,7 @@ fn main() -> anyhow::Result<()> {
             );
         }
         problems.extend(config::migrate(&store, &config_file, &mut settings).await);
-        let detected = terminal_setting(cli.emoji.map(Into::into), &settings).await;
+        let detected = terminal_setting(cli.emoji.map(Into::into), &settings, false).await;
         let startup = config::Startup {
             path: config_file,
             attachments_dir: paths.attachments_dir(),
@@ -321,6 +341,7 @@ async fn serve<B: Backend + 'static>(
 async fn terminal_setting(
     cli: Option<faro_core::config::EmojiChoice>,
     config: &faro_core::config::Config,
+    always_inspect: bool,
 ) -> app::state::Detected {
     use app::state::{Detected, EmojiMode, EmojiSetting};
     use faro_core::config::{BubbleStyle, EmojiChoice, InlineImages};
@@ -329,7 +350,8 @@ async fn terminal_setting(
     let auto = choice == EmojiChoice::Auto;
     // Forced graphics protocols too: a new tmux client means measuring
     // and sending images again (D137).
-    let terminal = if auto
+    let terminal = if always_inspect
+        || auto
         || config.messages.bubble_style == BubbleStyle::Auto
         || !matches!(
             config.media.inline_images,

@@ -67,7 +67,8 @@ pub fn open_with_query(state: &mut State, level: Level, query: &str) -> Vec<Effe
         | Level::ChatLinks
         | Level::ForwardTo(_)
         | Level::ReleaseNotes
-        | Level::Devices => vec![],
+        | Level::Devices
+        | Level::Doctor => vec![],
     }
 }
 
@@ -100,7 +101,7 @@ pub fn open_at_level(state: &mut State, level: Level) -> Vec<Effect> {
             let _ = choose_level(state, Level::Setting(setting));
             choose_level(state, Level::SettingText(setting))
         }
-        Level::AttachFile | Level::Devices => {
+        Level::AttachFile | Level::Devices | Level::Doctor => {
             open(state, Level::Commands);
             choose_level(state, level)
         }
@@ -233,7 +234,8 @@ fn selected_setting(palette: &Palette) -> Option<Setting> {
             | ItemKind::SavedQuery(_)
             | ItemKind::ChatLink { .. }
             | ItemKind::ChatAttachment { .. }
-            | ItemKind::Device(_),
+            | ItemKind::Device(_)
+            | ItemKind::DoctorRow,
         )
         | None => None,
     }
@@ -468,7 +470,8 @@ fn up(state: &mut State) {
         | Level::ChatLinks
         | Level::ForwardTo(_)
         | Level::ReleaseNotes
-        | Level::Devices => ItemKind::Level(level),
+        | Level::Devices
+        | Level::Doctor => ItemKind::Level(level),
     });
     let parent = path.last().copied().unwrap_or(Level::Root);
     if let Some(palette) = state.palette.as_mut() {
@@ -519,6 +522,10 @@ pub fn on_mouse(state: &mut State, mouse: MouseEvent) -> Vec<Effect> {
 /// Open the selected category, flip or apply the selected setting/theme
 /// (staying in the palette), or run the selected item and close. With
 /// nothing matching, stay open.
+#[expect(
+    clippy::too_many_lines,
+    reason = "flat dispatch table over every palette ItemKind variant"
+)]
 fn choose(state: &mut State) -> Vec<Effect> {
     let Some(kind) = state
         .palette
@@ -570,6 +577,10 @@ fn choose(state: &mut State) -> Vec<Effect> {
         choose_device(state, id);
         return vec![];
     }
+    if kind == ItemKind::DoctorRow {
+        state.notice = Some(Notice::info("Copied doctor report to clipboard"));
+        return vec![Effect::Copy(crate::app::doctor::report(state))];
+    }
     state.palette = None;
     match kind {
         ItemKind::Conversation(id) => show_conversation(state, id),
@@ -616,6 +627,7 @@ fn choose(state: &mut State) -> Vec<Effect> {
         | ItemKind::SetText(_)
         | ItemKind::SavedQuery(_)
         | ItemKind::Device(_)
+        | ItemKind::DoctorRow
         | ItemKind::Header => vec![],
     }
 }
@@ -719,7 +731,8 @@ fn choose_level(state: &mut State, level: Level) -> Vec<Effect> {
         | Level::ChatLinks
         | Level::ForwardTo(_)
         | Level::ReleaseNotes
-        | Level::Devices => String::new(),
+        | Level::Devices
+        | Level::Doctor => String::new(),
     };
     if level == Level::Devices {
         state.devices = None;
@@ -731,8 +744,9 @@ fn choose_level(state: &mut State, level: Level) -> Vec<Effect> {
     if level == Level::AttachFile {
         return vec![Effect::ListFiles(query)];
     }
-    if let Level::Settings | Level::Setting(Setting::Transcribe | Setting::TranscribeCommand) =
-        level
+    if let Level::Settings
+    | Level::Doctor
+    | Level::Setting(Setting::Transcribe | Setting::TranscribeCommand) = level
     {
         return settings::check_transcriber(state).into_iter().collect();
     }
@@ -896,7 +910,10 @@ pub fn refresh_settings(state: &mut State) {
     let Some(palette) = state.palette.as_ref() else {
         return;
     };
-    if !matches!(palette.level(), Level::Settings | Level::Setting(_)) {
+    if !matches!(
+        palette.level(),
+        Level::Settings | Level::Setting(_) | Level::Doctor
+    ) {
         return;
     }
     if let Some(select) = palette.selected_item().map(|item| item.kind.clone()) {

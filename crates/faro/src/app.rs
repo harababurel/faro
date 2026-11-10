@@ -401,6 +401,30 @@ async fn shutdown(
     .await;
 }
 
+/// Assemble the `faro doctor` plain-text diagnostic report without starting
+/// the TUI or opening the Signal backend (`#47`).
+pub fn doctor(detected: state::Detected, mut startup: Startup) -> String {
+    let directory = Directory {
+        me: ServiceId::Aci(uuid::Uuid::nil()),
+        contacts: Vec::new(),
+        groups: Vec::new(),
+        nicknames: HashMap::new(),
+        identities: HashMap::new(),
+        guarded: false,
+        capabilities: faro_core::backend::Capabilities::default(),
+        next_expiry: None,
+        saved_searches: Vec::new(),
+    };
+    let mut state = initial_state(directory, detected, &mut startup);
+    let _ = update::configure(&mut state, startup.config, startup.problems);
+    if state.config.voice.transcribe == faro_core::config::TranscribeMode::Local {
+        let program = state.config.voice.program().to_owned();
+        let found = system::command_exists(&program);
+        state.transcriber = Some((program, found));
+    }
+    faro_app::app::doctor::report(&state)
+}
+
 /// What faro knows about the terminal before the first frame.
 fn sense_terminal(state: &mut State, detected: state::Detected) {
     state.env.over_ssh = system::over_ssh();

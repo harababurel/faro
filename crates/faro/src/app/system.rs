@@ -342,7 +342,7 @@ pub fn check_command(program: String, results: mpsc::UnboundedSender<AppEvent>) 
     clippy::disallowed_methods,
     reason = "file metadata is read inside spawn_blocking off the UI thread"
 )]
-fn command_exists(program: &str) -> bool {
+pub(super) fn command_exists(program: &str) -> bool {
     use std::os::unix::fs::PermissionsExt as _;
     let runnable = |path: &std::path::Path| {
         std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)

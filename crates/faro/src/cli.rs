@@ -154,6 +154,9 @@ pub enum Command {
     Decrypt,
     /// Change the encryption passphrase (quit faro first)
     Passwd,
+    /// Print a diagnostic report of terminal capabilities, graphics fallback,
+    /// config conflicts and keymap clashes
+    Doctor,
 }
 
 /// `faro demo`'s flags (D87). Command line only: no environment variables,
@@ -410,5 +413,11 @@ mod tests {
         assert!(
             Cli::try_parse_from(["faro", "--no-allowlist", "--allowlist", "/tmp/a.toml"]).is_err()
         );
+    }
+
+    #[test]
+    fn doctor_subcommand_parses() {
+        let parsed = Cli::try_parse_from(["faro", "doctor"]).unwrap();
+        assert_eq!(parsed.command, Some(Command::Doctor));
     }
 }

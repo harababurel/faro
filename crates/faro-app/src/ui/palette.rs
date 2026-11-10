@@ -157,6 +157,7 @@ fn draw_query(frame: &mut Frame<'_>, area: Rect, palette: &Palette, view: &View<
         | Level::Keys
         | Level::People
         | Level::Devices
+        | Level::Doctor
         | Level::Nickname(_)
         | Level::SettingText(_)
         | Level::AttachFile
@@ -282,6 +283,7 @@ fn result_line(
             | ItemKind::Header
             | ItemKind::Key
             | ItemKind::Device(_)
+            | ItemKind::DoctorRow
             | ItemKind::SetNickname(_)
             | ItemKind::ClearNickname(_)
             | ItemKind::SetText(_),

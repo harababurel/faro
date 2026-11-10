@@ -165,6 +165,8 @@ pub enum Level {
     ReleaseNotes,
     /// Linked devices on this account, with last-seen and unlink.
     Devices,
+    /// Diagnostic report: terminal capabilities, graphics fallback, config & keymap (`#47`).
+    Doctor,
 }
 
 /// The sections of `Settings ›`, each under a header.
@@ -265,6 +267,7 @@ impl Level {
             Self::ForwardTo(_) => "Forward to",
             Self::ReleaseNotes => "Release notes",
             Self::Devices => "Linked devices",
+            Self::Doctor => "Doctor",
         }
     }
 
@@ -286,7 +289,8 @@ impl Level {
             | Self::ChatLinks
             | Self::ForwardTo(_)
             | Self::ReleaseNotes
-            | Self::Devices => None,
+            | Self::Devices
+            | Self::Doctor => None,
         }
     }
 
@@ -317,6 +321,7 @@ impl Level {
             Self::ForwardTo(m) => format!("forward_to {} {}", m.sender, m.sent_at.as_millis()),
             Self::ReleaseNotes => "release_notes".to_owned(),
             Self::Devices => "devices".to_owned(),
+            Self::Doctor => "doctor".to_owned(),
         }
     }
 
@@ -348,6 +353,7 @@ impl Level {
             }
             "release_notes" => Some(Self::ReleaseNotes),
             "devices" => Some(Self::Devices),
+            "doctor" => Some(Self::Doctor),
             _ => None,
         }
     }
@@ -384,7 +390,7 @@ impl SettingsGroup {
 
     /// Its settings, in order. Themes are a category of their own at the
     /// root, not a row here (D60).
-    const fn settings(self) -> &'static [Setting] {
+    pub(crate) const fn settings(self) -> &'static [Setting] {
         match self {
             Self::Appearance => &[
                 Setting::Colors,
@@ -848,6 +854,8 @@ pub enum ItemKind {
     },
     /// A linked device (`Level::Devices`).
     Device(u32),
+    /// A row in `Level::Doctor`: choosing it copies the full diagnostic report.
+    DoctorRow,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1235,7 +1243,27 @@ pub fn items(state: &State, level: Level, recent: &[PaletteCommand]) -> Vec<Item
         Level::ForwardTo(target) => forward_destinations(state, target),
         Level::ReleaseNotes => release_notes_items(state),
         Level::Devices => devices(state),
+        Level::Doctor => doctor_items(state),
     }
+}
+
+/// `Level::Doctor`: a top action to copy the full report, followed by each
+/// diagnostic section and its rows (`#47`).
+fn doctor_items(state: &State) -> Vec<Item> {
+    let mut items = vec![
+        Item::new(
+            ItemKind::DoctorRow,
+            "Copy full diagnostic report to clipboard",
+        )
+        .detail("enter"),
+    ];
+    for section in super::doctor::sections(state) {
+        items.push(Item::new(ItemKind::Header, section.title));
+        for row in section.rows {
+            items.push(Item::new(ItemKind::DoctorRow, row.title).detail(row.detail));
+        }
+    }
+    items
 }
 
 /// `Level::ReleaseNotes`: the 2–3 item "What's new for you" digest touching
@@ -1588,7 +1616,8 @@ fn categories(state: &State) -> Vec<Item> {
                 | Level::ChatLinks
                 | Level::ForwardTo(_)
                 | Level::ReleaseNotes
-                | Level::Devices => level.prefix().map(String::from).unwrap_or_default(),
+                | Level::Devices
+                | Level::Doctor => level.prefix().map(String::from).unwrap_or_default(),
             };
             Item::new(ItemKind::Level(level), level.title()).detail(detail)
         })
@@ -1666,6 +1695,10 @@ fn commands(state: &State) -> Vec<Item> {
     items.push(Item::new(
         ItemKind::Level(Level::Devices),
         "Linked devices…",
+    ));
+    items.push(Item::new(
+        ItemKind::Level(Level::Doctor),
+        "Doctor: terminal, graphics & config report…",
     ));
     items.push(global(
         Action::ToggleLeftSidebar,
@@ -1817,7 +1850,7 @@ pub fn cycled(state: &State, setting: Setting, forward: bool) -> Option<SettingC
     list.into_iter().nth(next).map(|(choice, _, _)| choice)
 }
 
-fn inline_images_note(state: &State) -> String {
+pub(crate) fn inline_images_note(state: &State) -> String {
     let mode = state.config.media.inline_images;
     match mode {
         InlineImages::Kitty | InlineImages::Sixel | InlineImages::Iterm2 => {
@@ -2008,6 +2041,12 @@ pub fn note(state: &State, level: Level) -> Option<String> {
             }
         });
     }
+    if level == Level::Doctor {
+        return Some(
+            "Terminal capabilities, graphics fallback, config conflicts & keymap clashes. Enter copies the full report."
+                .to_owned(),
+        );
+    }
     if level != Level::Themes {
         return None;
     }
@@ -2048,7 +2087,8 @@ fn sidebar_width_note(level: Level) -> Option<String> {
         | Level::ChatLinks
         | Level::ForwardTo(_)
         | Level::ReleaseNotes
-        | Level::Devices => None,
+        | Level::Devices
+        | Level::Doctor => None,
     }
 }
 
@@ -2158,7 +2198,8 @@ fn transcription_note(state: &State, level: Level) -> Option<String> {
         | Level::ChatLinks
         | Level::ForwardTo(_)
         | Level::ReleaseNotes
-        | Level::Devices => return None,
+        | Level::Devices
+        | Level::Doctor => return None,
     };
     Some(note)
 }

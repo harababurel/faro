@@ -1585,6 +1585,7 @@ fn terminal_checked(state: &mut State, terminal: Terminal) -> Vec<Effect> {
         emoji.full()
     };
     if !emoji.auto || emoji.mode == mode {
+        palette::refresh_settings(state);
         return vec![];
     }
     emoji.mode = mode;
@@ -1595,5 +1596,6 @@ fn terminal_checked(state: &mut State, terminal: Terminal) -> Vec<Effect> {
     } else {
         "No mosh: drawing emoji in full"
     }));
+    palette::refresh_settings(state);
     vec![]
 }

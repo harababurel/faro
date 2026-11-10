@@ -322,7 +322,8 @@ impl Keymap {
         }
     }
 
-    fn get(&self, context: Context, chord: KeyChord) -> Option<Action> {
+    /// The action bound to `chord` in `context`, if any.
+    pub fn get(&self, context: Context, chord: KeyChord) -> Option<Action> {
         self.bindings
             .iter()
             .find(|b| b.context == context && b.chord == chord)

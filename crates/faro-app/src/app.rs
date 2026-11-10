@@ -2,6 +2,7 @@
 //! synchronous reducer, effects out.
 
 pub mod commands;
+pub mod doctor;
 pub mod event;
 pub mod files;
 pub mod image_cache;

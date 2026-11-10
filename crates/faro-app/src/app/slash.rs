@@ -312,6 +312,14 @@ const COMMANDS: &[CommandSpec] = &[
         requires_arg: false,
     },
     CommandSpec {
+        name: "doctor",
+        aliases: &[],
+        arg_hint: "",
+        description: "Terminal, graphics, config & keymap diagnostics",
+        takes_arg: false,
+        requires_arg: false,
+    },
+    CommandSpec {
         name: "quit",
         aliases: &["q"],
         arg_hint: "",
@@ -997,6 +1005,11 @@ pub fn execute(state: &mut State, raw: &str) -> Vec<Effect> {
         "about" => {
             let effects = consume_input(state);
             state.popup = Some(Popup::About);
+            effects
+        }
+        "doctor" => {
+            let mut effects = consume_input(state);
+            effects.extend(palette::open_at_level(state, Level::Doctor));
             effects
         }
         "quit" => {

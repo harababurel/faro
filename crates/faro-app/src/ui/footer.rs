@@ -91,6 +91,12 @@ const PALETTE_LEVEL_HINTS: &[(&str, &str)] = &[
     ("←", "back"),
     ("esc", "close"),
 ];
+const DOCTOR_HINTS: &[(&str, &str)] = &[
+    ("↑↓", "move"),
+    ("enter", "copy report"),
+    ("←", "back"),
+    ("esc", "close"),
+];
 const SEARCH_HINTS: &[(&str, &str)] = &[
     ("↑↓", "move"),
     ("enter", "open"),
@@ -245,6 +251,7 @@ fn hints(state: &State, geometry: &Geometry) -> Vec<(String, &'static str)> {
             Level::Settings => SETTINGS_HINTS,
             Level::Nickname(_) | Level::SettingText(_) => NICKNAME_HINTS,
             Level::Search(_) => SEARCH_HINTS,
+            Level::Doctor => DOCTOR_HINTS,
             Level::Chats
             | Level::Setting(_)
             | Level::Commands

@@ -219,6 +219,7 @@ fn prefixes_jump_into_a_category() {
             | ItemKind::Level(
                 Level::People
                     | Level::Devices
+                    | Level::Doctor
                     | Level::Nickname(_)
                     | Level::AttachFile
                     | Level::ChatLinks
@@ -2163,3 +2164,83 @@ fn linked_devices_list_confirm_and_unlink() {
         Some("Unlinked faro (workstation) — run `faro link` to link again")
     );
 }
+
+#[test]
+fn doctor_palette_and_report_explain_graphics_fallback_config_conflicts_and_keymap_clashes() {
+    let mut state = loaded_state();
+    state.env.over_ssh = true;
+    state.env.emoji.mosh = true;
+    state.env.emoji.mode = EmojiMode::Compatible;
+    state.env.emoji.from_cli = true;
+    state.env.graphics = crate::app::state::GraphicsSupport::HalfblocksOnly;
+    state.env.graphics_blocker = Some(crate::app::state::GraphicsBlocker::MoshClient(
+        "/dev/pts/4".to_owned(),
+    ));
+    state.env.tmux_clients = vec!["/dev/pts/4".to_owned()];
+
+    let raw_toml = r#"
+theme = "nonexistent-theme"
+[ui]
+emoji = "full"
+[messages]
+layout = "irc"
+bubble_style = "rounded"
+[security]
+auto_lock_mins = 5
+[keybindings.messages]
+"r" = "message.react"
+"ctrl+r" = "message.copy"
+"CTRL+r" = "message.react"
+[keybindings.input]
+"ctrl+l" = "message.reply"
+"#;
+    let parsed = faro_core::config::parse(raw_toml, &faro_core::config::Config::default());
+    let _ = crate::app::update::configure(&mut state, parsed.config, parsed.problems);
+
+    palette_open(&mut state, ">doctor");
+    assert_eq!(
+        selected_title(&state),
+        "Doctor: terminal, graphics & config report…"
+    );
+    let effects = enter(&mut state);
+    assert_eq!(effects, vec![]);
+    assert_eq!(level(&state), Level::Doctor);
+    assert_eq!(breadcrumb(&state), "Commands › Doctor");
+    assert_eq!(
+        selected_title(&state),
+        "Copy full diagnostic report to clipboard"
+    );
+
+    let all_titles = titles(&state);
+    for expected in [
+        "Graphics blocker: tmux client /dev/pts/4 is on mosh",
+        "Problem: theme: there's no theme called \"nonexistent-theme\"",
+        "Conflict: messages.bubble_style = rounded has no effect (bubbles layout only)",
+        "Conflict: ui.emoji = full overridden by --emoji / FARO_EMOJI",
+        "Conflict: security.auto_lock_mins = 5 needs a passphrase",
+        "Clash: keybindings.messages \"ctrl+r\" bound twice (\"message.copy\" overwritten by \"message.react\")",
+        "Clash: keybindings.input \"ctrl+l\" (message.reply) shadows global \"app.redraw\"",
+        "Unbound: message.reply in messages has no key (\"r\" was reassigned)",
+    ] {
+        assert!(
+            all_titles.iter().any(|t| t.contains(expected)),
+            "missing {expected:?} in {all_titles:?}"
+        );
+    }
+
+    let effects = enter(&mut state);
+    let expected_report = crate::app::doctor::report(&state);
+    assert_eq!(effects, vec![Effect::Copy(expected_report.clone())]);
+    assert!(
+        expected_report.contains("[Terminal & session]")
+            && expected_report.contains("[Graphics & media]")
+            && expected_report.contains("[Config & keymap]"),
+        "{expected_report}"
+    );
+    assert_eq!(
+        state.notice.as_ref().map(|n| n.text.as_str()),
+        Some("Copied doctor report to clipboard")
+    );
+    assert_eq!(level(&state), Level::Doctor);
+}
+
