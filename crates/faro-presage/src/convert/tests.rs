@@ -775,3 +775,35 @@ fn blocked_and_message_request_response_syncs_round_trip() {
         None
     );
 }
+
+#[test]
+fn outgoing_long_text_truncates_inline_body_and_filters_mentions() {
+    let body_text = format!("hi \u{FFFC} {} \u{FFFC}", "x".repeat(2500));
+    let msg = OutgoingMessage {
+        sent_at: Timestamp::from_millis(1234),
+        body: MessageBody::new(body_text.clone()),
+        mentions: vec![
+            Mention {
+                who: ALICE,
+                start: 3,
+                len: 3,
+            },
+            Mention {
+                who: ALICE,
+                start: body_text.len() - 3,
+                len: 3,
+            },
+        ],
+        quote: None,
+        attachments: vec![],
+        expires_in_secs: None,
+    };
+    let dm = text(&msg, vec![], None);
+    let inline = dm.body.as_deref().unwrap();
+    assert_eq!(inline.len(), faro_core::domain::LONG_TEXT_THRESHOLD);
+    // Only the mention inside the 2048-byte prefix is kept in body_ranges.
+    assert_eq!(dm.body_ranges.len(), 1);
+    let spec = long_text_spec(body_text.len());
+    assert_eq!(spec.content_type, faro_core::domain::LONG_TEXT_MIME);
+    assert_eq!(spec.length, body_text.len());
+}

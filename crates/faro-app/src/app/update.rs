@@ -75,6 +75,7 @@ pub fn affects_view(event: &AppEvent) -> bool {
         | AppEvent::DevicesListed(_)
         | AppEvent::DeviceUnlinked { .. }
         | AppEvent::Fetched { .. }
+        | AppEvent::LongTextFetched { .. }
         | AppEvent::SavedToDownloads(_)
         | AppEvent::FilesListed { .. }
         | AppEvent::CommandChecked { .. }
@@ -195,6 +196,12 @@ fn route(state: &mut State, event: AppEvent) -> Vec<Effect> {
             index,
             result,
         } => selection::on_fetched(state, conversation, message, index, result),
+        AppEvent::LongTextFetched {
+            conversation,
+            message,
+            index,
+            body,
+        } => selection::on_long_text_fetched(state, conversation, message, index, body),
         AppEvent::SavedToDownloads(result) => selection::on_saved_to_downloads(state, result),
         AppEvent::CommandChecked { program, found } => {
             settings::on_command_checked(state, program, found)

@@ -130,6 +130,7 @@ impl Router {
                 | Effect::LoadMessageReceipts { .. }
                 | Effect::Persist(_)
                 | Effect::SaveAttachment { .. }
+                | Effect::InlineLongText { .. }
                 | Effect::MarkRead(_)
                 | Effect::ReadElsewhere(_)
                 | Effect::SweepExpired(_)

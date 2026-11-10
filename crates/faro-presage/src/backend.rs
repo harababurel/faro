@@ -818,10 +818,16 @@ impl Backend for PresageBackend {
 
     async fn send(&self, to: ConversationId, msg: OutgoingMessage) -> Result<()> {
         let group = self.group_of(to)?;
-        let pointers = if msg.attachments.is_empty() {
+        let long_text = (msg.body.expose().len() > faro_core::domain::LONG_TEXT_THRESHOLD)
+            .then(|| msg.body.expose().as_bytes().to_vec());
+        let pointers = if msg.attachments.is_empty() && long_text.is_none() {
             Vec::new()
         } else {
-            let mut specs = Vec::with_capacity(msg.attachments.len());
+            let mut specs =
+                Vec::with_capacity(msg.attachments.len() + usize::from(long_text.is_some()));
+            if let Some(bytes) = long_text {
+                specs.push((convert::long_text_spec(bytes.len()), bytes));
+            }
             for att in &msg.attachments {
                 let path = att.path.clone();
                 let bytes =
@@ -1156,13 +1162,55 @@ async fn on_received(
             {
                 return false;
             }
-            for event in convert::events(&content, backend.me) {
+            for mut event in convert::events(&content, backend.me) {
+                if let BackendEvent::Message(ref mut message) = event {
+                    expand_long_text(backend, message).await;
+                }
                 apply_request_or_block_sync(backend, &event).await;
                 if events.send(event).await.is_err() {
                     return false;
                 }
             }
             true
+        }
+    }
+}
+
+/// When an incoming or synced message carries Signal's `text/x-signal-plain`
+/// attachment, fetch its UTF-8 body immediately and fold it into `message.body`
+/// so the full text is stored and shown at once. If fetching fails, the
+/// attachment remains on `message` so auto-download can retry it later.
+async fn expand_long_text(backend: &PresageBackend, message: &mut faro_core::domain::Message) {
+    let Some(att) = message
+        .attachments
+        .iter()
+        .find(|a| {
+            a.is_long_text()
+                && !a.id.0.is_empty()
+                && a.size
+                    .is_none_or(|s| s <= faro_core::domain::LONG_TEXT_MAX_BYTES)
+        })
+        .cloned()
+    else {
+        return;
+    };
+    match backend.fetch_attachment(&att).await {
+        Ok(bytes)
+            if u64::try_from(bytes.len()).unwrap_or(u64::MAX)
+                <= faro_core::domain::LONG_TEXT_MAX_BYTES =>
+        {
+            if let Ok(full_text) = String::from_utf8(bytes)
+                && !full_text.is_empty()
+            {
+                message.body = Some(faro_core::domain::MessageBody::new(full_text));
+                message.attachments.retain(|a| !a.is_long_text());
+            }
+        }
+        Ok(_) => {
+            tracing::warn!("text/x-signal-plain attachment exceeded size limit");
+        }
+        Err(error) => {
+            tracing::warn!(%error, "fetching text/x-signal-plain attachment on receive failed; will retry on open");
         }
     }
 }

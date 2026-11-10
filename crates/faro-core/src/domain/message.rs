@@ -2,6 +2,55 @@
 
 use super::{ConversationId, MessageBody, MessageRef, ServiceId, Timestamp};
 
+/// Signal's MIME type for the full UTF-8 body attachment of a message longer
+/// than [`LONG_TEXT_THRESHOLD`] bytes.
+pub const LONG_TEXT_MIME: &str = "text/x-signal-plain";
+
+/// Maximum inline `DataMessage.body` length in UTF-8 bytes before Signal
+/// clients truncate the inline preview and expect a [`LONG_TEXT_MIME`]
+/// attachment carrying the full body.
+pub const LONG_TEXT_THRESHOLD: usize = 2048;
+
+/// Upper bound (1 MiB) on [`LONG_TEXT_MIME`] attachments that faro will
+/// automatically inline into `Message::body`.
+pub const LONG_TEXT_MAX_BYTES: u64 = 1024 * 1024;
+
+/// Truncate `text` to at most [`LONG_TEXT_THRESHOLD`] UTF-8 bytes without
+/// splitting a UTF-8 scalar or common multi-codepoint emoji sequence.
+#[must_use]
+pub fn truncate_long_text(text: &str) -> &str {
+    if text.len() <= LONG_TEXT_THRESHOLD {
+        return text;
+    }
+    let mut end = text.floor_char_boundary(LONG_TEXT_THRESHOLD);
+    while end > 0 {
+        let next = text.get(end..).and_then(|s| s.chars().next());
+        let prev = text.get(..end).and_then(|s| s.chars().next_back());
+        let joins_next = next.is_some_and(|c| {
+            c == '\u{200D}'
+                || c == '\u{FE0E}'
+                || c == '\u{FE0F}'
+                || ('\u{1F3FB}'..='\u{1F3FF}').contains(&c)
+                || ('\u{0300}'..='\u{036F}').contains(&c)
+        });
+        let after_zwj = prev == Some('\u{200D}');
+        let splits_flag = prev.is_some_and(|p| ('\u{1F1E6}'..='\u{1F1FF}').contains(&p))
+            && next.is_some_and(|n| ('\u{1F1E6}'..='\u{1F1FF}').contains(&n))
+            && text.get(..end).map_or(0, |s| {
+                s.chars()
+                    .rev()
+                    .take_while(|&c| ('\u{1F1E6}'..='\u{1F1FF}').contains(&c))
+                    .count()
+            }) % 2
+                == 1;
+        if !joins_next && !after_zwj && !splits_flag {
+            break;
+        }
+        end = prev.map_or(0, |p| end - p.len_utf8());
+    }
+    text.get(..end).unwrap_or("")
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Message {
     pub conversation: ConversationId,
@@ -356,6 +405,13 @@ impl AttachmentRef {
                     .is_none_or(|n| n.starts_with("voice-") || n.starts_with("signal-voice")))
     }
 
+    /// Whether this attachment is Signal's [`LONG_TEXT_MIME`] payload carrying
+    /// the full body of a message longer than [`LONG_TEXT_THRESHOLD`] bytes.
+    #[must_use]
+    pub fn is_long_text(&self) -> bool {
+        self.content_type.eq_ignore_ascii_case(LONG_TEXT_MIME)
+    }
+
     /// The downloaded copy, if there is one.
     pub fn local_path(&self) -> Option<&std::path::Path> {
         match &self.status {
@@ -556,6 +612,25 @@ mod tests {
         assert!(sticker.is_image() && sticker.is_sticker());
         let doc = AttachmentRef::remote("d", "application/pdf");
         assert!(!doc.is_image());
+        assert!(!doc.is_long_text());
+        let long_txt = AttachmentRef::remote("l", "text/x-signal-plain");
+        assert!(long_txt.is_long_text());
+    }
+
+    #[test]
+    fn truncate_long_text_keeps_graphemes_intact_at_boundary() {
+        let short = "a".repeat(LONG_TEXT_THRESHOLD);
+        assert_eq!(truncate_long_text(&short).len(), LONG_TEXT_THRESHOLD);
+
+        let over = "a".repeat(LONG_TEXT_THRESHOLD + 50);
+        assert_eq!(truncate_long_text(&over).len(), LONG_TEXT_THRESHOLD);
+
+        // Place a skin-toned emoji 👍🏽 (8 bytes: 4 + 4) straddling 2048.
+        let mut s = "a".repeat(LONG_TEXT_THRESHOLD - 4);
+        s.push_str("👍🏽after");
+        let cut = truncate_long_text(&s);
+        assert_eq!(cut.len(), LONG_TEXT_THRESHOLD - 4);
+        assert!(!cut.ends_with('👍'));
     }
 
     #[test]

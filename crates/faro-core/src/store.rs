@@ -347,6 +347,7 @@ enum Request {
     MessageReceipts(MessageRef, Reply<Vec<RecipientReceipt>>),
     SetConversationState(ConversationId, Box<ConversationState>, Reply<()>),
     SetAttachment(MessageRef, usize, Box<AttachmentRef>, Reply<()>),
+    InlineLongText(MessageRef, MessageBody, Reply<()>),
     MarkRead(ConversationId, Reply<()>),
     ReadElsewhere(Vec<MessageRef>, Reply<Vec<(ConversationId, u32)>>),
     FailUnsent(Reply<u64>),
@@ -557,6 +558,13 @@ impl Store {
         attachment: AttachmentRef,
     ) -> Result<()> {
         self.call(|reply| Request::SetAttachment(message, index, Box::new(attachment), reply))
+            .await
+    }
+
+    /// Replace `message`'s truncated inline body with the full UTF-8 body from
+    /// its `text/x-signal-plain` attachment and delete that attachment row.
+    pub async fn inline_long_text(&self, message: MessageRef, body: MessageBody) -> Result<()> {
+        self.call(|reply| Request::InlineLongText(message, body, reply))
             .await
     }
 
@@ -820,6 +828,9 @@ async fn handle(engine: &mut Engine, request: Request) -> Option<Reply<()>> {
         }
         Request::SetAttachment(message, index, attachment, reply) => {
             let _ = reply.send(call!(engine, set_attachment(message, index, &attachment)));
+        }
+        Request::InlineLongText(message, body, reply) => {
+            let _ = reply.send(call!(engine, inline_long_text(message, &body)));
         }
         Request::MarkRead(conversation, reply) => {
             let _ = reply.send(call!(engine, mark_read(conversation)));

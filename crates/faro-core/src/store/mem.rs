@@ -942,6 +942,20 @@ impl Mem {
         Ok(())
     }
 
+    pub(super) fn inline_long_text(
+        &mut self,
+        message: MessageRef,
+        body: &MessageBody,
+    ) -> Result<()> {
+        timestamp_to_db(message.sent_at)?;
+        if let Some(row) = self.row_mut(message) {
+            row.body = Some(body.expose().to_owned());
+            row.attachments
+                .retain(|a| !a.content_type.eq_ignore_ascii_case("text/x-signal-plain"));
+        }
+        Ok(())
+    }
+
     pub(super) fn mark_read(&mut self, conversation: ConversationId) -> Result<()> {
         if let Some(conv) = self.conversations.get_mut(&conversation_key(conversation)) {
             conv.unread = 0;

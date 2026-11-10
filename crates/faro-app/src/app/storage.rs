@@ -145,6 +145,7 @@ async fn run(store: &Store, effect: Effect) -> Result<Option<AppEvent>, StoreErr
         }
         Effect::Persist(_)
         | Effect::SaveAttachment { .. }
+        | Effect::InlineLongText { .. }
         | Effect::SaveConversationState(..)
         | Effect::SaveDisappearingTimer(..)
         | Effect::MarkRead(_)
@@ -206,6 +207,7 @@ async fn write(store: &Store, effect: Effect) -> Result<(), StoreError> {
             index,
             attachment,
         } => store.set_attachment(message, index, attachment).await,
+        Effect::InlineLongText { message, body } => store.inline_long_text(message, body).await,
         Effect::SaveConversationState(conversation, state) => {
             store.set_conversation_state(conversation, *state).await
         }

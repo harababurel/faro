@@ -33,11 +33,13 @@ impl Input {
         self.text.is_empty()
     }
 
-    /// Insert at the cursor. Tabs become spaces and other control characters
-    /// (carriage returns from pasted Windows line endings, stray escape codes)
-    /// are dropped, so the text only ever holds printable characters and `\n`.
+    /// Insert at the cursor. Tabs become spaces, `\r\n` and bare `\r` (sent by
+    /// some terminals for pasted line breaks) become `\n`, and other control
+    /// characters (stray escape codes) are dropped, so the text only ever holds
+    /// printable characters and `\n`.
     pub fn insert_str(&mut self, text: &str) {
-        let clean: String = text
+        let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+        let clean: String = normalized
             .chars()
             .map(|c| if c == '\t' { ' ' } else { c })
             .filter(|c| *c == '\n' || !c.is_control())
@@ -276,8 +278,8 @@ mod tests {
         input.home();
         input.delete();
         assert_eq!(shown(&input), "|k! ");
-        input.insert_str("a\tb\r\nc\x1b[31m");
-        assert_eq!(shown(&input), "a b\nc[31m|k! ");
+        input.insert_str("a\tb\r\nc\rd\x1b[31m");
+        assert_eq!(shown(&input), "a b\nc\nd[31m|k! ");
     }
 
     #[test]

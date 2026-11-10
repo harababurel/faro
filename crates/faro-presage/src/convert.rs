@@ -774,14 +774,15 @@ pub fn text(
     attachments: Vec<AttachmentPointer>,
     group: Option<GroupContextV2>,
 ) -> DataMessage {
-    let body = if attachments.is_empty() || !msg.body.expose().is_empty() {
-        Some(msg.body.expose().to_owned())
+    let inline = faro_core::domain::truncate_long_text(msg.body.expose());
+    let body = if attachments.is_empty() || !inline.is_empty() {
+        Some(inline.to_owned())
     } else {
         None
     };
     DataMessage {
         body,
-        body_ranges: body_ranges(msg.body.expose(), &msg.mentions),
+        body_ranges: body_ranges(inline, &msg.mentions),
         attachments,
         timestamp: Some(msg.sent_at.as_millis()),
         quote: msg.quote.as_ref().map(|q| data_message::Quote {
@@ -793,6 +794,21 @@ pub fn text(
         }),
         group_v2: group,
         ..DataMessage::default()
+    }
+}
+
+pub fn long_text_spec(length: usize) -> AttachmentSpec {
+    AttachmentSpec {
+        content_type: faro_core::domain::LONG_TEXT_MIME.to_owned(),
+        length,
+        file_name: None,
+        preview: None,
+        voice_note: None,
+        borderless: None,
+        width: None,
+        height: None,
+        caption: None,
+        blur_hash: None,
     }
 }
 

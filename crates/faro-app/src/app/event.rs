@@ -8,8 +8,8 @@ use faro_core::backend::{
 use faro_core::clipboard::ReadError;
 use faro_core::config::{SettingEdit, Voice};
 use faro_core::domain::{
-    AttachmentRef, ConversationId, LinkedDevice, Message, MessageRef, ServiceId, Timestamp,
-    TranscriptSource, TypingState, VerificationState,
+    AttachmentRef, ConversationId, LinkedDevice, Message, MessageBody, MessageRef, ServiceId,
+    Timestamp, TranscriptSource, TypingState, VerificationState,
 };
 use faro_core::store::{ConversationState, ConversationSummary, RecipientReceipt, SearchHit};
 
@@ -96,6 +96,14 @@ pub enum AppEvent {
         message: MessageRef,
         index: usize,
         result: Result<AttachmentRef, BackendError>,
+    },
+    /// A `text/x-signal-plain` attachment finished downloading and was decoded
+    /// as the full UTF-8 message body.
+    LongTextFetched {
+        conversation: ConversationId,
+        message: MessageRef,
+        index: usize,
+        body: MessageBody,
     },
     /// The pictures folder was read (`Effect::ListPictures`, D160): each
     /// conversation faro already knows about, with its picture or `None`
@@ -243,6 +251,12 @@ pub enum Effect {
         message: MessageRef,
         index: usize,
         attachment: AttachmentRef,
+    },
+    /// Fold a downloaded `text/x-signal-plain` attachment into `message.body`
+    /// and remove its attachment row from the store.
+    InlineLongText {
+        message: MessageRef,
+        body: MessageBody,
     },
     MarkRead(ConversationId),
     /// Apply messages read on another device to the unread counts (D70);

@@ -2074,6 +2074,12 @@ fn download_one(
 }
 
 fn should_auto_download(policy: AutoDownload, attachment: &AttachmentRef) -> bool {
+    if attachment.is_long_text() {
+        return (!attachment.id.0.is_empty() || attachment.is_downloaded())
+            && attachment
+                .size
+                .is_none_or(|size| size <= faro_core::domain::LONG_TEXT_MAX_BYTES);
+    }
     if attachment.id.0.is_empty() {
         return false;
     }
@@ -2117,7 +2123,9 @@ pub fn queue_auto_downloads(state: &mut State) -> Vec<Effect> {
                 }
                 let msg_ref = message.reference();
                 for (index, att) in message.attachments.iter().enumerate() {
-                    if att.status == AttachmentStatus::Remote
+                    let ready = att.status == AttachmentStatus::Remote
+                        || (att.is_long_text() && att.is_downloaded());
+                    if ready
                         && !state.is_downloading(msg_ref, index)
                         && should_auto_download(policy, att)
                     {
@@ -2212,6 +2220,43 @@ pub fn on_fetched(
             )));
         }
     }
+    effects.extend(start_queued_downloads(state));
+    effects
+}
+
+pub fn on_long_text_fetched(
+    state: &mut State,
+    conversation: ConversationId,
+    message: MessageRef,
+    index: usize,
+    body: MessageBody,
+) -> Vec<Effect> {
+    let key = (message, index);
+    state.downloading.remove(&key);
+    state.save_when_downloaded.remove(&key);
+    state.transcribe_when_downloaded.remove(&key);
+    if let Some(open) = state.open.as_mut().filter(|o| o.id == conversation) {
+        if let Some(msg) = open.messages.iter_mut().rfind(|m| m.reference() == message) {
+            msg.body = Some(body.clone());
+            msg.attachments.retain(|a| !a.is_long_text());
+        }
+        if let Some(anchor) = open.restored_anchor {
+            open.scroll = Some(anchor);
+        }
+    }
+    if let Some(summary) = state
+        .conversations
+        .iter_mut()
+        .find(|c| c.id == conversation)
+        && let Some(last) = summary
+            .last_message
+            .as_mut()
+            .filter(|m| m.reference() == message)
+    {
+        last.body = Some(body.clone());
+        last.attachments.retain(|a| !a.is_long_text());
+    }
+    let mut effects = vec![Effect::InlineLongText { message, body }];
     effects.extend(start_queued_downloads(state));
     effects
 }

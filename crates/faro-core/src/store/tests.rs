@@ -81,6 +81,7 @@ engines! {
     quote_thread_walks_up_to_root_and_collects_descendants,
     system_events_persist_coalesce_calls_and_skip_unreads,
     message_requests_blocking_and_conversation_deletion,
+    inline_long_text_replaces_body_and_removes_signal_plain_attachment,
 }
 
 async fn each_summary_carries_its_newest_message(kind: Kind) {
@@ -1572,4 +1573,24 @@ async fn message_requests_blocking_and_conversation_deletion(kind: Kind) {
     let carol_summary = summary(&store, direct(CAROL)).await;
     assert_eq!(carol_summary.last_activity, None);
     assert_eq!(carol_summary.unread, 0);
+}
+
+async fn inline_long_text_replaces_body_and_removes_signal_plain_attachment(kind: Kind) {
+    let store = kind.open().await;
+    let mut m = incoming(direct(ALICE), ALICE, 1_000, "truncated prefix…");
+    m.attachments = vec![
+        AttachmentRef::remote("p1:long", "text/x-signal-plain"),
+        AttachmentRef::remote("p1:pic", "image/jpeg"),
+    ];
+    let msg_ref = m.reference();
+    store.apply(BackendEvent::Message(m)).await.unwrap();
+
+    let full = MessageBody::new("full 6.1 KB body text from text/x-signal-plain");
+    store.inline_long_text(msg_ref, full.clone()).await.unwrap();
+
+    let loaded = store.messages(direct(ALICE), None, 10).await.unwrap();
+    assert_eq!(loaded.len(), 1);
+    assert_eq!(loaded[0].body.as_ref(), Some(&full));
+    assert_eq!(loaded[0].attachments.len(), 1);
+    assert_eq!(loaded[0].attachments[0].content_type, "image/jpeg");
 }

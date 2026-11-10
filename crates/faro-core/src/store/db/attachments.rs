@@ -237,6 +237,32 @@ impl Db {
         .await?;
         Ok(())
     }
+
+    /// Fold a downloaded `text/x-signal-plain` attachment into `messages.body`
+    /// and remove its `attachments` row so the message is stored as a full text
+    /// message.
+    pub(in crate::store) async fn inline_long_text(
+        &mut self,
+        message: MessageRef,
+        body: &crate::domain::MessageBody,
+    ) -> Result<()> {
+        let Some(msg_id) = super::message_id(&mut self.conn, message).await? else {
+            return Ok(());
+        };
+        sqlx::query("UPDATE messages SET body = ?1 WHERE id = ?2")
+            .bind(body.expose())
+            .bind(msg_id)
+            .execute(&mut self.conn)
+            .await?;
+        sqlx::query(
+            "DELETE FROM attachments
+             WHERE message_id = ?1 AND lower(content_type) = 'text/x-signal-plain'",
+        )
+        .bind(msg_id)
+        .execute(&mut self.conn)
+        .await?;
+        Ok(())
+    }
 }
 
 fn size_to_db(size: Option<u64>) -> Result<Option<i64>> {

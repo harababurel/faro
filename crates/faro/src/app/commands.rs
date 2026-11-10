@@ -103,6 +103,17 @@ async fn run<B: Backend + 'static>(
             let dir = attachments_dir.clone();
             let tx = results.clone();
             in_flight.spawn(tokio::task::spawn_local(async move {
+                if attachment.is_long_text()
+                    && let Some(body) = fetch_long_text(backend.as_ref(), &attachment).await
+                {
+                    let _ = tx.send(AppEvent::LongTextFetched {
+                        conversation,
+                        message,
+                        index,
+                        body,
+                    });
+                    return;
+                }
                 let result = fetch(backend.as_ref(), &dir, message, index, attachment).await;
                 if let Err(error) = &result {
                     tracing::warn!(%error, %conversation, "attachment download failed");
@@ -150,6 +161,37 @@ async fn run<B: Backend + 'static>(
             tracing::debug!("app loop stopped before a backend result arrived");
         }
     }
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "reading and unlinking a previously downloaded long-text file runs inside spawn_blocking"
+)]
+async fn fetch_long_text<B: Backend>(
+    backend: &B,
+    attachment: &AttachmentRef,
+) -> Option<faro_core::domain::MessageBody> {
+    let bytes = if let Some(path) = attachment.local_path().map(Path::to_path_buf) {
+        tokio::task::spawn_blocking(move || {
+            let data = paths::read_private(&path);
+            let _ = std::fs::remove_file(&path);
+            data
+        })
+        .await
+        .ok()
+        .and_then(Result::ok)
+    } else {
+        None
+    };
+    let bytes = match bytes {
+        Some(bytes) => bytes,
+        None => backend.fetch_attachment(attachment).await.ok()?,
+    };
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > faro_core::domain::LONG_TEXT_MAX_BYTES {
+        return None;
+    }
+    let text = String::from_utf8(bytes).ok()?;
+    (!text.is_empty()).then(|| faro_core::domain::MessageBody::new(text))
 }
 
 async fn fetch<B: Backend>(

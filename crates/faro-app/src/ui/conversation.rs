@@ -80,11 +80,13 @@ pub fn render(
     let input_layout = layout_input(&open.input, input_width);
     let restricted = state.is_restricted(open.id);
     let key_changed = !state.changed_identities(open.id).is_empty();
+    let long_draft = open.input.text().len() > faro_core::domain::LONG_TEXT_THRESHOLD;
     let reply_rows = u16::from(key_changed)
         + u16::from(restricted)
         + u16::from(open.editing.is_some())
         + u16::from(open.reply_to.is_some())
-        + u16::from(open.staged_attachment.is_some());
+        + u16::from(open.staged_attachment.is_some())
+        + u16::from(long_draft);
     let input_height = u16::try_from(input_layout.lines.len().clamp(1, INPUT_MAX_LINES))
         .unwrap_or(1)
         + 2
@@ -385,6 +387,45 @@ fn staged_bar(
     inner.height = inner.height.saturating_sub(1);
 }
 
+/// Indicator above the input when the draft exceeds Signal's 2 KiB inline body
+/// limit and will be sent with a `text/x-signal-plain` attachment.
+fn long_draft_bar(
+    frame: &mut Frame<'_>,
+    inner: &mut Rect,
+    state: &State,
+    open: &OpenConversation,
+    view: &View<'_>,
+) {
+    let theme = view.theme;
+    let icon = if state.env.emoji.mode == crate::app::state::EmojiMode::Compatible {
+        "[text]"
+    } else {
+        "📄"
+    };
+    let text = open.input.text();
+    let lines = text.lines().count().max(1);
+    let line_label = if lines == 1 {
+        "1 line".to_owned()
+    } else {
+        format!("{lines} lines")
+    };
+    let size = faro_core::domain::format_byte_size(u64::try_from(text.len()).unwrap_or(u64::MAX));
+    let label = format!("{icon} Long message · {line_label} · {size}");
+    let line = Line::from(Span::styled(
+        truncate(&label, usize::from(inner.width)).into_owned(),
+        Style::new().fg(theme.accent),
+    ));
+    frame.render_widget(
+        Paragraph::new(line),
+        Rect {
+            height: 1,
+            ..*inner
+        },
+    );
+    inner.y += 1;
+    inner.height = inner.height.saturating_sub(1);
+}
+
 fn render_input(
     frame: &mut Frame<'_>,
     area: Rect,
@@ -456,6 +497,10 @@ fn render_input(
 
     if let Some(staged) = &open.staged_attachment {
         staged_bar(frame, &mut inner, state, staged, view);
+    }
+
+    if open.input.text().len() > faro_core::domain::LONG_TEXT_THRESHOLD {
+        long_draft_bar(frame, &mut inner, state, open, view);
     }
 
     if open.input.is_empty() {

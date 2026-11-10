@@ -34,6 +34,7 @@ fn saved(effects: &[Effect], id: ConversationId) -> Option<ConversationState> {
         | Effect::LoadQuoteThread { .. }
         | Effect::Persist(_)
         | Effect::SaveAttachment { .. }
+        | Effect::InlineLongText { .. }
         | Effect::MarkRead(_)
         | Effect::ReadElsewhere(_)
         | Effect::SweepExpired(_)

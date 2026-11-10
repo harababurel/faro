@@ -3497,6 +3497,59 @@ fn cold_open_loads_messages_around_when_anchor_is_older_than_first_page() {
     );
 }
 
+#[test]
+fn signal_plain_long_text_attachment_auto_fetches_and_inlines_into_body() {
+    let mut state = loaded_state();
+    state.config.media.auto_download = faro_core::config::AutoDownload::Off;
+
+    let mut msg = text(climbing(), ALICE, 999_000, "2048-byte prefix…");
+    let att = faro_core::domain::AttachmentRef {
+        size: Some(6_230),
+        ..faro_core::domain::AttachmentRef::remote("p1:long-body", "text/x-signal-plain")
+    };
+    msg.attachments = vec![att.clone()];
+    let msg_ref = msg.reference();
+
+    let effects = update(&mut state, AppEvent::Backend(BackendEvent::Message(msg)));
+    assert!(
+        effects.contains(&Effect::Backend(Command::Fetch {
+            conversation: climbing(),
+            message: msg_ref,
+            index: 0,
+            attachment: att,
+        })),
+        "text/x-signal-plain auto-downloads even when auto_download is Off"
+    );
+
+    let full_body = MessageBody::new("full 6230-byte message text from Signal iOS");
+    let effects = update(
+        &mut state,
+        AppEvent::LongTextFetched {
+            conversation: climbing(),
+            message: msg_ref,
+            index: 0,
+            body: full_body.clone(),
+        },
+    );
+    assert_eq!(
+        effects,
+        vec![Effect::InlineLongText {
+            message: msg_ref,
+            body: full_body.clone(),
+        }]
+    );
+    let updated = state
+        .open
+        .as_ref()
+        .unwrap()
+        .messages
+        .iter()
+        .find(|m| m.reference() == msg_ref)
+        .unwrap();
+    assert_eq!(updated.body.as_ref(), Some(&full_body));
+    assert_eq!(updated.attachments, Vec::new());
+}
+
 mod clipboard;
 mod curation;
 mod focus;
