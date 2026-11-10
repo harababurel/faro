@@ -169,7 +169,7 @@ fn in_loaded_quote_chain(state: &State, message: &Message) -> bool {
 }
 
 /// What `message` offers, in menu order.
-fn actions(state: &State, message: &Message) -> Vec<MessageAction> {
+pub(super) fn actions(state: &State, message: &Message) -> Vec<MessageAction> {
     if message.is_system() {
         return vec![MessageAction::Copy, MessageAction::Info];
     }
@@ -248,6 +248,11 @@ fn actions(state: &State, message: &Message) -> Vec<MessageAction> {
                 }
             }
         }
+        if !message.deleted && message.has_spoilers() {
+            items.push(MessageAction::ToggleSpoiler {
+                revealed: state.is_spoiler_revealed(msg_ref),
+            });
+        }
         if in_loaded_quote_chain(state, message) {
             items.push(MessageAction::ViewThread);
         }
@@ -308,10 +313,13 @@ fn shortcut(c: char) -> Option<fn(&MessageAction) -> bool> {
         'v' => Some(|a| {
             matches!(
                 a,
-                MessageAction::ViewAttachment { .. } | MessageAction::OpenAttachment { .. }
+                MessageAction::ViewAttachment { .. }
+                    | MessageAction::OpenAttachment { .. }
+                    | MessageAction::ToggleSpoiler { .. }
             )
         }),
         's' => Some(|a| matches!(a, MessageAction::SaveAttachment { .. })),
+        'S' => Some(|a| matches!(a, MessageAction::ToggleSpoiler { .. })),
         _ => None,
     }
 }
@@ -474,7 +482,7 @@ fn on_thread_key(
                 let msg_ref = msg.reference();
                 let quote = Quote {
                     target: msg_ref,
-                    preview: state.readable_body(msg).map(MessageBody::new),
+                    preview: state.quoted_body(msg),
                 };
                 if let Some(open) = state.open.as_mut().filter(|o| o.id == conversation) {
                     open.reply_to = Some(quote);
@@ -634,6 +642,10 @@ pub fn perform(state: &mut State, target: MessageRef, action: MessageAction) -> 
         MessageAction::OpenAttachment { index, .. } => open_one_with_system(state, target, index),
         MessageAction::SaveAttachment { index, .. } => save_one(state, target, index),
         MessageAction::CopyAttachmentPath { index, .. } => copy_one_path(state, target, index),
+        MessageAction::ToggleSpoiler { .. } => {
+            toggle_spoiler_target(state, target);
+            vec![]
+        }
         MessageAction::Retry => retry(state, target),
     }
 }
@@ -763,7 +775,7 @@ fn edit_target(state: &mut State, target: MessageRef) -> Vec<Effect> {
     else {
         return vec![];
     };
-    let body = state.editable_body(message);
+    let input = state.editable_input(message);
     let existing_mentions: Vec<(ServiceId, String)> = message
         .mentions
         .iter()
@@ -774,7 +786,7 @@ fn edit_target(state: &mut State, target: MessageRef) -> Vec<Effect> {
         open.editing = Some(target.sent_at);
         open.reply_to = None;
         open.staged_attachment = None;
-        open.input = Input::new(&body);
+        open.input = input;
         open.mentions = existing_mentions;
         open.mention_selected = 0;
         open.mention_dismissed_at = None;
@@ -860,10 +872,10 @@ fn reply(state: &mut State, target: MessageRef) {
     let Some(message) = find(state, target).filter(|m| !m.deleted && !m.is_system()) else {
         return;
     };
-    // Mentions as `@Name`: the quote goes out without them (D72).
+    // Mentions as `@Name`: the quote goes out without them (D72), keeping styles (D177).
     let quote = Quote {
         target,
-        preview: state.readable_body(message).map(MessageBody::new),
+        preview: state.quoted_body(message),
     };
     if let Some(open) = state.open.as_mut() {
         open.reply_to = Some(quote);
@@ -1801,14 +1813,40 @@ pub fn download_attachment(state: &mut State) -> Vec<Effect> {
     }
 }
 
+/// `S`: reveal or hide spoiler spans on the selected message (D177).
+pub fn toggle_spoiler(state: &mut State) -> Vec<Effect> {
+    let Some(message) = selected(state).filter(|m| !m.deleted) else {
+        return vec![];
+    };
+    if !message.has_spoilers() {
+        state.notice = Some(Notice::info("No spoiler in this message"));
+        return vec![];
+    }
+    toggle_spoiler_target(state, message.reference());
+    vec![]
+}
+
+fn toggle_spoiler_target(state: &mut State, target: MessageRef) {
+    if let Some(open) = state.open.as_mut()
+        && !open.revealed_spoilers.remove(&target)
+    {
+        open.revealed_spoilers.insert(target);
+    }
+}
+
 /// `v`: view an image in the inline viewer popup, play/stop a voice note, open
-/// a local file with the system viewer, or (for non-image files over SSH) save
-/// to `~/Downloads/` and copy the path (D75, D81).
+/// a local file with the system viewer, (for non-image files over SSH) save
+/// to `~/Downloads/` and copy the path (D75, D81), or reveal/hide spoilers on a
+/// text message without attachments (D177).
 pub fn open_attachment(state: &mut State) -> Vec<Effect> {
     let Some(message) = selected(state).filter(|m| !m.deleted) else {
         return vec![];
     };
     if message.attachments.is_empty() {
+        if message.has_spoilers() {
+            toggle_spoiler_target(state, message.reference());
+            return vec![];
+        }
         state.notice = Some(Notice::info("No attachment in this message"));
         return vec![];
     }

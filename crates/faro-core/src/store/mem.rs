@@ -51,7 +51,7 @@ struct Row {
     /// `sender`'s string form, the sort key SQL uses.
     sender_key: String,
     sent_at: Timestamp,
-    body: Option<String>,
+    body: Option<MessageBody>,
     quote: Option<Quote>,
     edited_at: Option<Timestamp>,
     deleted: bool,
@@ -88,7 +88,7 @@ impl Row {
             sender: self.sender,
             sent_at: self.sent_at,
             direction: self.direction,
-            body: self.body.clone().map(MessageBody::new),
+            body: self.body.clone(),
             mentions: self.mentions.values().copied().collect(),
             quote: self.quote.clone(),
             attachments: self.attachments.clone(),
@@ -313,7 +313,7 @@ impl Mem {
             sender: message.sender,
             sender_key: message.sender.to_string(),
             sent_at: message.sent_at,
-            body: message.body.as_ref().map(|b| b.expose().to_owned()),
+            body: message.body.clone(),
             quote: message.quote.clone(),
             edited_at: message.edited_at,
             deleted: message.deleted,
@@ -485,7 +485,7 @@ impl Mem {
         for mention in mentions {
             check_mention(mention)?;
         }
-        row.body = Some(body.expose().to_owned());
+        row.body = Some(body.clone());
         row.edited_at = Some(edited_at);
         row.mentions.clear();
         insert_mentions(&mut row.mentions, mentions);
@@ -750,7 +750,11 @@ impl Mem {
     fn row_matches_search(&self, row: &Row, parsed: &super::search::SearchQuery) -> bool {
         use super::search::{HasFilter, IsFilter};
 
-        let body = row.body.as_deref().unwrap_or("").to_ascii_lowercase();
+        let body = row
+            .body
+            .as_ref()
+            .map_or("", MessageBody::expose)
+            .to_ascii_lowercase();
         let terms_ok = parsed.terms.iter().all(|token| {
             body.contains(token.as_str())
                 || row.attachments.iter().any(|a| {

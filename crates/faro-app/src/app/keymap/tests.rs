@@ -141,10 +141,30 @@ fn editing_keys() {
         input(KeyCode::Char('k'), KeyModifiers::ALT),
         Some(Action::PreviousConversation)
     );
-    // Ctrl+K is "delete to end of line" in the input.
+    // Ctrl+K is "delete to end of line" in the input; Ctrl+B/I/U/E/S format text.
     assert_eq!(
         input(KeyCode::Char('k'), KeyModifiers::CONTROL),
         edit(Edit::DeleteToLineEnd)
+    );
+    assert_eq!(
+        input(KeyCode::Char('b'), KeyModifiers::CONTROL),
+        edit(Edit::Format(TextStyle::Bold))
+    );
+    assert_eq!(
+        input(KeyCode::Char('i'), KeyModifiers::CONTROL),
+        edit(Edit::Format(TextStyle::Italic))
+    );
+    assert_eq!(
+        input(KeyCode::Char('u'), KeyModifiers::CONTROL),
+        edit(Edit::Format(TextStyle::Strikethrough))
+    );
+    assert_eq!(
+        input(KeyCode::Char('e'), KeyModifiers::CONTROL),
+        edit(Edit::Format(TextStyle::Monospace))
+    );
+    assert_eq!(
+        input(KeyCode::Char('s'), KeyModifiers::CONTROL),
+        edit(Edit::Format(TextStyle::Spoiler))
     );
     // Other Ctrl/Alt letters don't type.
     assert_eq!(input(KeyCode::Char('x'), KeyModifiers::CONTROL), None);

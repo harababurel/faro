@@ -3,6 +3,7 @@
 //! sit on grapheme boundaries, so an emoji or accented letter moves and
 //! deletes as one character.
 
+use faro_core::domain::{MessageBody, StyleSpan, TextStyle};
 use unicode_segmentation::UnicodeSegmentation as _;
 use unicode_width::UnicodeWidthStr as _;
 
@@ -10,6 +11,8 @@ use unicode_width::UnicodeWidthStr as _;
 pub struct Input {
     text: String,
     cursor: usize,
+    styles: Vec<StyleSpan>,
+    active_styles: Vec<TextStyle>,
 }
 
 impl Input {
@@ -20,6 +23,13 @@ impl Input {
         input
     }
 
+    /// Styled text with the cursor at the end (e.g. when editing a message).
+    pub fn with_styles(text: &str, styles: Vec<StyleSpan>) -> Self {
+        let mut input = Self::new(text);
+        input.set_styles(styles);
+        input
+    }
+
     pub fn text(&self) -> &str {
         &self.text
     }
@@ -27,6 +37,20 @@ impl Input {
     /// Byte offset of the cursor in `text()`.
     pub fn cursor(&self) -> usize {
         self.cursor
+    }
+
+    pub fn styles(&self) -> &[StyleSpan] {
+        &self.styles
+    }
+
+    pub fn active_styles(&self) -> &[TextStyle] {
+        &self.active_styles
+    }
+
+    pub fn set_styles(&mut self, styles: Vec<StyleSpan>) {
+        self.styles = MessageBody::with_styles(&self.text, styles)
+            .styles()
+            .to_vec();
     }
 
     pub fn is_empty(&self) -> bool {
@@ -42,17 +66,60 @@ impl Input {
             .map(|c| if c == '\t' { ' ' } else { c })
             .filter(|c| *c == '\n' || !c.is_control())
             .collect();
-        self.text.insert_str(self.cursor, &clean);
-        self.cursor += clean.len();
+        if clean.is_empty() {
+            return;
+        }
+        let at = self.cursor;
+        let len = clean.len();
+        self.text.insert_str(at, &clean);
+        self.cursor += len;
+        for span in &mut self.styles {
+            if span.start >= at {
+                span.start += len;
+            } else if span.start + span.len > at {
+                span.len += len;
+            }
+        }
+        for &style in &self.active_styles {
+            self.styles.push(StyleSpan {
+                start: at,
+                len,
+                style,
+            });
+        }
+        self.normalize_styles();
     }
 
     /// Replace `range` (which must lie on char boundaries) with `replacement`
     /// and place the cursor at the end of the inserted text.
     pub fn replace_range(&mut self, range: std::ops::Range<usize>, replacement: &str) {
         if self.text.get(range.clone()).is_some() {
-            let start = range.start;
-            self.text.replace_range(range, replacement);
-            self.cursor = start + replacement.len();
+            self.remove(range.start, range.end);
+            self.cursor = range.start;
+            self.insert_str(replacement);
+        }
+    }
+
+    /// Toggle `style` for the word touching the cursor, or toggle `style` in
+    /// `active_styles` for upcoming characters when at whitespace / line start.
+    pub fn toggle_style(&mut self, style: TextStyle) {
+        if let Some(pos) = self.active_styles.iter().position(|&s| s == style) {
+            self.active_styles.remove(pos);
+            return;
+        }
+        if let Some(range) = self.word_around_cursor() {
+            if self.range_has_style(range.clone(), style) {
+                self.remove_style_in_range(range, style);
+            } else {
+                self.styles.push(StyleSpan {
+                    start: range.start,
+                    len: range.len(),
+                    style,
+                });
+                self.normalize_styles();
+            }
+        } else {
+            self.active_styles.push(style);
         }
     }
 
@@ -77,18 +144,22 @@ impl Input {
 
     pub fn left(&mut self) {
         self.cursor = self.previous_boundary(self.cursor);
+        self.active_styles.clear();
     }
 
     pub fn right(&mut self) {
         self.cursor = self.next_boundary(self.cursor);
+        self.active_styles.clear();
     }
 
     pub fn word_left(&mut self) {
         self.cursor = self.word_start();
+        self.active_styles.clear();
     }
 
     pub fn word_right(&mut self) {
         self.cursor = self.word_end();
+        self.active_styles.clear();
     }
 
     pub fn delete_word_back(&mut self) {
@@ -103,13 +174,15 @@ impl Input {
 
     pub fn home(&mut self) {
         self.cursor = self.line_start(self.cursor);
+        self.active_styles.clear();
     }
 
     pub fn end(&mut self) {
         self.cursor = self.line_end(self.cursor);
+        self.active_styles.clear();
     }
 
-    /// Delete back to the start of the line (Ctrl+U).
+    /// Delete back to the start of the line (Alt+U).
     pub fn delete_to_line_start(&mut self) {
         let start = self.line_start(self.cursor);
         self.remove(start, self.cursor);
@@ -137,6 +210,7 @@ impl Input {
         let column = self.slice(start, self.cursor).width();
         let previous_start = self.line_start(previous_end);
         self.cursor = self.at_column(previous_start, previous_end, column);
+        self.active_styles.clear();
         true
     }
 
@@ -152,6 +226,7 @@ impl Input {
         let next_start = end + 1;
         let next_end = self.line_end(next_start);
         self.cursor = self.at_column(next_start, next_end, column);
+        self.active_styles.clear();
         true
     }
 
@@ -163,9 +238,109 @@ impl Input {
 
     fn remove(&mut self, start: usize, end: usize) {
         if start < end && end <= self.text.len() {
+            let removed = end - start;
             self.text.replace_range(start..end, "");
             self.cursor = start;
+            self.styles = self
+                .styles
+                .drain(..)
+                .filter_map(|span| {
+                    let s = span.start;
+                    let e = span.start + span.len;
+                    if e <= start {
+                        Some(span)
+                    } else if s >= end {
+                        Some(StyleSpan {
+                            start: s - removed,
+                            len: span.len,
+                            style: span.style,
+                        })
+                    } else {
+                        let ns = s.min(start);
+                        let ne = start + e.saturating_sub(end);
+                        (ne > ns).then_some(StyleSpan {
+                            start: ns,
+                            len: ne - ns,
+                            style: span.style,
+                        })
+                    }
+                })
+                .collect();
+            self.normalize_styles();
         }
+    }
+
+    fn normalize_styles(&mut self) {
+        if !self.styles.is_empty() {
+            let spans = std::mem::take(&mut self.styles);
+            self.styles = MessageBody::with_styles(&self.text, spans)
+                .styles()
+                .to_vec();
+        }
+    }
+
+    fn word_around_cursor(&self) -> Option<std::ops::Range<usize>> {
+        let before = self.slice(0, self.cursor);
+        let after = self.slice(self.cursor, self.text.len());
+        let touches_before = before
+            .chars()
+            .next_back()
+            .is_some_and(|c| !c.is_whitespace());
+        let touches_after = after.chars().next().is_some_and(|c| !c.is_whitespace());
+        if !touches_before && !touches_after {
+            return None;
+        }
+        let start = before
+            .char_indices()
+            .rev()
+            .take_while(|(_, c)| !c.is_whitespace())
+            .last()
+            .map_or(self.cursor, |(i, _)| i);
+        let end = self.cursor
+            + after
+                .char_indices()
+                .take_while(|(_, c)| !c.is_whitespace())
+                .last()
+                .map_or(0, |(i, c)| i + c.len_utf8());
+        (start < end).then_some(start..end)
+    }
+
+    fn range_has_style(&self, range: std::ops::Range<usize>, style: TextStyle) -> bool {
+        self.styles
+            .iter()
+            .any(|s| s.style == style && s.start <= range.start && s.start + s.len >= range.end)
+    }
+
+    fn remove_style_in_range(&mut self, range: std::ops::Range<usize>, style: TextStyle) {
+        let mut next = Vec::with_capacity(self.styles.len());
+        for span in self.styles.drain(..) {
+            if span.style != style {
+                next.push(span);
+                continue;
+            }
+            let s = span.start;
+            let e = span.start + span.len;
+            if e <= range.start || s >= range.end {
+                next.push(span);
+                continue;
+            }
+            if s < range.start {
+                next.push(StyleSpan {
+                    start: s,
+                    len: range.start - s,
+                    style,
+                });
+            }
+            if e > range.end {
+                next.push(StyleSpan {
+                    start: range.end,
+                    len: e - range.end,
+                    style,
+                });
+            }
+        }
+        self.styles = next;
+        self.normalize_styles();
     }
 
     fn previous_boundary(&self, at: usize) -> usize {
@@ -256,6 +431,8 @@ mod tests {
         Input {
             text: marked.replacen('|', "", 1),
             cursor,
+            styles: Vec::new(),
+            active_styles: Vec::new(),
         }
     }
 
@@ -327,5 +504,59 @@ mod tests {
         assert!(input.down());
         assert_eq!(shown(&input), "a long line\nab\nan|other line");
         assert!(!input.down());
+    }
+
+    #[test]
+    fn toggle_style_styles_current_word_or_upcoming_typing() {
+        // 1. Toggle style on word touching cursor, then toggle off.
+        let mut input = at("hello world|");
+        input.toggle_style(TextStyle::Bold);
+        assert_eq!(
+            input.styles(),
+            &[StyleSpan {
+                start: 6,
+                len: 5,
+                style: TextStyle::Bold,
+            }]
+        );
+        input.toggle_style(TextStyle::Bold);
+        assert_eq!(input.styles(), []);
+
+        // 2. Toggle style when at whitespace / start of input styles newly typed text.
+        let mut typed = Input::default();
+        typed.toggle_style(TextStyle::Monospace);
+        typed.insert_str("let x = 1;");
+        typed.toggle_style(TextStyle::Monospace);
+        typed.insert_str(" ok");
+        assert_eq!(typed.text(), "let x = 1; ok");
+        assert_eq!(
+            typed.styles(),
+            &[StyleSpan {
+                start: 0,
+                len: 10,
+                style: TextStyle::Monospace,
+            }]
+        );
+
+        // 3. Inserting and deleting before a styled span shifts its byte offset.
+        typed.home();
+        typed.insert_str(">> ");
+        assert_eq!(
+            typed.styles(),
+            &[StyleSpan {
+                start: 3,
+                len: 10,
+                style: TextStyle::Monospace,
+            }]
+        );
+        typed.backspace();
+        assert_eq!(
+            typed.styles(),
+            &[StyleSpan {
+                start: 2,
+                len: 10,
+                style: TextStyle::Monospace,
+            }]
+        );
     }
 }

@@ -1766,5 +1766,22 @@ A developer friend of the owner tried getfaro.dev; the owner agreed with all of 
   - Replying in an unaccepted message request automatically accepts it (`sending::send` / `send_attachment`). Attempting to send in a blocked conversation is refused with a warning notice (`"Conversation is blocked — unblock before sending"`).
   - The input box displays `? Message request  y accept · D delete · b block · ! spam` or `⊘ Conversation is blocked — unblock to send  space menu`, the sidebar shows `?` or `⊘` at the right edge, and `Alt+I` Info shows `Silenced (request)` or `Silenced (blocked)`.
 
+### D177. Render and compose text styles (owner's request, 2026-11-10)
+
+- **Problem:** Signal's `BodyRange` carries inline `Style` spans (`BOLD`, `ITALIC`, `SPOILER`, `STRIKETHROUGH`, `MONOSPACE`) alongside mentions, but `faro-presage::convert` previously dropped every `AssociatedValue::Style` range, losing formatting on incoming, synced, and transferred messages and offering no way to compose styled text or reveal spoilers.
+- **Domain & storage (`faro-core`, migration `0014_text_styles.sql`):**
+  - `TextStyle` (`Bold`, `Italic`, `Spoiler`, `Strikethrough`, `Monospace`) and `StyleSpan { start, len, style }` (UTF-8 byte offsets into `MessageBody::expose`) live inside `MessageBody`, normalized (`normalize_style_spans`: sorted, clamped to UTF-8 char boundaries, and adjacent/overlapping spans of the same style merged) so every carrier of `MessageBody` (`Message::body`, `Quote::preview`, `ConversationState::draft`, `OutgoingMessage::body`, `OutgoingEdit::body`, `BackendEvent::Edited::body`) preserves inline styles automatically while keeping `Debug` redacted.
+  - `styled_parts(body, mentions)` splits a `MessageBody` at every mention and style boundary into `StyledSegment::{Text, Mention}` carrying merged `StyleFlags`, and `mask_spoilers(body)` masks any `TextStyle::Spoiler` span with `'░'` (preserving newlines).
+  - Migration `0014_text_styles.sql` adds the `STRICT` `message_styles (message_id, start_byte, length_bytes, style)` table, plus `messages.quote_styles TEXT` and `conversation_state.draft_styles TEXT` (compact `start:len:code` CSV via `codec::{styles_to_db, styles_from_db}`), mirrored in both `store/db.rs` and `store/mem.rs`.
+- **Signal UTF-16 ↔ UTF-8 conversion (`faro-presage`):**
+  - `convert::styles` and `convert::styled_body` decode `BodyRange` `AssociatedValue::Style` (UTF-16 code-unit `start`/`length` → UTF-8 byte offsets via `utf16_range_to_bytes`) on incoming, stored, and synced `DataMessage`s, `EditMessage`s, and `Quote`s; `transfer::backup_body` decodes `BodyRange` styles during `faro link` backup history import.
+  - `convert::style_ranges` (`utf16_span`) encodes `MessageBody::styles()` back into UTF-16 `BodyRange`s alongside `@mention` ranges when sending or editing messages (`convert::text`, `convert::edit`).
+- **Rendering, spoiler masking & composing (`faro-app`):**
+  - `ui::messages::text_lines` maps `StyledSegment` flags onto ratatui styles: `Modifier::BOLD`, `Modifier::ITALIC`, `Modifier::CROSSED_OUT`, `fg(theme.secondary)` for `Monospace`, and `░` in `theme.muted()` for unrevealed `Spoiler` spans (`Modifier::UNDERLINED` once revealed).
+  - Unrevealed spoilers never leak in sidebar previews (`State::preview_body`, `mask_spoilers(draft)`), quote bars (`ui/messages.rs`, `ui/conversation.rs`, `ui/popup.rs`), or desktop notifications (`update/notify.rs`).
+  - Selecting a message with spoilers offers `MessageAction::ToggleSpoiler` (*Reveal spoilers* / *Hide spoilers*) on `S` (`Action::ToggleSpoiler`, `"message.spoiler"`, or `v` when the message has no attachment), tracked per open conversation in `OpenConversation::revealed_spoilers`.
+  - In `Context::Input`, `Ctrl+B` (`"input.bold"`), `Ctrl+I` (`"input.italic"`), `Ctrl+U` (`"input.strikethrough"`), `Ctrl+E` (`"input.monospace"`), and `Ctrl+S` (`"input.spoiler"`) toggle `Edit::Format(TextStyle)` on the word touching the cursor (or toggle the style in `Input::active_styles` for upcoming typing, shown as a bottom-right badge on the input border), while `Alt+U` (`"input.delete_to_line_start"`) deletes to the start of the line (`Ctrl+U` continues to clear the query inside `Ctrl+P`).
+
+
 
 

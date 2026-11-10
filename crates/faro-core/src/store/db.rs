@@ -10,8 +10,8 @@ use sqlx::{ConnectOptions as _, Connection as _};
 use super::codec::{
     conversation_from_key, conversation_key, count_from_db, direction_from_db, direction_to_db,
     optional_timestamp_from_db, service_id_from_db, status_from_db, status_to_db,
-    system_event_from_db, system_event_to_db, timestamp_from_db, timestamp_to_db,
-    verification_from_db,
+    system_event_from_db, system_event_to_db, text_style_from_db, timestamp_from_db,
+    timestamp_to_db, verification_from_db,
 };
 use super::{
     ConversationState, ConversationSummary, ExpiredSweep, NotifyLevel, PROFILE_KEY, Profile,
@@ -20,8 +20,8 @@ use super::{
 use crate::backend::{BackendEvent, IdentityUpdate, MessageRequestAction};
 use crate::domain::{
     CallState, Contact, ConversationId, DeliveryStatus, Direction, Group, IdentityRecord, Mention,
-    Message, MessageBody, MessageRef, PhoneNumber, Quote, Reaction, ServiceId, SystemEvent,
-    Timestamp, VerificationState,
+    Message, MessageBody, MessageRef, PhoneNumber, Quote, Reaction, ServiceId, StyleSpan,
+    SystemEvent, Timestamp, VerificationState,
 };
 
 mod attachments;
@@ -327,6 +327,9 @@ impl Db {
             attachments::insert(&mut tx, id, attachment).await?;
         }
         insert_mentions(&mut tx, id, &message.mentions).await?;
+        if let Some(body) = &message.body {
+            insert_styles(&mut tx, id, body.styles()).await?;
+        }
         let unread = i64::from(
             message.direction == Direction::Incoming
                 && !message.deleted
@@ -461,6 +464,11 @@ impl Db {
                 .execute(&mut *tx)
                 .await?;
             insert_mentions(&mut tx, id, mentions).await?;
+            sqlx::query("DELETE FROM message_styles WHERE message_id = ?1")
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+            insert_styles(&mut tx, id, body.styles()).await?;
         }
         tx.commit().await?;
         Ok(())
@@ -482,6 +490,7 @@ impl Db {
             "DELETE FROM reactions WHERE message_id = ?1",
             "DELETE FROM attachments WHERE message_id = ?1",
             "DELETE FROM mentions WHERE message_id = ?1",
+            "DELETE FROM message_styles WHERE message_id = ?1",
         ] {
             sqlx::query(table).bind(id).execute(&mut *tx).await?;
         }
@@ -1067,6 +1076,34 @@ impl Db {
                 });
             }
         }
+
+        let styles: Vec<(i64, i64, i64, String)> = sqlx::query_as(
+            "SELECT s.message_id, s.start, s.length, s.style
+             FROM message_styles s
+             WHERE s.message_id BETWEEN ?1 AND ?2
+             ORDER BY s.message_id, s.start, s.length, s.style",
+        )
+        .bind(low)
+        .bind(high)
+        .fetch_all(&mut self.conn)
+        .await?;
+        let mut by_message: HashMap<usize, Vec<StyleSpan>> = HashMap::new();
+        for (id, start, len, style) in styles {
+            if let Some(&i) = index.get(&id) {
+                let offset =
+                    |n: i64| usize::try_from(n).map_err(|_| StoreError::Corrupt("message_styles"));
+                by_message.entry(i).or_default().push(StyleSpan {
+                    start: offset(start)?,
+                    len: offset(len)?,
+                    style: text_style_from_db(&style)?,
+                });
+            }
+        }
+        for (i, spans) in by_message {
+            if let Some(body) = messages.get_mut(i).and_then(|m| m.body.as_mut()) {
+                body.set_styles(spans);
+            }
+        }
         Ok(())
     }
 
@@ -1355,6 +1392,7 @@ impl Db {
                 "DELETE FROM reactions WHERE message_id = ?1",
                 "DELETE FROM attachments WHERE message_id = ?1",
                 "DELETE FROM mentions WHERE message_id = ?1",
+                "DELETE FROM message_styles WHERE message_id = ?1",
                 "DELETE FROM messages WHERE id = ?1",
             ] {
                 sqlx::query(table).bind(id).execute(&mut *tx).await?;
@@ -1542,6 +1580,7 @@ impl Db {
                 "DELETE FROM reactions WHERE message_id = ?1",
                 "DELETE FROM attachments WHERE message_id = ?1",
                 "DELETE FROM mentions WHERE message_id = ?1",
+                "DELETE FROM message_styles WHERE message_id = ?1",
                 "DELETE FROM messages WHERE id = ?1",
             ] {
                 sqlx::query(table).bind(id).execute(&mut *tx).await?;
@@ -1784,6 +1823,28 @@ async fn insert_mentions(
         .bind(offset(mention.start)?)
         .bind(offset(mention.len)?)
         .bind(mention.who.to_string())
+        .execute(&mut *conn)
+        .await?;
+    }
+    Ok(())
+}
+
+async fn insert_styles(
+    conn: &mut SqliteConnection,
+    message: i64,
+    styles: &[StyleSpan],
+) -> Result<()> {
+    for span in styles {
+        let offset =
+            |n: usize| i64::try_from(n).map_err(|_| StoreError::OutOfRange("message_styles"));
+        sqlx::query(
+            "INSERT INTO message_styles (message_id, start, length, style) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT (message_id, start, length, style) DO NOTHING",
+        )
+        .bind(message)
+        .bind(offset(span.start)?)
+        .bind(offset(span.len)?)
+        .bind(span.style.as_str())
         .execute(&mut *conn)
         .await?;
     }

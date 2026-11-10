@@ -255,6 +255,14 @@ fn mentions_point_at_their_placeholder_in_bytes() {
             Some("\u{FFFC}")
         );
     }
+    assert_eq!(
+        message.body.as_ref().unwrap().styles(),
+        &[StyleSpan {
+            start: 0,
+            len: 4,
+            style: TextStyle::Bold,
+        }]
+    );
     assert!(message.mentions_person(ME));
 }
 
@@ -774,4 +782,82 @@ fn blocked_and_message_request_response_syncs_round_trip() {
         message_request_response_sync(ConversationId::Direct(ALICE), MessageRequestAction::Unblock),
         None
     );
+}
+
+#[test]
+fn text_styles_round_trip_between_utf16_and_bytes() {
+    // "🧗 " is 3 UTF-16 units (5 bytes); "bold" is 4 units (4 bytes);
+    // " secret" has "secret" at byte 10..16.
+    let body = MessageBody::with_styles(
+        "🧗 bold secret",
+        vec![
+            StyleSpan {
+                start: 5,
+                len: 4,
+                style: TextStyle::Bold,
+            },
+            StyleSpan {
+                start: 5,
+                len: 4,
+                style: TextStyle::Italic,
+            },
+            StyleSpan {
+                start: 10,
+                len: 6,
+                style: TextStyle::Spoiler,
+            },
+        ],
+    );
+    let msg = OutgoingMessage {
+        sent_at: Timestamp::from_millis(100),
+        body: body.clone(),
+        mentions: vec![],
+        quote: None,
+        attachments: vec![],
+        expires_in_secs: None,
+    };
+    let data = text(&msg, vec![], None);
+    let BackendEvent::Message(decoded) = only(events(&from(ALICE, data), ME)) else {
+        panic!("expected a message");
+    };
+    assert_eq!(decoded.body.as_ref(), Some(&body));
+    assert!(decoded.has_spoilers());
+
+    // Edits also round-trip style spans.
+    let edited_body = MessageBody::with_styles(
+        "code & strike",
+        vec![
+            StyleSpan {
+                start: 0,
+                len: 4,
+                style: TextStyle::Monospace,
+            },
+            StyleSpan {
+                start: 7,
+                len: 6,
+                style: TextStyle::Strikethrough,
+            },
+        ],
+    );
+    let out_edit = OutgoingEdit {
+        edited_at: Timestamp::from_millis(200),
+        body: edited_body.clone(),
+        mentions: vec![],
+    };
+    let proto_edit = edit(
+        MessageRef {
+            sender: ALICE,
+            sent_at: Timestamp::from_millis(100),
+        },
+        &out_edit,
+        None,
+    );
+    let BackendEvent::Edited {
+        body: round_tripped,
+        ..
+    } = only(events(&from(ALICE, proto_edit), ME))
+    else {
+        panic!("expected an edit");
+    };
+    assert_eq!(round_tripped, edited_body);
 }

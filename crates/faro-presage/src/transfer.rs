@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 use faro_core::backend::{BackendEvent, IdentityUpdate};
 use faro_core::domain::{
     CallKind, CallState, Contact, ConversationId, DeliveryStatus, Direction, Group, GroupId,
-    Mention, Message, MessageBody, MessageRef, PhoneNumber, Quote, Reaction, ServiceId,
+    Mention, Message, MessageBody, MessageRef, PhoneNumber, Quote, Reaction, ServiceId, StyleSpan,
     SystemEvent, Timestamp, VerificationState,
 };
 use faro_core::guard::Allowlist;
@@ -900,12 +900,7 @@ impl HistoryBuilder {
     ) -> Option<Message> {
         match content {
             proto::chat_item::Item::Standard(standard) => {
-                let body = standard
-                    .text
-                    .as_ref()
-                    .map(|t| t.body.as_str())
-                    .filter(|s| !s.is_empty())
-                    .map(MessageBody::new);
+                let body = standard.text.as_ref().and_then(backup_body);
                 let mentions = standard
                     .text
                     .as_ref()
@@ -1259,12 +1254,7 @@ impl HistoryBuilder {
     fn backup_quote(&self, quote: &proto::Quote) -> Option<Quote> {
         let sent_at = Timestamp::from_millis(quote.target_sent_timestamp?);
         let sender = self.recipient_service_id(quote.author_id)?;
-        let preview = quote
-            .text
-            .as_ref()
-            .map(|t| t.body.as_str())
-            .filter(|s| !s.is_empty())
-            .map(MessageBody::new);
+        let preview = quote.text.as_ref().and_then(backup_body);
         Some(Quote {
             target: MessageRef { sender, sent_at },
             preview,
@@ -1375,6 +1365,36 @@ fn join_name(given: &str, family: &str) -> Option<String> {
         ("", f) => Some(f.to_owned()),
         (g, f) => Some(format!("{g} {f}")),
     }
+}
+
+fn backup_body(text: &proto::Text) -> Option<MessageBody> {
+    if text.body.is_empty() {
+        return None;
+    }
+    Some(MessageBody::with_styles(
+        text.body.as_str(),
+        backup_styles(&text.body, &text.body_ranges),
+    ))
+}
+
+fn backup_styles(body: &str, ranges: &[proto::BodyRange]) -> Vec<StyleSpan> {
+    ranges
+        .iter()
+        .filter_map(|range| {
+            let Some(proto::body_range::AssociatedValue::Style(raw)) = &range.associated_value
+            else {
+                return None;
+            };
+            let style = convert::text_style(*raw)?;
+            let start_utf16 = usize::try_from(range.start).ok()?;
+            let len_utf16 = usize::try_from(range.length).ok()?;
+            let end_utf16 = start_utf16.checked_add(len_utf16)?;
+            let start = convert::byte_offset(body, start_utf16)?;
+            let end = convert::byte_offset(body, end_utf16)?;
+            let len = end.checked_sub(start)?;
+            (len > 0).then_some(StyleSpan { start, len, style })
+        })
+        .collect()
 }
 
 fn backup_mentions(body: &str, ranges: &[proto::BodyRange]) -> Vec<Mention> {

@@ -69,7 +69,7 @@ pub fn desktop_notification(state: &State, message: &Message) -> (String, String
         NotificationPrivacy::Preview => {
             let title = sanitize(&state.conversation_title(message.conversation)).into_owned();
             let raw_text = state
-                .readable_body(message)
+                .preview_body(message)
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| "New message".to_owned());
             let full = match message.conversation {

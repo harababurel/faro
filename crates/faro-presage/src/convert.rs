@@ -8,14 +8,14 @@ use faro_core::backend::{
 use faro_core::domain::{
     AttachmentId, AttachmentRef, AttachmentStatus, CallKind, CallState, ConversationId,
     DeliveryStatus, Direction, GroupId, Mention, Message, MessageBody, MessageRef, Quote,
-    ServiceId, SystemEvent, Timestamp, TypingState, VerificationState,
+    ServiceId, StyleSpan, SystemEvent, TextStyle, Timestamp, TypingState, VerificationState,
 };
 use presage::libsignal_service::content::{Content, ContentBody};
 use presage::libsignal_service::prelude::ProtobufMessage as _;
 use presage::libsignal_service::protocol::{Aci, Pni, ServiceId as SignalId};
 use presage::libsignal_service::sender::AttachmentSpec;
 use presage::libsignal_service::zkgroup::groups::{GroupMasterKey, GroupSecretParams};
-use presage::proto::body_range::AssociatedValue;
+use presage::proto::body_range::{self, AssociatedValue};
 use presage::proto::call_message;
 use presage::proto::data_message::{self, Delete};
 use presage::proto::receipt_message;
@@ -219,7 +219,7 @@ fn data_message(data: &DataMessage, author: &Author, fallback_sent_at: u64) -> V
         .body
         .as_deref()
         .filter(|text| !text.is_empty())
-        .map(MessageBody::new)
+        .map(|text| styled_body(text, &data.body_ranges))
         .or_else(|| {
             data.sticker.as_ref().map(|sticker| {
                 let emoji = sticker.emoji.as_deref().unwrap_or("");
@@ -308,7 +308,7 @@ fn author(text: Option<&str>, binary: Option<&[u8]>) -> Option<ServiceId> {
 }
 
 /// The people a body mentions (D72), with Signal's UTF-16 offsets turned
-/// into byte offsets of `body`. Text styles (bold, spoilers…) are left out.
+/// into byte offsets of `body`.
 fn mentions(body: &str, ranges: &[BodyRange]) -> Vec<Mention> {
     ranges
         .iter()
@@ -328,6 +328,50 @@ fn mentions(body: &str, ranges: &[BodyRange]) -> Vec<Mention> {
             })
         })
         .collect()
+}
+
+pub(crate) fn text_style(raw: i32) -> Option<TextStyle> {
+    match body_range::Style::try_from(raw).ok()? {
+        body_range::Style::Bold => Some(TextStyle::Bold),
+        body_range::Style::Italic => Some(TextStyle::Italic),
+        body_range::Style::Spoiler => Some(TextStyle::Spoiler),
+        body_range::Style::Strikethrough => Some(TextStyle::Strikethrough),
+        body_range::Style::Monospace => Some(TextStyle::Monospace),
+        body_range::Style::None => None,
+    }
+}
+
+fn proto_style(style: TextStyle) -> i32 {
+    match style {
+        TextStyle::Bold => body_range::Style::Bold as i32,
+        TextStyle::Italic => body_range::Style::Italic as i32,
+        TextStyle::Spoiler => body_range::Style::Spoiler as i32,
+        TextStyle::Strikethrough => body_range::Style::Strikethrough as i32,
+        TextStyle::Monospace => body_range::Style::Monospace as i32,
+    }
+}
+
+/// The inline text styles a body carries (D177), with Signal's UTF-16 offsets
+/// turned into byte offsets of `body`.
+pub fn styles(body: &str, ranges: &[BodyRange]) -> Vec<StyleSpan> {
+    ranges
+        .iter()
+        .filter_map(|range| {
+            let AssociatedValue::Style(raw) = range.associated_value.as_ref()? else {
+                return None;
+            };
+            let style = text_style(*raw)?;
+            let start = usize::try_from(range.start?).ok()?;
+            let end = start.checked_add(usize::try_from(range.length?).ok()?)?;
+            let (start, end) = (byte_offset(body, start)?, byte_offset(body, end)?);
+            let len = end.checked_sub(start)?;
+            (len > 0).then_some(StyleSpan { start, len, style })
+        })
+        .collect()
+}
+
+fn styled_body(body: &str, ranges: &[BodyRange]) -> MessageBody {
+    MessageBody::with_styles(body, styles(body, ranges))
 }
 
 /// Where the `utf16`th UTF-16 code unit of `text` starts, in bytes; `None`
@@ -352,7 +396,10 @@ fn quote(quote: &data_message::Quote) -> Option<Quote> {
             )?,
             sent_at: Timestamp::from_millis(quote.id?),
         },
-        preview: quote.text.as_deref().map(MessageBody::new),
+        preview: quote
+            .text
+            .as_deref()
+            .map(|text| styled_body(text, &quote.body_ranges)),
     })
 }
 
@@ -456,14 +503,15 @@ fn reacted(
 
 fn edited(edit: &EditMessage, sender: ServiceId, direct: ConversationId) -> Option<BackendEvent> {
     let data = edit.data_message.as_ref()?;
+    let text = data.body.as_deref().unwrap_or("");
     Some(BackendEvent::Edited {
         conversation: conversation(data, direct),
         target: MessageRef {
             sender,
             sent_at: Timestamp::from_millis(edit.target_sent_timestamp?),
         },
-        body: MessageBody::new(data.body.as_deref().unwrap_or("")),
-        mentions: mentions(data.body.as_deref().unwrap_or(""), &data.body_ranges),
+        body: styled_body(text, &data.body_ranges),
+        mentions: mentions(text, &data.body_ranges),
         edited_at: Timestamp::from_millis(data.timestamp?),
     })
 }
@@ -744,29 +792,46 @@ pub fn group_context(master_key: &MasterKey, revision: u32) -> GroupContextV2 {
     }
 }
 
-/// Signal's `BodyRange`s for outgoing mentions, in UTF-16 code units.
-pub fn body_ranges(text: &str, mentions: &[Mention]) -> Vec<BodyRange> {
-    mentions
+/// Signal's `BodyRange`s for outgoing mentions and text styles, in UTF-16 code units.
+pub fn body_ranges(body: &MessageBody, mentions: &[Mention]) -> Vec<BodyRange> {
+    let text = body.expose();
+    let mention_ranges = mentions.iter().filter_map(|mention| {
+        let ServiceId::Aci(aci) = mention.who else {
+            return None;
+        };
+        let (start, length) = utf16_span(text, mention.start, mention.len)?;
+        Some(BodyRange {
+            start: Some(start),
+            length: Some(length),
+            associated_value: Some(AssociatedValue::MentionAci(aci.to_string())),
+        })
+    });
+    mention_ranges
+        .chain(style_ranges(text, body.styles()))
+        .collect()
+}
+
+fn style_ranges(text: &str, styles: &[StyleSpan]) -> Vec<BodyRange> {
+    styles
         .iter()
-        .filter_map(|mention| {
-            let ServiceId::Aci(aci) = mention.who else {
-                return None;
-            };
-            let end = mention.start.checked_add(mention.len)?;
-            let prefix = text.get(..mention.start)?;
-            let slice = text.get(mention.start..end)?;
-            let start = u32::try_from(prefix.encode_utf16().count()).ok()?;
-            let length = u32::try_from(slice.encode_utf16().count()).ok()?;
-            if length == 0 {
-                return None;
-            }
+        .filter_map(|span| {
+            let (start, length) = utf16_span(text, span.start, span.len)?;
             Some(BodyRange {
                 start: Some(start),
                 length: Some(length),
-                associated_value: Some(AssociatedValue::MentionAci(aci.to_string())),
+                associated_value: Some(AssociatedValue::Style(proto_style(span.style))),
             })
         })
         .collect()
+}
+
+fn utf16_span(text: &str, start_bytes: usize, len_bytes: usize) -> Option<(u32, u32)> {
+    let end = start_bytes.checked_add(len_bytes)?;
+    let prefix = text.get(..start_bytes)?;
+    let slice = text.get(start_bytes..end)?;
+    let start = u32::try_from(prefix.encode_utf16().count()).ok()?;
+    let length = u32::try_from(slice.encode_utf16().count()).ok()?;
+    (length > 0).then_some((start, length))
 }
 
 pub fn text(
@@ -781,13 +846,18 @@ pub fn text(
     };
     DataMessage {
         body,
-        body_ranges: body_ranges(msg.body.expose(), &msg.mentions),
+        body_ranges: body_ranges(&msg.body, &msg.mentions),
         attachments,
         timestamp: Some(msg.sent_at.as_millis()),
         quote: msg.quote.as_ref().map(|q| data_message::Quote {
             id: Some(q.target.sent_at.as_millis()),
             author_aci: Some(q.target.sender.to_string()),
             text: q.preview.as_ref().map(|p| p.expose().to_owned()),
+            body_ranges: q
+                .preview
+                .as_ref()
+                .map(|p| style_ranges(p.expose(), p.styles()))
+                .unwrap_or_default(),
             r#type: Some(data_message::quote::Type::Normal.into()),
             ..data_message::Quote::default()
         }),
@@ -842,7 +912,7 @@ pub fn edit(target: MessageRef, edit: &OutgoingEdit, group: Option<GroupContextV
         target_sent_timestamp: Some(target.sent_at.as_millis()),
         data_message: Some(DataMessage {
             body: Some(edit.body.expose().to_owned()),
-            body_ranges: body_ranges(edit.body.expose(), &edit.mentions),
+            body_ranges: body_ranges(&edit.body, &edit.mentions),
             timestamp: Some(edit.edited_at.as_millis()),
             group_v2: group,
             ..DataMessage::default()

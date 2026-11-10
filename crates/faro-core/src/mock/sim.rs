@@ -25,7 +25,7 @@ use super::{MockConfig, MockEpoch};
 use crate::backend::{BackendError, BackendEvent, OutgoingMessage, Result};
 use crate::domain::{
     AttachmentRef, ConnectionState, ConversationId, DeliveryStatus, Direction, LinkedDevice,
-    Mention, Message, MessageBody, MessageRef, Quote, ServiceId, Timestamp, TypingState,
+    Mention, Message, MessageBody, MessageRef, Quote, ServiceId, StyleSpan, Timestamp, TypingState,
 };
 
 /// Milliseconds since the mock started.
@@ -535,7 +535,7 @@ impl Sim {
         let mention = (in_group && self.chance(MENTION_PERCENT)).then_some(Who::Me);
         let content = Content {
             quote,
-            ..self.content(text, mention)
+            ..self.content(text, mention, &[])
         };
         let (answer, _) = self.schedule_incoming(start, conversation, sender, content);
         if self.answers.len() >= RECENT_CAP {
@@ -840,21 +840,33 @@ impl Sim {
         Content {
             quote,
             attachments,
-            ..self.content(line.text, line.mention)
+            ..self.content(line.text, line.mention, line.styles)
         }
     }
 
     /// Body and mentions for `text`, with `mention` (if any) in front.
-    fn content(&self, text: &str, mention: Option<Who>) -> Content {
+    fn content(&self, text: &str, mention: Option<Who>, styles: &[StyleSpan]) -> Content {
         match mention.and_then(|who| self.world.id_of(who)) {
             Some(who) => {
+                let prefix = if text.is_empty() {
+                    0
+                } else {
+                    '\u{FFFC}'.len_utf8() + 1
+                };
                 let body = if text.is_empty() {
                     "\u{FFFC}".to_owned()
                 } else {
                     format!("\u{FFFC} {text}")
                 };
+                let shifted = styles
+                    .iter()
+                    .map(|s| StyleSpan {
+                        start: s.start + prefix,
+                        ..*s
+                    })
+                    .collect();
                 Content {
-                    body: Some(MessageBody::new(body)),
+                    body: Some(MessageBody::with_styles(body, shifted)),
                     mentions: vec![Mention {
                         who,
                         start: 0,
@@ -865,7 +877,7 @@ impl Sim {
             }
             None if text.is_empty() => Content::default(),
             None => Content {
-                body: Some(MessageBody::new(text)),
+                body: Some(MessageBody::with_styles(text, styles.to_vec())),
                 ..Content::default()
             },
         }
@@ -896,7 +908,7 @@ impl Sim {
             Then::Stay => {}
             Then::EditTo(text) => {
                 let delay = self.later();
-                let content = self.content(text, line.mention);
+                let content = self.content(text, line.mention, &[]);
                 if let Some(body) = content.body {
                     let edited = BackendEvent::Edited {
                         conversation,
@@ -1049,7 +1061,7 @@ impl Sim {
         let text = pick(&mut self.rng, scenes::replies(Some(Who::Me)))
             .copied()
             .unwrap_or("👍");
-        let content = self.content(text, None);
+        let content = self.content(text, None, &[]);
         self.schedule_outgoing(now, conversation, content);
         Some(())
     }
