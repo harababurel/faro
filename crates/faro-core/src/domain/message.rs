@@ -63,6 +63,7 @@ pub struct Message {
     /// People mentioned in `body` (D72); draw them with [`mention_parts`].
     pub mentions: Vec<Mention>,
     pub quote: Option<Quote>,
+    pub previews: Vec<LinkPreview>,
     pub attachments: Vec<AttachmentRef>,
     /// At most one per sender (Signal replaces a person's previous reaction).
     pub reactions: Vec<Reaction>,
@@ -131,6 +132,7 @@ impl Message {
             body: None,
             mentions: Vec::new(),
             quote: None,
+            previews: Vec::new(),
             attachments: Vec::new(),
             reactions: Vec::new(),
             edited_at: None,
@@ -290,6 +292,41 @@ pub struct Quote {
     pub target: MessageRef,
     /// The quoted text as the sender saw it; the original may be missing locally.
     pub preview: Option<MessageBody>,
+}
+
+/// Link preview metadata attached by the sender (`DataMessage.preview`; #02).
+/// Remote thumbnail pointers (`Preview.image`) are ignored so viewing a chat
+/// never fetches remote preview images.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkPreview {
+    pub url: String,
+    pub title: Option<String>,
+    pub description: Option<String>,
+}
+
+impl LinkPreview {
+    /// Host/site name extracted from `url` (without scheme, `www.`, port, or path).
+    #[must_use]
+    pub fn site(&self) -> Option<&str> {
+        let rest = self
+            .url
+            .trim()
+            .split_once("://")
+            .map_or(self.url.trim(), |(_, after)| after);
+        let host_port = rest.split(['/', '?', '#']).next().unwrap_or("");
+        let host = host_port
+            .rsplit_once('@')
+            .map_or(host_port, |(_, h)| h)
+            .split(':')
+            .next()
+            .unwrap_or("")
+            .trim_matches('.');
+        let site = host
+            .strip_prefix("www.")
+            .or_else(|| host.strip_prefix("WWW."))
+            .unwrap_or(host);
+        (!site.is_empty()).then_some(site)
+    }
 }
 
 /// Backend-specific handle used to fetch an attachment's content. Opaque to
@@ -539,6 +576,7 @@ mod tests {
             body: Some(MessageBody::new("hi")),
             mentions: vec![],
             quote: None,
+            previews: vec![],
             attachments: vec![],
             reactions: vec![],
             edited_at: None,

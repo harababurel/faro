@@ -13,9 +13,10 @@ pub use ids::{
 };
 pub use message::{
     AttachmentId, AttachmentRef, AttachmentStatus, BodyPart, CallKind, CallState, DeliveryStatus,
-    Direction, LONG_TEXT_MAX_BYTES, LONG_TEXT_MIME, LONG_TEXT_THRESHOLD, Mention, Message, Quote,
-    Reaction, SystemEvent, TranscriptSource, format_byte_size, format_disappearing_remaining,
-    format_disappearing_timer, mention_parts, transcript_paragraph, truncate_long_text,
+    Direction, LONG_TEXT_MAX_BYTES, LONG_TEXT_MIME, LONG_TEXT_THRESHOLD, LinkPreview, Mention,
+    Message, Quote, Reaction, SystemEvent, TranscriptSource, format_byte_size,
+    format_disappearing_remaining, format_disappearing_timer, mention_parts, transcript_paragraph,
+    truncate_long_text,
 };
 pub use people::{
     Contact, Group, IdentityRecord, LinkedDevice, VerificationState, format_safety_number,

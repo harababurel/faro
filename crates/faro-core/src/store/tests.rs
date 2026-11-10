@@ -11,8 +11,8 @@ use uuid::Uuid;
 use super::*;
 use crate::backend::{Backend as _, BackendEvent};
 use crate::domain::{
-    AttachmentId, AttachmentRef, ConnectionState, DeliveryStatus, Direction, GroupId, Mention,
-    Quote, Reaction, ServiceId,
+    AttachmentId, AttachmentRef, ConnectionState, DeliveryStatus, Direction, GroupId, LinkPreview,
+    Mention, Quote, Reaction, ServiceId,
 };
 use crate::mock::{MockBackend, MockConfig};
 
@@ -143,6 +143,7 @@ fn incoming(conversation: ConversationId, sender: u128, sent_at: u64, body: &str
         body: Some(MessageBody::new(body)),
         mentions: vec![],
         quote: None,
+        previews: vec![],
         attachments: vec![],
         reactions: vec![],
         edited_at: None,
@@ -194,6 +195,11 @@ async fn message_round_trips_with_quote_reactions_and_attachments(kind: Kind) {
         target: original.reference(),
         preview: Some(MessageBody::new("first")),
     });
+    reply.previews = vec![LinkPreview {
+        url: "https://faro.chat/docs".to_owned(),
+        title: Some("faro docs".to_owned()),
+        description: Some("Keyboard-first Signal TUI".to_owned()),
+    }];
     reply.reactions = vec![
         Reaction {
             sender: aci(ME),
@@ -472,7 +478,12 @@ async fn reactions_are_set_replaced_and_removed(kind: Kind) {
 }
 
 async fn only_newer_edits_win_and_deletes_drop_content(kind: Kind) {
-    let message = incoming(direct(ALICE), ALICE, 100, "tpyo");
+    let mut message = incoming(direct(ALICE), ALICE, 100, "tpyo");
+    message.previews = vec![LinkPreview {
+        url: "https://example.com".to_owned(),
+        title: Some("Example".to_owned()),
+        description: None,
+    }];
     let store = store_with(kind, std::slice::from_ref(&message)).await;
     let edit = |body: &str, at| BackendEvent::Edited {
         conversation: direct(ALICE),
@@ -507,6 +518,7 @@ async fn only_newer_edits_win_and_deletes_drop_content(kind: Kind) {
     let stored = only_message(&store, direct(ALICE)).await;
     assert!(stored.deleted);
     assert_eq!(stored.body, None);
+    assert_eq!(stored.previews, vec![]);
     assert_eq!(stored.reactions, vec![]);
 }
 

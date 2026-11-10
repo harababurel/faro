@@ -8,8 +8,8 @@ use std::collections::BTreeMap;
 
 use faro_core::config::{MessageDensity, TimestampFormat};
 use faro_core::domain::{
-    AttachmentStatus, BodyPart, DeliveryStatus, Direction, Message, MessageRef, Timestamp,
-    mention_parts,
+    AttachmentStatus, BodyPart, DeliveryStatus, Direction, LinkPreview, Message, MessageRef,
+    Timestamp, mention_parts,
 };
 use jiff::civil::Date;
 use ratatui::style::{Modifier, Style};
@@ -704,8 +704,11 @@ pub(super) fn content(
             "This message was deleted",
             theme.muted().add_modifier(Modifier::ITALIC),
         )]);
-    } else if let Some(text) = &message.body {
-        body.extend(text_lines(state, message, text.expose(), max, view));
+    } else {
+        if let Some(text) = &message.body {
+            body.extend(text_lines(state, message, text.expose(), max, view));
+        }
+        push_link_previews(&message.previews, max, theme.muted(), &mut body);
     }
     let msg_ref = message.reference();
     for (index, attachment) in message.attachments.iter().enumerate() {
@@ -779,6 +782,45 @@ pub(super) fn content(
         body.push(vec![Span::styled("(empty message)", theme.muted())]);
     }
     (body, pending_images)
+}
+
+/// Append one collapsed row per [`LinkPreview`] (`▎ site · title — description`; #02).
+fn push_link_previews(
+    previews: &[LinkPreview],
+    max: usize,
+    style: Style,
+    body: &mut Vec<Vec<Span<'static>>>,
+) {
+    for preview in previews {
+        if let Some(text) = link_preview_text(preview) {
+            body.push(vec![Span::styled(truncate(&text, max).into_owned(), style)]);
+        }
+    }
+}
+
+/// Format a [`LinkPreview`] as a single collapsed row (`▎ site · title — description`; #02).
+fn link_preview_text(preview: &LinkPreview) -> Option<String> {
+    let site = preview.site().map(one_line).filter(|s| !s.is_empty());
+    let title = preview
+        .title
+        .as_deref()
+        .map(one_line)
+        .filter(|s| !s.is_empty());
+    let description = preview
+        .description
+        .as_deref()
+        .map(one_line)
+        .filter(|s| !s.is_empty());
+    let summary = match (title, description) {
+        (Some(t), Some(d)) => format!("{t} — {d}"),
+        (Some(t), None) => t,
+        (None, Some(d)) => d,
+        (None, None) => return None,
+    };
+    Some(match site {
+        Some(s) => format!("▎ {s} · {summary}"),
+        None => format!("▎ {summary}"),
+    })
 }
 
 /// Render a voice note row (`▶ 0:14 ▂▄▆█… · size` or `■ 0:05 / 0:14 ▂▄▆█… · playing`)
@@ -974,8 +1016,11 @@ pub(super) fn thread_body(
             "This message was deleted",
             theme.muted().add_modifier(Modifier::ITALIC),
         )]);
-    } else if let Some(text) = &message.body {
-        body.extend(text_lines(state, message, text.expose(), max, view));
+    } else {
+        if let Some(text) = &message.body {
+            body.extend(text_lines(state, message, text.expose(), max, view));
+        }
+        push_link_previews(&message.previews, max, theme.muted(), &mut body);
     }
     let msg_ref = message.reference();
     for (index, attachment) in message.attachments.iter().enumerate() {

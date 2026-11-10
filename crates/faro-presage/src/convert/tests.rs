@@ -113,6 +113,47 @@ fn quotes_keep_their_target() {
 }
 
 #[test]
+fn link_previews_keep_title_site_and_description_without_remote_images() {
+    let data = DataMessage {
+        preview: vec![
+            Preview {
+                url: Some("https://www.faro.chat/guide".to_owned()),
+                title: Some("  Faro Guide  ".to_owned()),
+                image: Some(AttachmentPointer {
+                    content_type: Some("image/jpeg".to_owned()),
+                    size: Some(4096),
+                    ..AttachmentPointer::default()
+                }),
+                description: Some("  Terminal Signal client  ".to_owned()),
+                date: Some(1_700_000_000_000),
+            },
+            // Bare URL with neither title nor description is skipped.
+            Preview {
+                url: Some("https://example.com".to_owned()),
+                title: Some("   ".to_owned()),
+                image: None,
+                description: None,
+                date: None,
+            },
+        ],
+        ..text_from_alice("check https://www.faro.chat/guide", 1000)
+    };
+    let BackendEvent::Message(message) = only(events(&from(ALICE, data), ME)) else {
+        panic!("expected a message");
+    };
+    assert_eq!(message.attachments, vec![], "preview image is never mapped as an attachment");
+    assert_eq!(
+        message.previews,
+        vec![LinkPreview {
+            url: "https://www.faro.chat/guide".to_owned(),
+            title: Some("Faro Guide".to_owned()),
+            description: Some("Terminal Signal client".to_owned()),
+        }]
+    );
+    assert_eq!(message.previews[0].site(), Some("faro.chat"));
+}
+
+#[test]
 fn empty_data_messages_show_nothing() {
     // e.g. a profile key update
     let data = DataMessage {

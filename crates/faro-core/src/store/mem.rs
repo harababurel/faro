@@ -20,8 +20,8 @@ use super::{
 use crate::backend::{BackendEvent, IdentityUpdate, MessageRequestAction};
 use crate::domain::{
     AttachmentRef, AttachmentStatus, CallState, Contact, ConversationId, DeliveryStatus, Direction,
-    Group, IdentityRecord, Mention, Message, MessageBody, MessageRef, PhoneNumber, Quote, Reaction,
-    ServiceId, SystemEvent, Timestamp, VerificationState,
+    Group, IdentityRecord, LinkPreview, Mention, Message, MessageBody, MessageRef, PhoneNumber,
+    Quote, Reaction, ServiceId, SystemEvent, Timestamp, VerificationState,
 };
 
 #[derive(Debug, Default)]
@@ -61,6 +61,7 @@ struct Row {
     system_event: Option<SystemEvent>,
     /// In row-id order: a replaced reaction keeps its place.
     reactions: Vec<Reaction>,
+    previews: Vec<LinkPreview>,
     attachments: Vec<AttachmentRef>,
     /// By start offset; the first mention at an offset wins.
     mentions: BTreeMap<usize, Mention>,
@@ -91,6 +92,7 @@ impl Row {
             body: self.body.clone().map(MessageBody::new),
             mentions: self.mentions.values().copied().collect(),
             quote: self.quote.clone(),
+            previews: self.previews.clone(),
             attachments: self.attachments.clone(),
             reactions: self.reactions.clone(),
             edited_at: self.edited_at,
@@ -322,6 +324,7 @@ impl Mem {
             expire_started_at,
             system_event: message.system_event.clone(),
             reactions: Vec::new(),
+            previews: message.previews.clone(),
             attachments: message.attachments.clone(),
             mentions: BTreeMap::new(),
         };
@@ -504,6 +507,7 @@ impl Mem {
             quote.preview = None;
         }
         row.reactions.clear();
+        row.previews.clear();
         row.attachments.clear();
         row.mentions.clear();
         self.receipts.remove(&target);
@@ -751,22 +755,7 @@ impl Mem {
         use super::search::{HasFilter, IsFilter};
 
         let body = row.body.as_deref().unwrap_or("").to_ascii_lowercase();
-        let terms_ok = parsed.terms.iter().all(|token| {
-            body.contains(token.as_str())
-                || row.attachments.iter().any(|a| {
-                    a.transcript
-                        .as_deref()
-                        .unwrap_or("")
-                        .to_ascii_lowercase()
-                        .contains(token.as_str())
-                        || a.file_name
-                            .as_deref()
-                            .unwrap_or("")
-                            .to_ascii_lowercase()
-                            .contains(token.as_str())
-                })
-        });
-        if !terms_ok {
+        if !row_matches_terms(row, &body, &parsed.terms) {
             return false;
         }
         let from_ok = parsed.from.iter().all(|who| {
@@ -816,7 +805,9 @@ impl Mem {
                 .iter()
                 .any(|a| a.voice_note || a.content_type.to_ascii_lowercase().starts_with("audio/")),
             HasFilter::File => !row.attachments.is_empty(),
-            HasFilter::Link => body.contains("http://") || body.contains("https://"),
+            HasFilter::Link => {
+                body.contains("http://") || body.contains("https://") || !row.previews.is_empty()
+            }
             HasFilter::Transcript => row
                 .attachments
                 .iter()
@@ -1348,6 +1339,37 @@ fn check_mention(mention: &Mention) -> Result<()> {
         i64::try_from(n).map_err(|_| StoreError::OutOfRange("mention"))?;
     }
     Ok(())
+}
+
+fn row_matches_terms(row: &Row, body: &str, terms: &[String]) -> bool {
+    terms.iter().all(|token| {
+        body.contains(token.as_str())
+            || row.attachments.iter().any(|a| {
+                a.transcript
+                    .as_deref()
+                    .unwrap_or("")
+                    .to_ascii_lowercase()
+                    .contains(token.as_str())
+                    || a.file_name
+                        .as_deref()
+                        .unwrap_or("")
+                        .to_ascii_lowercase()
+                        .contains(token.as_str())
+            })
+            || row.previews.iter().any(|p| {
+                p.url.to_ascii_lowercase().contains(token.as_str())
+                    || p.title
+                        .as_deref()
+                        .unwrap_or("")
+                        .to_ascii_lowercase()
+                        .contains(token.as_str())
+                    || p.description
+                        .as_deref()
+                        .unwrap_or("")
+                        .to_ascii_lowercase()
+                        .contains(token.as_str())
+            })
+    })
 }
 
 fn recipient_matches(recipient: &Recipient, needle: &str) -> bool {

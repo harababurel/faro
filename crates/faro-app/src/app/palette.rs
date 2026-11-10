@@ -1420,21 +1420,28 @@ fn chat_links_and_files(state: &State) -> Vec<Item> {
                 .detail(format!("{sender} · {status_or_size}")),
             );
         }
-        if let Some(body) = &message.body {
-            for url in super::update::selection::find_links(body.expose()) {
-                if !seen_urls.contains(&url) {
-                    seen_urls.push(url.clone());
-                    links.push(
-                        Item::new(
-                            ItemKind::ChatLink {
-                                message: msg_ref,
-                                url: url.clone(),
-                            },
-                            url,
-                        )
-                        .detail(sender.clone()),
+        for url in super::update::selection::message_links(message) {
+            if !seen_urls.contains(&url) {
+                seen_urls.push(url.clone());
+                let detail = message
+                    .previews
+                    .iter()
+                    .find(|p| p.url == url)
+                    .and_then(|p| p.title.as_deref())
+                    .map_or_else(
+                        || sender.clone(),
+                        |title| format!("{} · {sender}", crate::ui::text::one_line(title)),
                     );
-                }
+                links.push(
+                    Item::new(
+                        ItemKind::ChatLink {
+                            message: msg_ref,
+                            url: url.clone(),
+                        },
+                        url,
+                    )
+                    .detail(detail),
+                );
             }
         }
     }
@@ -2001,9 +2008,7 @@ pub fn note(state: &State, level: Level) -> Option<String> {
         let has_any = state.open.as_ref().is_some_and(|open| {
             open.messages.iter().filter(|m| !m.deleted).any(|m| {
                 !m.attachments.is_empty()
-                    || m.body.as_ref().is_some_and(|b| {
-                        !super::update::selection::find_links(b.expose()).is_empty()
-                    })
+                    || !super::update::selection::message_links(m).is_empty()
             })
         });
         return (!has_any)

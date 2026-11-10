@@ -7,8 +7,8 @@ use faro_core::backend::{
 };
 use faro_core::domain::{
     AttachmentId, AttachmentRef, AttachmentStatus, CallKind, CallState, ConversationId,
-    DeliveryStatus, Direction, GroupId, Mention, Message, MessageBody, MessageRef, Quote,
-    ServiceId, SystemEvent, Timestamp, TypingState, VerificationState,
+    DeliveryStatus, Direction, GroupId, LinkPreview, Mention, Message, MessageBody, MessageRef,
+    Quote, ServiceId, SystemEvent, Timestamp, TypingState, VerificationState,
 };
 use presage::libsignal_service::content::{Content, ContentBody};
 use presage::libsignal_service::prelude::ProtobufMessage as _;
@@ -22,7 +22,7 @@ use presage::proto::receipt_message;
 use presage::proto::sync_message::{self, Sent};
 use presage::proto::typing_message;
 use presage::proto::{
-    AttachmentPointer, BodyRange, CallMessage, DataMessage, EditMessage, GroupContextV2,
+    AttachmentPointer, BodyRange, CallMessage, DataMessage, EditMessage, GroupContextV2, Preview,
     ReceiptMessage, SyncMessage, TypingMessage, Verified, verified,
 };
 use uuid::Uuid;
@@ -230,6 +230,7 @@ fn data_message(data: &DataMessage, author: &Author, fallback_sent_at: u64) -> V
     if let Some(sticker) = data.sticker.as_ref().and_then(|s| s.data.as_ref()) {
         attachments.push(sticker_attachment(sticker));
     }
+    let previews = link_previews(&data.preview);
     let timer_update =
         (data.flags.unwrap_or(0) & (data_message::Flags::ExpirationTimerUpdate as u32)) != 0;
     let expires_in_secs = data.expire_timer.filter(|&s| s > 0);
@@ -240,7 +241,7 @@ fn data_message(data: &DataMessage, author: &Author, fallback_sent_at: u64) -> V
             conversation,
             seconds: expires_in_secs,
         });
-        if body.is_none() && attachments.is_empty() {
+        if body.is_none() && attachments.is_empty() && previews.is_empty() {
             out.push(BackendEvent::Message(Message::system(
                 conversation,
                 author.sender,
@@ -252,7 +253,7 @@ fn data_message(data: &DataMessage, author: &Author, fallback_sent_at: u64) -> V
             )));
         }
     }
-    if body.is_none() && attachments.is_empty() {
+    if body.is_none() && attachments.is_empty() && previews.is_empty() {
         if data
             .group_call_update
             .as_ref()
@@ -287,6 +288,7 @@ fn data_message(data: &DataMessage, author: &Author, fallback_sent_at: u64) -> V
             .map(|text| mentions(text, &data.body_ranges))
             .unwrap_or_default(),
         quote: data.quote.as_ref().and_then(quote),
+        previews,
         attachments,
         reactions: vec![],
         edited_at: None,
@@ -354,6 +356,41 @@ fn quote(quote: &data_message::Quote) -> Option<Quote> {
         },
         preview: quote.text.as_deref().map(MessageBody::new),
     })
+}
+
+/// Map Signal's `DataMessage.preview` entries into [`LinkPreview`]s (#02).
+/// Remote thumbnail pointers (`Preview.image`) are deliberately ignored so
+/// viewing a chat never fetches external preview images.
+fn link_previews(previews: &[Preview]) -> Vec<LinkPreview> {
+    previews
+        .iter()
+        .filter_map(|p| {
+            let url = p.url.as_deref()?.trim();
+            if url.is_empty() {
+                return None;
+            }
+            let title = p
+                .title
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned);
+            let description = p
+                .description
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned);
+            if title.is_none() && description.is_none() {
+                return None;
+            }
+            Some(LinkPreview {
+                url: url.to_owned(),
+                title,
+                description,
+            })
+        })
+        .collect()
 }
 
 /// Encode a Signal [`AttachmentPointer`] (CDN identifier, key, digest, size)

@@ -188,10 +188,9 @@ fn actions(state: &State, message: &Message) -> Vec<MessageAction> {
     {
         items.push(MessageAction::Forward);
     }
-    if let Some(body) = message.body.as_ref().filter(|_| !message.deleted) {
-        let links = find_links(body.expose());
+    if !message.deleted {
         items.extend(
-            links
+            message_links(message)
                 .into_iter()
                 .take(MAX_LINK_ITEMS)
                 .map(MessageAction::OpenLink),
@@ -1243,12 +1242,7 @@ pub fn open_link(state: &mut State) -> Vec<Effect> {
         return vec![];
     };
     let target = message.reference();
-    let links = message
-        .body
-        .as_ref()
-        .filter(|_| !message.deleted)
-        .map(|b| find_links(b.expose()))
-        .unwrap_or_default();
+    let links = message_links(message);
     match links.as_slice() {
         [] => {
             state.notice = Some(Notice::info("No link in this message"));
@@ -2406,6 +2400,26 @@ pub fn find_links(text: &str) -> Vec<String> {
             .is_some_and(|(_, rest)| !rest.is_empty());
         if has_host && !link.chars().any(char::is_control) && !links.iter().any(|l| l == link) {
             links.push(link.to_owned());
+        }
+    }
+    links
+}
+
+/// http(s) links in `message` (its body and any link previews), in order, without duplicates.
+pub fn message_links(message: &Message) -> Vec<String> {
+    if message.deleted {
+        return Vec::new();
+    }
+    let mut links = message
+        .body
+        .as_ref()
+        .map(|b| find_links(b.expose()))
+        .unwrap_or_default();
+    for preview in &message.previews {
+        for url in find_links(&preview.url) {
+            if !links.iter().any(|l| l == &url) {
+                links.push(url);
+            }
         }
     }
     links

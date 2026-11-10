@@ -153,6 +153,7 @@ mod tests {
             body: Some(MessageBody::new("hi")),
             mentions: vec![],
             quote: None,
+            previews: vec![],
             attachments: vec![],
             reactions: vec![],
             edited_at: None,

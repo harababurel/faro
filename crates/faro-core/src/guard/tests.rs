@@ -47,6 +47,7 @@ fn message(conversation: ConversationId, sender: ServiceId) -> BackendEvent {
         body: Some(MessageBody::new("hi")),
         mentions: Vec::new(),
         quote: None,
+        previews: Vec::new(),
         attachments: Vec::new(),
         reactions: Vec::new(),
         edited_at: None,

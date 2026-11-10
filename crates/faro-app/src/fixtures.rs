@@ -103,6 +103,7 @@ pub fn text(conversation: ConversationId, sender: ServiceId, at: u64, body: &str
         body: Some(MessageBody::new(body)),
         mentions: vec![],
         quote: None,
+        previews: vec![],
         attachments: vec![],
         reactions: vec![],
         edited_at: None,

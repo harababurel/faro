@@ -2677,6 +2677,7 @@ fn media_gallery_renders_position_header_and_video_card() {
         body: Some(MessageBody::new("Crux beta")),
         mentions: vec![],
         quote: None,
+        previews: vec![],
         attachments: vec![AttachmentRef {
             file_name: Some("send.mp4".into()),
             size: Some(4 * 1024 * 1024),
@@ -2706,4 +2707,33 @@ fn media_gallery_renders_position_header_and_video_card() {
     assert!(text.contains("1:15 · 4.0 MB"), "missing video metadata:\n{text}");
     assert!(text.contains("Crux beta · /tmp/send.mp4"), "missing caption + path:\n{text}");
     assert_drawable(&compatible(state), 120, 30);
+}
+
+#[test]
+fn link_previews_render_collapsed_card_in_irc_and_bubbles() {
+    use faro_core::domain::LinkPreview;
+
+    let mut state = loaded_state();
+    if let Some(open) = state.open.as_mut()
+        && let Some(last) = open.messages.last_mut()
+    {
+        last.previews = vec![LinkPreview {
+            url: "https://www.faro.chat/docs".to_owned(),
+            title: Some("Faro Documentation".to_owned()),
+            description: Some("Terminal Signal client".to_owned()),
+        }];
+    }
+
+    let irc = snapshot(&draw(&state, 120, 24));
+    assert!(
+        irc.contains("▎ faro.chat · Faro Documentation — Terminal Signal client"),
+        "IRC layout should render collapsed link preview card:\n{irc}"
+    );
+
+    state.layout = MessageLayout::Bubbles;
+    let bubbles = snapshot(&draw(&state, 120, 24));
+    assert!(
+        bubbles.contains("▎ faro.chat · Faro Documentation — Terminal Signal client"),
+        "Bubbles layout should render collapsed link preview card:\n{bubbles}"
+    );
 }

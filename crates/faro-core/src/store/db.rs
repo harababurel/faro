@@ -19,9 +19,9 @@ use super::{
 };
 use crate::backend::{BackendEvent, IdentityUpdate, MessageRequestAction};
 use crate::domain::{
-    CallState, Contact, ConversationId, DeliveryStatus, Direction, Group, IdentityRecord, Mention,
-    Message, MessageBody, MessageRef, PhoneNumber, Quote, Reaction, ServiceId, SystemEvent,
-    Timestamp, VerificationState,
+    CallState, Contact, ConversationId, DeliveryStatus, Direction, Group, IdentityRecord,
+    LinkPreview, Mention, Message, MessageBody, MessageRef, PhoneNumber, Quote, Reaction,
+    ServiceId, SystemEvent, Timestamp, VerificationState,
 };
 
 mod attachments;
@@ -54,6 +54,18 @@ impl Db {
     pub(super) async fn open(options: &SqliteConnectOptions) -> Result<Self> {
         let mut conn = options.connect().await?;
         MIGRATOR.run(&mut conn).await?;
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS link_previews (
+                 message_id  INTEGER NOT NULL REFERENCES messages (id) ON DELETE CASCADE,
+                 idx         INTEGER NOT NULL,
+                 url         TEXT NOT NULL,
+                 title       TEXT,
+                 description TEXT,
+                 PRIMARY KEY (message_id, idx)
+             ) STRICT",
+        )
+        .execute(&mut conn)
+        .await?;
         Ok(Self { conn })
     }
 
@@ -327,6 +339,7 @@ impl Db {
             attachments::insert(&mut tx, id, attachment).await?;
         }
         insert_mentions(&mut tx, id, &message.mentions).await?;
+        insert_link_previews(&mut tx, id, &message.previews).await?;
         let unread = i64::from(
             message.direction == Direction::Incoming
                 && !message.deleted
@@ -482,6 +495,7 @@ impl Db {
             "DELETE FROM reactions WHERE message_id = ?1",
             "DELETE FROM attachments WHERE message_id = ?1",
             "DELETE FROM mentions WHERE message_id = ?1",
+            "DELETE FROM link_previews WHERE message_id = ?1",
         ] {
             sqlx::query(table).bind(id).execute(&mut *tx).await?;
         }
@@ -855,6 +869,14 @@ impl Db {
             );
             builder.push_bind(pattern.clone());
             builder.push(" ESCAPE '\\' OR lower(coalesce(a.file_name, '')) LIKE ");
+            builder.push_bind(pattern.clone());
+            builder.push(
+                " ESCAPE '\\')) OR EXISTS (SELECT 1 FROM link_previews lp WHERE lp.message_id = m.id AND (lower(lp.url) LIKE ",
+            );
+            builder.push_bind(pattern.clone());
+            builder.push(" ESCAPE '\\' OR lower(coalesce(lp.title, '')) LIKE ");
+            builder.push_bind(pattern.clone());
+            builder.push(" ESCAPE '\\' OR lower(coalesce(lp.description, '')) LIKE ");
             builder.push_bind(pattern);
             builder.push(" ESCAPE '\\')))");
         }
@@ -909,7 +931,7 @@ impl Db {
                     " AND EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id)"
                 }
                 HasFilter::Link => {
-                    " AND (lower(coalesce(m.body, '')) LIKE '%http://%' OR lower(coalesce(m.body, '')) LIKE '%https://%')"
+                    " AND (lower(coalesce(m.body, '')) LIKE '%http://%' OR lower(coalesce(m.body, '')) LIKE '%https://%' OR EXISTS (SELECT 1 FROM link_previews lp WHERE lp.message_id = m.id))"
                 }
                 HasFilter::Transcript => {
                     " AND EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id AND coalesce(a.transcript, '') != '')"
@@ -1064,6 +1086,26 @@ impl Db {
                     who: service_id_from_db(&who, "mention")?,
                     start: offset(start)?,
                     len: offset(len)?,
+                });
+            }
+        }
+
+        let previews: Vec<(i64, String, Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT lp.message_id, lp.url, lp.title, lp.description
+             FROM link_previews lp
+             WHERE lp.message_id BETWEEN ?1 AND ?2
+             ORDER BY lp.message_id, lp.idx",
+        )
+        .bind(low)
+        .bind(high)
+        .fetch_all(&mut self.conn)
+        .await?;
+        for (id, url, title, description) in previews {
+            if let Some(message) = index.get(&id).and_then(|&i| messages.get_mut(i)) {
+                message.previews.push(LinkPreview {
+                    url,
+                    title,
+                    description,
                 });
             }
         }
@@ -1790,6 +1832,29 @@ async fn insert_mentions(
     Ok(())
 }
 
+async fn insert_link_previews(
+    conn: &mut SqliteConnection,
+    message: i64,
+    previews: &[LinkPreview],
+) -> Result<()> {
+    for (idx, preview) in previews.iter().enumerate() {
+        let idx = i64::try_from(idx).map_err(|_| StoreError::OutOfRange("link_preview"))?;
+        sqlx::query(
+            "INSERT INTO link_previews (message_id, idx, url, title, description)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT (message_id, idx) DO NOTHING",
+        )
+        .bind(message)
+        .bind(idx)
+        .bind(&preview.url)
+        .bind(preview.title.as_deref())
+        .bind(preview.description.as_deref())
+        .execute(&mut *conn)
+        .await?;
+    }
+    Ok(())
+}
+
 fn decode_message_row(conversation: ConversationId, row: MessageRow) -> Result<(i64, Message)> {
     let (id, sender, sent_at, body, quote_sender, quote_sent_at, quote_preview) =
         (row.0, row.1, row.2, row.3, row.4, row.5, row.6);
@@ -1825,6 +1890,7 @@ fn decode_message_row(conversation: ConversationId, row: MessageRow) -> Result<(
         body: body.map(MessageBody::new),
         mentions: vec![],
         quote,
+        previews: vec![],
         attachments: vec![],
         reactions: vec![],
         edited_at: optional_timestamp_from_db(edited_at, "edited_at")?,

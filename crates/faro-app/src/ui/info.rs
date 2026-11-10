@@ -15,7 +15,7 @@ use super::View;
 use super::messages::{to_jiff, zoned};
 use super::text::{sanitize, truncate};
 use crate::app::state::{Section, State};
-use crate::app::update::selection::find_links;
+use crate::app::update::selection::message_links;
 
 /// Maximum number of recent files/media or links shown in the info sidebar.
 const MAX_INFO_ITEMS: usize = 5;
@@ -168,13 +168,11 @@ fn safety_status(
 fn collect_recent_links(messages: &[faro_core::domain::Message]) -> Vec<String> {
     let mut recent_links: Vec<String> = Vec::new();
     for message in messages.iter().rev().filter(|m| !m.deleted) {
-        if let Some(body) = &message.body {
-            for url in find_links(body.expose()) {
-                if !recent_links.contains(&url) {
-                    recent_links.push(url);
-                    if recent_links.len() >= MAX_INFO_ITEMS {
-                        return recent_links;
-                    }
+        for url in message_links(message) {
+            if !recent_links.contains(&url) {
+                recent_links.push(url);
+                if recent_links.len() >= MAX_INFO_ITEMS {
+                    return recent_links;
                 }
             }
         }

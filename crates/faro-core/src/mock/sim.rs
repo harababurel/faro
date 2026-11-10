@@ -165,6 +165,7 @@ impl Content {
             body: self.body,
             mentions: self.mentions,
             quote: self.quote,
+            previews: vec![],
             attachments: self.attachments,
             reactions: vec![],
             edited_at: None,
