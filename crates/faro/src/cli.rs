@@ -51,6 +51,12 @@ pub struct Cli {
     /// any Signal client (D95). Still accepted so older commands work.
     #[arg(long, global = true, conflicts_with = "allowlist")]
     pub no_allowlist: bool,
+
+    /// Stream a plain-text, append-only transcript (`time sender: text`) with
+    /// no alternate screen, boxes or colour dependency, for screen readers,
+    /// braille displays, pipes and logs (#48).
+    #[arg(long, global = true)]
+    pub linear: bool,
 }
 
 /// The parsed command line, plus what [`Cli`] alone can't say: where a
@@ -419,5 +425,21 @@ mod tests {
     fn doctor_subcommand_parses() {
         let parsed = Cli::try_parse_from(["faro", "doctor"]).unwrap();
         assert_eq!(parsed.command, Some(Command::Doctor));
+    }
+
+    #[test]
+    fn parses_linear_flag_for_normal_and_demo_runs() {
+        assert!(!Cli::try_parse_from(["faro"]).unwrap().linear);
+        assert!(Cli::try_parse_from(["faro", "--linear"]).unwrap().linear);
+        assert!(
+            Cli::try_parse_from(["faro", "demo", "--linear"])
+                .unwrap()
+                .linear
+        );
+        assert!(
+            Cli::try_parse_from(["faro", "--linear", "demo"])
+                .unwrap()
+                .linear
+        );
     }
 }

@@ -23,12 +23,15 @@ pub mod clipboard;
 pub mod commands;
 mod effects;
 pub mod images;
+mod linear_runner;
 pub mod pictures;
 pub mod system;
 pub mod updates;
 
+pub use linear_runner::run as run_linear;
+
 // The shared app (state, reducer, key map, palette), as if it were here.
-pub use faro_app::app::{event, files, image_cache, keymap, state, term_event, update};
+pub use faro_app::app::{event, files, image_cache, keymap, linear, state, term_event, update};
 
 use event::{AppEvent, Effect};
 use state::State;
@@ -137,7 +140,11 @@ pub async fn load_directory<B: Backend>(backend: &B, store: &Store) -> anyhow::R
 
 /// The state before anything else is known: who we are, who we know, and what
 /// the terminal and user themes look like.
-fn initial_state(directory: Directory, detected: state::Detected, startup: &mut Startup) -> State {
+pub(super) fn initial_state(
+    directory: Directory,
+    detected: state::Detected,
+    startup: &mut Startup,
+) -> State {
     let mut state = State::new(directory.me, directory.contacts, directory.groups)
         .with_nicknames(directory.nicknames)
         .with_identities(directory.identities)
@@ -375,7 +382,7 @@ async fn next_input(input: &mut Option<EventStream>) -> Option<std::io::Result<E
 }
 
 /// Abort in-flight backend commands and wait for store and config writes to finish.
-async fn shutdown(
+pub(super) async fn shutdown(
     router: Router,
     command_task: tokio::task::JoinHandle<()>,
     worker: tokio::task::JoinHandle<()>,
@@ -440,7 +447,7 @@ fn sense_terminal(state: &mut State, detected: state::Detected) {
 /// Where effects go: store work to the effects worker, backend commands to
 /// the command task, settings to the config writer; terminal and system
 /// effects run here, on the app loop.
-struct Router {
+pub(super) struct Router {
     commands: mpsc::UnboundedSender<event::Command>,
     effects: mpsc::UnboundedSender<Effect>,
     config: mpsc::UnboundedSender<faro_core::config::SettingEdit>,
@@ -452,7 +459,7 @@ struct Router {
 
 impl Router {
     /// The router, and where clipboard reads arrive for the app loop.
-    fn new(
+    pub(super) fn new(
         commands: mpsc::UnboundedSender<event::Command>,
         effects: mpsc::UnboundedSender<Effect>,
         config: mpsc::UnboundedSender<faro_core::config::SettingEdit>,
@@ -487,7 +494,7 @@ impl Router {
             .is_ok()
     }
 
-    fn dispatch(&self, list: Vec<Effect>, state: &State) {
+    pub(super) fn dispatch(&self, list: Vec<Effect>, state: &State) {
         for effect in list {
             if !self.deliver(effect, state) {
                 tracing::error!("a worker task stopped; dropping an effect");
@@ -625,7 +632,7 @@ async fn finish(task: tokio::task::JoinHandle<()>, name: &str) {
     clippy::disallowed_methods,
     reason = "unlinking expired attachment files runs inside spawn_blocking"
 )]
-fn unlink_expired_attachments(paths: Vec<std::path::PathBuf>) {
+pub(super) fn unlink_expired_attachments(paths: Vec<std::path::PathBuf>) {
     if paths.is_empty() {
         return;
     }

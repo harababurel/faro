@@ -119,7 +119,8 @@ fn main() -> anyhow::Result<()> {
         Some(cli::Command::Doctor) => {
             return local.block_on(&runtime, async {
                 use std::io::Write as _;
-                let detected = terminal_setting(cli.emoji.map(Into::into), &settings, true).await;
+                let detected =
+                    terminal_setting(cli.emoji.map(Into::into), &settings, true, false).await;
                 let startup = config::Startup {
                     path: config_file,
                     attachments_dir: paths.attachments_dir(),
@@ -139,13 +140,17 @@ fn main() -> anyhow::Result<()> {
     }
     // The allowlist guard (D62) is for testing: on only with --allowlist
     // (D95); `--no-allowlist` is still accepted and changes nothing.
+    let linear = cli.linear;
     local.block_on(&runtime, async {
-        let passphrase_verifier =
+        let passphrase_verifier = if linear {
+            vault::unlock_cli(paths.data_dir(), &settings.security.passphrase_command).await?
+        } else {
             match vault::unlock_tui(paths.data_dir(), &settings, &themes).await? {
                 vault::UnlockOutcome::Unencrypted => None,
                 vault::UnlockOutcome::Unlocked(verifier) => Some(verifier),
                 vault::UnlockOutcome::Cancelled => return Ok(()),
-            };
+            }
+        };
         // Refused before anything touches it if it's the other profile's (D87).
         let store = Store::open(&paths.db_file(), profile)
             .await
@@ -158,7 +163,7 @@ fn main() -> anyhow::Result<()> {
             );
         }
         problems.extend(config::migrate(&store, &config_file, &mut settings).await);
-        let detected = terminal_setting(cli.emoji.map(Into::into), &settings, false).await;
+        let detected = terminal_setting(cli.emoji.map(Into::into), &settings, false, linear).await;
         let startup = config::Startup {
             path: config_file,
             attachments_dir: paths.attachments_dir(),
@@ -170,15 +175,21 @@ fn main() -> anyhow::Result<()> {
             passphrase_verifier,
         };
         let result = if let Some(args) = &demo {
-            serve_demo(args, allowlist, &store, tz, detected, startup).await
+            serve_demo(args, allowlist, &store, tz, detected, startup, linear).await
         } else {
             tracing::info!("starting the Signal backend");
             let (backend, events) = signal::start(paths.data_dir()).await?;
             if let Some(list) = allowlist {
                 let (backend, events) = guard::guard(backend, events, list);
-                Box::pin(serve(backend, events, &store, tz, detected, startup, true)).await
+                Box::pin(serve(
+                    backend, events, &store, tz, detected, startup, true, linear,
+                ))
+                .await
             } else {
-                Box::pin(serve(backend, events, &store, tz, detected, startup, false)).await
+                Box::pin(serve(
+                    backend, events, &store, tz, detected, startup, false, linear,
+                ))
+                .await
             }
         };
         store.close().await.context("closing the database")?;
@@ -285,11 +296,13 @@ async fn serve_demo(
     tz: jiff::tz::TimeZone,
     detected: app::state::Detected,
     startup: config::Startup,
+    linear: bool,
 ) -> anyhow::Result<()> {
     tracing::info!(
         seed = args.seed,
         activity_ms = args.activity,
         faults = !args.no_faults,
+        linear,
         "starting the demo (mock backend)"
     );
     let mock = MockConfig {
@@ -303,13 +316,17 @@ async fn serve_demo(
     match allowlist {
         Some(list) => {
             let (backend, events) = guard::guard(backend, events, list);
-            serve(backend, events, store, tz, detected, startup, true).await
+            serve(backend, events, store, tz, detected, startup, true, linear).await
         }
-        None => serve(backend, events, store, tz, detected, startup, false).await,
+        None => serve(backend, events, store, tz, detected, startup, false, linear).await,
     }
 }
 
 /// Load the directory and run the app on `backend`.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "passes backend, events, store, timezone, detected terminal state, startup config, guard flag, and linear mode"
+)]
 async fn serve<B: Backend + 'static>(
     backend: B,
     events: BackendEvents,
@@ -318,30 +335,46 @@ async fn serve<B: Backend + 'static>(
     detected: app::state::Detected,
     startup: config::Startup,
     guarded: bool,
+    linear: bool,
 ) -> anyhow::Result<()> {
     let mut directory = app::load_directory(&backend, store).await?;
     directory.guarded = guarded;
-    app::run(
-        backend,
-        events,
-        store.clone(),
-        directory,
-        tz,
-        detected,
-        startup,
-    )
-    .await
+    if linear {
+        app::run_linear(
+            backend,
+            events,
+            store.clone(),
+            directory,
+            tz,
+            detected,
+            startup,
+        )
+        .await
+    } else {
+        app::run(
+            backend,
+            events,
+            store.clone(),
+            directory,
+            tz,
+            detected,
+            startup,
+        )
+        .await
+    }
 }
 
 /// What the terminal checks decide at startup: the emoji mode, as chosen
 /// (`--emoji`/`FARO_EMOJI`, else the config file) or (`auto`) compatible if
 /// mosh is in the way (D47), and who draws block glyphs, for
 /// `bubble_style = "auto"` (D58). `auto` keeps checking when the terminal
-/// changes. The terminal is only looked at if something is `auto`.
+/// changes. The terminal is only looked at if something is `auto` and we're
+/// not in `--linear` mode.
 async fn terminal_setting(
     cli: Option<faro_core::config::EmojiChoice>,
     config: &faro_core::config::Config,
     always_inspect: bool,
+    linear: bool,
 ) -> app::state::Detected {
     use app::state::{Detected, EmojiMode, EmojiSetting};
     use faro_core::config::{BubbleStyle, EmojiChoice, InlineImages};
@@ -349,14 +382,15 @@ async fn terminal_setting(
     let choice = cli.unwrap_or(config.ui.emoji);
     let auto = choice == EmojiChoice::Auto;
     // Forced graphics protocols too: a new tmux client means measuring
-    // and sending images again (D137).
-    let terminal = if always_inspect
-        || auto
-        || config.messages.bubble_style == BubbleStyle::Auto
-        || !matches!(
-            config.media.inline_images,
-            InlineImages::Halfblocks | InlineImages::Off
-        ) {
+    // and sending images again (D137). Skipped in `--linear` mode.
+    let terminal = if !linear
+        && (always_inspect
+            || auto
+            || config.messages.bubble_style == BubbleStyle::Auto
+            || !matches!(
+                config.media.inline_images,
+                InlineImages::Halfblocks | InlineImages::Off
+            )) {
         app::system::inspect_terminal().await
     } else {
         app::state::Terminal::default()

@@ -856,7 +856,7 @@ fn confirm_delete(state: &mut State, target: MessageRef) -> Vec<Effect> {
     effects
 }
 
-fn reply(state: &mut State, target: MessageRef) {
+pub(crate) fn reply(state: &mut State, target: MessageRef) {
     let Some(message) = find(state, target).filter(|m| !m.deleted && !m.is_system()) else {
         return;
     };
@@ -1025,7 +1025,7 @@ fn own_reaction<'a>(state: &State, message: &'a Message) -> Option<&'a str> {
 
 /// React with `emoji`, or take the reaction back if it's already ours (the
 /// removal names the emoji, D73). Shown at once; undone if the backend fails.
-fn react(state: &mut State, target: MessageRef, emoji: &str) -> Vec<Effect> {
+pub(crate) fn react(state: &mut State, target: MessageRef, emoji: &str) -> Vec<Effect> {
     let Some(open) = state.open.as_ref() else {
         return vec![];
     };
