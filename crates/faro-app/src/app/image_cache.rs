@@ -117,6 +117,29 @@ pub trait DrawImage {
     /// is scrolled off), clipped to it, with half-block colours mapped to the
     /// 256-colour palette when `colors` is `Indexed256`.
     fn draw(&self, x: i16, y: i16, clip_area: Rect, buf: &mut Buffer, colors: ColorDepth);
+
+    /// Draw like [`Self::draw`], leaving any screen rectangles in `occluders`
+    /// untouched so floating popups and the palette sit cleanly over the image.
+    ///
+    /// Returns `true` if the image was drawn (or was completely hidden under
+    /// `occluders`), or `false` if this protocol cannot clip around `occluders`
+    /// so the caller should leave its fallback badge or placeholder in the
+    /// uncovered cells.
+    fn draw_occluded(
+        &self,
+        x: i16,
+        y: i16,
+        clip_area: Rect,
+        occluders: &[Rect],
+        buf: &mut Buffer,
+        colors: ColorDepth,
+    ) -> bool {
+        if occluders.is_empty() {
+            self.draw(x, y, clip_area, buf, colors);
+            return true;
+        }
+        false
+    }
 }
 
 /// No inline images at all (the web demo, for now).
@@ -150,6 +173,45 @@ pub fn visible_rect(x: u16, y: i16, width: u16, height: u16, clip_area: Rect) ->
     let vis_w = width.min(clip_area.width - x);
     let vis_h = (height - top_skip).min(clip_area.height - dst_y);
     (vis_w > 0 && vis_h > 0).then(|| Rect::new(clip_area.x + x, clip_area.y + dst_y, vis_w, vis_h))
+}
+
+/// Subtract every rectangle in `occluders` from `base`, returning disjoint
+/// non-empty rectangles whose union is `base \ ⋃occluders`.
+pub fn subtract_rects(base: Rect, occluders: &[Rect]) -> Vec<Rect> {
+    if base.width == 0 || base.height == 0 {
+        return Vec::new();
+    }
+    let mut parts = vec![base];
+    for &occ in occluders {
+        if occ.width == 0 || occ.height == 0 {
+            continue;
+        }
+        let mut next = Vec::with_capacity(parts.len() + 3);
+        for r in parts {
+            if !r.intersects(occ) {
+                next.push(r);
+                continue;
+            }
+            let ix0 = r.left().max(occ.left());
+            let ix1 = r.right().min(occ.right());
+            let iy0 = r.top().max(occ.top());
+            let iy1 = r.bottom().min(occ.bottom());
+            if iy0 > r.top() {
+                next.push(Rect::new(r.left(), r.top(), r.width, iy0 - r.top()));
+            }
+            if r.bottom() > iy1 {
+                next.push(Rect::new(r.left(), iy1, r.width, r.bottom() - iy1));
+            }
+            if ix0 > r.left() {
+                next.push(Rect::new(r.left(), iy0, ix0 - r.left(), iy1 - iy0));
+            }
+            if r.right() > ix1 {
+                next.push(Rect::new(ix1, iy0, r.right() - ix1, iy1 - iy0));
+            }
+        }
+        parts = next;
+    }
+    parts
 }
 
 /// Active protocol for the current settings and terminal environment (D78).
@@ -309,5 +371,36 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn subtract_rects_splits_around_occluders_without_overlap() {
+        let base = Rect::new(10, 10, 10, 6);
+        assert_eq!(
+            subtract_rects(base, &[Rect::new(0, 0, 5, 5)]),
+            vec![base],
+            "disjoint occluder leaves base whole"
+        );
+        assert!(
+            subtract_rects(base, &[Rect::new(8, 8, 20, 20)]).is_empty(),
+            "enclosing occluder leaves nothing"
+        );
+        let hole = Rect::new(13, 12, 4, 2);
+        let parts = subtract_rects(base, &[hole]);
+        assert_eq!(parts.len(), 4);
+        let mut covered = 0usize;
+        for y in base.top()..base.bottom() {
+            for x in base.left()..base.right() {
+                let p = ratatui::layout::Position::new(x, y);
+                let hits = parts.iter().filter(|r| r.contains(p)).count();
+                if hole.contains(p) {
+                    assert_eq!(hits, 0, "({x}, {y}) inside hole");
+                } else {
+                    assert_eq!(hits, 1, "({x}, {y}) outside hole");
+                    covered += 1;
+                }
+            }
+        }
+        assert_eq!(covered, 60 - 8);
     }
 }

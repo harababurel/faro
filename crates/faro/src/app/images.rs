@@ -31,6 +31,7 @@ use super::image_cache::{
 };
 use super::state::{GraphicsSupport, State};
 
+mod occlude;
 pub mod probe;
 use crate::theme::ColorDepth;
 
@@ -100,6 +101,25 @@ struct Sliced(SlicedProtocol);
 impl DrawImage for Sliced {
     fn draw(&self, x: i16, y: i16, clip_area: Rect, buf: &mut Buffer, colors: ColorDepth) {
         render_sliced(&self.0, SignedPosition { x, y }, clip_area, buf, colors);
+    }
+
+    fn draw_occluded(
+        &self,
+        x: i16,
+        y: i16,
+        clip_area: Rect,
+        occluders: &[Rect],
+        buf: &mut Buffer,
+        colors: ColorDepth,
+    ) -> bool {
+        occlude::draw_sliced_occluded(
+            &self.0,
+            SignedPosition { x, y },
+            clip_area,
+            occluders,
+            buf,
+            colors,
+        )
     }
 }
 

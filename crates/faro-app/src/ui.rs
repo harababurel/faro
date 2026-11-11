@@ -70,30 +70,56 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>) -> Geometry
     let panes = Panes::split(main, state);
     geometry.sidebar_border = panes.left;
     geometry.sidebar_max = panes.left_max;
-    if let Some(left) = panes.left {
-        sidebar::render(frame, left, state, view, &mut geometry);
-    }
-    conversation::render(frame, panes.center, state, view, &mut geometry);
+    let sidebar_pics = panes
+        .left
+        .and_then(|left| sidebar::render(frame, left, state, view, &mut geometry));
+    let (chat_images, input_popups) =
+        conversation::render(frame, panes.center, state, view, &mut geometry);
     if let Some(right) = panes.right {
         info::render(frame, right, state, view);
     }
     footer::render(frame, footer, state, view, &geometry);
-    popup::render(frame, state, view, &mut geometry);
-    palette::render(frame, state, view, &mut geometry);
+    let (popup_rect, viewer_image) = popup::render(frame, state, view, &mut geometry);
+    let palette_rect = palette::render(frame, state, view, &mut geometry);
+
+    let mut base_occluders = input_popups;
+    base_occluders.extend(popup_rect);
+    base_occluders.extend(palette_rect);
+    if let Some(pics) = &sidebar_pics {
+        sidebar::draw_pictures(frame, state, view, &mut geometry, pics, &base_occluders);
+    }
+    for image in &chat_images {
+        draw_deferred_image(frame, state, view, image, &base_occluders);
+    }
+    if let Some(image) = &viewer_image {
+        let popup_occluders: Vec<Rect> = palette_rect.into_iter().collect();
+        draw_deferred_image(frame, state, view, image, &popup_occluders);
+    }
+
     emoji::finish(frame.buffer_mut());
     geometry
 }
 
-/// Draw an inline image (or its loading/overlay placeholder) inside `clip_area`
-/// at `(x, y)` relative to `clip_area`, recording missing cache keys in
-/// `geometry.images_wanted` (D78).
+/// A decoded inline image ready to composite after floating overlays have drawn
+/// so it can clip around any higher-Z rectangles.
+pub(super) struct DeferredImage {
+    pub clip_area: Rect,
+    pub x: u16,
+    pub y: i16,
+    pub key: crate::app::image_cache::ImageKey,
+}
+
+/// Prepare an inline image box inside `clip_area` at `(x, y)` relative to
+/// `clip_area`, drawing its panel placeholder immediately (before overlays) and
+/// recording missing cache keys in `geometry.images_wanted` (D78). Returns a
+/// [`DeferredImage`] when the image is decoded and ready to composite after
+/// overlays.
 #[expect(
     clippy::too_many_arguments,
-    reason = "rendering an image box needs the frame, state, view, geometry, clip rect and box coordinates"
+    reason = "preparing an image box needs the frame, view, geometry, clip rect and box coordinates"
 )]
-pub(super) fn render_image_box(
+pub(super) fn prepare_image_box(
     frame: &mut Frame<'_>,
-    state: &State,
     view: &View<'_>,
     geometry: &mut Geometry,
     clip_area: Rect,
@@ -102,19 +128,14 @@ pub(super) fn render_image_box(
     width: u16,
     height: u16,
     path: Option<&std::path::Path>,
-    overlay_blocks_graphics: bool,
-) {
+) -> Option<DeferredImage> {
     use crate::app::image_cache::{CachedImage, ImageKey, visible_rect};
 
-    let Some(vis) = visible_rect(x, y, width, height, clip_area) else {
-        return;
-    };
-    let Some(protocol) = view.images.active_protocol() else {
-        return;
-    };
+    let vis = visible_rect(x, y, width, height, clip_area)?;
+    let protocol = view.images.active_protocol()?;
     let Some(path) = path else {
         draw_image_placeholder(frame, vis, "downloading…", view);
-        return;
+        return None;
     };
     let key = ImageKey {
         path: path.to_owned(),
@@ -124,23 +145,48 @@ pub(super) fn render_image_box(
         shape: crate::app::image_cache::ImageShape::Whole,
     };
     match view.images.get(&key) {
-        Some(CachedImage::Ready(sliced)) => {
-            if overlay_blocks_graphics && view.images.is_graphics_protocol() {
-                draw_image_placeholder(frame, vis, "", view);
-            } else {
-                let x = i16::try_from(x).unwrap_or(i16::MAX);
-                sliced.draw(x, y, clip_area, frame.buffer_mut(), state.colors());
-            }
+        Some(CachedImage::Ready(_)) => {
+            draw_image_placeholder(frame, vis, "", view);
+            Some(DeferredImage {
+                clip_area,
+                x,
+                y,
+                key,
+            })
         }
         Some(CachedImage::Failed) => {
             draw_image_placeholder(frame, vis, "image unavailable", view);
+            None
         }
         None => {
             if !geometry.images_wanted.contains(&key) {
                 geometry.images_wanted.push(key);
             }
             draw_image_placeholder(frame, vis, "loading image…", view);
+            None
         }
+    }
+}
+
+fn draw_deferred_image(
+    frame: &mut Frame<'_>,
+    state: &State,
+    view: &View<'_>,
+    deferred: &DeferredImage,
+    occluders: &[Rect],
+) {
+    use crate::app::image_cache::CachedImage;
+
+    if let Some(CachedImage::Ready(sliced)) = view.images.get(&deferred.key) {
+        let x = i16::try_from(deferred.x).unwrap_or(i16::MAX);
+        sliced.draw_occluded(
+            x,
+            deferred.y,
+            deferred.clip_area,
+            occluders,
+            frame.buffer_mut(),
+            state.colors(),
+        );
     }
 }
 

@@ -19,13 +19,13 @@ use faro_core::domain::MessageRef;
 /// The input box grows with its text up to this many lines.
 const INPUT_MAX_LINES: usize = 6;
 
-pub fn render(
+pub(super) fn render(
     frame: &mut Frame<'_>,
     area: Rect,
     state: &State,
     view: &View<'_>,
     geometry: &mut Geometry,
-) {
+) -> (Vec<super::DeferredImage>, Vec<Rect>) {
     let theme = view.theme;
     let messages_focused = focused(state, geometry, Focus::Messages);
     let input_focused = focused(state, geometry, Focus::Input);
@@ -39,37 +39,13 @@ pub fn render(
             render_since_you_left(frame, &mut inner, strip, view);
         }
         logo::render(frame, inner, state, view, geometry);
-        return;
+        return (Vec::new(), Vec::new());
     };
 
-    let timer = state
-        .summary(open.id)
-        .and_then(|s| s.disappearing_timer)
-        .map(faro_core::domain::format_disappearing_timer);
-    let timer_cols = timer.as_ref().map_or(0, |t| super::text::width(t) + 5);
-    let title = state.conversation_title(open.id);
-    let title = truncate(
-        &sanitize(&title),
-        usize::from(area.width.saturating_sub(4)).saturating_sub(timer_cols),
-    )
-    .into_owned();
-    let title_line = match timer {
-        Some(timer) => Line::from(vec![
-            Span::styled(
-                format!(" {title}"),
-                Style::new().fg(theme.primary).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(format!(" · ◷ {timer} "), theme.muted()),
-        ]),
-        None => Line::from(Span::styled(
-            format!(" {title} "),
-            Style::new().fg(theme.primary).add_modifier(Modifier::BOLD),
-        )),
-    };
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
         .border_style(theme.border(messages_focused))
-        .title(title_line);
+        .title(conversation_title_line(state, open, area.width, theme));
     let mut inner = block.inner(area);
     frame.render_widget(block, area);
     if let Some(strip) = state.since_you_left {
@@ -100,7 +76,7 @@ pub fn render(
 
     geometry.history = Some(history);
     geometry.input = Some(input);
-    render_history(
+    let deferred = render_history(
         frame,
         history,
         state,
@@ -119,10 +95,48 @@ pub fn render(
         view,
         input_focused,
     );
+    let mut input_popups = Vec::new();
     if input_focused && state.popup.is_none() && state.palette.is_none() {
-        render_slash_popup(frame, inner, input.y, state, open, view);
-        render_mention_popup(frame, inner, input.y, state, open, view);
-        render_shortcode_popup(frame, inner, input.y, state, open, view);
+        input_popups.extend(render_slash_popup(frame, inner, input.y, state, open, view));
+        input_popups.extend(render_mention_popup(
+            frame, inner, input.y, state, open, view,
+        ));
+        input_popups.extend(render_shortcode_popup(
+            frame, inner, input.y, state, open, view,
+        ));
+    }
+    (deferred, input_popups)
+}
+
+fn conversation_title_line(
+    state: &State,
+    open: &OpenConversation,
+    area_width: u16,
+    theme: &crate::theme::Theme,
+) -> Line<'static> {
+    let timer = state
+        .summary(open.id)
+        .and_then(|s| s.disappearing_timer)
+        .map(faro_core::domain::format_disappearing_timer);
+    let timer_cols = timer.as_ref().map_or(0, |t| super::text::width(t) + 5);
+    let title = state.conversation_title(open.id);
+    let title = truncate(
+        &sanitize(&title),
+        usize::from(area_width.saturating_sub(4)).saturating_sub(timer_cols),
+    )
+    .into_owned();
+    match timer {
+        Some(timer) => Line::from(vec![
+            Span::styled(
+                format!(" {title}"),
+                Style::new().fg(theme.primary).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(format!(" · ◷ {timer} "), theme.muted()),
+        ]),
+        None => Line::from(Span::styled(
+            format!(" {title} "),
+            Style::new().fg(theme.primary).add_modifier(Modifier::BOLD),
+        )),
     }
 }
 
@@ -170,7 +184,7 @@ fn render_history(
     view: &View<'_>,
     geometry: &mut Geometry,
     focused: bool,
-) {
+) -> Vec<super::DeferredImage> {
     let outer = area;
     let area = Rect {
         x: area.x + 1,
@@ -182,12 +196,12 @@ fn render_history(
     if open.loading && open.messages.is_empty() {
         let p = Paragraph::new(Span::styled("Loading…", view.theme.muted()));
         frame.render_widget(p.alignment(Alignment::Center), area);
-        return;
+        return Vec::new();
     }
     if open.messages.is_empty() {
         let p = Paragraph::new(Span::styled("No messages yet", view.theme.muted()));
         frame.render_widget(p.alignment(Alignment::Center), area);
-        return;
+        return Vec::new();
     }
     let window = messages::window(state, open, view, usize::from(area.width), height);
     geometry.scroll = window.scroll;
@@ -211,12 +225,11 @@ fn render_history(
     } else {
         area
     };
-    let overlay_open = state.popup.is_some() || state.palette.is_some();
     let blank_dy = i16::try_from(blank).unwrap_or(0);
+    let mut deferred = Vec::new();
     for slot in &window.images {
-        super::render_image_box(
+        if let Some(image) = super::prepare_image_box(
             frame,
-            state,
             view,
             geometry,
             image_clip,
@@ -225,13 +238,15 @@ fn render_history(
             slot.width,
             slot.height,
             slot.path.as_deref(),
-            overlay_open,
-        );
+        ) {
+            deferred.push(image);
+        }
     }
     geometry.history_rows = rows;
     if window.scroll.is_some() {
         render_more_below(frame, area, open, view);
     }
+    deferred
 }
 
 /// The selected message's rows: a tinted background and a bar in the left
@@ -617,14 +632,14 @@ fn render_mention_popup(
     state: &State,
     open: &OpenConversation,
     view: &View<'_>,
-) {
+) -> Option<Rect> {
     let candidates = state.mention_candidates();
     if candidates.is_empty() {
-        return;
+        return None;
     }
     let avail_h = input_top_y.saturating_sub(pane_inner.y);
     if avail_h < 3 {
-        return;
+        return None;
     }
     let max_rows = usize::from(avail_h.saturating_sub(2)).min(6);
     let visible_count = candidates.len().min(max_rows);
@@ -689,6 +704,7 @@ fn render_mention_popup(
         })
         .collect();
     frame.render_widget(Paragraph::new(lines), inner);
+    Some(rect)
 }
 
 /// Inline `:shortcode:` emoji completion popup anchored just above the input box.
@@ -699,14 +715,14 @@ fn render_shortcode_popup(
     state: &State,
     open: &OpenConversation,
     view: &View<'_>,
-) {
+) -> Option<Rect> {
     let candidates = state.shortcode_candidates();
     if candidates.is_empty() {
-        return;
+        return None;
     }
     let avail_h = input_top_y.saturating_sub(pane_inner.y);
     if avail_h < 3 {
-        return;
+        return None;
     }
     let max_rows = usize::from(avail_h.saturating_sub(2)).min(8);
     let visible_count = candidates.len().min(max_rows);
@@ -779,6 +795,7 @@ fn render_shortcode_popup(
         })
         .collect();
     frame.render_widget(Paragraph::new(lines), inner);
+    Some(rect)
 }
 
 /// Inline `/command` completion popup anchored just above the input box.
@@ -789,14 +806,14 @@ fn render_slash_popup(
     state: &State,
     open: &OpenConversation,
     view: &View<'_>,
-) {
+) -> Option<Rect> {
     let candidates = state.slash_candidates();
     if candidates.is_empty() {
-        return;
+        return None;
     }
     let avail_h = input_top_y.saturating_sub(pane_inner.y);
     if avail_h < 3 {
-        return;
+        return None;
     }
     let max_rows = usize::from(avail_h.saturating_sub(2)).min(8);
     let visible_count = candidates.len().min(max_rows);
@@ -881,6 +898,7 @@ fn render_slash_popup(
         })
         .collect();
     frame.render_widget(Paragraph::new(lines), inner);
+    Some(rect)
 }
 
 /// The input wrapped to the box, and where the cursor lands.

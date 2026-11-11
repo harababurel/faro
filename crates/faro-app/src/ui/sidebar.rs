@@ -14,13 +14,26 @@ use super::text::{self, sanitize, truncate};
 use super::{View, messages};
 use crate::app::state::{Focus, Geometry, Section, SidebarRow, SidebarView, State};
 
-pub fn render(
+/// Visible two-row avatar slots captured when the sidebar renders, so profile
+/// pictures can be composited after popups and the palette draw over the screen.
+pub(super) struct SidebarPictures {
+    inner: Rect,
+    entries: Vec<AvatarSlot>,
+}
+
+struct AvatarSlot {
+    y: i16,
+    id: ConversationId,
+    row_styles: [Style; 2],
+}
+
+pub(super) fn render(
     frame: &mut Frame<'_>,
     area: Rect,
     state: &State,
     view: &View<'_>,
     geometry: &mut Geometry,
-) {
+) -> Option<SidebarPictures> {
     let theme = view.theme;
     let focused = state.focus == Focus::Conversations;
     let title_style = if focused {
@@ -52,7 +65,7 @@ pub fn render(
             Paragraph::new(Span::styled(" Loading…", theme.muted())),
             inner,
         );
-        return;
+        return None;
     }
     let height = usize::from(inner.height);
     // Screen rows: a conversation takes two with previews (D154), so the
@@ -86,43 +99,25 @@ pub fn render(
         .extend(kinds.into_iter().skip(offset).take(height));
     let shown: Vec<Line<'static>> = lines.into_iter().skip(offset).take(height).collect();
     frame.render_widget(Paragraph::new(shown), inner);
-    pictures(frame, inner, state, view, geometry, &tall, offset);
+    Some(capture_picture_slots(
+        frame.buffer_mut(),
+        inner,
+        &tall,
+        offset,
+    ))
 }
 
 /// A picture's box: the badge's four cells, one in from the edge, two rows.
 const PICTURE: Rect = Rect::new(1, 0, 4, 2);
 
-/// Draw profile pictures over the badges of two-row entries (`avatars =
-/// "pictures"` or `"auto"`): only with a graphics protocol (half-blocks are too coarse at
-/// four cells) and while no popup or palette is open (D78). Initials stay
-/// until a picture is decoded, and wherever there's none.
-fn pictures(
-    frame: &mut Frame<'_>,
+fn capture_picture_slots(
+    buf: &ratatui::buffer::Buffer,
     inner: Rect,
-    state: &State,
-    view: &View<'_>,
-    geometry: &mut Geometry,
     tall: &[(usize, ConversationId)],
     offset: usize,
-) {
-    use crate::app::image_cache::{CachedImage, ImageKey, ImageShape};
-
-    let overlay = state.popup.is_some() || state.palette.is_some();
-    let protocol = match view.images.active_protocol() {
-        Some(protocol) if protocol.is_graphics() => protocol,
-        Some(_) | None => return,
-    };
-    let wanted = match state.config.conversations.avatars {
-        Avatars::Pictures | Avatars::Auto => true,
-        Avatars::Off | Avatars::Initials => false,
-    };
-    if !wanted || overlay {
-        return;
-    }
+) -> SidebarPictures {
+    let mut entries = Vec::new();
     for &(first, id) in tall {
-        let Some(path) = state.pictures.files.get(&id) else {
-            continue;
-        };
         let (Ok(first), Ok(offset)) = (i32::try_from(first), i32::try_from(offset)) else {
             continue;
         };
@@ -131,6 +126,58 @@ fn pictures(
             continue;
         }
         let Ok(y) = i16::try_from(y) else {
+            continue;
+        };
+        let row_style = |dy: i16| {
+            u16::try_from(i32::from(y) + i32::from(dy))
+                .ok()
+                .filter(|&r| r < inner.height)
+                .and_then(|r| buf.cell((inner.x, inner.y + r)))
+                .map(ratatui::buffer::Cell::style)
+                .unwrap_or_default()
+        };
+        entries.push(AvatarSlot {
+            y,
+            id,
+            row_styles: [row_style(0), row_style(1)],
+        });
+    }
+    SidebarPictures { inner, entries }
+}
+
+/// Draw profile pictures over the badges of two-row entries (`avatars =
+/// "pictures"` or `"auto"`), clipping around any floating `occluders` (`Ctrl+P`
+/// or popups). Initials stay until a picture is decoded, wherever there's none,
+/// and if an overlay cuts mid-row across a protocol that cannot split columns.
+pub(super) fn draw_pictures(
+    frame: &mut Frame<'_>,
+    state: &State,
+    view: &View<'_>,
+    geometry: &mut Geometry,
+    pics: &SidebarPictures,
+    occluders: &[Rect],
+) {
+    use crate::app::image_cache::{
+        CachedImage, ImageKey, ImageShape, subtract_rects, visible_rect,
+    };
+
+    let protocol = match view.images.active_protocol() {
+        Some(protocol) if protocol.is_graphics() => protocol,
+        Some(_) | None => return,
+    };
+    let wanted = match state.config.conversations.avatars {
+        Avatars::Pictures | Avatars::Auto => true,
+        Avatars::Off | Avatars::Initials => false,
+    };
+    if !wanted {
+        return;
+    }
+    for slot in &pics.entries {
+        let Some(path) = state.pictures.files.get(&slot.id) else {
+            continue;
+        };
+        let Some(vis) = visible_rect(PICTURE.x, slot.y, PICTURE.width, PICTURE.height, pics.inner)
+        else {
             continue;
         };
         let key = ImageKey {
@@ -142,9 +189,20 @@ fn pictures(
         };
         match view.images.get(&key) {
             Some(CachedImage::Ready(picture)) => {
-                clear_badge(frame.buffer_mut(), inner, y);
+                let uncovered = subtract_rects(vis, occluders);
+                if uncovered.is_empty() {
+                    continue;
+                }
+                let buf = frame.buffer_mut();
+                let saved = clear_uncovered_badge(buf, pics.inner, slot, &uncovered);
                 let x = i16::try_from(PICTURE.x).unwrap_or(0);
-                picture.draw(x, y, inner, frame.buffer_mut(), state.colors());
+                if !picture.draw_occluded(x, slot.y, pics.inner, occluders, buf, state.colors()) {
+                    for (pos, cell) in saved {
+                        if let Some(dst) = buf.cell_mut(pos) {
+                            *dst = cell;
+                        }
+                    }
+                }
             }
             Some(CachedImage::Failed) => {}
             None => {
@@ -156,28 +214,32 @@ fn pictures(
     }
 }
 
-/// Blank the badge under a picture in the row's own colours (taken from the
-/// cell before it), so a round picture's corners show the row, not the
-/// badge.
-fn clear_badge(buf: &mut ratatui::buffer::Buffer, inner: Rect, y: i16) {
-    for dy in 0..PICTURE.height {
-        let Ok(row) = u16::try_from(i32::from(y) + i32::from(dy)) else {
-            continue;
-        };
-        if row >= inner.height {
-            continue;
-        }
-        let row = inner.y + row;
-        let style = buf
-            .cell((inner.x, row))
-            .map(ratatui::buffer::Cell::style)
-            .unwrap_or_default();
-        for dx in 0..PICTURE.width {
-            if let Some(cell) = buf.cell_mut((inner.x + PICTURE.x + dx, row)) {
-                cell.set_symbol(" ").set_style(style);
+/// Blank uncovered badge cells under a picture in the row's own colours so a
+/// round picture's corners show the row, returning the previous cells so they
+/// can be restored if a protocol cannot clip around a mid-row cut.
+fn clear_uncovered_badge(
+    buf: &mut ratatui::buffer::Buffer,
+    inner: Rect,
+    slot: &AvatarSlot,
+    uncovered: &[Rect],
+) -> Vec<((u16, u16), ratatui::buffer::Cell)> {
+    let mut saved = Vec::new();
+    let base_y = i32::from(inner.y) + i32::from(slot.y);
+    for part in uncovered {
+        for sy in part.top()..part.bottom() {
+            let style = usize::try_from(i32::from(sy) - base_y)
+                .ok()
+                .and_then(|dy| slot.row_styles.get(dy).copied())
+                .unwrap_or_default();
+            for sx in part.left()..part.right() {
+                if let Some(cell) = buf.cell_mut((sx, sy)) {
+                    saved.push(((sx, sy), cell.clone()));
+                    cell.set_symbol(" ").set_style(style);
+                }
             }
         }
     }
+    saved
 }
 
 /// The first row to show: the requested offset, clamped so the list doesn't

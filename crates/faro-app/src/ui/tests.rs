@@ -2057,17 +2057,32 @@ impl crate::app::image_cache::DrawImage for Marker {
         y: i16,
         clip_area: ratatui::layout::Rect,
         buf: &mut Buffer,
-        _colors: crate::theme::ColorDepth,
+        colors: crate::theme::ColorDepth,
     ) {
+        self.draw_occluded(x, y, clip_area, &[], buf, colors);
+    }
+
+    fn draw_occluded(
+        &self,
+        x: i16,
+        y: i16,
+        clip_area: ratatui::layout::Rect,
+        occluders: &[ratatui::layout::Rect],
+        buf: &mut Buffer,
+        _colors: crate::theme::ColorDepth,
+    ) -> bool {
         let x = u16::try_from(x).unwrap();
         let Some(vis) = crate::app::image_cache::visible_rect(x, y, 4, 2, clip_area) else {
-            return;
+            return true;
         };
-        for row in vis.top()..vis.bottom() {
-            for col in vis.left()..vis.right() {
-                buf[(col, row)].set_symbol("P");
+        for part in crate::app::image_cache::subtract_rects(vis, occluders) {
+            for row in part.top()..part.bottom() {
+                for col in part.left()..part.right() {
+                    buf[(col, row)].set_symbol("P");
+                }
             }
         }
+        true
     }
 }
 
@@ -2170,9 +2185,22 @@ fn initials_stay_where_a_picture_cant_be_drawn() {
     let mut one_row = pictures_state();
     one_row.config.conversations.previews = false;
     wants_nothing(&one_row, &kitty(true), "one-row entries keep the pill");
-    let mut palette = pictures_state();
+    let mut initials = pictures_state();
+    initials.config.conversations.avatars = faro_core::config::Avatars::Initials;
+    wants_nothing(&initials, &kitty(true), "initials asked for");
+}
+
+#[test]
+fn palette_keeps_uncovered_profile_pictures_and_clips_overlapped_cells() {
+    let mut state = pictures_state();
+    // Give the top conversation a picture too so narrow-screen palette overlap hits it.
+    let first_id = state.visible_conversations().next().unwrap().id;
+    state
+        .pictures
+        .files
+        .insert(first_id, std::path::PathBuf::from("/pics/top.png"));
     update(
-        &mut palette,
+        &mut state,
         AppEvent::Terminal(crate::app::term_event::Event::Key(
             crate::app::term_event::KeyEvent::new(
                 crate::app::term_event::KeyCode::Char('p'),
@@ -2180,11 +2208,48 @@ fn initials_stay_where_a_picture_cant_be_drawn() {
             ),
         )),
     );
-    assert!(palette.palette.is_some());
-    wants_nothing(&palette, &kitty(true), "overlays hide graphics (D78)");
-    let mut initials = pictures_state();
-    initials.config.conversations.avatars = faro_core::config::Avatars::Initials;
-    wants_nothing(&initials, &kitty(true), "initials asked for");
+    assert!(state.palette.is_some());
+
+    // At 100 cols, Ctrl+P sits right of the sidebar badges: pictures stay visible
+    // and undecoded ones are still requested in the background.
+    let (_, wanted_geom) = draw_with_images(&state, 100, 16, &Theme::default(), &kitty(false));
+    assert!(
+        !wanted_geom.images_wanted.is_empty(),
+        "undecoded avatars still queue while Ctrl+P is open"
+    );
+    let (wide_buf, _) = draw_with_images(&state, 100, 16, &Theme::default(), &kitty(true));
+    let wide_text = snapshot(&wide_buf);
+    assert!(
+        wide_text.contains("PPPP"),
+        "uncovered sidebar avatars stay rendered while Ctrl+P is open:\n{wide_text}"
+    );
+
+    // At 82×24, Ctrl+P starts at (x = 3, y = 3), cutting an L-shaped corner out
+    // of the first conversation's avatar at (x = 2..6, y = 2..4): row 2 stays
+    // "PPPP", col 2 on row 3 stays "P", and cols 3..6 on row 3 keep the palette border.
+    let (overlap_buf, overlap_geom) =
+        draw_with_images(&state, 82, 24, &Theme::default(), &kitty(true));
+    let pal = overlap_geom.palette.expect("palette rendered").area;
+    assert_eq!((pal.x, pal.y), (3, 3));
+    for col in 2..6 {
+        assert_eq!(
+            overlap_buf[(col, 2)].symbol(),
+            "P",
+            "uncovered top row of avatar stays drawn at col {col}"
+        );
+    }
+    assert_eq!(
+        overlap_buf[(2, 3)].symbol(),
+        "P",
+        "uncovered left column beside palette stays drawn"
+    );
+    for col in 3..6 {
+        assert_ne!(
+            overlap_buf[(col, 3)].symbol(),
+            "P",
+            "palette border at ({col}, 3) is not overwritten by avatar"
+        );
+    }
 }
 
 /// `auto` (D162): pictures where the terminal draws them (initials until

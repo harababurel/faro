@@ -11,12 +11,12 @@ use std::rc::Rc;
 
 use faro_app::app::image_cache::{
     CachedImage, CellSize, DrawImage, HALFBLOCK_FONT, ImageCache, ImageKey, ImageProtocol,
-    resolve_protocol, visible_rect,
+    resolve_protocol, subtract_rects, visible_rect,
 };
 use faro_app::app::state::{GraphicsSupport, State};
 use faro_app::theme::{ColorDepth, nearest_256};
 use ratatui::buffer::Buffer;
-use ratatui::layout::Rect;
+use ratatui::layout::{Position, Rect};
 use ratatui::style::{Color, Modifier};
 
 /// At most this many decoded images are kept; the oldest go first.
@@ -58,10 +58,15 @@ impl Halfblocks {
             cells,
         })
     }
-}
-
-impl DrawImage for Halfblocks {
-    fn draw(&self, x: i16, y: i16, clip_area: Rect, buf: &mut Buffer, colors: ColorDepth) {
+    fn draw_cells(
+        &self,
+        x: i16,
+        y: i16,
+        clip_area: Rect,
+        occluders: &[Rect],
+        buf: &mut Buffer,
+        colors: ColorDepth,
+    ) {
         let left = u16::try_from(x.max(0)).unwrap_or(0);
         let Some(visible) = visible_rect(left, y, self.width, self.height, clip_area) else {
             return;
@@ -80,6 +85,9 @@ impl DrawImage for Halfblocks {
                 continue;
             };
             for sx in visible.left()..visible.right() {
+                if occluders.iter().any(|o| o.contains(Position::new(sx, sy))) {
+                    continue;
+                }
                 let column = usize::from(sx - clip_area.x - left);
                 let Some([upper, lower]) = self.cells.get(row * usize::from(self.width) + column)
                 else {
@@ -98,6 +106,25 @@ impl DrawImage for Halfblocks {
                 cell.set_symbol(symbol).set_fg(fg).set_bg(bg);
             }
         }
+    }
+}
+
+impl DrawImage for Halfblocks {
+    fn draw(&self, x: i16, y: i16, clip_area: Rect, buf: &mut Buffer, colors: ColorDepth) {
+        self.draw_cells(x, y, clip_area, &[], buf, colors);
+    }
+
+    fn draw_occluded(
+        &self,
+        x: i16,
+        y: i16,
+        clip_area: Rect,
+        occluders: &[Rect],
+        buf: &mut Buffer,
+        colors: ColorDepth,
+    ) -> bool {
+        self.draw_cells(x, y, clip_area, occluders, buf, colors);
+        true
     }
 }
 
@@ -139,31 +166,49 @@ pub struct Picture {
 }
 
 impl DrawImage for Picture {
-    fn draw(&self, x: i16, y: i16, clip_area: Rect, buf: &mut Buffer, _colors: ColorDepth) {
+    fn draw(&self, x: i16, y: i16, clip_area: Rect, buf: &mut Buffer, colors: ColorDepth) {
+        self.draw_occluded(x, y, clip_area, &[], buf, colors);
+    }
+
+    fn draw_occluded(
+        &self,
+        x: i16,
+        y: i16,
+        clip_area: Rect,
+        occluders: &[Rect],
+        buf: &mut Buffer,
+        _colors: ColorDepth,
+    ) -> bool {
         let left = u16::try_from(x.max(0)).unwrap_or(0);
         let Some(visible) = visible_rect(left, y, self.width, self.height, clip_area) else {
-            return;
+            return true;
         };
-        for sy in visible.top()..visible.bottom() {
-            for sx in visible.left()..visible.right() {
-                if let Some(cell) = buf.cell_mut((sx, sy)) {
-                    if self.round {
-                        cell.set_symbol(" ");
-                    } else {
-                        cell.reset();
+        let full_x = i32::from(clip_area.x) + i32::from(left);
+        let full_y = i32::from(clip_area.y) + i32::from(y);
+        let mut placed = self.placed.borrow_mut();
+        for part in subtract_rects(visible, occluders) {
+            for sy in part.top()..part.bottom() {
+                for sx in part.left()..part.right() {
+                    if let Some(cell) = buf.cell_mut((sx, sy)) {
+                        if self.round {
+                            cell.set_symbol(" ");
+                        } else {
+                            cell.reset();
+                        }
                     }
                 }
             }
+            placed.push(Placement {
+                id: self.id,
+                x: full_x,
+                y: full_y,
+                width: self.width,
+                height: self.height,
+                visible: part,
+                round: self.round,
+            });
         }
-        self.placed.borrow_mut().push(Placement {
-            id: self.id,
-            x: i32::from(clip_area.x) + i32::from(left),
-            y: i32::from(clip_area.y) + i32::from(y),
-            width: self.width,
-            height: self.height,
-            visible,
-            round: self.round,
-        });
+        true
     }
 }
 
@@ -398,6 +443,50 @@ mod tests {
             images.insert(key("one more"), None),
             Some(1),
             "the oldest picture's bitmap is freed"
+        );
+    }
+
+    #[test]
+    fn occluded_picture_splits_placements_around_overlay() {
+        let mut images = Images::default();
+        images.insert(picture_key("p"), Some(Decoded::Picture(9)));
+        let Some(CachedImage::Ready(picture)) = images.get(&picture_key("p")) else {
+            panic!("the picture is ready");
+        };
+        let mut buf = Buffer::empty(Rect::new(0, 0, 10, 6));
+        for cell in &mut buf.content {
+            cell.set_symbol("x");
+        }
+        // Picture occupies x = 2..5, y = 1..5; overlay covers x = 3..8, y = 2..6.
+        let overlay = Rect::new(3, 2, 5, 4);
+        assert!(
+            picture.draw_occluded(2, 1, buf.area, &[overlay], &mut buf, ColorDepth::Truecolor,)
+        );
+        assert_eq!(buf[(3, 2)].symbol(), "x", "covered cell untouched");
+        assert_eq!(buf[(2, 1)].symbol(), " ", "top row blanked");
+        assert_eq!(buf[(2, 3)].symbol(), " ", "left strip blanked");
+        assert_eq!(
+            images.placements(),
+            [
+                Placement {
+                    id: 9,
+                    x: 2,
+                    y: 1,
+                    width: 3,
+                    height: 4,
+                    visible: Rect::new(2, 1, 3, 1),
+                    round: false,
+                },
+                Placement {
+                    id: 9,
+                    x: 2,
+                    y: 1,
+                    width: 3,
+                    height: 4,
+                    visible: Rect::new(2, 2, 1, 3),
+                    round: false,
+                },
+            ]
         );
     }
 }

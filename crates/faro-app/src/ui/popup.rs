@@ -33,21 +33,26 @@ const DISAPPEARING_KEYS: [&str; 7] = ["1", "2", "3", "4", "5", "6", "7"];
     clippy::too_many_lines,
     reason = "flat dispatch table over every Popup variant"
 )]
-pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &mut Geometry) {
+pub(super) fn render(
+    frame: &mut Frame<'_>,
+    state: &State,
+    view: &View<'_>,
+    geometry: &mut Geometry,
+) -> (Option<Rect>, Option<super::DeferredImage>) {
     let Some(popup) = &state.popup else {
-        return;
+        return (None, None);
     };
-    match popup {
+    let rect = match popup {
         Popup::Actions {
             target,
             items,
             selected,
         } => {
             let Some(anchor) = over_message(geometry, *target) else {
-                return;
+                return (None, None);
             };
             let labels: Vec<(String, &str)> = items.iter().map(MessageAction::label).collect();
-            menu(frame, anchor, "Message", &labels, *selected, view);
+            Some(menu(frame, anchor, "Message", &labels, *selected, view))
         }
         Popup::React {
             target,
@@ -55,7 +60,7 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &
             query,
         } => {
             let Some(anchor) = over_message(geometry, *target) else {
-                return;
+                return (None, None);
             };
             let mine = state
                 .open
@@ -64,16 +69,16 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &
                 .and_then(|m| m.reactions.iter().find(|r| r.sender == state.me))
                 .map(|r| r.emoji.as_str());
             if let Some(query) = query {
-                react_search(frame, anchor, *selected, query, mine, view);
+                Some(react_search(frame, anchor, *selected, query, mine, view))
             } else {
-                react(frame, anchor, state, *selected, mine, view);
+                Some(react(frame, anchor, state, *selected, mine, view))
             }
         }
         Popup::MessageInfo { target, receipts } => {
             let Some(anchor) = over_message(geometry, *target) else {
-                return;
+                return (None, None);
             };
-            message_info(frame, anchor, state, *target, receipts, view);
+            message_info(frame, anchor, state, *target, receipts, view)
         }
         Popup::Conversation {
             target,
@@ -81,7 +86,7 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &
             selected,
         } => {
             let Some(anchor) = beside_sidebar(frame.area(), geometry, *target) else {
-                return;
+                return (None, None);
             };
             let labels: Vec<(String, &str)> = items
                 .iter()
@@ -90,18 +95,25 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &
                     (label.to_owned(), key)
                 })
                 .collect();
-            menu(frame, anchor, "Conversation", &labels, *selected, view);
+            Some(menu(
+                frame,
+                anchor,
+                "Conversation",
+                &labels,
+                *selected,
+                view,
+            ))
         }
         Popup::Mute { target, selected } => {
             let Some(anchor) = beside_sidebar(frame.area(), geometry, *target) else {
-                return;
+                return (None, None);
             };
             let labels: Vec<(String, &str)> = MUTE_CHOICES
                 .iter()
                 .zip(MUTE_KEYS)
                 .map(|((label, _), key)| ((*label).to_owned(), key))
                 .collect();
-            menu(frame, anchor, "Mute", &labels, *selected, view);
+            Some(menu(frame, anchor, "Mute", &labels, *selected, view))
         }
         Popup::DisappearingTimer { target, selected } => {
             let anchor =
@@ -114,28 +126,28 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &
                 .zip(DISAPPEARING_KEYS)
                 .map(|((label, _), key)| ((*label).to_owned(), key))
                 .collect();
-            menu(
+            Some(menu(
                 frame,
                 anchor,
                 "Disappearing messages",
                 &labels,
                 *selected,
                 view,
-            );
+            ))
         }
         Popup::ImageViewer { target, index } => {
-            attachment_viewer(frame, state, *target, *index, geometry, view);
+            return attachment_viewer(frame, state, *target, *index, geometry, view);
         }
-        Popup::StagedImage => staged_viewer(frame, state, geometry, view),
-        Popup::About => about(frame, state, view),
+        Popup::StagedImage => return staged_viewer(frame, state, geometry, view),
+        Popup::About => Some(about(frame, state, view)),
         Popup::ConfirmDelete { target } => {
             let Some(anchor) = over_message(geometry, *target) else {
-                return;
+                return (None, None);
             };
-            confirm_delete(frame, anchor, view);
+            Some(confirm_delete(frame, anchor, view))
         }
         Popup::ConfirmUnlinkDevice { name, .. } => {
-            confirm_unlink_device(frame, name, geometry, view);
+            Some(confirm_unlink_device(frame, name, geometry, view))
         }
         Popup::ConfirmRemoteTranscription {
             conversation,
@@ -144,15 +156,25 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &
             ..
         } => {
             let Some(anchor) = over_message(geometry, *target) else {
-                return;
+                return (None, None);
             };
-            remote_consent(frame, anchor, state, *conversation, *selected, view);
+            Some(remote_consent(
+                frame,
+                anchor,
+                state,
+                *conversation,
+                *selected,
+                view,
+            ))
         }
-        Popup::SafetyNumber(peer) => safety_number(frame, state, *peer, view),
+        Popup::SafetyNumber(peer) => Some(safety_number(frame, state, *peer, view)),
         Popup::Thread {
             messages, selected, ..
-        } => thread_viewer(frame, state, messages, *selected, geometry, view),
-    }
+        } => Some(thread_viewer(
+            frame, state, messages, *selected, geometry, view,
+        )),
+    };
+    (rect, None)
 }
 
 fn message_info(
@@ -162,14 +184,11 @@ fn message_info(
     target: MessageRef,
     receipts: &[RecipientReceipt],
     view: &View<'_>,
-) {
-    let Some(message) = state
+) -> Option<Rect> {
+    let message = state
         .open
         .as_ref()
-        .and_then(|o| o.messages.iter().rfind(|m| m.reference() == target))
-    else {
-        return;
-    };
+        .and_then(|o| o.messages.iter().rfind(|m| m.reference() == target))?;
     let theme = view.theme;
     let rows = message_info_rows(state, message, receipts, view);
     let widest = rows
@@ -195,6 +214,7 @@ fn message_info(
         })
         .collect();
     frame.render_widget(Paragraph::new(lines), inner);
+    Some(rect)
 }
 
 fn message_info_rows(
@@ -355,7 +375,7 @@ fn format_time(ts: Timestamp, view: &View<'_>) -> String {
 
 /// What faro is and where it comes from (D94): the small lighthouse beside
 /// the version, links, licence and credits, centred on the screen.
-fn about(frame: &mut Frame<'_>, state: &State, view: &View<'_>) {
+fn about(frame: &mut Frame<'_>, state: &State, view: &View<'_>) -> Rect {
     let theme = view.theme;
     let data_dir = state
         .attachments_dir
@@ -441,6 +461,7 @@ fn about(frame: &mut Frame<'_>, state: &State, view: &View<'_>) {
         .map(|(text, style)| Line::from(Span::styled(truncate(&text, room).into_owned(), style)))
         .collect();
     frame.render_widget(Paragraph::new(lines), text_area);
+    rect
 }
 
 /// `v` on a downloaded image or the conversation media gallery (#21, D76).
@@ -451,16 +472,16 @@ fn attachment_viewer(
     index: usize,
     geometry: &mut Geometry,
     view: &View<'_>,
-) {
+) -> (Option<Rect>, Option<super::DeferredImage>) {
     let Some(message) = state
         .open
         .as_ref()
         .and_then(|o| o.messages.iter().rfind(|m| m.reference() == target))
     else {
-        return;
+        return (None, None);
     };
     let Some(attachment) = message.attachments.get(index) else {
-        return;
+        return (None, None);
     };
     let media = crate::app::update::selection::chat_visual_media(state);
     let pos_prefix = media
@@ -510,7 +531,8 @@ fn attachment_viewer(
         detail_line,
         keys,
     };
-    image_viewer(frame, state, &shown, geometry, view);
+    let (rect, image) = image_viewer(frame, &shown, geometry, view);
+    (Some(rect), image)
 }
 
 fn media_card_lines(
@@ -564,13 +586,18 @@ fn media_card_lines(
 }
 
 /// `Ctrl+O`: the staged image, before it's sent (D91).
-fn staged_viewer(frame: &mut Frame<'_>, state: &State, geometry: &mut Geometry, view: &View<'_>) {
+fn staged_viewer(
+    frame: &mut Frame<'_>,
+    state: &State,
+    geometry: &mut Geometry,
+    view: &View<'_>,
+) -> (Option<Rect>, Option<super::DeferredImage>) {
     let Some(staged) = state
         .open
         .as_ref()
         .and_then(|o| o.staged_attachment.as_ref())
     else {
-        return;
+        return (None, None);
     };
     let shown = Shown {
         title_prefix: String::new(),
@@ -583,7 +610,8 @@ fn staged_viewer(frame: &mut Frame<'_>, state: &State, geometry: &mut Geometry, 
         detail_line: staged.path.display().to_string(),
         keys: "Not sent yet · Enter in the input sends it · Esc close",
     };
-    image_viewer(frame, state, &shown, geometry, view);
+    let (rect, image) = image_viewer(frame, &shown, geometry, view);
+    (Some(rect), image)
 }
 
 /// An image or media card for the full-size viewer: a chat attachment (`v`,
@@ -603,11 +631,10 @@ struct Shown<'a> {
 
 fn image_viewer(
     frame: &mut Frame<'_>,
-    state: &State,
     shown: &Shown<'_>,
     geometry: &mut Geometry,
     view: &View<'_>,
-) {
+) -> (Rect, Option<super::DeferredImage>) {
     let area = geometry.history.unwrap_or_else(|| frame.area());
     let width = area.width.saturating_sub(4).max(20).min(area.width);
     let height = area.height.saturating_sub(2).max(6).min(area.height);
@@ -628,6 +655,7 @@ fn image_viewer(
     let inner = frame_box(frame, rect, &title, view);
     let info_rows = 2u16.min(inner.height);
     let img_avail_h = inner.height.saturating_sub(info_rows);
+    let mut deferred = None;
     if img_avail_h > 0 && inner.width > 0 {
         if let Some(card) = &shown.card {
             let card_h = u16::try_from(card.len()).unwrap_or(1).min(img_avail_h);
@@ -658,9 +686,8 @@ fn image_viewer(
                 height: img_avail_h,
                 ..inner
             };
-            super::render_image_box(
+            deferred = super::prepare_image_box(
                 frame,
-                state,
                 view,
                 geometry,
                 img_clip,
@@ -669,7 +696,6 @@ fn image_viewer(
                 size.width,
                 size.height,
                 shown.path,
-                state.palette.is_some(),
             );
         }
     }
@@ -689,6 +715,7 @@ fn image_viewer(
         ..inner
     };
     frame.render_widget(Paragraph::new(info), info_area);
+    (rect, deferred)
 }
 
 /// In the message area, next to the rows of the message `target` (so the
@@ -788,7 +815,7 @@ fn menu(
     labels: &[(String, &str)],
     selected: usize,
     view: &View<'_>,
-) {
+) -> Rect {
     let theme = view.theme;
     // " › label   key "
     let widest = labels
@@ -825,6 +852,7 @@ fn menu(
         })
         .collect();
     frame.render_widget(Paragraph::new(lines), inner);
+    rect
 }
 
 fn react(
@@ -834,7 +862,7 @@ fn react(
     selected: usize,
     mine: Option<&str>,
     view: &View<'_>,
-) {
+) -> Rect {
     let theme = view.theme;
     let mut spans = vec![Span::raw(" ")];
     for (i, emoji) in state.quick_reactions().into_iter().enumerate() {
@@ -858,6 +886,7 @@ fn react(
     let rect = place(anchor, line.width(), 1);
     let inner = frame_box(frame, rect, "React", view);
     frame.render_widget(Paragraph::new(line), inner);
+    rect
 }
 
 fn react_search(
@@ -867,7 +896,7 @@ fn react_search(
     query: &str,
     mine: Option<&str>,
     view: &View<'_>,
-) {
+) -> Rect {
     let theme = view.theme;
     let matches = search_shortcodes(query, REACT_SEARCH_LIMIT);
     // At most `REACT_SEARCH_ROWS` at once, fewer if the pane is short (two
@@ -949,6 +978,7 @@ fn react_search(
         }
     }
     frame.render_widget(Paragraph::new(lines), inner);
+    rect
 }
 
 fn remote_consent(
@@ -958,7 +988,7 @@ fn remote_consent(
     conversation: ConversationId,
     selected: usize,
     view: &View<'_>,
-) {
+) -> Rect {
     let theme = view.theme;
     let chat = sanitize(&state.conversation_title(conversation)).into_owned();
     let header = format!(" Send audio from {chat} to:");
@@ -1010,9 +1040,10 @@ fn remote_consent(
         ]));
     }
     frame.render_widget(Paragraph::new(lines), inner);
+    rect
 }
 
-fn confirm_delete(frame: &mut Frame<'_>, anchor: Anchor, view: &View<'_>) {
+fn confirm_delete(frame: &mut Frame<'_>, anchor: Anchor, view: &View<'_>) -> Rect {
     let prompt = " Delete this message for everyone? ";
     let keys = " Enter / y confirm · Esc / n cancel ";
     let max_inner = usize::from(anchor.area.width.saturating_sub(4));
@@ -1031,9 +1062,15 @@ fn confirm_delete(frame: &mut Frame<'_>, anchor: Anchor, view: &View<'_>) {
         )),
     ];
     frame.render_widget(Paragraph::new(lines), inner);
+    rect
 }
 
-fn confirm_unlink_device(frame: &mut Frame<'_>, name: &str, geometry: &Geometry, view: &View<'_>) {
+fn confirm_unlink_device(
+    frame: &mut Frame<'_>,
+    name: &str,
+    geometry: &Geometry,
+    view: &View<'_>,
+) -> Rect {
     let clean = sanitize(name);
     let prompt = format!(" Unlink \"{clean}\" from your Signal account? ");
     let keys = " Enter / y confirm · Esc / n cancel ";
@@ -1063,9 +1100,10 @@ fn confirm_unlink_device(frame: &mut Frame<'_>, name: &str, geometry: &Geometry,
         )),
     ];
     frame.render_widget(Paragraph::new(lines), inner);
+    rect
 }
 
-fn safety_number(frame: &mut Frame<'_>, state: &State, peer: ServiceId, view: &View<'_>) {
+fn safety_number(frame: &mut Frame<'_>, state: &State, peer: ServiceId, view: &View<'_>) -> Rect {
     let theme = view.theme;
     let name = sanitize(&state.person_name(peer)).into_owned();
     let record = state.identities.get(&peer);
@@ -1138,6 +1176,7 @@ fn safety_number(frame: &mut Frame<'_>, state: &State, peer: ServiceId, view: &V
         .map(|(text, style)| Line::from(Span::styled(truncate(&text, room).into_owned(), style)))
         .collect();
     frame.render_widget(Paragraph::new(lines), inner);
+    rect
 }
 
 /// `T` (or `t` on a text message): the chronological quote thread lens (D166).
@@ -1148,7 +1187,7 @@ fn thread_viewer(
     selected: usize,
     geometry: &Geometry,
     view: &View<'_>,
-) {
+) -> Rect {
     let theme = view.theme;
     let area = geometry.history.unwrap_or_else(|| frame.area());
     let box_w = area.width.saturating_sub(4).clamp(24, 78).min(area.width);
@@ -1227,6 +1266,7 @@ fn thread_viewer(
     let inner = frame_box(frame, rect, &title, view);
     let visible: Vec<Line<'static>> = all_lines.into_iter().skip(top).take(inner_h).collect();
     frame.render_widget(Paragraph::new(visible), inner);
+    rect
 }
 
 fn thread_message_lines(

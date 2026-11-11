@@ -28,15 +28,18 @@ const BACK_HINT: &str = "← back";
 /// After a category's title.
 const OPENS: &str = " ›";
 
-pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &mut Geometry) {
-    let Some(palette) = &state.palette else {
-        return;
-    };
+pub(super) fn render(
+    frame: &mut Frame<'_>,
+    state: &State,
+    view: &View<'_>,
+    geometry: &mut Geometry,
+) -> Option<Rect> {
+    let palette = state.palette.as_ref()?;
     let screen = frame.area();
     // Leave the footer visible; give up on absurdly small terminals.
     let usable = screen.height.saturating_sub(1);
     if screen.width < 20 || usable < 5 {
-        return;
+        return None;
     }
     let box_width = screen.width.saturating_sub(4).min(MAX_WIDTH);
     // Recompute the image note: config reloads and terminal checks can change
@@ -73,7 +76,7 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &
     frame.render_widget(Clear, area);
     frame.render_widget(block, area);
     if inner.height < 3 {
-        return;
+        return Some(area);
     }
     let query = Rect { height: 1, ..inner };
     draw_query(frame, query, palette, view);
@@ -109,6 +112,7 @@ pub fn render(frame: &mut Frame<'_>, state: &State, view: &View<'_>, geometry: &
     let offset = visible_offset(palette, usize::from(list.height));
     draw_results(frame, list, palette, offset, view);
     geometry.palette = Some(PaletteGeometry { area, list, offset });
+    Some(area)
 }
 
 /// `palette.offset`, moved if needed so the selection is on screen.
