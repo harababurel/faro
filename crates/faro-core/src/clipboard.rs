@@ -122,6 +122,9 @@ pub fn image_extension(mime: &str) -> Option<&'static str> {
     }
 }
 
+/// Maximum user input bytes buffered outside packets during a single read.
+const MAX_INPUT: usize = 4096;
+
 /// The answers to [`SUPPORT_QUERY`], fed in pieces of any size. Under tmux
 /// every attached terminal answers: one yes is enough.
 #[derive(Debug, Default)]
@@ -130,6 +133,7 @@ pub struct SupportReader {
     supported: bool,
     statuses: usize,
     focus: Vec<Focus>,
+    input: Vec<u8>,
 }
 
 impl SupportReader {
@@ -139,15 +143,25 @@ impl SupportReader {
         let mut pos = 0;
         while let Some(rest) = buf.get(pos..) {
             let Some(esc) = rest.iter().position(|&b| b == ESC) else {
+                self.push_input(rest);
                 pos = buf.len();
                 break;
             };
+            self.push_input(rest.get(..esc).unwrap_or_default());
             pos += esc;
             let rest = buf.get(pos..).unwrap_or_default();
             match sequence(rest) {
                 Sequence::Wait => break,
+                Sequence::Esc => {
+                    self.push_input(&[ESC]);
+                    pos += 1;
+                }
                 Sequence::Focus(focus, n) => {
                     self.focus.push(focus);
+                    pos += n;
+                }
+                Sequence::Key(n) => {
+                    self.push_input(rest.get(..n).unwrap_or_default());
                     pos += n;
                 }
                 Sequence::Skip(n) | Sequence::Overflow(n) => {
@@ -161,6 +175,13 @@ impl SupportReader {
         self.buf.drain(..pos.min(self.buf.len()));
         if self.buf.len() > MAX_PACKET {
             self.buf.clear();
+        }
+    }
+
+    fn push_input(&mut self, bytes: &[u8]) {
+        let room = MAX_INPUT.saturating_sub(self.input.len());
+        if let Some(slice) = bytes.get(..bytes.len().min(room)) {
+            self.input.extend_from_slice(slice);
         }
     }
 
@@ -191,6 +212,25 @@ impl SupportReader {
     /// Focus reports seen since the last call, in order.
     pub fn take_focus(&mut self) -> Vec<Focus> {
         std::mem::take(&mut self.focus)
+    }
+
+    /// User input bytes typed outside terminal replies since the last call.
+    pub fn take_input(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.input)
+    }
+
+    /// Whether a trailing `ESC` is waiting for a following byte.
+    pub fn has_pending_esc(&self) -> bool {
+        self.buf.as_slice() == [ESC]
+    }
+
+    /// Treat a pending `ESC` as a standalone `Esc` keypress once an idle gap
+    /// shows no sequence is following it.
+    pub fn flush_esc(&mut self) {
+        if self.has_pending_esc() {
+            let tail = std::mem::take(&mut self.buf);
+            self.push_input(&tail);
+        }
     }
 }
 
@@ -280,13 +320,18 @@ pub struct Reader {
     ignored: usize,
     dropped: usize,
     focus: Vec<Focus>,
+    input: Vec<u8>,
 }
 
 /// What the bytes at an `ESC` are.
 enum Sequence {
     /// Not complete yet.
     Wait,
-    /// Something else (or garbage): drop this many bytes.
+    /// A standalone `ESC` followed immediately by another `ESC` (`1` byte).
+    Esc,
+    /// A user key escape sequence (`Alt+x`, cursor/editing CSI, SS3).
+    Key(usize),
+    /// Another terminal reply, mouse report, or garbage: drop this many bytes.
     Skip(usize),
     Focus(Focus, usize),
     /// An OSC 5522 packet: its body ends at `end`, the whole thing is `len` bytes.
@@ -317,6 +362,7 @@ impl Reader {
             ignored: 0,
             dropped: 0,
             focus: Vec::new(),
+            input: Vec::new(),
         }
     }
 
@@ -334,14 +380,26 @@ impl Reader {
         while let Some(rest) = buf.get(pos..) {
             let Some(esc) = rest.iter().position(|&b| b == ESC) else {
                 self.dropped += rest.len();
+                self.push_input(rest);
                 pos = buf.len();
                 break;
             };
             self.dropped += esc;
+            self.push_input(rest.get(..esc).unwrap_or_default());
             pos += esc;
             let rest = buf.get(pos..).unwrap_or_default();
             match sequence(rest) {
                 Sequence::Wait => break,
+                Sequence::Esc => {
+                    self.dropped += 1;
+                    self.push_input(&[ESC]);
+                    pos += 1;
+                }
+                Sequence::Key(n) => {
+                    self.dropped += n;
+                    self.push_input(rest.get(..n).unwrap_or_default());
+                    pos += n;
+                }
                 Sequence::Skip(n) => {
                     self.dropped += n;
                     pos += n;
@@ -371,6 +429,13 @@ impl Reader {
         self.buf.drain(..pos.min(self.buf.len()));
     }
 
+    fn push_input(&mut self, bytes: &[u8]) {
+        let room = MAX_INPUT.saturating_sub(self.input.len());
+        if let Some(slice) = bytes.get(..bytes.len().min(room)) {
+            self.input.extend_from_slice(slice);
+        }
+    }
+
     /// A packet of this reply has arrived (switch from waiting for the user to
     /// answer the prompt to waiting between packets).
     pub fn started(&self) -> bool {
@@ -382,9 +447,49 @@ impl Reader {
         self.done || self.status.is_some()
     }
 
+    /// Decoded payload bytes stored so far across `DATA` packets.
+    pub fn stored(&self) -> usize {
+        self.stored
+    }
+
     /// Focus reports seen since the last call, in order.
     pub fn take_focus(&mut self) -> Vec<Focus> {
         std::mem::take(&mut self.focus)
+    }
+
+    /// User input bytes typed outside packets since the last call.
+    pub fn take_input(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.input)
+    }
+
+    /// Whether a trailing `ESC` is waiting for a following byte.
+    pub fn has_pending_esc(&self) -> bool {
+        self.buf.as_slice() == [ESC]
+    }
+
+    /// Treat a pending `ESC` as a standalone `Esc` keypress once an idle gap
+    /// shows no sequence is following it.
+    pub fn flush_esc(&mut self) {
+        if self.has_pending_esc() {
+            let tail = std::mem::take(&mut self.buf);
+            self.dropped += tail.len();
+            self.push_input(&tail);
+        }
+    }
+
+    /// Whether `buf` currently holds the start of an incomplete `OSC 5522`
+    /// packet (not just a single `ESC`).
+    pub fn has_partial_packet(&self) -> bool {
+        self.buf.len() > 1 && (PREFIX.starts_with(&self.buf) || self.buf.starts_with(PREFIX))
+    }
+
+    /// Free any stored payload bytes and stop keeping further `DATA` chunks
+    /// while draining the rest of an cancelled reply to `DONE`.
+    pub fn discard_data(&mut self) {
+        self.limit = 0;
+        self.too_large = true;
+        self.entries.clear();
+        self.stored = 0;
     }
 
     /// Bytes outside packets that were dropped (keys typed meanwhile, mouse
@@ -451,12 +556,20 @@ impl Reader {
                         pos += n;
                         continue;
                     }
+                    Sequence::Key(n) if is_complete_csi(rest, n) => {
+                        self.push_input(rest.get(..n).unwrap_or_default());
+                        self.dropped += n;
+                        pos += n;
+                        continue;
+                    }
                     Sequence::Skip(n) if is_complete_csi(rest, n) => {
                         self.dropped += n;
                         pos += n;
                         continue;
                     }
                     Sequence::Wait
+                    | Sequence::Esc
+                    | Sequence::Key(_)
                     | Sequence::Skip(_)
                     | Sequence::Packet { .. }
                     | Sequence::Overflow(_) => {}
@@ -556,10 +669,21 @@ impl Reader {
 fn sequence(rest: &[u8]) -> Sequence {
     match rest.get(1) {
         None => Sequence::Wait,
+        Some(&ESC) => Sequence::Esc,
         Some(b']') => osc(rest),
         Some(b'[') => csi(rest),
-        // `ESC` + a key (Alt+x) or garbage.
-        Some(_) => Sequence::Skip(2),
+        Some(b'O') => ss3(rest),
+        // `ESC` + a key (Alt+x).
+        Some(_) => Sequence::Key(2),
+    }
+}
+
+/// `ESC O final` (application cursor / Home / End / F1–F4).
+fn ss3(rest: &[u8]) -> Sequence {
+    match rest.get(2) {
+        None => Sequence::Wait,
+        Some(b'A'..=b'Z') => Sequence::Key(3),
+        Some(_) => Sequence::Key(2),
     }
 }
 
@@ -597,9 +721,11 @@ fn csi(rest: &[u8]) -> Sequence {
         match b {
             0x20..=0x3f if i < MAX_SEQUENCE => {}
             0x40..=0x7e => {
-                return match rest.get(..=i) {
-                    Some(b"\x1b[I") => Sequence::Focus(Focus::Gained, i + 1),
-                    Some(b"\x1b[O") => Sequence::Focus(Focus::Lost, i + 1),
+                let seq = rest.get(..=i).unwrap_or_default();
+                return match seq {
+                    b"\x1b[I" => Sequence::Focus(Focus::Gained, i + 1),
+                    b"\x1b[O" => Sequence::Focus(Focus::Lost, i + 1),
+                    _ if is_user_csi(seq, b) => Sequence::Key(i + 1),
                     _ => Sequence::Skip(i + 1),
                 };
             }
@@ -608,6 +734,18 @@ fn csi(rest: &[u8]) -> Sequence {
         }
     }
     Sequence::Wait
+}
+
+/// Whether a complete `CSI` sequence (`ESC [ … final`) is a user key or
+/// bracketed-paste marker rather than a terminal status or mouse report.
+fn is_user_csi(seq: &[u8], final_byte: u8) -> bool {
+    if matches!(seq.get(2), Some(b'?' | b'>' | b'=' | b'<')) || seq.starts_with(b"\x1b[M") {
+        return false;
+    }
+    matches!(
+        final_byte,
+        b'A'..=b'D' | b'F' | b'H' | b'P'..=b'S' | b'Z' | b'~' | b'u'
+    )
 }
 
 /// The `n` bytes `csi` skipped end with a final byte (a whole sequence, not

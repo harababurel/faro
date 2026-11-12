@@ -82,7 +82,7 @@ pub enum Pointer {
 /// What woke the loop.
 enum Wake {
     Page(Input),
-    App(AppEvent),
+    App(Box<AppEvent>),
     Frame,
     Logo,
 }
@@ -294,7 +294,7 @@ impl Shell {
     fn take(&mut self, wake: Wake) {
         match wake {
             Wake::Page(input) => self.page(input),
-            Wake::App(event) => self.handle(event),
+            Wake::App(event) => self.handle(*event),
             Wake::Frame => self.draw(),
             Wake::Logo => self.dirty = true,
         }
@@ -693,8 +693,8 @@ pub async fn run(shell: Rc<RefCell<Shell>>, mut page: UnboundedReceiver<Input>, 
         }
         let wake = tokio::select! {
             Some(input) = page.recv() => Wake::Page(input),
-            Some(event) = inbox.backend.recv() => Wake::App(AppEvent::Backend(event)),
-            Some(event) = inbox.results.recv() => Wake::App(event),
+            Some(event) = inbox.backend.recv() => Wake::App(Box::new(AppEvent::Backend(event))),
+            Some(event) = inbox.results.recv() => Wake::App(Box::new(event)),
             () = next_frame(&mut frame), if frame.is_some() => {
                 frame = None;
                 Wake::Frame
@@ -703,7 +703,7 @@ pub async fn run(shell: Rc<RefCell<Shell>>, mut page: UnboundedReceiver<Input>, 
                 Wake::Logo
             }
             () = rt::sleep_until(deadline.unwrap_or_else(Instant::now)), if deadline.is_some() => {
-                Wake::App(AppEvent::Tick)
+                Wake::App(Box::new(AppEvent::Tick))
             }
             else => break,
         };

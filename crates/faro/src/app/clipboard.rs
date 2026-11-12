@@ -5,32 +5,31 @@
 //! ([`system`]). The image is staged like a pasted file and never sent
 //! without the user pressing Enter.
 //!
-//! How the reply is read (D90): the app loop drops its `EventStream` before
-//! calling [`start`], this module waits for crossterm's reader to let go
-//! ([`tty::barrier`]), writes each request from the app loop's thread (so it
-//! never lands inside a frame), reads the reply from the tty on a blocking
-//! thread, and sends [`AppEvent::ClipboardImage`] when done, which tells the
-//! loop to make a new `EventStream`. Replies that arrive after faro stopped
-//! waiting reach crossterm as keys; [`LateGuard`] spots them and [`drain`]
-//! reads the rest the same way.
+//! How the reply is read (D90): the app loop pauses its `EventStream` for the
+//! `OSC 5522` tty exchange, [`tty`] forwards typed keys, live byte progress,
+//! and instant `Esc` / `Ctrl+C` cancellation, and as soon as the tty lets go
+//! (before local system clipboard reads or TIFF→PNG conversion) sends
+//! [`AppEvent::ClipboardStage`] so `EventStream` resumes early.
 
 mod guard;
+pub(super) mod keys;
 mod system;
 pub(super) mod tty;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use crossterm::event::EventStream;
 use faro_core::clipboard::{self as protocol, Credentials, Focus, ReadError};
 use faro_core::domain::ConversationId;
-use tokio::sync::mpsc;
+use tokio::sync::{Notify, mpsc};
 
 use self::guard::{Filtered, LateGuard};
-use self::tty::{Failure, Tty};
-use super::event::{AppEvent, ClipboardError};
+use self::tty::{Failure, Observer, Tty, TtyWake};
+use super::event::{AppEvent, ClipboardError, PasteStage};
 use super::state::{StagedAttachment, Terminal};
 use super::term_event::Event;
 
@@ -50,10 +49,12 @@ fn limit_for(mime: &str) -> usize {
     }
 }
 
-/// How long the terminal has to answer whether it knows OSC 5522 (it always
-/// answers the status report at once; this covers slow SSH links and tmux
-/// without `allow-passthrough`, which drops the question).
+/// How long a remote terminal has to answer whether it knows OSC 5522 (covers
+/// slow SSH links and tmux without `allow-passthrough`).
 const SUPPORT_WAIT: Duration = Duration::from_secs(3);
+/// Local terminals answer status reports in < 1 ms; when local tmux drops the
+/// query (`allow-passthrough` off), fall back quickly to the OS clipboard.
+const LOCAL_SUPPORT_WAIT: Duration = Duration::from_millis(200);
 
 /// How long kitty has to answer the type list (no prompt; covers slow SSH).
 const LIST_WAIT: Duration = Duration::from_secs(5);
@@ -93,14 +94,48 @@ impl Session {
     }
 }
 
-/// Wakes the blocking reader so it gives up at once (faro is quitting).
-#[derive(Clone)]
-pub struct Cancel(Arc<mio::Waker>);
+/// Wakes an in-flight read or cancels off-tty clipboard / staging work.
+pub struct Cancel {
+    tty_wake: Option<TtyWake>,
+    cancelled: Arc<AtomicBool>,
+    notify: Arc<Notify>,
+}
 
 impl Cancel {
-    pub fn cancel(&self) {
-        let _ = self.0.wake();
+    fn from_tty(wake: TtyWake) -> Self {
+        Self {
+            tty_wake: Some(wake),
+            cancelled: Arc::new(AtomicBool::new(false)),
+            notify: Arc::new(Notify::new()),
+        }
     }
+
+    pub fn cancel_by_user(&self) {
+        self.cancelled.store(true, Ordering::Release);
+        self.notify.notify_waiters();
+        if let Some(wake) = &self.tty_wake {
+            wake.cancel_by_user();
+        }
+    }
+
+    pub fn release_tty(&mut self) {
+        self.tty_wake = None;
+    }
+
+    pub fn shutdown(&mut self) {
+        self.cancelled.store(true, Ordering::Release);
+        self.notify.notify_waiters();
+        if let Some(wake) = self.tty_wake.take() {
+            wake.shutdown();
+        }
+    }
+}
+
+/// Clipboard channel message from `Router` to the app loop.
+#[derive(Debug, Clone, Copy)]
+pub enum Action {
+    Read(Request),
+    Cancel,
 }
 
 /// `Effect::ReadClipboardImage`, for the app loop.
@@ -112,7 +147,7 @@ pub struct Request {
 }
 
 /// The app loop's side of pasting (D90, D91): pausing and resuming input,
-/// the late-reply guard, cancelling at exit.
+/// the late-reply guard, cancelling on `Esc` or at exit.
 #[derive(Default)]
 pub struct Paste {
     session: Session,
@@ -129,9 +164,19 @@ impl Paste {
         attachments_dir: PathBuf,
         results: &mpsc::UnboundedSender<AppEvent>,
     ) {
+        if self.cancel.is_some() {
+            return;
+        }
         *input = None;
         self.guard.arm();
         self.cancel = start(&mut self.session, request, attachments_dir, results.clone());
+    }
+
+    /// `Effect::CancelClipboardPaste`: abort an active clipboard read.
+    pub fn cancel(&mut self) {
+        if let Some(cancel) = &self.cancel {
+            cancel.cancel_by_user();
+        }
     }
 
     /// A terminal event, through the late-reply guard.
@@ -164,9 +209,15 @@ impl Paste {
             .collect()
     }
 
-    /// A read or drain is over: make a new `EventStream`.
+    /// Resume `EventStream` once the tty is released (`ClipboardStage`) or the
+    /// read / drain finishes (`ClipboardImage` / `ClipboardDrained`).
     pub fn resume(&mut self, input: &mut Option<EventStream>, event: &AppEvent) {
-        if matches!(
+        if matches!(event, AppEvent::ClipboardStage(_)) {
+            if let Some(cancel) = &mut self.cancel {
+                cancel.release_tty();
+            }
+            input.get_or_insert_with(EventStream::new);
+        } else if matches!(
             event,
             AppEvent::ClipboardImage { .. } | AppEvent::ClipboardDrained
         ) {
@@ -177,16 +228,31 @@ impl Paste {
 
     /// faro is quitting: stop waiting on the tty.
     pub fn stop(&mut self) {
-        if let Some(cancel) = self.cancel.take() {
-            cancel.cancel();
+        if let Some(mut cancel) = self.cancel.take() {
+            cancel.shutdown();
         }
     }
 }
 
-/// Start reading the clipboard for the request's conversation. The app loop
-/// has already dropped its `EventStream`; [`AppEvent::ClipboardImage`] always
-/// comes back (after any focus reports), so the loop knows when to make a
-/// new one.
+struct LiveObserver {
+    results: mpsc::UnboundedSender<AppEvent>,
+}
+
+impl Observer for LiveObserver {
+    fn on_input(&mut self, event: Event) {
+        let _ = self.results.send(AppEvent::Terminal(event));
+    }
+
+    fn on_progress(&mut self, bytes: u64) {
+        let _ = self.results.send(AppEvent::ClipboardProgress { bytes });
+    }
+
+    fn on_midstream_cancel(&mut self) {
+        let _ = self.results.send(AppEvent::ClipboardCancelled);
+    }
+}
+
+/// Start reading the clipboard for the request's conversation.
 pub fn start(
     session: &mut Session,
     request: Request,
@@ -210,7 +276,9 @@ pub fn start(
             return None;
         }
     };
-    let cancel = Cancel(tty.waker());
+    let cancel = Cancel::from_tty(tty.wake_handle());
+    let cancelled = Arc::clone(&cancel.cancelled);
+    let cancel_notify = Arc::clone(&cancel.notify);
     let ids = (session.next_id(), session.next_id());
     let credentials = session.credentials.clone();
     tokio::spawn(async move {
@@ -221,10 +289,17 @@ pub fn start(
             dir: attachments_dir,
             system,
             results: results.clone(),
+            cancelled,
+            cancel_notify,
         };
-        let result = read.run(tty, &mut focus).await;
+        let outcome = read.run(tty, &mut focus).await;
         send_focus(&results, focus);
-        finish(&results, result);
+        match outcome {
+            RunOutcome::Finished(result) => finish(&results, result),
+            RunOutcome::MidstreamDrained => {
+                let _ = results.send(AppEvent::ClipboardDrained);
+            }
+        }
     });
     Some(cancel)
 }
@@ -240,7 +315,7 @@ pub fn drain(results: mpsc::UnboundedSender<AppEvent>) -> Option<Cancel> {
             return None;
         }
     };
-    let cancel = Cancel(tty.waker());
+    let cancel = Cancel::from_tty(tty.wake_handle());
     tokio::spawn(async move {
         match tokio::task::spawn_blocking(move || tty::drain(tty)).await {
             Ok(Ok(drained)) => {
@@ -257,6 +332,21 @@ pub fn drain(results: mpsc::UnboundedSender<AppEvent>) -> Option<Cancel> {
         let _ = results.send(AppEvent::ClipboardDrained);
     });
     Some(cancel)
+}
+
+/// Unlink a staged clipboard file off the UI thread (`Effect::DiscardStagedImage`).
+pub fn discard_file(path: PathBuf) {
+    tokio::spawn(async move {
+        let _ = tokio::task::spawn_blocking(move || remove_file_blocking(&path)).await;
+    });
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "runs inside spawn_blocking off the UI thread"
+)]
+fn remove_file_blocking(path: &Path) {
+    let _ = std::fs::remove_file(path);
 }
 
 /// Focus reports found in the reply's bytes go back to the reducer as the
@@ -280,6 +370,22 @@ async fn blocking<T: Send + 'static>(
         .map_err(|error| ClipboardError::Failed(error.to_string()))
 }
 
+enum RunOutcome {
+    Finished(Result<StagedAttachment, ClipboardError>),
+    MidstreamDrained,
+}
+
+enum StepError {
+    Clipboard(ClipboardError),
+    MidstreamDrained,
+}
+
+impl From<ClipboardError> for StepError {
+    fn from(error: ClipboardError) -> Self {
+        Self::Clipboard(error)
+    }
+}
+
 /// One `Ctrl+V`.
 struct Read {
     ids: (String, String),
@@ -288,6 +394,8 @@ struct Read {
     /// The computer's own clipboard may be read (D150).
     system: bool,
     results: mpsc::UnboundedSender<AppEvent>,
+    cancelled: Arc<AtomicBool>,
+    cancel_notify: Arc<Notify>,
 }
 
 /// Where the image comes from.
@@ -299,32 +407,72 @@ enum Route {
 }
 
 impl Read {
+    async fn run(self, tty: Tty, focus: &mut Vec<Focus>) -> RunOutcome {
+        match self.run_inner(tty, focus).await {
+            Ok(staged) => RunOutcome::Finished(Ok(staged)),
+            Err(StepError::Clipboard(err)) => RunOutcome::Finished(Err(err)),
+            Err(StepError::MidstreamDrained) => RunOutcome::MidstreamDrained,
+        }
+    }
+
     /// D150: mosh stops everything; kitty is asked as before; any other
     /// terminal is asked whether it knows OSC 5522; failing that, the
     /// computer's own clipboard when faro runs on it.
-    async fn run(
+    async fn run_inner(
         self,
         tty: Tty,
         focus: &mut Vec<Focus>,
-    ) -> Result<StagedAttachment, ClipboardError> {
+    ) -> Result<StagedAttachment, StepError> {
+        if self.cancelled.load(Ordering::Acquire) {
+            return Err(ClipboardError::Cancelled.into());
+        }
         let terminal = super::system::inspect_terminal().await;
+        if self.cancelled.load(Ordering::Acquire) {
+            return Err(ClipboardError::Cancelled.into());
+        }
         if terminal.mosh && !terminal.kitty {
-            return Err(ClipboardError::Mosh);
+            return Err(ClipboardError::Mosh.into());
         }
         let in_tmux = std::env::var_os("TMUX").is_some();
         blocking(tty::barrier)
             .await?
             .map_err(|error| ClipboardError::Failed(error.to_string()))?;
-        let route = choose(tty, &terminal, in_tmux, self.system, focus).await?;
+        let route = choose(tty, &terminal, in_tmux, self.system, &self.results, focus).await?;
         let (mime, data) = match route {
             Route::Terminal(tty) => self.via_terminal(tty, &terminal, in_tmux, focus).await?,
             Route::System => {
-                let image = system::read().await?;
+                // `tty` was dropped inside `choose`: resume `EventStream` before
+                // running `wl-paste` / `xclip` / `osascript`.
+                send_focus(&self.results, std::mem::take(focus));
+                let _ = self
+                    .results
+                    .send(AppEvent::ClipboardStage(PasteStage::SystemRead));
+                let image = self.read_system().await?;
                 (image.mime.to_owned(), image.data)
             }
         };
+        // `tty` is now gone: resume `EventStream` before TIFF→PNG conversion and disk I/O.
+        send_focus(&self.results, std::mem::take(focus));
+        let _ = self
+            .results
+            .send(AppEvent::ClipboardStage(PasteStage::Processing));
+        if self.cancelled.load(Ordering::Acquire) {
+            return Err(ClipboardError::Cancelled.into());
+        }
         let dir = self.dir;
-        blocking(move || stage(&dir, &mime, data)).await?
+        let cancelled = self.cancelled;
+        Ok(blocking(move || stage_cancellable(&dir, &mime, data, &cancelled)).await??)
+    }
+
+    async fn read_system(&self) -> Result<system::Image, ClipboardError> {
+        if self.cancelled.load(Ordering::Acquire) {
+            return Err(ClipboardError::Cancelled);
+        }
+        tokio::select! {
+            biased;
+            () = self.cancel_notify.notified() => Err(ClipboardError::Cancelled),
+            res = system::read() => res,
+        }
     }
 
     /// OSC 5522: the type list (no prompt), then the best image type.
@@ -334,39 +482,48 @@ impl Read {
         terminal: &Terminal,
         in_tmux: bool,
         focus: &mut Vec<Focus>,
-    ) -> Result<(String, Vec<u8>), ClipboardError> {
+    ) -> Result<(String, Vec<u8>), StepError> {
         let (list_id, data_id) = self.ids.clone();
         write_request(&protocol::list_request(Some(&list_id)), in_tmux)?;
+        let list_tx = self.results.clone();
         let (tty, listed) = blocking(move || {
             let mut tty = tty;
-            let listed = tty::list(&mut tty, &list_id);
+            let mut observer = LiveObserver { results: list_tx };
+            let listed = tty::list_with(&mut tty, &list_id, &mut observer);
             (tty, listed)
         })
         .await?;
         focus.extend(listed.focus);
-        let types = listed.result.map_err(|failure| match failure {
-            Failure::Read(ReadError::NoReply) => ClipboardError::NoAnswer,
-            Failure::Read(error) => ClipboardError::Read(error),
-            Failure::Io(error) => ClipboardError::Failed(error.to_string()),
+        let listed = listed.result.map_err(|failure| match failure {
+            Failure::Cancelled { drained: true } => StepError::MidstreamDrained,
+            Failure::Cancelled { drained: false } => ClipboardError::Cancelled.into(),
+            Failure::Read(ReadError::NoReply) => ClipboardError::NoAnswer.into(),
+            Failure::Read(error) => ClipboardError::Read(error).into(),
+            Failure::Io(error) => ClipboardError::Failed(error.to_string()).into(),
         })?;
-        let mime = protocol::best_image_type(&types).ok_or(ClipboardError::NoImage)?;
+        let mime = protocol::best_image_type(&listed.types).ok_or(ClipboardError::NoImage)?;
 
         let _ = self.results.send(AppEvent::ClipboardPrompt(terminal.name));
         write_request(
             &protocol::read_request(&[mime], Some(&data_id), Some(&self.credentials)),
             in_tmux,
         )?;
+        let data_tx = self.results.clone();
+        let initial = listed.rest;
         let (_tty, read) = blocking(move || {
             let mut tty = tty;
-            let read = tty::data(&mut tty, &data_id, limit_for(mime));
+            let mut observer = LiveObserver { results: data_tx };
+            let read = tty::data_with(&mut tty, &data_id, limit_for(mime), &initial, &mut observer);
             (tty, read)
         })
         .await?;
         focus.extend(read.focus);
         let contents = read.result.map_err(|failure| match failure {
-            Failure::Read(ReadError::NoReply) => ClipboardError::PromptTimedOut,
-            Failure::Read(error) => ClipboardError::Read(error),
-            Failure::Io(error) => ClipboardError::Failed(error.to_string()),
+            Failure::Cancelled { drained: true } => StepError::MidstreamDrained,
+            Failure::Cancelled { drained: false } => ClipboardError::Cancelled.into(),
+            Failure::Read(ReadError::NoReply) => ClipboardError::PromptTimedOut.into(),
+            Failure::Read(error) => ClipboardError::Read(error).into(),
+            Failure::Io(error) => ClipboardError::Failed(error.to_string()).into(),
         })?;
         let entry = contents.take(mime).ok_or(ClipboardError::NoImage)?;
         Ok((entry.mime, entry.data))
@@ -380,36 +537,46 @@ async fn choose(
     terminal: &Terminal,
     in_tmux: bool,
     system: bool,
+    results: &mpsc::UnboundedSender<AppEvent>,
     focus: &mut Vec<Focus>,
-) -> Result<Route, ClipboardError> {
+) -> Result<Route, StepError> {
     if terminal.kitty {
         return Ok(Route::Terminal(tty));
     }
     write_request(protocol::SUPPORT_QUERY, in_tmux)?;
     let several = terminal.tmux_clients.len() > 1;
+    let wait = if terminal.remote {
+        SUPPORT_WAIT
+    } else {
+        LOCAL_SUPPORT_WAIT
+    };
+    let tx = results.clone();
     let (tty, asked) = blocking(move || {
         let mut tty = tty;
-        let asked = tty::support(&mut tty, several);
+        let mut observer = LiveObserver { results: tx };
+        let asked = tty::support_with(&mut tty, several, wait, &mut observer);
         (tty, asked)
     })
     .await?;
     focus.extend(asked.focus);
-    let support = asked
-        .result
-        .map_err(|failure| ClipboardError::Failed(format!("{failure:?}")))?;
+    let support = asked.result.map_err(|failure| match failure {
+        Failure::Cancelled { drained: true } => StepError::MidstreamDrained,
+        Failure::Cancelled { drained: false } => ClipboardError::Cancelled.into(),
+        Failure::Read(_) | Failure::Io(_) => ClipboardError::Failed(format!("{failure:?}")).into(),
+    })?;
     tracing::info!(?support, name = ?terminal.name, remote = terminal.remote, "asked the terminal about OSC 5522");
     if support.supported {
         Ok(Route::Terminal(tty))
     } else if terminal.remote {
         Err(if terminal.mosh {
-            ClipboardError::Mosh
+            ClipboardError::Mosh.into()
         } else {
-            ClipboardError::OverSsh
+            ClipboardError::OverSsh.into()
         })
     } else if system {
         Ok(Route::System)
     } else {
-        Err(ClipboardError::SystemOff)
+        Err(ClipboardError::SystemOff.into())
     }
 }
 
@@ -471,6 +638,24 @@ fn sweep_blocking(dir: &Path) -> usize {
 
 /// The start of every pasted image's file name.
 const PASTED_PREFIX: &str = "clipboard-";
+
+/// Stage and clean up immediately if `cancelled` became set while converting/saving.
+fn stage_cancellable(
+    dir: &Path,
+    mime: &str,
+    data: Vec<u8>,
+    cancelled: &AtomicBool,
+) -> Result<StagedAttachment, ClipboardError> {
+    if cancelled.load(Ordering::Acquire) {
+        return Err(ClipboardError::Cancelled);
+    }
+    let staged = stage(dir, mime, data)?;
+    if cancelled.load(Ordering::Acquire) {
+        remove_file_blocking(&staged.path);
+        return Err(ClipboardError::Cancelled);
+    }
+    Ok(staged)
+}
 
 /// Make the image sendable (TIFF becomes PNG, D150), then save it.
 fn stage(dir: &Path, mime: &str, data: Vec<u8>) -> Result<StagedAttachment, ClipboardError> {

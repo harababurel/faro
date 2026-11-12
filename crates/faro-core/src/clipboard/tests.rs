@@ -448,3 +448,58 @@ fn an_endless_packet_is_dropped_not_buffered() {
     reader.feed(&packet("status=DONE", None));
     assert!(matches!(reader.finish(), Err(ReadError::Malformed(_))));
 }
+
+#[test]
+fn preserves_typed_keys_and_standalone_esc_without_breaking_packets() {
+    // A standalone ESC right before a packet must not swallow the packet's ESC.
+    let mut input = vec![ESC];
+    input.extend_from_slice(TEST_4);
+    let mut reader = Reader::new(MB, None);
+    reader.feed(&input);
+    assert!(reader.finished());
+    assert_eq!(reader.take_input(), vec![ESC]);
+    assert_eq!(
+        reader.finish().expect("complete").types(),
+        ["image/png", "text/html"]
+    );
+
+    // Typed text, Alt+b, cursor CSI, SGR mouse (skipped), OSC 11 (skipped), and focus.
+    let mut mixed = b"hi\x1bb\x1b[D\x1b[<35;10;5M\x1b]11;rgb:0000/0000/0000\x1b\\\x1b[I".to_vec();
+    mixed.extend_from_slice(TEST_4);
+    let mut reader = Reader::new(MB, None);
+    reader.feed(&mixed);
+    assert_eq!(reader.take_focus(), vec![Focus::Gained]);
+    assert_eq!(reader.take_input(), b"hi\x1bb\x1b[D");
+    assert!(reader.finished());
+
+    // A bare ESC held at the end flushes when idle.
+    let mut wait = Reader::new(MB, None);
+    wait.feed(&[ESC]);
+    assert!(wait.has_pending_esc());
+    wait.flush_esc();
+    assert!(!wait.has_pending_esc());
+    assert_eq!(wait.take_input(), vec![ESC]);
+
+    // SupportReader also keeps typed input while stripping mode/status replies.
+    let mut support = SupportReader::default();
+    support.feed(b"cap\x1b[?5522;2$y\x1b[0n");
+    assert!(support.supported());
+    assert_eq!(support.answered(), 1);
+    assert_eq!(support.take_input(), b"cap");
+}
+
+#[test]
+fn tracks_stored_bytes_and_discards_on_midstream_cancel() {
+    let data = image(10_000, 9);
+    let mime = format!("status=DATA:mime={}", STANDARD.encode("image/png"));
+    let mut reader = Reader::new(MB, None);
+    reader.feed(&packet("status=OK", None));
+    reader.feed(&packet(&mime, Some(&data[..4096])));
+    assert_eq!(reader.stored(), 4096);
+    reader.discard_data();
+    assert_eq!(reader.stored(), 0);
+    reader.feed(&packet(&mime, Some(&data[4096..])));
+    assert_eq!(reader.stored(), 0);
+    reader.feed(&packet("status=DONE", None));
+    assert!(reader.finished());
+}

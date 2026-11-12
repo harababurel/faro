@@ -406,3 +406,203 @@ fn pasted_images_are_recognised_and_swept() {
     assert!(!pasted.exists());
     assert!(received.exists() && elsewhere.exists());
 }
+
+#[derive(Default)]
+struct RecordingObserver {
+    inputs: Vec<Event>,
+    progress: Vec<u64>,
+    midstream_cancels: usize,
+}
+
+impl tty::Observer for RecordingObserver {
+    fn on_input(&mut self, event: Event) {
+        self.inputs.push(event);
+    }
+
+    fn on_progress(&mut self, bytes: u64) {
+        self.progress.push(bytes);
+    }
+
+    fn on_midstream_cancel(&mut self) {
+        self.midstream_cancels += 1;
+    }
+}
+
+#[test]
+fn key_decoder_streams_utf8_editing_keys_pastes_and_withholds_bare_enter() {
+    let mut decoder = super::keys::KeyDecoder::default();
+
+    // Printable ASCII, Backspace, Tab, Ctrl+J, Alt+Enter, Shift+Enter, arrows, Delete.
+    let batch =
+        decoder.feed(b"Hi\x7f\t\n\x1b\r\x1b[13;2u\x1b[A\x1bOH\x1b[3~\r\x1b[13u\x16\x1b[118;5u");
+    assert!(!batch.cancelled);
+    assert_eq!(
+        batch.events,
+        vec![
+            key(KeyCode::Char('H'), KeyModifiers::SHIFT),
+            key(KeyCode::Char('i'), KeyModifiers::NONE),
+            key(KeyCode::Backspace, KeyModifiers::NONE),
+            key(KeyCode::Tab, KeyModifiers::NONE),
+            key(KeyCode::Char('j'), KeyModifiers::CONTROL),
+            key(KeyCode::Enter, KeyModifiers::ALT),
+            key(KeyCode::Enter, KeyModifiers::SHIFT),
+            key(KeyCode::Up, KeyModifiers::NONE),
+            key(KeyCode::Home, KeyModifiers::NONE),
+            key(KeyCode::Delete, KeyModifiers::NONE),
+        ]
+    );
+
+    // Multi-byte UTF-8 fed one byte at a time.
+    let mut utf8_events = Vec::new();
+    for &b in "é🧗".as_bytes() {
+        let step = decoder.feed(&[b]);
+        assert!(!step.cancelled);
+        utf8_events.extend(step.events);
+    }
+    assert_eq!(
+        utf8_events,
+        vec![
+            key(KeyCode::Char('é'), KeyModifiers::NONE),
+            key(KeyCode::Char('🧗'), KeyModifiers::NONE),
+        ]
+    );
+
+    // Bracketed paste split mid-terminator across two reads.
+    let first = decoder.feed(b"\x1b[200~hello\r\nworld\x1b[20");
+    assert_eq!(first.events, vec![]);
+    let second = decoder.feed(b"1~!");
+    assert_eq!(
+        second.events,
+        vec![
+            Event::Paste("hello\r\nworld".to_owned()),
+            key(KeyCode::Char('!'), KeyModifiers::NONE),
+        ]
+    );
+
+    // Keys before Ctrl+C / Esc are preserved when cancelling.
+    for cancel_seq in [
+        &b"ok\x03ignored"[..],
+        &b"ok\x1b"[..],
+        &b"ok\x1b[27u"[..],
+        &b"ok\x1b[99;5u"[..],
+    ] {
+        let mut dec = super::keys::KeyDecoder::default();
+        let res = dec.feed(cancel_seq);
+        assert!(res.cancelled, "expected cancel for {cancel_seq:?}");
+        assert_eq!(
+            res.events,
+            vec![
+                key(KeyCode::Char('o'), KeyModifiers::NONE),
+                key(KeyCode::Char('k'), KeyModifiers::NONE),
+            ]
+        );
+    }
+}
+
+#[test]
+fn list_and_data_forward_live_keys_and_progress_across_phases() {
+    let list_id = "faro-list";
+    let data_id = "faro-data";
+    let mut list_chunk = b"hi".to_vec();
+    list_chunk.extend(reply(Some(list_id), LIST, b"image/png"));
+    list_chunk.extend_from_slice(b" ");
+
+    let mut observer = RecordingObserver::default();
+    let listed = tty::list_with(&mut Script::new([list_chunk]), list_id, &mut observer)
+        .result
+        .expect("listed");
+    assert_eq!(listed.types, ["image/png"]);
+
+    let image: Vec<u8> = (0..10_000u32).map(|i| (i % 251) as u8).collect();
+    let meta = format!("status=DATA:mime={}", STANDARD.encode("image/png"));
+    let mut chunks = vec![packet(Some(data_id), "status=OK", None)];
+    chunks.push(packet(Some(data_id), &meta, Some(&image[..5000])));
+    chunks.push("🧗".as_bytes().to_vec());
+    let mut last = packet(Some(data_id), &meta, Some(&image[5000..]));
+    last.extend(packet(Some(data_id), "status=DONE", None));
+    last.extend_from_slice(b"!");
+    chunks.push(last);
+
+    let read = tty::data_with(
+        &mut Script::new(chunks),
+        data_id,
+        MAX_IMAGE,
+        &listed.rest,
+        &mut observer,
+    );
+    let entry = read.result.expect("data").take("image/png").expect("png");
+    assert_eq!(entry.data, image);
+    assert_eq!(observer.progress.last().copied(), Some(10_000));
+    assert_eq!(
+        observer.inputs,
+        vec![
+            key(KeyCode::Char('h'), KeyModifiers::NONE),
+            key(KeyCode::Char('i'), KeyModifiers::NONE),
+            key(KeyCode::Char(' '), KeyModifiers::NONE),
+            key(KeyCode::Char('🧗'), KeyModifiers::NONE),
+            key(KeyCode::Char('!'), KeyModifiers::NONE),
+        ]
+    );
+}
+
+#[test]
+fn esc_cancels_pre_stream_immediately_and_drains_cleanly_mid_stream() {
+    let id = "faro-cancel";
+
+    // Pre-stream standalone Esc: flushed when no continuation arrives.
+    let mut pre_obs = RecordingObserver::default();
+    let pre = tty::data_with(
+        &mut Script::new([vec![0x1b]]),
+        id,
+        MAX_IMAGE,
+        &[],
+        &mut pre_obs,
+    );
+    assert!(matches!(
+        pre.result,
+        Err(Failure::Cancelled { drained: false })
+    ));
+    assert_eq!(pre_obs.midstream_cancels, 0);
+
+    // Mid-stream Ctrl+C: notifies immediately, discards data, and drains to DONE.
+    let meta = format!("status=DATA:mime={}", STANDARD.encode("image/png"));
+    let chunks = vec![
+        packet(Some(id), "status=OK", None),
+        packet(Some(id), &meta, Some(&[1; 4096])),
+        b"a\x03".to_vec(),
+        packet(Some(id), &meta, Some(&[2; 4096])),
+        packet(Some(id), "status=DONE", None),
+    ];
+    let mut mid_obs = RecordingObserver::default();
+    let mid = tty::data_with(&mut Script::new(chunks), id, MAX_IMAGE, &[], &mut mid_obs);
+    assert!(matches!(
+        mid.result,
+        Err(Failure::Cancelled { drained: true })
+    ));
+    assert_eq!(mid_obs.midstream_cancels, 1);
+    assert_eq!(
+        mid_obs.inputs,
+        vec![key(KeyCode::Char('a'), KeyModifiers::NONE)]
+    );
+}
+
+#[test]
+#[expect(clippy::disallowed_methods, reason = "tests may block")]
+fn stage_cancellable_leaves_no_orphaned_file_when_cancelled() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut png = Vec::new();
+    image::RgbaImage::new(2, 2)
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .expect("encode");
+
+    let cancelled = AtomicBool::new(true);
+    let err = stage_cancellable(dir.path(), "image/png", png.clone(), &cancelled);
+    assert!(matches!(err, Err(ClipboardError::Cancelled)));
+    assert_eq!(std::fs::read_dir(dir.path()).expect("readdir").count(), 0);
+
+    let active = AtomicBool::new(false);
+    let staged = stage_cancellable(dir.path(), "image/png", png, &active).expect("staged");
+    assert!(staged.path.exists());
+    remove_file_blocking(&staged.path);
+    assert!(!staged.path.exists());
+}

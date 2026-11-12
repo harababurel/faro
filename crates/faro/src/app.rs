@@ -261,9 +261,14 @@ pub async fn run<B: Backend + 'static>(
             () = sleep_until(held_until.unwrap_or_else(Instant::now)), if held_until.is_some() => {
                 paste.flush()
             }
-            Some(request) = clipboard_requests.recv(), if !probing => {
-                let dir = state.attachments_dir.clone();
-                paste.begin(&mut input, request, dir, &router.results);
+            Some(action) = clipboard_requests.recv(), if !probing => {
+                match action {
+                    clipboard::Action::Read(request) => {
+                        let dir = state.attachments_dir.clone();
+                        paste.begin(&mut input, request, dir, &router.results);
+                    }
+                    clipboard::Action::Cancel => paste.cancel(),
+                }
                 continue;
             }
             // A panic elsewhere already gave the terminal back: leave now,
@@ -453,8 +458,8 @@ pub(super) struct Router {
     config: mpsc::UnboundedSender<faro_core::config::SettingEdit>,
     results: mpsc::UnboundedSender<AppEvent>,
     audio: std::cell::RefCell<system::AudioPlayer>,
-    /// Clipboard reads go to the app loop, which owns the terminal input (D90).
-    clipboard: mpsc::UnboundedSender<clipboard::Request>,
+    /// Clipboard reads and cancellations go to the app loop, which owns the terminal input (D90).
+    clipboard: mpsc::UnboundedSender<clipboard::Action>,
 }
 
 impl Router {
@@ -464,7 +469,7 @@ impl Router {
         effects: mpsc::UnboundedSender<Effect>,
         config: mpsc::UnboundedSender<faro_core::config::SettingEdit>,
         results: mpsc::UnboundedSender<AppEvent>,
-    ) -> (Self, mpsc::UnboundedReceiver<clipboard::Request>) {
+    ) -> (Self, mpsc::UnboundedReceiver<clipboard::Action>) {
         let (clipboard, requests) = mpsc::unbounded_channel();
         let router = Self {
             commands,
@@ -478,19 +483,16 @@ impl Router {
     }
 
     /// Clipboard reads go to the app loop, which owns the input (D90).
-    fn read_clipboard(&self, effect: &Effect) -> bool {
-        let &Effect::ReadClipboardImage {
-            conversation,
-            system,
-        } = effect
-        else {
-            return false;
-        };
+    fn read_clipboard(
+        &self,
+        conversation: faro_core::domain::ConversationId,
+        system: bool,
+    ) -> bool {
         self.clipboard
-            .send(clipboard::Request {
+            .send(clipboard::Action::Read(clipboard::Request {
                 conversation,
                 system,
-            })
+            }))
             .is_ok()
     }
 
@@ -571,7 +573,15 @@ impl Router {
                 system::check_terminal(self.results.clone());
                 true
             }
-            effect @ Effect::ReadClipboardImage { .. } => self.read_clipboard(&effect),
+            Effect::ReadClipboardImage {
+                conversation,
+                system,
+            } => self.read_clipboard(conversation, system),
+            Effect::CancelClipboardPaste => self.clipboard.send(clipboard::Action::Cancel).is_ok(),
+            Effect::DiscardStagedImage(path) => {
+                clipboard::discard_file(path);
+                true
+            }
             Effect::Bell => {
                 system::bell();
                 true

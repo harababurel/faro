@@ -57,6 +57,8 @@ fn saved(effects: &[Effect], id: ConversationId) -> Option<ConversationState> {
         | Effect::OpenFile(_)
         | Effect::SaveToDownloads { .. }
         | Effect::ReadClipboardImage { .. }
+        | Effect::CancelClipboardPaste
+        | Effect::DiscardStagedImage(_)
         | Effect::ListFiles(_)
         | Effect::CheckCommand(_)
         | Effect::StageFile(_)

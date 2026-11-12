@@ -202,6 +202,8 @@ const fn allow_effect_in_linear(effect: &Effect) -> bool {
         Effect::CheckTerminal
         | Effect::ListPictures
         | Effect::ReadClipboardImage { .. }
+        | Effect::CancelClipboardPaste
+        | Effect::DiscardStagedImage(_)
         | Effect::Bell
         | Effect::DesktopNotify { .. }
         | Effect::Copy(_)

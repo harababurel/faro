@@ -12,12 +12,13 @@ use faro_core::domain::{
 use faro_core::file_names;
 
 use super::{on_backend, summary_entry};
-use crate::app::event::ClipboardError;
-use crate::app::event::Command;
-use crate::app::event::Effect;
+use crate::app::event::{ClipboardError, Command, Effect, PasteStage};
 use crate::app::input::Input;
 use crate::app::keymap::Action;
-use crate::app::state::{Focus, Notice, Popup, StagedAttachment, State, TerminalName};
+use crate::app::state::{
+    ClipboardPaste, Focus, Notice, PastePhase, PasteState, Popup, StagedAttachment, State,
+    TerminalName,
+};
 
 /// Signal's object-replacement placeholder for an inline mention (D72).
 const MENTION_PLACEHOLDER: char = '\u{FFFC}';
@@ -54,6 +55,12 @@ pub fn send(state: &mut State) -> Vec<Effect> {
     }
     if crate::app::slash::is_slash_input(open.input.text().trim()) {
         return crate::app::slash::execute_from_input(state);
+    }
+    if state.pasting_in(open.id).is_some() {
+        state.notice = Some(Notice::info(
+            "Still pasting image — wait a moment or press Esc to cancel",
+        ));
+        return vec![];
     }
     send_message(state)
 }
@@ -508,11 +515,14 @@ pub fn paste_image(state: &mut State) -> Vec<Effect> {
         state.notice = Some(Notice::info("Open a conversation to paste an image"));
         return vec![];
     };
-    if state.pasting.is_some() {
+    if state.pasting.is_active() {
         return vec![];
     }
     let conversation = open.id;
-    state.pasting = Some(conversation);
+    state.pasting = PasteState::Active(ClipboardPaste {
+        conversation,
+        phase: PastePhase::Checking,
+    });
     state.notice = Some(Notice::warning("Reading the clipboard…"));
     vec![Effect::ReadClipboardImage {
         conversation,
@@ -520,14 +530,52 @@ pub fn paste_image(state: &mut State) -> Vec<Effect> {
     }]
 }
 
+/// Cancel an active clipboard read (`Esc` or `Ctrl+C`).
+pub fn cancel_paste(state: &mut State) -> Vec<Effect> {
+    if !state.pasting.is_active() {
+        return vec![];
+    }
+    state.pasting = PasteState::Cancelled;
+    state.notice = Some(Notice::info("Clipboard paste cancelled"));
+    vec![Effect::CancelClipboardPaste]
+}
+
 /// The terminal is about to ask the user for the clipboard (D150).
 pub fn on_clipboard_prompt(state: &mut State, terminal: TerminalName) -> Vec<Effect> {
-    if state.pasting.is_some() {
+    if let Some(paste) = state.pasting.active_mut() {
+        paste.phase = PastePhase::WaitingForPrompt(terminal);
         state.notice = Some(Notice::warning(format!(
             "Waiting for {}… allow the clipboard prompt",
             terminal.label()
         )));
     }
+    vec![]
+}
+
+/// Live decoded byte count while `OSC 5522` chunks stream in.
+pub fn on_clipboard_progress(state: &mut State, bytes: u64) -> Vec<Effect> {
+    if let Some(paste) = state.pasting.active_mut() {
+        paste.phase = PastePhase::Receiving { bytes };
+    }
+    vec![]
+}
+
+/// Off-tty clipboard step (`SystemRead` keeps `Checking`; `Processing` shows
+/// conversion/saving while `EventStream` is already active).
+pub fn on_clipboard_stage(state: &mut State, paste_stage: PasteStage) -> Vec<Effect> {
+    if let Some(paste) = state.pasting.active_mut() {
+        match paste_stage {
+            PasteStage::SystemRead => {}
+            PasteStage::Processing => paste.phase = PastePhase::Processing,
+        }
+    }
+    vec![]
+}
+
+/// Mid-stream `Esc` / `Ctrl+C` while the tty drains remaining packets.
+pub fn on_clipboard_cancelled(state: &mut State) -> Vec<Effect> {
+    state.pasting = PasteState::Idle;
+    state.notice = Some(Notice::info("Clipboard paste cancelled"));
     vec![]
 }
 
@@ -538,7 +586,14 @@ pub fn on_clipboard_image(
     conversation: ConversationId,
     result: Result<StagedAttachment, ClipboardError>,
 ) -> Vec<Effect> {
-    state.pasting = None;
+    let was_cancelled = matches!(state.pasting, PasteState::Cancelled);
+    state.pasting = PasteState::Idle;
+    if was_cancelled {
+        if let Ok(staged) = result {
+            return vec![Effect::DiscardStagedImage(staged.path)];
+        }
+        return vec![];
+    }
     let staged = match result {
         Ok(staged) => staged,
         Err(error) => {
@@ -550,7 +605,7 @@ pub fn on_clipboard_image(
         state.notice = Some(Notice::warning(
             "The pasted image was dropped: the conversation changed",
         ));
-        return vec![];
+        return vec![Effect::DiscardStagedImage(staged.path)];
     };
     open.staged_attachment = Some(staged);
     state.focus = Focus::Input;

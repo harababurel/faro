@@ -174,6 +174,8 @@ async fn run(store: &Store, effect: Effect) -> Result<Option<AppEvent>, StoreErr
         | Effect::CheckPaste { .. }
         | Effect::CheckTerminal
         | Effect::ReadClipboardImage { .. }
+        | Effect::CancelClipboardPaste
+        | Effect::DiscardStagedImage(_)
         | Effect::Bell
         | Effect::DesktopNotify { .. }
         | Effect::ReleaseFocus
@@ -266,6 +268,8 @@ async fn write(store: &Store, effect: Effect) -> Result<(), StoreError> {
         | Effect::CheckPaste { .. }
         | Effect::CheckTerminal
         | Effect::ReadClipboardImage { .. }
+        | Effect::CancelClipboardPaste
+        | Effect::DiscardStagedImage(_)
         | Effect::Bell
         | Effect::DesktopNotify { .. }
         | Effect::ReleaseFocus

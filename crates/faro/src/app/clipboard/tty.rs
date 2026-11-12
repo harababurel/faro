@@ -9,16 +9,23 @@
 use std::io;
 use std::os::fd::AsRawFd;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::{Duration, Instant};
 
 use faro_core::clipboard::{self as protocol, Contents, Focus, ReadError, Reader, SupportReader};
 use mio::unix::SourceFd;
 use mio::{Events, Interest, Poll, Token, Waker};
 
-use super::{BETWEEN_PACKETS, LIST_LIMIT, LIST_WAIT, MORE_REPLIES, PROMPT_WAIT, SUPPORT_WAIT};
+use super::keys::KeyDecoder;
+use super::{BETWEEN_PACKETS, LIST_LIMIT, LIST_WAIT, MORE_REPLIES, PROMPT_WAIT};
+use crate::app::term_event::Event;
 
 /// How long crossterm's reader gets to let go of the tty.
 const BARRIER: Duration = Duration::from_millis(20);
+/// Idle gap after a lone `ESC` before treating it as a standalone `Esc` key.
+const ESC_WAIT: Duration = Duration::from_millis(30);
+/// Minimum interval between live `ClipboardProgress` updates.
+const PROGRESS_INTERVAL: Duration = Duration::from_millis(80);
 /// A late reply is over once nothing has come for this long.
 const DRAIN_QUIET: Duration = Duration::from_secs(1);
 /// The most taken from the tty per read.
@@ -27,6 +34,10 @@ const CHUNK: usize = 64 * 1024;
 const TTY: Token = Token(0);
 const WAKE: Token = Token(1);
 
+const WAKE_NONE: u8 = 0;
+const WAKE_USER_CANCEL: u8 = 1;
+const WAKE_SHUTDOWN: u8 = 2;
+
 /// Where reply bytes come from.
 pub trait Source {
     /// Whatever has arrived, waiting until `deadline` for something; `None`
@@ -34,11 +45,50 @@ pub trait Source {
     fn read(&mut self, deadline: Instant) -> io::Result<Option<Vec<u8>>>;
 }
 
+/// Live events observed while a phase reads from [`Source`].
+pub trait Observer {
+    /// A user key or bracketed paste arrived outside `OSC 5522` packets.
+    fn on_input(&mut self, _event: Event) {}
+    /// Decoded `OSC 5522` image payload bytes received so far.
+    fn on_progress(&mut self, _bytes: u64) {}
+    /// User cancelled (`Esc` / `Ctrl+C`) after packets had already started,
+    /// so the UI can clear at once while [`data_with`] drains to `DONE`.
+    fn on_midstream_cancel(&mut self) {}
+}
+
+#[cfg(test)]
+impl Observer for () {}
+
+/// Handle that wakes a blocking [`Tty`] read for user cancellation or shutdown.
+#[derive(Clone)]
+pub struct TtyWake {
+    waker: Arc<Waker>,
+    reason: Arc<AtomicU8>,
+}
+
+impl TtyWake {
+    pub fn cancel_by_user(&self) {
+        let _ = self.reason.compare_exchange(
+            WAKE_NONE,
+            WAKE_USER_CANCEL,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+        let _ = self.waker.wake();
+    }
+
+    pub fn shutdown(&self) {
+        self.reason.store(WAKE_SHUTDOWN, Ordering::Release);
+        let _ = self.waker.wake();
+    }
+}
+
 /// faro's terminal input (stdin).
 pub struct Tty {
     poll: Poll,
     events: Events,
     waker: Arc<Waker>,
+    wake_reason: Arc<AtomicU8>,
 }
 
 impl Tty {
@@ -55,17 +105,28 @@ impl Tty {
             poll,
             events: Events::with_capacity(8),
             waker,
+            wake_reason: Arc::new(AtomicU8::new(WAKE_NONE)),
         })
     }
 
-    pub fn waker(&self) -> Arc<Waker> {
-        Arc::clone(&self.waker)
+    pub fn wake_handle(&self) -> TtyWake {
+        TtyWake {
+            waker: Arc::clone(&self.waker),
+            reason: Arc::clone(&self.wake_reason),
+        }
     }
 }
 
 impl Source for Tty {
     fn read(&mut self, deadline: Instant) -> io::Result<Option<Vec<u8>>> {
         loop {
+            match self.wake_reason.swap(WAKE_NONE, Ordering::AcqRel) {
+                WAKE_SHUTDOWN => {
+                    return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
+                }
+                WAKE_USER_CANCEL => return Ok(Some(vec![0x03])),
+                _ => {}
+            }
             // Look before waiting: bytes may be there with no new edge coming.
             let bytes = read_waiting()?;
             if !bytes.is_empty() {
@@ -83,7 +144,10 @@ impl Source for Tty {
                 Err(error) => return Err(error),
             }
             if self.events.iter().any(|event| event.token() == WAKE) {
-                return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
+                match self.wake_reason.swap(WAKE_NONE, Ordering::AcqRel) {
+                    WAKE_USER_CANCEL => return Ok(Some(vec![0x03])),
+                    _ => return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled")),
+                }
             }
         }
     }
@@ -121,6 +185,11 @@ pub fn barrier() -> io::Result<()> {
 /// Why a phase got nothing.
 #[derive(Debug)]
 pub enum Failure {
+    /// Cancelled by the user (`Esc` or `Ctrl+C`). `drained` is `true` when
+    /// packets had already started and [`data_with`] drained the rest to `DONE`.
+    Cancelled {
+        drained: bool,
+    },
     Read(ReadError),
     Io(io::Error),
 }
@@ -132,13 +201,34 @@ pub struct Outcome<T> {
     pub focus: Vec<Focus>,
 }
 
-/// The answers to [`protocol::SUPPORT_QUERY`] (D150): whether some terminal
-/// knows OSC 5522. Stops at the first status report, or [`MORE_REPLIES`]
-/// after it when several tmux clients may answer and none has said yes yet;
-/// [`SUPPORT_WAIT`] if nothing comes (tmux without `allow-passthrough`).
+/// Forward decoded user input events; returns `true` when cancelled.
+fn forward_input(raw: &[u8], decoder: &mut KeyDecoder, observer: &mut impl Observer) -> bool {
+    if raw.is_empty() {
+        return false;
+    }
+    let batch = decoder.feed(raw);
+    for event in batch.events {
+        observer.on_input(event);
+    }
+    batch.cancelled
+}
+
+/// The answers to [`protocol::SUPPORT_QUERY`] (D150).
+#[cfg(test)]
 pub fn support(source: &mut impl Source, several: bool) -> Outcome<Support> {
-    let mut deadline = Instant::now() + SUPPORT_WAIT;
+    support_with(source, several, super::SUPPORT_WAIT, &mut ())
+}
+
+/// [`support`] with a caller-chosen timeout and live [`Observer`].
+pub fn support_with(
+    source: &mut impl Source,
+    several: bool,
+    wait_limit: Duration,
+    observer: &mut impl Observer,
+) -> Outcome<Support> {
+    let mut deadline = Instant::now() + wait_limit;
     let mut reader = SupportReader::default();
+    let mut decoder = KeyDecoder::default();
     loop {
         if reader.answered() > 0 {
             if reader.supported() || !several {
@@ -146,8 +236,31 @@ pub fn support(source: &mut impl Source, several: bool) -> Outcome<Support> {
             }
             deadline = deadline.min(Instant::now() + MORE_REPLIES);
         }
-        match source.read(deadline) {
-            Ok(Some(bytes)) => reader.feed(&bytes),
+        let pending_esc = reader.has_pending_esc();
+        let wait = if pending_esc {
+            deadline.min(Instant::now() + ESC_WAIT)
+        } else {
+            deadline
+        };
+        match source.read(wait) {
+            Ok(Some(bytes)) => {
+                reader.feed(&bytes);
+                if forward_input(&reader.take_input(), &mut decoder, observer) {
+                    return Outcome {
+                        result: Err(Failure::Cancelled { drained: false }),
+                        focus: reader.take_focus(),
+                    };
+                }
+            }
+            Ok(None) if pending_esc => {
+                reader.flush_esc();
+                if forward_input(&reader.take_input(), &mut decoder, observer) {
+                    return Outcome {
+                        result: Err(Failure::Cancelled { drained: false }),
+                        focus: reader.take_focus(),
+                    };
+                }
+            }
             Ok(None) => break,
             Err(error) => {
                 return Outcome {
@@ -173,16 +286,38 @@ pub struct Support {
     pub supported: bool,
 }
 
-/// The types on the clipboard. Every kitty attached to faro's tmux session
-/// answers (D91): the first list with an image wins; after a list without
-/// one, others get [`MORE_REPLIES`] to arrive. Lists are merged.
+/// Listed clipboard types plus any unread bytes after `DONE`.
+#[derive(Debug)]
+pub struct Listed {
+    pub types: Vec<String>,
+    pub rest: Vec<u8>,
+}
+
+/// The types on the clipboard (D91).
+#[cfg(test)]
 pub fn list(source: &mut impl Source, id: &str) -> Outcome<Vec<String>> {
+    let outcome = list_with(source, id, &mut ());
+    Outcome {
+        result: outcome.result.map(|listed| listed.types),
+        focus: outcome.focus,
+    }
+}
+
+/// [`list`] with a live [`Observer`] and trailing bytes preserved for [`data_with`].
+pub fn list_with(
+    source: &mut impl Source,
+    id: &str,
+    observer: &mut impl Observer,
+) -> Outcome<Listed> {
     let mut deadline = Instant::now() + LIST_WAIT;
     let mut reader = Reader::new(LIST_LIMIT, Some(id));
+    let mut decoder = KeyDecoder::default();
     let mut focus = Vec::new();
     let mut types: Vec<String> = Vec::new();
     let mut answered = false;
     let mut first_error = None;
+    let mut trailing = Vec::new();
+
     loop {
         if reader.finished() {
             let rest = reader.take_rest();
@@ -202,14 +337,47 @@ pub fn list(source: &mut impl Source, id: &str) -> Outcome<Vec<String>> {
                 }
             }
             if protocol::best_image_type(&types).is_some() {
+                trailing = rest;
                 break;
             }
             deadline = deadline.min(Instant::now() + MORE_REPLIES);
             reader.feed(&rest);
+            if forward_input(&reader.take_input(), &mut decoder, observer) {
+                focus.extend(reader.take_focus());
+                return Outcome {
+                    result: Err(Failure::Cancelled { drained: false }),
+                    focus,
+                };
+            }
             continue;
         }
-        match source.read(deadline) {
-            Ok(Some(bytes)) => reader.feed(&bytes),
+        let pending_esc = reader.has_pending_esc();
+        let wait = if pending_esc {
+            deadline.min(Instant::now() + ESC_WAIT)
+        } else {
+            deadline
+        };
+        match source.read(wait) {
+            Ok(Some(bytes)) => {
+                reader.feed(&bytes);
+                if forward_input(&reader.take_input(), &mut decoder, observer) {
+                    focus.extend(reader.take_focus());
+                    return Outcome {
+                        result: Err(Failure::Cancelled { drained: false }),
+                        focus,
+                    };
+                }
+            }
+            Ok(None) if pending_esc => {
+                reader.flush_esc();
+                if forward_input(&reader.take_input(), &mut decoder, observer) {
+                    focus.extend(reader.take_focus());
+                    return Outcome {
+                        result: Err(Failure::Cancelled { drained: false }),
+                        focus,
+                    };
+                }
+            }
             Ok(None) => break,
             Err(error) => {
                 focus.extend(reader.take_focus());
@@ -222,7 +390,10 @@ pub fn list(source: &mut impl Source, id: &str) -> Outcome<Vec<String>> {
     }
     focus.extend(reader.take_focus());
     let result = if answered {
-        Ok(types)
+        Ok(Listed {
+            types,
+            rest: trailing,
+        })
     } else {
         Err(Failure::Read(first_error.unwrap_or(ReadError::NoReply)))
     };
@@ -230,17 +401,58 @@ pub fn list(source: &mut impl Source, id: &str) -> Outcome<Vec<String>> {
 }
 
 /// The data of one type: [`PROMPT_WAIT`] for the user to answer kitty's
-/// prompt, then at most [`BETWEEN_PACKETS`] between packets. The first
-/// complete reply wins.
+/// prompt, then at most [`BETWEEN_PACKETS`] between packets.
+#[cfg(test)]
 pub fn data(source: &mut impl Source, id: &str, limit: usize) -> Outcome<Contents> {
+    data_with(source, id, limit, &[], &mut ())
+}
+
+/// [`data`] with initial trailing bytes from [`list_with`] and a live [`Observer`].
+pub fn data_with(
+    source: &mut impl Source,
+    id: &str,
+    limit: usize,
+    initial: &[u8],
+    observer: &mut impl Observer,
+) -> Outcome<Contents> {
     let mut deadline = Instant::now() + PROMPT_WAIT;
     let mut reader = Reader::new(limit, Some(id));
+    let mut decoder = KeyDecoder::default();
+    let mut progress = ProgressTracker::default();
+
+    if !initial.is_empty() {
+        reader.feed(initial);
+        if forward_input(&reader.take_input(), &mut decoder, observer) {
+            return cancel_data(source, reader, &mut decoder, observer);
+        }
+        progress.report(reader.stored(), reader.finished(), observer);
+        if reader.started() {
+            deadline = Instant::now() + BETWEEN_PACKETS;
+        }
+    }
+
     while !reader.finished() {
-        match source.read(deadline) {
+        let pending_esc = reader.has_pending_esc();
+        let wait = if pending_esc {
+            deadline.min(Instant::now() + ESC_WAIT)
+        } else {
+            deadline
+        };
+        match source.read(wait) {
             Ok(Some(bytes)) => {
                 reader.feed(&bytes);
+                if forward_input(&reader.take_input(), &mut decoder, observer) {
+                    return cancel_data(source, reader, &mut decoder, observer);
+                }
+                progress.report(reader.stored(), reader.finished(), observer);
                 if reader.started() {
                     deadline = Instant::now() + BETWEEN_PACKETS;
+                }
+            }
+            Ok(None) if pending_esc => {
+                reader.flush_esc();
+                if forward_input(&reader.take_input(), &mut decoder, observer) {
+                    return cancel_data(source, reader, &mut decoder, observer);
                 }
             }
             Ok(None) => break,
@@ -252,10 +464,81 @@ pub fn data(source: &mut impl Source, id: &str, limit: usize) -> Outcome<Content
             }
         }
     }
-    let focus = reader.take_focus();
+
+    progress.report(reader.stored(), true, observer);
+    let mut focus = reader.take_focus();
+    let rest = reader.take_rest();
+    if !rest.is_empty() {
+        let mut tail = Reader::new(0, None);
+        tail.feed(&rest);
+        focus.extend(tail.take_focus());
+        if forward_input(&tail.take_input(), &mut decoder, observer) {
+            return Outcome {
+                result: Err(Failure::Cancelled { drained: false }),
+                focus,
+            };
+        }
+    }
     Outcome {
         result: reader.finish().map_err(Failure::Read),
         focus,
+    }
+}
+
+#[derive(Default)]
+struct ProgressTracker {
+    reported: usize,
+    last_at: Option<Instant>,
+}
+
+impl ProgressTracker {
+    fn report(&mut self, stored: usize, force: bool, observer: &mut impl Observer) {
+        if stored <= self.reported {
+            return;
+        }
+        let now = Instant::now();
+        let due = force
+            || self
+                .last_at
+                .is_none_or(|prev| now.saturating_duration_since(prev) >= PROGRESS_INTERVAL);
+        if due {
+            self.reported = stored;
+            self.last_at = Some(now);
+            observer.on_progress(u64::try_from(stored).unwrap_or(u64::MAX));
+        }
+    }
+}
+
+/// Handle `Esc` / `Ctrl+C` during [`data_with`]: stop immediately if no reply
+/// is mid-stream, or notify the UI at once and drain remaining packets to `DONE`.
+fn cancel_data(
+    source: &mut impl Source,
+    mut reader: Reader,
+    decoder: &mut KeyDecoder,
+    observer: &mut impl Observer,
+) -> Outcome<Contents> {
+    if reader.finished() || (!reader.started() && !reader.has_partial_packet()) {
+        return Outcome {
+            result: Err(Failure::Cancelled { drained: false }),
+            focus: reader.take_focus(),
+        };
+    }
+    observer.on_midstream_cancel();
+    reader.discard_data();
+    let mut deadline = Instant::now() + DRAIN_QUIET;
+    while !reader.finished() {
+        match source.read(deadline) {
+            Ok(Some(bytes)) => {
+                reader.feed(&bytes);
+                let _ = forward_input(&reader.take_input(), decoder, observer);
+                deadline = Instant::now() + DRAIN_QUIET;
+            }
+            Ok(None) | Err(_) => break,
+        }
+    }
+    Outcome {
+        result: Err(Failure::Cancelled { drained: true }),
+        focus: reader.take_focus(),
     }
 }
 

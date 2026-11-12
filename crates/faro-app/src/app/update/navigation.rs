@@ -306,6 +306,9 @@ fn escape(state: &mut State) -> Vec<Effect> {
         }
         return vec![];
     }
+    if state.pasting.is_active() {
+        return super::sending::cancel_paste(state);
+    }
     let Some(open) = state.open.as_mut() else {
         // Nothing open: clearing a notice or the since-you-left strip is a step;
         // with none left, the host may release focus (the web demo blurs the canvas, §4.3).
@@ -500,6 +503,9 @@ pub fn insert_pasted_text(state: &mut State, text: &str) {
 }
 
 fn interrupt(state: &mut State) -> Vec<Effect> {
+    if state.pasting.is_active() {
+        return super::sending::cancel_paste(state);
+    }
     if state.quit_armed {
         return quit(state);
     }

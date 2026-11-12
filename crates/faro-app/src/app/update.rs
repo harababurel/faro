@@ -83,6 +83,9 @@ pub fn affects_view(event: &AppEvent) -> bool {
         | AppEvent::PasteChecked { .. }
         | AppEvent::ClipboardImage { .. }
         | AppEvent::ClipboardPrompt(_)
+        | AppEvent::ClipboardProgress { .. }
+        | AppEvent::ClipboardStage(_)
+        | AppEvent::ClipboardCancelled
         | AppEvent::ClipboardDrained
         | AppEvent::PlaybackFinished { .. }
         | AppEvent::Transcribed { .. }
@@ -216,6 +219,9 @@ fn route(state: &mut State, event: AppEvent) -> Vec<Effect> {
             result,
         } => sending::on_clipboard_image(state, conversation, result),
         AppEvent::ClipboardPrompt(terminal) => sending::on_clipboard_prompt(state, terminal),
+        AppEvent::ClipboardProgress { bytes } => sending::on_clipboard_progress(state, bytes),
+        AppEvent::ClipboardStage(paste_stage) => sending::on_clipboard_stage(state, paste_stage),
+        AppEvent::ClipboardCancelled => sending::on_clipboard_cancelled(state),
         AppEvent::ClipboardDrained => vec![],
         AppEvent::PlaybackFinished {
             message,
@@ -347,6 +353,10 @@ pub(super) fn lock_screen(state: &mut State) -> Vec<Effect> {
     let mut effects = presence::stop_typing(state);
     if state.playing.take().is_some() {
         effects.push(Effect::StopAudio);
+    }
+    if state.pasting.is_active() {
+        state.pasting = crate::app::state::PasteState::Cancelled;
+        effects.push(Effect::CancelClipboardPaste);
     }
     state.lock.screen = Some(if state.lock.verifier.is_some() {
         LockScreen::Locked {
@@ -627,6 +637,10 @@ fn quit(state: &mut State) -> Vec<Effect> {
     let mut effects = presence::stop_typing(state);
     if state.playing.take().is_some() {
         effects.push(Effect::StopAudio);
+    }
+    if state.pasting.is_active() {
+        state.pasting = crate::app::state::PasteState::Cancelled;
+        effects.push(Effect::CancelClipboardPaste);
     }
     effects.extend(save_draft(state));
     effects
@@ -1530,7 +1544,7 @@ fn unavailable(state: &mut State, text: String) -> Vec<Effect> {
     {
         state.palette = None;
     }
-    state.pasting = None;
+    state.pasting = crate::app::state::PasteState::Idle;
     state.notice = Some(Notice::warning(text));
     vec![]
 }

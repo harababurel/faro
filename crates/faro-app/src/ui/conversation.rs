@@ -13,7 +13,7 @@ use super::text::{edit_breaks, one_line, sanitize, truncate};
 use super::{View, bubbles, focused, logo, messages};
 use crate::app::input::Input;
 use crate::app::keymap::Action;
-use crate::app::state::{Focus, Geometry, OpenConversation, StagedAttachment, State};
+use crate::app::state::{Focus, Geometry, OpenConversation, PastePhase, StagedAttachment, State};
 use faro_core::domain::MessageRef;
 
 /// The input box grows with its text up to this many lines.
@@ -61,7 +61,7 @@ pub(super) fn render(
         + u16::from(restricted)
         + u16::from(open.editing.is_some())
         + u16::from(open.reply_to.is_some())
-        + u16::from(open.staged_attachment.is_some())
+        + u16::from(open.staged_attachment.is_some() || state.pasting_in(open.id).is_some())
         + u16::from(long_draft);
     let input_height = u16::try_from(input_layout.lines.len().clamp(1, INPUT_MAX_LINES))
         .unwrap_or(1)
@@ -402,6 +402,53 @@ fn staged_bar(
     inner.height = inner.height.saturating_sub(1);
 }
 
+/// Live in-progress clipboard attachment bar above the input while an image is
+/// being checked, waiting for terminal permission, transferring, or converting.
+fn pasting_bar(
+    frame: &mut Frame<'_>,
+    inner: &mut Rect,
+    state: &State,
+    phase: PastePhase,
+    view: &View<'_>,
+) {
+    let theme = view.theme;
+    let icon = if state.env.emoji.mode == crate::app::state::EmojiMode::Compatible {
+        "[file]"
+    } else {
+        "📎"
+    };
+    let status = match phase {
+        PastePhase::Checking => "Reading clipboard…".to_owned(),
+        PastePhase::WaitingForPrompt(terminal) => {
+            format!("Waiting for {} — allow clipboard prompt", terminal.label())
+        }
+        PastePhase::Receiving { bytes: 0 } => "Pasting image…".to_owned(),
+        PastePhase::Receiving { bytes } => {
+            format!(
+                "Pasting image · {}",
+                faro_core::domain::format_byte_size(bytes)
+            )
+        }
+        PastePhase::Processing => "Processing image…".to_owned(),
+    };
+    let hint = "  esc cancel";
+    let room = usize::from(inner.width).saturating_sub(hint.width() + icon.width() + 1);
+    let text = format!("{icon} {}", truncate(&status, room));
+    let line = Line::from(vec![
+        Span::styled(text, Style::new().fg(theme.accent)),
+        Span::styled(hint, theme.muted()),
+    ]);
+    frame.render_widget(
+        Paragraph::new(line),
+        Rect {
+            height: 1,
+            ..*inner
+        },
+    );
+    inner.y += 1;
+    inner.height = inner.height.saturating_sub(1);
+}
+
 /// Indicator above the input when the draft exceeds Signal's 2 KiB inline body
 /// limit and will be sent with a `text/x-signal-plain` attachment.
 fn long_draft_bar(
@@ -540,7 +587,9 @@ fn render_input(
         inner.height = inner.height.saturating_sub(1);
     }
 
-    if let Some(staged) = &open.staged_attachment {
+    if let Some(phase) = state.pasting_in(open.id) {
+        pasting_bar(frame, &mut inner, state, phase, view);
+    } else if let Some(staged) = &open.staged_attachment {
         staged_bar(frame, &mut inner, state, staged, view);
     }
 

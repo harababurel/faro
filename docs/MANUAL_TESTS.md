@@ -715,7 +715,7 @@ Checked with stand-in pictures (`FARO_SPIKE_AVATARS`, since removed: `faro demo`
 - [x] **kitty inside tmux:** each of the 9 chats shows a round picture in place of its initials square, crisp and not stretched; initials show for a moment at start, then the pictures appear without flicker.
 - [ ] **Scrolling:** make the window short enough that the list scrolls; `Alt+J`/`Alt+K` through the list and the mouse wheel: pictures move with their rows, a half-shown entry at the top or bottom shows half its picture, nothing lags or leaves ghosts behind.
 - [ ] **Selection:** the highlighted row's background shows around the round picture's corners (not a coloured square).
-- [ ] **Overlays:** `Ctrl+P` and a popup (`Space` on a chat): the pictures turn back into initials while it's open and come back when it closes, with no holes or stale images.
+- [ ] **Overlays:** `Ctrl+P` and popups (`Space` on a chat, `@mention` / `:shortcode:` / `/slash` completions): pictures outside the box stay visible, any picture partly overlapped by the box is cleanly clipped at the box border without bleeding on top of the overlay, and full pictures return immediately when it closes.
 - [x] **Over SSH (kitty → ssh → tmux):** the same as above; startup is not noticeably slower; scrolling stays smooth.
 - [ ] **Reattach:** detach tmux and attach again (same terminal, then another kitty window): pictures come back (or `Ctrl+L` brings them back).
 - [x] **Where pictures can't be drawn:** over mosh, in a terminal without graphics (or `[media] inline_images = "halfblocks"`), and with previews off: initials only, as before.
@@ -745,7 +745,7 @@ Notes (version, OS, terminal, what went wrong):
 - [ ] **Over mosh / without graphics:** the list has previews but no badges at all: the unread dot as before, no initials. Detach and reattach from kitty over ssh: badges and pictures appear without a restart (pictures not fetched before are fetched then).
 - [ ] **Previews off:** with `previews = false`, no badges in `auto` (one-row entries look as before 0.1.10).
 - [ ] **Palette:** `Ctrl+P` › Settings › Conversations › Avatars lists auto, off, initials, pictures; auto is marked current on a fresh config.
-- [ ] **Website demo:** previews and round pictures in the list (the number-only chat has none), pictures kept while scrolling, initials while the palette is open.
+- [ ] **Website demo:** previews and round pictures in the list (the number-only chat has none), pictures kept while scrolling, and pictures outside `Ctrl+P` / popups stay visible and cleanly clipped at the overlay border.
 
 Notes (version, OS, terminal, what went wrong):
 
@@ -825,6 +825,19 @@ Notes (version, OS, terminal, what went wrong):
 
 Notes (version, OS, terminal, what went wrong):
 
+## Standalone bubble height & overlay image clipping
 
+- [ ] **Standalone vs clustered 1-line bubble height:** in Rounded and Mixed bubble styles, a standalone 1-line message has the exact same 1.5-cell visual bubble height (octant top/bottom caps) as a 1-line row inside a multi-message cluster.
+- [ ] **Overlay image clipping (TUI & web demo):** with profile pictures and inline images visible (kitty direct, kitty → ssh → tmux, halfblock fallback, and the web demo), open `Ctrl+P`, `Space` menus, and `@`/`:`/`/` composer popups: uncovered avatars and inline images stay visible instead of reverting to placeholder blocks, partially covered images clip cleanly at the overlay border without bleeding over the box, and closing or resizing restores the full images without artifacts.
 
+Notes (version, OS, terminal, what went wrong):
+
+## Clipboard image paste responsiveness, progress, cancel & typing (`Ctrl+V`)
+
+- [ ] **Optimistic bar & live transfer progress:** press `Ctrl+V` with an image on the clipboard: `📎 Reading clipboard…  esc cancel` appears immediately above the input, updates to `📎 Waiting for kitty/Ghostty — allow clipboard prompt  esc cancel` while waiting on the permission prompt, counts live bytes (`📎 Pasting image · X.Y MB  esc cancel`) on large pastes over SSH, shows `📎 Processing image…  esc cancel` while converting/saving (noticeable on large macOS TIFF screenshots), and settles into the staged attachment bar in the same 1-row slot without jumping the timeline.
+- [ ] **Instant `Esc` / `Ctrl+C` cancel:** press `Ctrl+V` and hit `Esc` (or `Ctrl+C`) while the terminal permission prompt is open, or mid-transfer while a large image is streaming over SSH: the paste bar disappears immediately without freezing the UI or dumping base64 text into the input box; if you later click *Allow* on a leftover terminal prompt, the late reply is swallowed silently and `<data dir>/attachments/clipboard-*` has no orphaned file.
+- [ ] **Type ahead while pasting & premature `Enter` guard:** press `Ctrl+V` on a multi-MB image over SSH and immediately type a caption (including multi-byte UTF-8 / emoji, `Backspace`, and arrow keys): characters appear live in the input box while the image transfers; pressing `Enter` before staging finishes keeps the text and warns (`Wait for the image to finish pasting (or Esc to cancel)`) instead of sending the text without the image.
+- [ ] **Local OS clipboard responsiveness:** run `faro` locally (outside OSC 5522 or in local tmux without `allow-passthrough`) and press `Ctrl+V` on a screenshot: fallback to the OS clipboard happens without a 3-second stall, and typing stays responsive while `wl-paste`/`xclip`/`osascript` reads and converts the image.
+
+Notes (version, OS, terminal, what went wrong):
 

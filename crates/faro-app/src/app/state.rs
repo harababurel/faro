@@ -212,8 +212,8 @@ pub struct State {
     /// The config file faro read at startup (the default or `--config`),
     /// shown in About (D94).
     pub config_path: PathBuf,
-    /// A clipboard image is being read for this conversation (`Ctrl+V`, D91).
-    pub pasting: Option<ConversationId>,
+    /// Clipboard image paste state (`Ctrl+V`, D91, D150).
+    pub pasting: PasteState,
     /// Attachments currently downloading (`<= MAX_DOWNLOADS_IN_FLIGHT`, D75).
     pub downloading: HashSet<(MessageRef, usize)>,
     /// Attachments waiting for a download slot (D75).
@@ -502,6 +502,49 @@ impl TerminalName {
             Self::Other => "the terminal",
         }
     }
+}
+
+/// Clipboard image paste state (`Ctrl+V`, D91, D150).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum PasteState {
+    #[default]
+    Idle,
+    Active(ClipboardPaste),
+    /// Cancelled while an off-tty step was in flight; any raced image is discarded.
+    Cancelled,
+}
+
+impl PasteState {
+    pub const fn is_active(self) -> bool {
+        matches!(self, Self::Active(_))
+    }
+
+    pub const fn active_mut(&mut self) -> Option<&mut ClipboardPaste> {
+        match self {
+            Self::Active(paste) => Some(paste),
+            Self::Idle | Self::Cancelled => None,
+        }
+    }
+}
+
+/// Active clipboard image read (`Ctrl+V`, D91, D150).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClipboardPaste {
+    pub conversation: ConversationId,
+    pub phase: PastePhase,
+}
+
+/// Where an active clipboard image read currently sits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PastePhase {
+    /// Checking terminal support, listing types, or reading the OS clipboard.
+    Checking,
+    /// Waiting for the user to answer the terminal's permission prompt.
+    WaitingForPrompt(TerminalName),
+    /// Streaming `OSC 5522` image data (`bytes` decoded so far).
+    Receiving { bytes: u64 },
+    /// Converting (e.g. TIFF → PNG) and saving the image file off-thread.
+    Processing,
 }
 
 /// Who draws the glyphs rounded bubbles are made of (D58).
@@ -1197,7 +1240,7 @@ impl State {
             pictures: Pictures::default(),
             pictures_dir: PathBuf::from("pictures"),
             config_path: PathBuf::new(),
-            pasting: None,
+            pasting: PasteState::Idle,
             downloading: HashSet::new(),
             download_queue: VecDeque::new(),
             save_when_downloaded: HashSet::new(),
@@ -1232,6 +1275,14 @@ impl State {
     pub fn with_passphrase_verifier(mut self, verifier: Option<PassphraseVerifier>) -> Self {
         self.lock.verifier = verifier;
         self
+    }
+
+    /// Active clipboard paste phase for `conversation`, if any.
+    pub fn pasting_in(&self, conversation: ConversationId) -> Option<PastePhase> {
+        match self.pasting {
+            PasteState::Active(p) if p.conversation == conversation => Some(p.phase),
+            PasteState::Active(_) | PasteState::Idle | PasteState::Cancelled => None,
+        }
     }
 
     /// Whether the session is currently locked behind a passphrase (D168).

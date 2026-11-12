@@ -152,7 +152,17 @@ pub enum AppEvent {
     /// The clipboard has an image and the terminal is about to ask the user
     /// for permission: say whose prompt to answer (D150).
     ClipboardPrompt(super::state::TerminalName),
-    /// A late clipboard reply was drained (D90); input resumes.
+    /// Live decoded byte count while receiving `OSC 5522` image chunks.
+    ClipboardProgress {
+        bytes: u64,
+    },
+    /// The terminal tty has been released before an off-tty step (`SystemRead`
+    /// or `Processing`), so the app loop can resume `EventStream` early.
+    ClipboardStage(PasteStage),
+    /// User cancelled mid-stream (`Esc` / `Ctrl+C`); UI clears immediately
+    /// while the tty finishes draining remaining packets (`ClipboardDrained`).
+    ClipboardCancelled,
+    /// A late or cancelled clipboard reply was drained (D90); input resumes.
     ClipboardDrained,
     /// External audio playback finished or failed (D81).
     PlaybackFinished {
@@ -355,6 +365,10 @@ pub enum Effect {
         conversation: ConversationId,
         system: bool,
     },
+    /// Abort an in-progress clipboard image read (`Esc` / `Ctrl+C`).
+    CancelClipboardPaste,
+    /// Unlink a staged clipboard file that arrived after cancellation.
+    DiscardStagedImage(PathBuf),
     /// Ring the terminal bell (D49).
     Bell,
     /// Send a desktop notification through the terminal (OSC 99 / OSC 777) or
@@ -456,9 +470,20 @@ pub enum Command {
     UnlinkDevice { id: u32, name: String },
 }
 
+/// Off-tty clipboard step after `Tty` has let go of `stdin`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PasteStage {
+    /// Reading from the local OS clipboard (`wl-paste` / `xclip` / `osascript`).
+    SystemRead,
+    /// Converting (e.g. TIFF → PNG) and saving the image file to disk.
+    Processing,
+}
+
 /// Why no image was staged.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClipboardError {
+    /// Cancelled by the user (`Esc` or `Ctrl+C`).
+    Cancelled,
     /// faro runs over SSH and the terminal can't share its clipboard (D150).
     OverSsh,
     /// The terminal can't share its clipboard and reading the computer's own
@@ -486,6 +511,7 @@ impl ClipboardError {
     /// What the footer says.
     pub fn notice(&self) -> Notice {
         match self {
+            Self::Cancelled => Notice::info("Clipboard paste cancelled"),
             Self::OverSsh => {
                 Notice::warning("Pasting images over SSH needs kitty or a newer Ghostty")
             }
