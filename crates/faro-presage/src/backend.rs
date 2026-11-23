@@ -283,6 +283,9 @@ impl PresageBackend {
             );
             *backend.stored.borrow_mut() = stored.contacts.into_iter().collect();
             backend.keep_stored_contacts().await;
+            if !backend.fetch_stored_groups(stored.groups).await {
+                return;
+            }
             // Only people faro already lists: the storage service knows
             // many more, and each announced person becomes a chat. The
             // others get their name when they first write.
@@ -293,6 +296,42 @@ impl PresageBackend {
                 .collect();
             backend.announce_members(ids);
         });
+    }
+
+    /// Fetch the groups the storage service lists that faro hasn't seen a
+    /// message in, and announce them (D179). `false` once the app is gone.
+    async fn fetch_stored_groups(&self, keys: Vec<MasterKey>) -> bool {
+        let mut added = 0_usize;
+        for key in keys {
+            let id = convert::group_id(&key);
+            if self.groups.borrow().contains_key(&id) {
+                continue;
+            }
+            // presage fetches and stores a group it doesn't have on the way
+            // to its picture; there's no call for the group alone.
+            let context = presage::proto::GroupContextV2 {
+                master_key: Some(key.to_vec()),
+                revision: Some(0),
+                ..Default::default()
+            };
+            let mut manager = self.manager.clone();
+            let fetch = Box::pin(manager.retrieve_group_avatar(context));
+            match tokio::time::timeout(PICTURE_TIMEOUT, fetch).await {
+                Ok(Ok(_)) => {}
+                Ok(Err(error)) => tracing::debug!(%error, "fetching a group failed"),
+                Err(_) => tracing::debug!("fetching a group timed out"),
+            }
+            // Announces nothing if the group still isn't in the store (we
+            // left it, or the fetch failed).
+            if !announce_group(self, &self.events, key, 0, self.me, now_millis()).await {
+                return false;
+            }
+            if self.groups.borrow().contains_key(&id) {
+                added += 1;
+            }
+        }
+        tracing::info!(added, "groups from Signal's storage are up to date");
+        true
     }
 
     /// Synced contacts and group members, without this account.

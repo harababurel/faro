@@ -847,6 +847,7 @@ Notes (version, OS, terminal, what went wrong):
 - [ ] **A known name stays:** with a group whose members aren't in your phone's contacts, let one of them send a message after faro starts: their profile name stays (it used to turn into 8 hex characters until the next start).
 - [ ] **Someone joins a group while faro runs:** add a person to a group from the phone: within a few seconds their messages, mentions and the member list show their profile name, without a restart.
 - [ ] **People outside the address book (D179):** people you chat with who aren't in the phone's contacts show their Signal profile name a few seconds after faro connects (first run after the update; later starts have them at once), not 8 hex characters. The log has `read contacts from Signal's storage`.
+- [ ] **Quiet groups (D179):** a group nobody has written in since `faro link` appears in the list a few seconds after faro connects, with its name and members. The log has `groups from Signal's storage are up to date added=N`.
 - [ ] **Nicknames from Signal (D179):** give someone a nickname in the Signal app on the phone, restart faro: the nickname shows in the list, in groups and in mentions. A nickname set in faro still wins.
 
 Notes (version, OS, terminal, what went wrong):
