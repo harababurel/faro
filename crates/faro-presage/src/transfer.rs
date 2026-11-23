@@ -278,7 +278,7 @@ struct RegistrationPassword {
     password: String,
 }
 
-fn build_push_service(linked: &Linked) -> Result<PushService, TransferError> {
+pub(crate) fn build_push_service(linked: &Linked) -> Result<PushService, TransferError> {
     let data = linked.registration_data();
     let value =
         serde_json::to_value(data).map_err(|e| TransferError::Credentials(e.to_string()))?;

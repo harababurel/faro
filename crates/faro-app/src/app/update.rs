@@ -1068,23 +1068,7 @@ fn on_backend(state: &mut State, event: BackendEvent) -> Vec<Effect> {
                 summary.disappearing_timer = *seconds;
             }
         }
-        BackendEvent::ContactUpdated(contact) => {
-            let id = ConversationId::Direct(contact.service_id);
-            let title = contact.display_name().map(str::to_owned);
-            let phone = contact.phone.clone();
-            state.contacts.insert(contact.service_id, contact.clone());
-            // Someone new (a contact sync, a first message) is listed at
-            // standalone, as the store lists them after a restart.
-            let new = !state.conversations.iter().any(|c| c.id == id);
-            if let Some(summary) = summary_entry(state, id) {
-                summary.title = title;
-                summary.phone = phone;
-            }
-            if new {
-                sort_conversations(&mut state.conversations);
-            }
-            state.recount_names();
-        }
+        BackendEvent::ContactUpdated(contact) => on_contact_updated(state, contact),
         BackendEvent::GroupUpdated(group) => {
             let id = ConversationId::Group(group.id);
             state.groups.insert(group.id, group.clone());
@@ -1310,6 +1294,37 @@ fn track_last_message(state: &mut State, conversation: ConversationId, event: &B
     let mut newest: Vec<Message> = summary.last_message.take().into_iter().collect();
     timeline::apply(&mut newest, event);
     summary.last_message = newest.pop();
+}
+
+/// A contact arrived or changed. The backend announces people before it has
+/// their profile, so a missing profile name keeps the one already known, as
+/// the store does.
+fn on_contact_updated(state: &mut State, contact: &faro_core::domain::Contact) {
+    let id = ConversationId::Direct(contact.service_id);
+    let mut contact = contact.clone();
+    if contact.profile_name.is_none() {
+        contact.profile_name = state
+            .contacts
+            .get(&contact.service_id)
+            .and_then(|known| known.profile_name.clone());
+    }
+    let title = contact.display_name().map(str::to_owned);
+    let phone = contact.phone.clone();
+    state.contacts.insert(contact.service_id, contact);
+    // Someone new (a contact sync, a first message) is listed at
+    // standalone, as the store lists them after a restart.
+    let new = !state.conversations.iter().any(|c| c.id == id);
+    if let Some(summary) = summary_entry(state, id) {
+        // A title with no name behind it came from the store: keep it.
+        if title.is_some() {
+            summary.title = title;
+        }
+        summary.phone = phone;
+    }
+    if new {
+        sort_conversations(&mut state.conversations);
+    }
+    state.recount_names();
 }
 
 /// The summary for `id`, created if this is a new conversation. (Always `Some`;

@@ -393,6 +393,47 @@ fn new_contacts_and_groups_update_titles() {
 }
 
 #[test]
+fn our_own_chat_without_a_name_is_note_to_self() {
+    let state = loaded_state();
+    assert_eq!(
+        state.conversation_title(ConversationId::Direct(state.me)),
+        "Note to self"
+    );
+}
+
+#[test]
+fn a_contact_update_without_a_name_keeps_the_known_one() {
+    let mut state = loaded_state();
+    let known = state.person_name(ALICE);
+    let nameless = faro_core::domain::Contact {
+        service_id: ALICE,
+        name: None,
+        profile_name: None,
+        phone: None,
+    };
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::ContactUpdated(nameless)),
+    );
+    assert_eq!(state.person_name(ALICE), known);
+    assert_eq!(state.conversation_title(alice()), known);
+
+    // A name known only from the store (the chat's title) survives too.
+    state.contacts.remove(&ALICE);
+    let nameless = faro_core::domain::Contact {
+        service_id: ALICE,
+        name: None,
+        profile_name: None,
+        phone: None,
+    };
+    update(
+        &mut state,
+        AppEvent::Backend(BackendEvent::ContactUpdated(nameless)),
+    );
+    assert_eq!(state.person_name(ALICE), known);
+}
+
+#[test]
 fn new_contacts_and_groups_are_listed_at_once() {
     let mut state = loaded_state();
     let dave = ServiceId::Aci(uuid::Uuid::from_u128(99));

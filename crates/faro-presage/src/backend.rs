@@ -30,6 +30,7 @@ use uuid::Uuid;
 
 use crate::Linked;
 use crate::convert::{self, MasterKey};
+use crate::storage::{self, StoredContact};
 
 /// Backoff between reconnection attempts: doubles from the first to the last.
 const BACKOFF: (Duration, Duration) = (Duration::from_secs(1), Duration::from_secs(60));
@@ -39,6 +40,8 @@ const PROFILE_TIMEOUT: Duration = Duration::from_secs(5);
 const PICTURE_TIMEOUT: Duration = Duration::from_secs(20);
 /// presage fetches a new sender's profile in the background; look again then.
 const PROFILE_RECHECK: Duration = Duration::from_secs(5);
+/// Longest wait for the contacts in Signal's storage service (D179).
+const STORAGE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Snapshot of a group's known state so `announce_group` can emit system lines
 /// when a newer revision renames the group, changes membership, or changes the
@@ -64,6 +67,9 @@ pub struct PresageBackend {
     identity_keys: Rc<RefCell<HashMap<ServiceId, Vec<u8>>>>,
     /// Known blocked conversations in this session (D176).
     blocked: Rc<RefCell<HashSet<ConversationId>>>,
+    /// What Signal's storage service says about people, read once per run
+    /// (D179).
+    stored: Rc<RefCell<HashMap<ServiceId, StoredContact>>>,
     /// For contacts whose profile arrives later.
     events: mpsc::Sender<BackendEvent>,
 }
@@ -78,6 +84,7 @@ pub fn start(manager: Linked) -> (PresageBackend, BackendEvents) {
         groups: Rc::default(),
         identity_keys: Rc::default(),
         blocked: Rc::default(),
+        stored: Rc::default(),
         events: events.clone(),
     };
     tokio::task::spawn_local(receive(backend.clone(), events));
@@ -222,25 +229,157 @@ impl PresageBackend {
             Some(key) => store.profile(uuid, key).await.ok().flatten(),
             None => None,
         };
+        let stored = self.stored.borrow().get(&id).cloned().unwrap_or_default();
         Contact {
             service_id: id,
-            name: synced
-                .as_ref()
-                .map(|c| c.name.clone())
-                .filter(|n| !n.trim().is_empty()),
-            profile_name: profile.and_then(|p| p.name).map(|name| {
-                match name.family_name.filter(|f| !f.is_empty()) {
+            name: stored.name.or_else(|| {
+                synced
+                    .as_ref()
+                    .map(|c| c.name.clone())
+                    .filter(|n| !n.trim().is_empty())
+            }),
+            profile_name: profile
+                .and_then(|p| p.name)
+                .map(|name| match name.family_name.filter(|f| !f.is_empty()) {
                     Some(family) => format!("{} {family}", name.given_name),
                     None => name.given_name,
-                }
-            }),
-            phone: synced.and_then(|c| c.phone_number).map(|p| {
-                PhoneNumber::new(
+                })
+                .filter(|n| !n.trim().is_empty())
+                .or(stored.profile_name),
+            phone: synced
+                .and_then(|c| c.phone_number)
+                .map(|p| {
                     p.format()
                         .mode(presage::libsignal_service::prelude::phonenumber::Mode::E164)
-                        .to_string(),
-                )
-            }),
+                        .to_string()
+                })
+                .or(stored.phone)
+                .map(PhoneNumber::new),
+        }
+    }
+
+    /// Read names and profile keys from Signal's storage service, in the
+    /// background, then fetch the profiles that were missing a key and
+    /// announce everyone (D179).
+    fn sync_stored_contacts(&self) {
+        let backend = self.clone();
+        tokio::task::spawn_local(async move {
+            let read = storage::read(&backend.manager);
+            let stored = match Box::pin(tokio::time::timeout(STORAGE_TIMEOUT, read)).await {
+                Ok(Ok(stored)) => stored,
+                Ok(Err(error)) => {
+                    tracing::warn!(%error, "reading contacts from Signal's storage failed");
+                    return;
+                }
+                Err(_) => {
+                    tracing::warn!("reading contacts from Signal's storage timed out");
+                    return;
+                }
+            };
+            tracing::info!(
+                contacts = stored.contacts.len(),
+                groups = stored.groups.len(),
+                "read contacts from Signal's storage"
+            );
+            *backend.stored.borrow_mut() = stored.contacts.into_iter().collect();
+            backend.keep_stored_contacts().await;
+            if !backend.fetch_stored_groups(stored.groups).await {
+                return;
+            }
+            // Only people faro already lists: the storage service knows
+            // many more, and each announced person becomes a chat. The
+            // others get their name when they first write.
+            let known = backend.known_people().await;
+            let ids: Vec<ServiceId> = known
+                .into_iter()
+                .filter(|id| backend.stored.borrow().contains_key(id))
+                .collect();
+            backend.announce_members(ids);
+        });
+    }
+
+    /// Fetch the groups the storage service lists that faro hasn't seen a
+    /// message in, and announce them (D179). `false` once the app is gone.
+    async fn fetch_stored_groups(&self, keys: Vec<MasterKey>) -> bool {
+        let mut added = 0_usize;
+        for key in keys {
+            let id = convert::group_id(&key);
+            if self.groups.borrow().contains_key(&id) {
+                continue;
+            }
+            // presage fetches and stores a group it doesn't have on the way
+            // to its picture; there's no call for the group alone.
+            let context = presage::proto::GroupContextV2 {
+                master_key: Some(key.to_vec()),
+                revision: Some(0),
+                ..Default::default()
+            };
+            let mut manager = self.manager.clone();
+            let fetch = Box::pin(manager.retrieve_group_avatar(context));
+            match tokio::time::timeout(PICTURE_TIMEOUT, fetch).await {
+                Ok(Ok(_)) => {}
+                Ok(Err(error)) => tracing::debug!(%error, "fetching a group failed"),
+                Err(_) => tracing::debug!("fetching a group timed out"),
+            }
+            // Announces nothing if the group still isn't in the store (we
+            // left it, or the fetch failed).
+            if !announce_group(self, &self.events, key, 0, self.me, now_millis()).await {
+                return false;
+            }
+            if self.groups.borrow().contains_key(&id) {
+                added += 1;
+            }
+        }
+        tracing::info!(added, "groups from Signal's storage are up to date");
+        true
+    }
+
+    /// Synced contacts and group members, without this account.
+    async fn known_people(&self) -> Vec<ServiceId> {
+        let mut ids: Vec<ServiceId> = match self.manager.store().contacts().await {
+            Ok(synced) => synced
+                .filter_map(std::result::Result::ok)
+                .map(|c| ServiceId::Aci(c.uuid))
+                .collect(),
+            Err(_) => Vec::new(),
+        };
+        for group in self.groups.borrow().values() {
+            ids.extend(group.members.iter().copied());
+        }
+        ids.sort();
+        ids.dedup();
+        ids.retain(|id| *id != self.me);
+        ids
+    }
+
+    /// Write what the storage service said into presage's store, so names
+    /// and profile keys are there at the next start, before the network.
+    /// Again after each contact sync from the phone, which overwrites names.
+    async fn keep_stored_contacts(&self) {
+        let stored = self.stored.borrow().clone();
+        let mut store = self.manager.store().clone();
+        for (id, person) in stored {
+            let ServiceId::Aci(uuid) = id else { continue };
+            if id == self.me {
+                continue;
+            }
+            if let Some(key) = person.profile_key {
+                self.save_profile_key(uuid, ProfileKey::create(key)).await;
+            }
+            let Some(name) = person.name else { continue };
+            let known = store
+                .contact_by_id(&convert::signal_id(id))
+                .await
+                .ok()
+                .flatten();
+            // Never a new row: that would list someone faro doesn't know.
+            let Some(mut contact) = known.filter(|c| c.name != name) else {
+                continue;
+            };
+            contact.name = name;
+            if let Err(error) = store.save_contact(&contact).await {
+                tracing::debug!(%error, "saving a contact from Signal's storage failed");
+            }
         }
     }
 
@@ -313,6 +452,32 @@ impl PresageBackend {
                     }
                 }
             }
+        });
+    }
+
+    /// Announce people who joined a group while faro runs, fetching the
+    /// profiles presage doesn't have, in the background. Without this they
+    /// have no name until the next start.
+    fn announce_members(&self, ids: Vec<ServiceId>) {
+        let backend = self.clone();
+        tokio::task::spawn_local(async move {
+            let people = ids.len();
+            let mut fetched = 0_usize;
+            for id in ids {
+                if backend.fetch_profile(id).await {
+                    fetched += 1;
+                }
+                let contact = backend.contact(id).await;
+                if backend
+                    .events
+                    .send(BackendEvent::ContactUpdated(contact))
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
+            }
+            tracing::info!(people, fetched, "profiles are up to date");
         });
     }
 
@@ -700,7 +865,7 @@ impl Backend for PresageBackend {
                 uuid,
                 phone_number: None,
                 name: String::new(),
-                verified: presage::proto::Verified::default(),
+                verified: presage::libsignal_service::proto::Verified::default(),
                 profile_key: Vec::new(),
                 expire_timer: 0,
                 expire_timer_version: 1,
@@ -869,7 +1034,7 @@ impl Backend for PresageBackend {
                             uuid,
                             phone_number: None,
                             name: String::new(),
-                            verified: presage::proto::Verified::default(),
+                            verified: presage::libsignal_service::proto::Verified::default(),
                             profile_key: Vec::new(),
                             expire_timer: secs,
                             expire_timer_version: 1,
@@ -1100,6 +1265,7 @@ async fn on_received(
             if !seen.asked_for_contacts {
                 seen.asked_for_contacts = true;
                 backend.request_contacts();
+                backend.sync_stored_contacts();
             }
             true
         }
@@ -1109,6 +1275,7 @@ async fn on_received(
         }
         Received::Contacts => {
             tracing::info!("contacts synced from the phone");
+            backend.keep_stored_contacts().await;
             let Ok(contacts) = backend.contacts().await else {
                 return true;
             };
@@ -1312,6 +1479,13 @@ async fn announce_group(
     let timer_secs = group
         .disappearing_messages_timer
         .and_then(|t| (t.duration > 0).then_some(t.duration));
+    let joined: Vec<ServiceId> = members
+        .iter()
+        .copied()
+        .filter(|m| {
+            *m != backend.me && previous.as_ref().is_none_or(|old| !old.members.contains(m))
+        })
+        .collect();
     let sys_events = previous
         .as_ref()
         .map(|old| {
@@ -1345,6 +1519,10 @@ async fn announce_group(
         .is_err()
     {
         return false;
+    }
+    // After the group, so the allowlist guard knows its members.
+    if !joined.is_empty() {
+        backend.announce_members(joined);
     }
     if events
         .send(BackendEvent::DisappearingTimer {
