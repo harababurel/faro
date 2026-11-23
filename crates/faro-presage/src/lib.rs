@@ -15,6 +15,7 @@
 mod backend;
 mod convert;
 mod link;
+mod storage;
 pub mod transfer;
 
 use std::path::Path;
