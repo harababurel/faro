@@ -316,6 +316,32 @@ impl PresageBackend {
         });
     }
 
+    /// Announce people who joined a group while faro runs, fetching the
+    /// profiles presage doesn't have, in the background. Without this they
+    /// have no name until the next start.
+    fn announce_members(&self, ids: Vec<ServiceId>) {
+        let backend = self.clone();
+        tokio::task::spawn_local(async move {
+            let people = ids.len();
+            let mut fetched = 0_usize;
+            for id in ids {
+                if backend.fetch_profile(id).await {
+                    fetched += 1;
+                }
+                let contact = backend.contact(id).await;
+                if backend
+                    .events
+                    .send(BackendEvent::ContactUpdated(contact))
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
+            }
+            tracing::info!(people, fetched, "profiles are up to date");
+        });
+    }
+
     async fn groups_from_store(&self) -> Result<Vec<Group>> {
         let groups = self
             .manager
@@ -1312,6 +1338,13 @@ async fn announce_group(
     let timer_secs = group
         .disappearing_messages_timer
         .and_then(|t| (t.duration > 0).then_some(t.duration));
+    let joined: Vec<ServiceId> = members
+        .iter()
+        .copied()
+        .filter(|m| {
+            *m != backend.me && previous.as_ref().is_none_or(|old| !old.members.contains(m))
+        })
+        .collect();
     let sys_events = previous
         .as_ref()
         .map(|old| {
@@ -1345,6 +1378,10 @@ async fn announce_group(
         .is_err()
     {
         return false;
+    }
+    // After the group, so the allowlist guard knows its members.
+    if !joined.is_empty() {
+        backend.announce_members(joined);
     }
     if events
         .send(BackendEvent::DisappearingTimer {

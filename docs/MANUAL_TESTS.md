@@ -845,5 +845,6 @@ Notes (version, OS, terminal, what went wrong):
 ## Names instead of hex IDs
 
 - [ ] **A known name stays:** with a group whose members aren't in your phone's contacts, let one of them send a message after faro starts: their profile name stays (it used to turn into 8 hex characters until the next start).
+- [ ] **Someone joins a group while faro runs:** add a person to a group from the phone: within a few seconds their messages, mentions and the member list show their profile name, without a restart.
 
 Notes (version, OS, terminal, what went wrong):
