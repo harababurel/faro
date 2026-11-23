@@ -1562,6 +1562,11 @@ impl State {
                 if let Some(phone) = summary.and_then(|s| s.phone.as_ref()) {
                     return phone.expose().to_owned();
                 }
+                // Only our own chat gets here; ours has no name until our
+                // profile is fetched.
+                if peer == self.me {
+                    return "Note to self".to_owned();
+                }
                 short_id(peer, 8)
             }
             ConversationId::Group(group) => self

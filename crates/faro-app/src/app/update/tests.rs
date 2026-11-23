@@ -393,6 +393,15 @@ fn new_contacts_and_groups_update_titles() {
 }
 
 #[test]
+fn our_own_chat_without_a_name_is_note_to_self() {
+    let state = loaded_state();
+    assert_eq!(
+        state.conversation_title(ConversationId::Direct(state.me)),
+        "Note to self"
+    );
+}
+
+#[test]
 fn new_contacts_and_groups_are_listed_at_once() {
     let mut state = loaded_state();
     let dave = ServiceId::Aci(uuid::Uuid::from_u128(99));
